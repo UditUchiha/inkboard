@@ -1,0 +1,10 @@
+{
+  "name": "Inkboard",
+  "short_name": "Inkboard",
+  "description": "A hand-drawn whiteboard that syncs as you sketch.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f6f4",
+  "theme_color": "#16213a",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

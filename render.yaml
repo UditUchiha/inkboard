@@ -1,0 +1,23 @@
+# Render Blueprint: deploys Inkboard as one web service. The Node server
+# serves the API, the real-time socket and the built React client.
+services:
+  - type: web
+    name: inkboard
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      # The local development database isn't used in production; skip its download.
+      - key: MONGOMS_DISABLE_POSTINSTALL
+        value: "1"
+      - key: JWT_SECRET
+        generateValue: true
+      # Your MongoDB Atlas connection string. Render asks for it on first deploy.
+      - key: MONGODB_URI
+        sync: false

@@ -1,0 +1,24 @@
+{
+  "name": "inkboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A real-time collaborative whiteboard with hand-drawn shapes, live cursors and sharing.",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail -n db,api,web -c yellow,blue,magenta \"npm:dev:db\" \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:db": "npm run db -w server",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w client",
+    "start": "npm start -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}

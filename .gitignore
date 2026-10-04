@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+
+# Environment files (keep the .env.example templates)
+.env
+.env.*
+!.env.example
+
+# Local development database
+server/.data/
+
+# Logs and OS files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editor and tool folders
+.vscode/
+.idea/
+.vercel/
+.playwright-mcp/
+.remember/

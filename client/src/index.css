@@ -1,0 +1,172 @@
+@import "tailwindcss";
+@import "@fontsource-variable/archivo/wdth.css";
+@import "@fontsource-variable/caveat/wght.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Palette: an engineering notebook. Graph paper ground, ink-navy type and
+ * actions, and a highlighter yellow reserved for "this is active / this is you".
+ * Dark mode turns the paper into a blueprint.
+ */
+:root {
+  --paper: #f3f6f4;
+  --grid: #e1e8e5;
+  --grid-major: #d2dcd8;
+  --surface: #ffffff;
+  --surface-2: #f6f8f7;
+  --ink: #16213a;
+  --ink-soft: #2a3756;
+  --graphite: #5e6676;
+  --rule: #d9e0e2;
+  --marker: #ffd84d;
+  --signal: #2d5bff;
+  --danger: #c93a32;
+  --on-ink: #f6f8fb;
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --paper: #121b2e;
+  --grid: #18233a;
+  --grid-major: #1f2c47;
+  --surface: #18233a;
+  --surface-2: #1f2c47;
+  --ink: #e8edf5;
+  --ink-soft: #cfd8e6;
+  --graphite: #9aa4b6;
+  --rule: #2a3854;
+  --marker: #ffd84d;
+  --signal: #8aa6ff;
+  --danger: #ff7a70;
+  --on-ink: #121b2e;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-hand: "Caveat Variable", cursive;
+  --font-code: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --color-paper: var(--paper);
+  --color-grid: var(--grid);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-graphite: var(--graphite);
+  --color-rule: var(--rule);
+  --color-marker: var(--marker);
+  --color-signal: var(--signal);
+  --color-danger: var(--danger);
+  --color-on-ink: var(--on-ink);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--marker) 70%, transparent);
+    color: #16213a;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer components {
+  /* Graph paper: minor lines every 24px, a heavier line every fifth cell. */
+  .graph-paper {
+    --cell: 24px;
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--grid-major) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size:
+      calc(var(--cell) * 5) calc(var(--cell) * 5),
+      calc(var(--cell) * 5) calc(var(--cell) * 5),
+      var(--cell) var(--cell),
+      var(--cell) var(--cell);
+  }
+
+  /*
+   * Drawings are stored in their light-mode colors. In dark mode the canvas is
+   * inverted and hue-rotated, so ink becomes chalk while hues stay recognisable.
+   */
+  [data-theme="dark"] .canvas-ink {
+    filter: invert(93%) hue-rotate(180deg);
+  }
+
+  .floating-panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, var(--ink) 4%, transparent),
+      0 8px 24px -12px color-mix(in oklab, var(--ink) 28%, transparent);
+  }
+
+  [data-theme="dark"] .floating-panel {
+    box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.6);
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+dialog[open] {
+  animation: dialog-in 160ms ease-out;
+}
+
+dialog[open]::backdrop {
+  background: color-mix(in oklab, #0b1222 45%, transparent);
+  animation: fade-in 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  dialog[open],
+  dialog[open]::backdrop {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
