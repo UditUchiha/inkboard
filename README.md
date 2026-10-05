@@ -2,6 +2,8 @@
 
 A real-time collaborative whiteboard. Sketch with hand-drawn shapes, invite people by email, and watch everyone's cursors and strokes appear live.
 
+**Live demo: [inkboard-b9k8.onrender.com](https://inkboard-b9k8.onrender.com)**
+
 ![Inkboard board with a collaborator's cursor](docs/screenshots/board.png)
 
 ## Features
@@ -85,6 +87,12 @@ The repository includes a [Render](https://render.com) Blueprint (`render.yaml`)
 3. In Render, choose **New → Blueprint** and select the repository.
 4. Paste the Atlas connection string when asked for `MONGODB_URI`. `JWT_SECRET` is generated for you.
 
+### Health check and keep-alive
+
+`GET /health` returns the server and database status, with HTTP 503 if the database is unreachable. Render uses it as the service's health check.
+
+Render's free plan puts a service to sleep after 15 minutes without traffic. The [Keep alive](.github/workflows/keep-alive.yml) GitHub Actions workflow pings `/health` every 10 minutes to prevent that. For a different deployment, set a repository variable named `HEALTH_URL`.
+
 ## Project structure
 
 ```
@@ -98,4 +106,5 @@ server/                 Express + Socket.IO API
   src/realtime/         Socket events, live board sessions, operations
   src/models/           Mongoose schemas
 render.yaml             One-click deploy configuration
+.github/workflows/      Keep-alive cron for the free hosting plan
 ```

@@ -4,12 +4,26 @@ import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
+import mongoose from "mongoose";
 import { env } from "./config/env.js";
 import { errorHandler, notFound } from "./middleware/error-handler.js";
 import authRoutes from "./routes/auth.routes.js";
 import boardRoutes from "./routes/board.routes.js";
 
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
+
+function health(req, res) {
+  const database = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
+  res
+    .status(database === "connected" ? 200 : 503)
+    .set("Cache-Control", "no-store")
+    .json({
+      status: database === "connected" ? "ok" : "degraded",
+      database,
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+}
 
 export function createApp() {
   const app = express();
@@ -25,7 +39,9 @@ export function createApp() {
   app.use(cors({ origin: env.clientOrigins }));
   app.use(express.json({ limit: "2mb" }));
 
-  app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+  // Used by Render's health check and the keep-alive cron. Registered before
+  // the client fallback so /health returns JSON instead of the app's HTML.
+  app.get(["/health", "/api/health"], health);
   app.use("/api/auth", authRoutes);
   app.use("/api/boards", boardRoutes);
   app.use("/api", notFound);
