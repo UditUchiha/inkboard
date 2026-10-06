@@ -48,6 +48,11 @@ A living document. It records what we learned about the whiteboard market, what 
 | 2026-10-06 | Cap one element at 500 KB and a board at 12 MB (BSON); refuse the change with a `tooLarge` reply and put the sender's screen back to the saved board | An anonymous guest on an editable link could push a board past MongoDB's 16 MB document limit, after which saving failed for everyone until a restart. Reproduced before fixing |
 | 2026-10-06 | The save delay grows with board size (250 ms for small boards, up to 5 s for huge ones), and boards are written through the plain driver instead of Mongoose | Measured: saving costs about 0.2 ms per KB through Mongoose, and the plain driver is two to three times faster. A fixed short delay would let a heavy board spend all its time saving |
 | 2026-10-06 | Do not build on tldraw | Its SDK now needs a paid commercial license for production use (per its license page, below) |
+| 2026-10-06 | Login is optional: guests draw on a scratch board at `/draw` that is kept only in the browser (`localStorage`) and is uploaded when they sign up. Guest boards are never written to the database | Most visitors will not create an account just to try the app, so a required login hides the product. Keeping guest boards out of MongoDB stops casual visitors and bots from filling the free 512 MB Atlas tier. The rule of thumb: guests draw, accounts keep and share |
+| 2026-10-06 | Google or GitHub sign-in never attaches itself to an existing password account. Someone whose email already has an account is asked to log in and connect the provider from Settings | Sign-up does not verify email addresses, so attaching by matching email would let whoever registered an address first be taken over by a later provider login (or the reverse). Provider emails are only accepted when the provider says they are verified |
+| 2026-10-06 | Comments are for signed-in people only; link visitors (including editors) cannot see or write them. Link editors also cannot clear a board or see version history or the member list | Comments and mentions need real identities to notify. Clearing a board is too destructive to give anonymous link holders when the same edit link is shared widely |
+| 2026-10-06 | Version history: a checkpoint is saved before the first change after 10 quiet minutes, the newest 50 automatic ones are kept per board, named versions are kept, and a restore saves the current board first so it can be undone | Gives a recovery point before each burst of work without a version per stroke. Pruning bounds the storage, except for named versions (see section 8) |
+| 2026-10-06 | Notifications (mentions, replies, invites) expire after 60 days; trash after 30 days; each person can keep 30 templates | Keeps the free database small without a cleanup job for notifications (a MongoDB TTL index handles it) |
 
 ---
 
@@ -236,6 +241,11 @@ For each idea, did we find a product that already does it?
 - [ ] **Free-tier hosting** sleeps after inactivity; the GitHub Actions keep-alive covers this only while the workflow runs.
 - [ ] **Owner trash hides a board for everyone.** Collaborators should be notified when it happens.
 - [ ] **Single instance:** sessions live in one process's memory, so running a second server instance would split boards. Fine for now; note it before scaling.
+- [ ] **Version history storage:** every version is a full copy of the board (up to the 12 MB board cap). The newest 50 automatic versions are kept per board, and named versions are never pruned. A few large, busy boards could use a large share of the free 512 MB Atlas tier. Options: store versions compressed, keep fewer automatic ones for big boards, cap named versions, or store deltas from the operation log if one is added.
+- [ ] **No email verification at sign-up.** Anyone can register any address, and invites match on email, so a person can register someone else's address and receive boards invited to it. Provider sign-in (Google, GitHub) only trusts emails the provider has verified. Add a verification email, or require it before accepting invites.
+- [ ] **Edit links can be abused.** "Anyone with the link can edit" includes anonymous guests, so a leaked link allows vandalism or spam. Today the recovery is version history and the owner switching the link back to restricted. Cheap hardening: a per-connection limit on change operations, a link password or expiry (see the backlog), and notifying the owner when many guests join.
+- [ ] **OAuth is verified only against dummy credentials.** The redirect, state check and refusal paths were tested; a real Google or GitHub login has not been run end to end because no keys were available. Do one real login for each provider after setting the keys.
+- [ ] **Comment threads and notifications are unbounded per board and per person.** Message length is capped (2,000 characters), but the number of threads and messages is not.
 
 ---
 
@@ -316,6 +326,9 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [ ] **Browser end-to-end tests** for the main flows: share a link, draw as a guest, dashboard actions (S-M, adds a Playwright dev dependency)
 - [ ] **Per-type element validation** on the server (S-M)
 - [ ] **Dashboard thumbnails:** stop sending full drawings in the board list (S-M)
+- [ ] **Run one real Google and one real GitHub sign-in** after the keys are set, and tick this off (S)
+- [ ] **Email verification** at sign-up (S-M, needs an email provider; see open decision 7)
+- [ ] **Bound version-history storage** (S-M; see section 8)
 
 ### P1: close table stakes and start the differentiator
 
@@ -359,6 +372,8 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 4. **Per-person versus owner trash:** keep "owner trash hides the board for everyone" (with notifications), or switch to Overleaf and Canva's per-person trash?
 5. **Browser end-to-end tests:** add Playwright as a dev dependency (it downloads a browser, about 150 MB, in CI too) so the dashboard and sharing flows are checked automatically? Suggested: yes, a handful of flows, once the next features settle the UI.
 6. **Free-tier promise:** commit to unlimited boards for free? Check hosting and storage costs first.
+7. **Email verification:** send a verification email at sign-up (needs an email provider and a sender domain), or accept the current risk while the app is small? It also decides whether invites can safely match on email. Suggested: add it before promoting the app publicly.
+8. **Version history limits:** how many versions per board, and should big boards keep fewer? Depends on how much of the free database it is acceptable to spend (see section 8).
 
 ---
 
