@@ -23,6 +23,30 @@ const FEATURES = [
     title: "Pens, fingers, trackpads",
     body: "Pressure-sensitive strokes with a stylus, pinch to zoom on touch screens, and keyboard shortcuts for every tool.",
   },
+  {
+    title: "Draw first, sign up later",
+    body: "Start a board with no account. It's kept in your browser until you decide to save it to your own boards.",
+  },
+  {
+    title: "Share by link or by email",
+    body: "Let anyone with the link view or edit, or invite specific people. Guests can join in without signing up.",
+  },
+  {
+    title: "Comments and mentions",
+    body: "Pin a comment to any spot on the board, @mention a teammate and resolve threads when they're done.",
+  },
+  {
+    title: "Version history",
+    body: "Boards are checkpointed as you work. Name a version, preview an old one and restore it for everyone.",
+  },
+  {
+    title: "Follow along",
+    body: "Click someone's avatar and your view follows theirs, so a walkthrough lands where you point.",
+  },
+  {
+    title: "Templates",
+    body: "Start from a kanban, flowchart or retro board, or save any of your boards as a template to reuse.",
+  },
 ];
 
 export default function LandingPage() {
@@ -60,8 +84,9 @@ export default function LandingPage() {
               Draw it out, together.
             </h1>
             <p className="mt-6 max-w-[34rem] text-lg leading-relaxed text-graphite">
-              {APP_NAME} is a hand-drawn whiteboard that syncs as you sketch. Invite people by email, watch their
-              cursors move, and come back to every board exactly as you left it.
+              {APP_NAME} is a hand-drawn whiteboard that syncs as you sketch. Start drawing right now, no account
+              needed. Sign up when you want to keep boards, invite people and come back to them exactly as you left
+              them.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               {signedIn ? (
@@ -70,11 +95,11 @@ export default function LandingPage() {
                 </ButtonLink>
               ) : (
                 <>
-                  <ButtonLink to="/register" size="lg">
-                    Create a free board
+                  <ButtonLink to="/draw" size="lg">
+                    Start drawing
                   </ButtonLink>
-                  <ButtonLink to="/login" size="lg" variant="secondary">
-                    Log in
+                  <ButtonLink to="/register" size="lg" variant="secondary">
+                    Create an account
                   </ButtonLink>
                 </>
               )}
@@ -88,7 +113,7 @@ export default function LandingPage() {
             <h2 id="features-heading" className="sr-only">
               What you get
             </h2>
-            <div className="grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
               {FEATURES.map((feature) => (
                 <div key={feature.title}>
                   <h3 className="text-lg font-bold">{feature.title}</h3>

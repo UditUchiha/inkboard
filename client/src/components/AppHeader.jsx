@@ -1,10 +1,11 @@
-import { Check, LogOut, Monitor, Moon, Sun } from "lucide-react";
+import { Check, LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import { useAuth } from "../providers/AuthProvider";
 import { useTheme } from "../providers/ThemeProvider";
 import { Avatar } from "./Avatar";
 import { Logo } from "./Logo";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "./Menu";
+import { NotificationsMenu } from "./NotificationsMenu";
 
 const THEMES = [
   ["light", "Light", Sun],
@@ -21,7 +22,7 @@ export function UserMenu() {
     <Menu
       trigger={(props) => (
         <button type="button" aria-label="Account menu" className="rounded-full" {...props}>
-          <Avatar id={user.id} name={user.name} size="md" />
+          <Avatar id={user.id} name={user.name} color={user.color} src={user.avatarUrl} size="md" />
         </button>
       )}
     >
@@ -29,6 +30,10 @@ export function UserMenu() {
         <p className="truncate text-sm font-semibold">{user.name}</p>
         <p className="truncate text-sm text-graphite">{user.email}</p>
       </div>
+      <MenuSeparator />
+      <MenuItem icon={Settings} onSelect={() => navigate("/settings")}>
+        Settings
+      </MenuItem>
       <MenuSeparator />
       <MenuLabel>Theme</MenuLabel>
       {THEMES.map(([value, label, Icon]) => (
@@ -62,7 +67,10 @@ export function AppHeader() {
         <Link to="/boards" className="rounded-lg" aria-label="Your boards">
           <Logo />
         </Link>
-        <UserMenu />
+        <div className="flex items-center gap-2">
+          <NotificationsMenu />
+          <UserMenu />
+        </div>
       </div>
     </header>
   );

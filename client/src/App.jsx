@@ -6,8 +6,12 @@ import { FullPageMessage, GuestOnly, RequireAuth } from "./components/RouteGuard
 import { LoginPage, RegisterPage } from "./pages/AuthPages";
 import BoardPage from "./pages/BoardPage";
 import DashboardPage from "./pages/DashboardPage";
+import DrawPage from "./pages/DrawPage";
 import LandingPage from "./pages/LandingPage";
+import OAuthCallbackPage from "./pages/OAuthCallbackPage";
+import SettingsPage from "./pages/SettingsPage";
 import { AuthProvider } from "./providers/AuthProvider";
+import { NotificationsProvider } from "./providers/NotificationsProvider";
 import { SocketProvider } from "./providers/SocketProvider";
 import { ThemeProvider, useTheme } from "./providers/ThemeProvider";
 
@@ -28,47 +32,59 @@ export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <SocketProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route
-                path="/login"
-                element={
-                  <GuestOnly>
-                    <LoginPage />
-                  </GuestOnly>
-                }
-              />
-              <Route
-                path="/register"
-                element={
-                  <GuestOnly>
-                    <RegisterPage />
-                  </GuestOnly>
-                }
-              />
-              <Route
-                path="/boards"
-                element={
-                  <RequireAuth>
-                    <DashboardPage />
-                  </RequireAuth>
-                }
-              />
-              <Route
-                path="/board/:boardId"
-                element={
-                  <RequireAuth>
-                    <BoardPage />
-                  </RequireAuth>
-                }
-              />
-              <Route path="*" element={<NotFoundPage />} />
-            </Routes>
-          </BrowserRouter>
+        <BrowserRouter>
+          <SocketProvider>
+            <NotificationsProvider>
+              <Routes>
+                <Route path="/" element={<LandingPage />} />
+                <Route path="/draw" element={<DrawPage />} />
+                <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+                <Route
+                  path="/settings"
+                  element={
+                    <RequireAuth>
+                      <SettingsPage />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/login"
+                  element={
+                    <GuestOnly>
+                      <LoginPage />
+                    </GuestOnly>
+                  }
+                />
+                <Route
+                  path="/register"
+                  element={
+                    <GuestOnly>
+                      <RegisterPage />
+                    </GuestOnly>
+                  }
+                />
+                <Route
+                  path="/boards"
+                  element={
+                    <RequireAuth>
+                      <DashboardPage />
+                    </RequireAuth>
+                  }
+                />
+                <Route
+                  path="/board/:boardId"
+                  element={
+                    <RequireAuth optional>
+                      <BoardPage />
+                    </RequireAuth>
+                  }
+                />
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </NotificationsProvider>
+          </SocketProvider>
           <ThemedToaster />
-        </SocketProvider>
+        </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>
   );

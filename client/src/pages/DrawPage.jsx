@@ -1,0 +1,118 @@
+import { useEffect, useRef, useState } from "react";
+import { Navigate, useNavigate } from "react-router";
+import { toast } from "sonner";
+import { Button, ButtonLink } from "../components/Button";
+import { FullPageLoader, FullPageMessage, RequireAuth } from "../components/RouteGuards";
+import { APP_NAME } from "../config";
+import { BoardEditor } from "../features/board/BoardEditor";
+import { clearScratch, readScratch, useScratchBoard } from "../features/board/scratch";
+import { useBoardSnapshot } from "../features/board/store";
+import { api } from "../lib/api";
+import { useAuth } from "../providers/AuthProvider";
+
+// /draw is the no-account whiteboard. The board is kept in this browser. Once
+// someone signs up or logs in (the "Save board" button sends them to /register?next=/draw),
+// they land back here and the drawing becomes their first board.
+
+function ScratchEditor() {
+  const navigate = useNavigate();
+  const { store, sync } = useScratchBoard();
+  const { elements } = useBoardSnapshot(store);
+  const hadDrawing = useRef(false);
+
+  useEffect(() => {
+    document.title = `Draw · ${APP_NAME}`;
+    return () => {
+      document.title = APP_NAME;
+    };
+  }, []);
+
+  const save = () => {
+    if (store.getElements().length === 0) {
+      toast("Draw something first, then save it.");
+      return;
+    }
+    navigate("/register?next=/draw");
+  };
+
+  // Once, after the first mark: say where the drawing is and how to keep it.
+  useEffect(() => {
+    if (elements.length === 0 || hadDrawing.current) return;
+    hadDrawing.current = true;
+    if (readScratch().elements.length > 0) return; // restored from an earlier visit, not new work
+    toast("Your board is saved in this browser.", {
+      description: "Create a free account to keep it safe and share it.",
+      action: { label: "Save board", onClick: save },
+      duration: 8000,
+    });
+  });
+
+  return <BoardEditor store={store} sync={sync} user={null} local={{ onSave: save }} />;
+}
+
+// Signed in: turn the guest's drawing into a real board, then open it.
+function ImportScratch() {
+  const navigate = useNavigate();
+  const started = useRef(false);
+  const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    const scratch = readScratch();
+    if (scratch.elements.length === 0) {
+      navigate("/boards", { replace: true });
+      return;
+    }
+    if (started.current && attempt === 0) return;
+    started.current = true;
+    api
+      .createBoard({ title: scratch.title, elements: scratch.elements })
+      .then(({ board }) => {
+        clearScratch();
+        toast.success("Your drawing is saved to your boards.");
+        navigate(`/board/${board.id}`, { replace: true });
+      })
+      .catch((createError) => setError(createError.message));
+  }, [navigate, attempt]);
+
+  if (error) {
+    return (
+      <FullPageMessage
+        title="Your drawing couldn't be saved"
+        action={
+          <>
+            <Button
+              onClick={() => {
+                setError("");
+                setAttempt((count) => count + 1);
+              }}
+            >
+              Try again
+            </Button>
+            <ButtonLink to="/boards" variant="secondary">
+              Go to your boards
+            </ButtonLink>
+          </>
+        }
+      >
+        {error} Your drawing is still on this device.
+      </FullPageMessage>
+    );
+  }
+  return <FullPageLoader label="Saving your drawing" />;
+}
+
+function DrawRoute() {
+  const { status } = useAuth();
+  if (status === "authenticated") return <ImportScratch />;
+  if (status === "anonymous") return <ScratchEditor />;
+  return <Navigate to="/" replace />;
+}
+
+export default function DrawPage() {
+  return (
+    <RequireAuth optional>
+      <DrawRoute />
+    </RequireAuth>
+  );
+}
