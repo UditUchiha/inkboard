@@ -18,6 +18,7 @@ import {
   discardSession,
   flushAllSessions,
   getSession,
+  admit,
   openSession,
   resetSession,
   updateSession,
@@ -116,6 +117,7 @@ function handleConnection(socket) {
     if (session && !canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
     const op = sanitizeOperation(payload?.op);
     if (!session || !op) return reply({ ok: false });
+    if (admit(session, op)) return reply({ ok: false, tooLarge: true });
 
     updateSession(session, op);
     socket.to(boardId).emit("board:op", { op });

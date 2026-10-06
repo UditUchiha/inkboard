@@ -85,8 +85,19 @@ To use your own database instead, such as a free MongoDB Atlas cluster, copy `se
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Runs the local database, API and client with live reload |
+| `npm test` | Runs the client and server tests (see below) |
 | `npm run build` | Builds the client into `client/dist` |
 | `npm start` | Runs the production server, which also serves the built client |
+
+### Tests
+
+`npm test` runs both packages' tests with Node's built-in test runner, so there is nothing extra to install.
+
+- **Server (`server/tests`)** starts the real app on a free port against a throwaway in-memory MongoDB, then drives it over REST and Socket.IO. It covers sign-up and login, who can open and edit a board (owner, invited editor, link viewer, link contributor, guest) including changes that apply live to people already on the board, the dashboard (link-opened boards, archive, stars, trash and its 30-day sweep), live sync and saving, size limits, version history, comments, notifications and templates. The first run downloads a MongoDB binary, which can take a minute.
+- **Client (`client/tests`)** covers the undo and redo store and the dashboard's section and sort rules.
+- A server test also checks that the browser and the server apply drawing operations identically, since a disagreement would make screens drift from what gets saved.
+
+GitHub Actions runs the tests and the build on every push and pull request (`.github/workflows/ci.yml`).
 
 ## Environment variables
 

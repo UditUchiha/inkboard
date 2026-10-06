@@ -1,9 +1,22 @@
+import mongoose from "mongoose";
+
 // Boards change through operations: { upsert: Element[], remove: string[] }.
 // Upserted elements replace the element with the same id in place, or are
 // appended when new. The client applies the exact same rules.
 
 const ELEMENT_TYPES = new Set(["pen", "line", "rectangle", "ellipse", "arrow", "text"]);
 export const MAX_ELEMENTS_PER_BOARD = 5000;
+
+// MongoDB refuses documents over 16 MB, and a board is one document. Without
+// limits, one huge element (or enough of them) makes every later save fail and
+// loses everyone's work until the server restarts. Sizes are measured as MongoDB
+// stores them (BSON), which is two to three times bigger than the JSON for a
+// freehand stroke, because every number takes eight bytes plus its position.
+// A long stroke is tens of kilobytes, so these leave plenty of room.
+export const MAX_ELEMENT_BYTES = 500_000;
+export const MAX_BOARD_BYTES = 12_000_000;
+
+export const elementBytes = (element) => mongoose.mongo.BSON.calculateObjectSize({ element });
 
 const isValidId = (id) => typeof id === "string" && id.length > 0 && id.length <= 64;
 

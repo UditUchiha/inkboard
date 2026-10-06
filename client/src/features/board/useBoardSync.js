@@ -44,6 +44,7 @@ export function useBoardSync(boardId, store) {
   const latestViewport = useRef(null);
   const viewportTimer = useRef(null);
   const viewportListeners = useRef(new Set());
+  const resync = useRef(() => {}); // shows the board as the server has it, dropping unsent changes
 
   const flush = useCallback(() => {
     clearTimeout(flushTimer.current);
@@ -61,6 +62,13 @@ export function useBoardSync(boardId, store) {
       setInflight((count) => count - 1);
       if (!error && response?.ok) return;
       if (response?.readOnly) return; // Access was lowered; retrying would never succeed.
+      if (response?.tooLarge) {
+        // Retrying can't help. Put this screen back to what everyone else has, so it
+        // doesn't keep a drawing that was never saved.
+        toast.error("That change was too big to save, so it was undone. The board may be full: delete something or start a new board.");
+        resync.current();
+        return;
+      }
       // Not confirmed: queue it again unless a newer change already superseded it.
       for (const element of op.upsert) {
         if (lastSent.current.get(element.id) === seq && !pending.current.has(element.id)) {
@@ -109,6 +117,12 @@ export function useBoardSync(boardId, store) {
         setPhase({ name: "ready" });
         flush();
       });
+    };
+
+    resync.current = () => {
+      pending.current.clear();
+      loaded.current = false;
+      join();
     };
 
     const onConnect = () => {
@@ -160,12 +174,7 @@ export function useBoardSync(boardId, store) {
       const lostEditing = roleRef.current !== "viewer" && nextRole === "viewer";
       roleRef.current = nextRole;
       setRole(nextRole);
-      if (lostEditing) {
-        // Drop unsent edits and history, and show the board as the server has it.
-        pending.current.clear();
-        loaded.current = false;
-        join();
-      }
+      if (lostEditing) resync.current(); // drop unsent edits and history
     };
 
     socket.on("connect", onConnect);
@@ -184,6 +193,7 @@ export function useBoardSync(boardId, store) {
 
     return () => {
       active = false;
+      resync.current = () => {}; // a late reply must not re-join a board we've left
       flush();
       joined.current = false;
       socket.emit("board:leave");
