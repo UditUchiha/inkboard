@@ -1,18 +1,23 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { useMatch } from "react-router";
 import { io } from "socket.io-client";
 import { API_URL } from "../config";
+import { getGuest } from "../lib/guest";
 import { useAuth } from "./AuthProvider";
 
 const SocketContext = createContext(null);
 
-// One authenticated connection per login session, shared by every board.
+// One connection per login session, shared by every board. Signed-out visitors
+// only connect on a board page, where they can open boards shared by link under
+// a guest name. `auth` is a function so a reconnect sends their latest name.
 export function SocketProvider({ children }) {
   const { token, logout } = useAuth();
+  const onBoardPage = Boolean(useMatch("/board/:boardId"));
   const [socket, setSocket] = useState(null);
 
   useEffect(() => {
-    if (!token) return undefined;
-    const options = { auth: { token } };
+    if (!token && !onBoardPage) return undefined;
+    const options = token ? { auth: { token } } : { auth: (send) => send({ guest: getGuest() }) };
     const next = API_URL ? io(API_URL, options) : io(options);
 
     next.on("connect_error", (error) => {
@@ -24,7 +29,7 @@ export function SocketProvider({ children }) {
       next.disconnect();
       setSocket(null);
     };
-  }, [token, logout]);
+  }, [token, onBoardPage, logout]);
 
   return <SocketContext.Provider value={socket}>{children}</SocketContext.Provider>;
 }

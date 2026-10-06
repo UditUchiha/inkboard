@@ -74,6 +74,15 @@ export function AuthProvider({ children }) {
     setStatus("authenticated");
   }, []);
 
+  // Google and GitHub sign-in return only a token; the account is loaded by the effect above.
+  const adoptToken = useCallback((nextToken) => {
+    writeToken(nextToken);
+    setAuthToken(nextToken);
+    setToken(nextToken);
+    setUser(null);
+    setStatus("loading");
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -81,10 +90,12 @@ export function AuthProvider({ children }) {
       status,
       login: async (input) => startSession(await api.login(input)),
       register: async (input) => startSession(await api.register(input)),
+      adoptToken,
+      updateUser: setUser,
       logout,
       retry,
     }),
-    [user, token, status, startSession, logout, retry],
+    [user, token, status, startSession, adoptToken, logout, retry],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -3,12 +3,17 @@ import { Link, useSearchParams } from "react-router";
 import { Button } from "../components/Button";
 import { PasswordField, TextField } from "../components/Field";
 import { Logo } from "../components/Logo";
+import { OAuthButtons } from "../components/OAuthButtons";
 import { APP_NAME } from "../config";
 import { useAuth } from "../providers/AuthProvider";
 
 // After a successful login or sign-up, <GuestOnly> redirects to ?next=… or /boards.
+// Google and GitHub sign-in come back through /auth/callback instead.
 
 const nextQuery = (next) => (next ? `?next=${encodeURIComponent(next)}` : "");
+
+// Signing up from a guest board brings the drawing along (see DrawPage).
+const savingDrawing = (next) => next === "/draw";
 
 function AuthLayout({ title, subtitle, children, footer }) {
   useEffect(() => {
@@ -30,11 +35,21 @@ function AuthLayout({ title, subtitle, children, footer }) {
   );
 }
 
+function ErrorMessage({ children }) {
+  if (!children) return null;
+  return (
+    <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
+      {children}
+    </p>
+  );
+}
+
 export function LoginPage() {
   const { login } = useAuth();
   const [params] = useSearchParams();
   const [form, setForm] = useState({ email: "", password: "" });
-  const [error, setError] = useState("");
+  // Google or GitHub sign-in that failed comes back here with ?error=…
+  const [error, setError] = useState(params.get("error") ?? "");
   const [submitting, setSubmitting] = useState(false);
 
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -52,10 +67,14 @@ export function LoginPage() {
   }
 
   const next = params.get("next");
+  let subtitle = "Pick up where you left off.";
+  if (next?.startsWith("/board/")) subtitle = "Log in to open the board you were sent.";
+  if (savingDrawing(next)) subtitle = "Log in and your drawing is saved to your boards.";
+
   return (
     <AuthLayout
       title="Log in"
-      subtitle={next?.startsWith("/board/") ? "Log in to open the board you were sent." : "Pick up where you left off."}
+      subtitle={subtitle}
       footer={
         <>
           New to {APP_NAME}?{" "}
@@ -68,15 +87,12 @@ export function LoginPage() {
       <form onSubmit={submit} className="grid gap-4" noValidate>
         <TextField label="Email" type="email" autoComplete="email" value={form.email} onChange={update("email")} required autoFocus />
         <PasswordField label="Password" autoComplete="current-password" value={form.password} onChange={update("password")} required />
-        {error && (
-          <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        )}
+        <ErrorMessage>{error}</ErrorMessage>
         <Button type="submit" size="lg" loading={submitting} className="mt-2 w-full">
           Log in
         </Button>
       </form>
+      <OAuthButtons next={next} className="mt-6" />
     </AuthLayout>
   );
 }
@@ -111,8 +127,12 @@ export function RegisterPage() {
   const next = params.get("next");
   return (
     <AuthLayout
-      title="Create your account"
-      subtitle="Your name is shown to people on boards you share."
+      title={savingDrawing(next) ? "Save your board" : "Create your account"}
+      subtitle={
+        savingDrawing(next)
+          ? "Create a free account to keep your drawing, open it anywhere and share it."
+          : "Your name is shown to people on boards you share."
+      }
       footer={
         <>
           Already have an account?{" "}
@@ -134,15 +154,12 @@ export function RegisterPage() {
           onChange={update("password")}
           required
         />
-        {error && (
-          <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        )}
+        <ErrorMessage>{error}</ErrorMessage>
         <Button type="submit" size="lg" loading={submitting} className="mt-2 w-full">
           Create account
         </Button>
       </form>
+      <OAuthButtons next={next} className="mt-6" />
     </AuthLayout>
   );
 }

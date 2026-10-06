@@ -26,10 +26,13 @@ export function initials(name = "") {
 }
 
 // Collaborator colors: distinct, readable on paper and on the blueprint theme.
-const PEOPLE_COLORS = ["#e8590c", "#2f9e44", "#1971c2", "#9c36b5", "#c2255c", "#0c8599", "#f08c00", "#5f3dc4"];
+export const PEOPLE_COLORS = ["#e8590c", "#2f9e44", "#1971c2", "#9c36b5", "#c2255c", "#0c8599", "#f08c00", "#5f3dc4"];
 
 export function colorFor(id = "") {
   let hash = 0;
   for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) | 0;
   return PEOPLE_COLORS[Math.abs(hash) % PEOPLE_COLORS.length];
 }
+
+/** The color someone chose in their settings, or one picked from their id. */
+export const personColor = (person) => person?.color || colorFor(person?.id ?? person?.userId ?? "");

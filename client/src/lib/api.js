@@ -47,13 +47,53 @@ export const api = {
   register: (input) => request("/auth/register", { method: "POST", body: input }),
   login: (input) => request("/auth/login", { method: "POST", body: input }),
   me: () => request("/auth/me"),
+  updateProfile: (input) => request("/auth/me", { method: "PATCH", body: input }),
+  changePassword: (input) => request("/auth/password", { method: "POST", body: input }),
+  listProviders: () => request("/auth/providers"),
+  // Returns a URL that starts connecting the provider to the signed-in account.
+  linkProvider: (provider) => request(`/auth/oauth/${provider}/link`, { method: "POST" }),
+  disconnectProvider: (provider) => request(`/auth/oauth/${provider}`, { method: "DELETE" }),
 
   listBoards: () => request("/boards"),
-  createBoard: (title) => request("/boards", { method: "POST", body: { title } }),
+  // `input` is a title, or { title, elements } / { title, templateId }.
+  createBoard: (input = {}) =>
+    request("/boards", { method: "POST", body: typeof input === "string" ? { title: input } : input }),
   renameBoard: (id, title) => request(`/boards/${id}`, { method: "PATCH", body: { title } }),
+  // Moves the board to the owner's trash (everyone loses access until it's restored).
   deleteBoard: (id) => request(`/boards/${id}`, { method: "DELETE" }),
+  starBoard: (id, starred) => request(`/boards/${id}/star`, { method: "PUT", body: { starred } }),
+  listTrash: () => request("/boards/trash"),
+  restoreBoard: (id) => request(`/boards/${id}/restore`, { method: "POST" }),
+  purgeBoard: (id) => request(`/boards/${id}/permanent`, { method: "DELETE" }),
+  emptyTrash: () => request("/boards/trash", { method: "DELETE" }),
+  // Archive or unarchive boards for this person only.
+  archiveBoards: (ids, archived) => request("/boards/archive", { method: "PATCH", body: { ids, archived } }),
+  // Drop a board from this person's dashboard (used for boards they only opened from a link).
+  forgetBoard: (id) => request(`/boards/${id}/state`, { method: "DELETE" }),
+  setLinkAccess: (id, linkAccess) =>
+    request(`/boards/${id}/link-access`, { method: "PATCH", body: { linkAccess } }),
   inviteCollaborator: (id, email) =>
     request(`/boards/${id}/collaborators`, { method: "POST", body: { email } }),
   removeCollaborator: (id, userId) =>
     request(`/boards/${id}/collaborators/${userId}`, { method: "DELETE" }),
+
+  listVersions: (id) => request(`/boards/${id}/versions`),
+  getVersion: (id, versionId) => request(`/boards/${id}/versions/${versionId}`),
+  saveVersion: (id, label) => request(`/boards/${id}/versions`, { method: "POST", body: { label } }),
+  restoreVersion: (id, versionId) => request(`/boards/${id}/versions/${versionId}/restore`, { method: "POST" }),
+
+  listTemplates: () => request("/templates"),
+  saveTemplate: (boardId, title) => request("/templates", { method: "POST", body: { boardId, title } }),
+  deleteTemplate: (id) => request(`/templates/${id}`, { method: "DELETE" }),
+
+  listThreads: (id) => request(`/boards/${id}/threads`),
+  createThread: (id, input) => request(`/boards/${id}/threads`, { method: "POST", body: input }),
+  replyToThread: (id, threadId, input) =>
+    request(`/boards/${id}/threads/${threadId}/messages`, { method: "POST", body: input }),
+  updateThread: (id, threadId, changes) =>
+    request(`/boards/${id}/threads/${threadId}`, { method: "PATCH", body: changes }),
+  deleteThread: (id, threadId) => request(`/boards/${id}/threads/${threadId}`, { method: "DELETE" }),
+
+  listNotifications: () => request("/notifications"),
+  markNotificationsRead: (ids) => request("/notifications/read", { method: "POST", body: ids ? { ids } : {} }),
 };

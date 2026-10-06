@@ -1,0 +1,77 @@
+import { useEffect, useState } from "react";
+import { API_URL } from "../config";
+import { api } from "../lib/api";
+import { buttonClass } from "./Button";
+
+export function GoogleIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.5 5.5 0 0 1-2.4 3.6v3h3.9c2.2-2.1 3.5-5.1 3.5-8.7Z" />
+      <path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.4 1.1-4 1.1-3.1 0-5.7-2.1-6.6-4.9H1.4v3.1A12 12 0 0 0 12 24Z" />
+      <path fill="#FBBC05" d="M5.4 14.3a7.2 7.2 0 0 1 0-4.6V6.6h-4a12 12 0 0 0 0 10.8l4-3.1Z" />
+      <path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.6l4 3.1C6.3 6.9 8.9 4.8 12 4.8Z" />
+    </svg>
+  );
+}
+
+export function GitHubIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
+      <path d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2.2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5Z" />
+    </svg>
+  );
+}
+
+export const PROVIDER_ICONS = { google: GoogleIcon, github: GitHubIcon };
+
+// The list rarely changes, so it's fetched once per page load.
+let providersRequest = null;
+
+export function useOAuthProviders() {
+  const [providers, setProviders] = useState([]);
+  useEffect(() => {
+    let active = true;
+    providersRequest ??= api.listProviders().then(
+      (data) => data.providers,
+      () => {
+        providersRequest = null;
+        return [];
+      },
+    );
+    providersRequest.then((list) => active && setProviders(list));
+    return () => {
+      active = false;
+    };
+  }, []);
+  return providers;
+}
+
+export const oauthStartUrl = (provider, next) =>
+  `${API_URL}/api/auth/oauth/${provider}${next ? `?next=${encodeURIComponent(next)}` : ""}`;
+
+/** "Continue with Google / GitHub", for whichever providers the server has set up. */
+export function OAuthButtons({ next, className }) {
+  const providers = useOAuthProviders();
+  if (providers.length === 0) return null;
+
+  return (
+    <div className={className}>
+      <div className="flex items-center gap-3 text-sm text-graphite" aria-hidden>
+        <span className="h-px flex-1 bg-rule" />
+        or
+        <span className="h-px flex-1 bg-rule" />
+      </div>
+      <div className="mt-4 grid gap-2">
+        {providers.map(({ id, label }) => {
+          const Icon = PROVIDER_ICONS[id];
+          return (
+            <a key={id} href={oauthStartUrl(id, next)} className={buttonClass({ variant: "secondary", size: "lg", className: "w-full" })}>
+              {Icon && <Icon className="size-[18px]" />}
+              Continue with {label}
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

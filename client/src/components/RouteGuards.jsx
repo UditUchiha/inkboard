@@ -27,7 +27,8 @@ export function FullPageLoader({ label = "Loading" }) {
   );
 }
 
-export function RequireAuth({ children }) {
+/** Sends signed-out visitors to the login page, unless `optional` lets them through as guests. */
+export function RequireAuth({ children, optional = false }) {
   const { status, retry } = useAuth();
   const location = useLocation();
 
@@ -43,7 +44,7 @@ export function RequireAuth({ children }) {
       </FullPageMessage>
     );
   }
-  if (status === "anonymous") {
+  if (status === "anonymous" && !optional) {
     const next = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?next=${next}`} replace />;
   }
