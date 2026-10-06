@@ -48,6 +48,7 @@ export function BoardCanvas({
   spacePressed,
   onCursorMove,
   onSizeChange,
+  onPlaceComment,
 }) {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
@@ -212,6 +213,9 @@ export function BoardCanvas({
         gesture.current = { kind: "erase", erased: new Map(), last: world };
         eraseAlong(world, world);
         return;
+      case "comment":
+        onPlaceComment?.(world);
+        return;
       case "text": {
         const hit = elementAt(store.getElements(), world.x, world.y, tolerance);
         if (hit?.type === "text") onEditText({ element: hit, isNew: false });
@@ -307,6 +311,7 @@ export function BoardCanvas({
   else if (spacePressed || tool === "hand") cursor = "grab";
   else if (tool === "select") cursor = hovering ? "move" : "default";
   else if (tool === "text") cursor = "text";
+  else if (tool === "comment") cursor = "copy";
   else if (tool === "eraser") cursor = ERASER_CURSOR;
 
   return (

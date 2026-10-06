@@ -1,6 +1,6 @@
 import { FileQuestion, Lock, Trash2, UserX } from "lucide-react";
 import { useEffect, useMemo } from "react";
-import { useParams } from "react-router";
+import { useLocation, useParams } from "react-router";
 import { ButtonLink } from "../components/Button";
 import { FullPageLoader, FullPageMessage } from "../components/RouteGuards";
 import { APP_NAME } from "../config";
@@ -10,10 +10,13 @@ import { useBoardSync } from "../features/board/useBoardSync";
 import { useAuth } from "../providers/AuthProvider";
 
 const backToBoards = <ButtonLink to="/boards">Go to your boards</ButtonLink>;
+const goHome = <ButtonLink to="/">Go home</ButtonLink>;
 
 export default function BoardPage() {
   const { boardId } = useParams();
-  const { user } = useAuth();
+  const location = useLocation();
+  const { user } = useAuth(); // null for guests viewing a shared link
+  const exit = user ? backToBoards : goHome;
   const store = useMemo(() => createBoardStore(), [boardId]);
   const sync = useBoardSync(boardId, store);
 
@@ -27,6 +30,18 @@ export default function BoardPage() {
   const { phase } = sync;
 
   if (phase.name === "error") {
+    if (phase.status === 401) {
+      const next = encodeURIComponent(location.pathname + location.search);
+      return (
+        <FullPageMessage
+          icon={Lock}
+          title="This board is private"
+          action={<ButtonLink to={`/login?next=${next}`}>Log in</ButtonLink>}
+        >
+          Log in to open it. You'll need to be invited by its owner.
+        </FullPageMessage>
+      );
+    }
     if (phase.status === 403) {
       return (
         <FullPageMessage icon={Lock} title="You don't have access to this board" action={backToBoards}>
@@ -36,7 +51,7 @@ export default function BoardPage() {
       );
     }
     return (
-      <FullPageMessage icon={FileQuestion} title="This board doesn't exist" action={backToBoards}>
+      <FullPageMessage icon={FileQuestion} title="This board doesn't exist" action={exit}>
         {phase.message ?? "It may have been deleted by its owner."}
       </FullPageMessage>
     );
@@ -44,7 +59,7 @@ export default function BoardPage() {
 
   if (phase.name === "deleted") {
     return (
-      <FullPageMessage icon={Trash2} title="This board was deleted" action={backToBoards}>
+      <FullPageMessage icon={Trash2} title="This board was deleted" action={exit}>
         Its owner deleted it while you had it open.
       </FullPageMessage>
     );
@@ -52,8 +67,8 @@ export default function BoardPage() {
 
   if (phase.name === "revoked") {
     return (
-      <FullPageMessage icon={UserX} title="You no longer have access" action={backToBoards}>
-        The owner removed you from this board.
+      <FullPageMessage icon={UserX} title="You no longer have access" action={exit}>
+        {phase.wasViewer ? "The owner stopped sharing this board." : "The owner removed you from this board."}
       </FullPageMessage>
     );
   }

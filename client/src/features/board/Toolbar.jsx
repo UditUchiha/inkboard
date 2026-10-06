@@ -1,9 +1,21 @@
 import clsx from "clsx";
-import { ArrowUpRight, Circle, Eraser, Hand, Minus, MousePointer2, Pencil, Square, Type } from "lucide-react";
+import {
+  ArrowUpRight,
+  Circle,
+  Eraser,
+  Hand,
+  Minus,
+  MousePointer2,
+  MessageSquarePlus,
+  Pencil,
+  Square,
+  Type,
+} from "lucide-react";
 import { Fragment } from "react";
-import { TOOLS } from "./constants";
+import { COMMENT_TOOL, TOOLS } from "./constants";
 
 const ICONS = {
+  comment: MessageSquarePlus,
   select: MousePointer2,
   hand: Hand,
   pen: Pencil,
@@ -16,20 +28,22 @@ const ICONS = {
 };
 
 // Dividers separate navigation, drawing, and erasing.
-const GROUP_STARTS = new Set(["pen", "eraser"]);
+const GROUP_STARTS = new Set(["pen", "eraser", "comment"]);
 
-export function Toolbar({ tool, onToolChange, className }) {
+export function Toolbar({ tool, onToolChange, withComments = false, className }) {
+  const tools = withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS;
   return (
     <div role="toolbar" aria-label="Tools" className={clsx("floating-panel flex items-center gap-0.5 rounded-xl p-1", className)}>
-      {TOOLS.map((item, index) => {
+      {tools.map((item, index) => {
         const Icon = ICONS[item.id];
         const active = tool === item.id;
+        const numbered = index < TOOLS.length;
         return (
           <Fragment key={item.id}>
             {GROUP_STARTS.has(item.id) && <span className="mx-1 h-6 w-px bg-rule" aria-hidden />}
             <button
               type="button"
-              aria-label={`${item.label} (${item.key.toUpperCase()} or ${index + 1})`}
+              aria-label={`${item.label} (${item.key.toUpperCase()}${numbered ? ` or ${index + 1}` : ""})`}
               aria-pressed={active}
               onClick={() => onToolChange(item.id)}
               className={clsx(
@@ -38,15 +52,17 @@ export function Toolbar({ tool, onToolChange, className }) {
               )}
             >
               <Icon className="size-[18px]" strokeWidth={1.75} aria-hidden />
-              <span
-                className={clsx(
-                  "absolute right-1 bottom-0.5 text-[9px] leading-none tabular-nums",
-                  active ? "text-[#16213a]/60" : "text-graphite/70",
-                )}
-                aria-hidden
-              >
-                {index + 1}
-              </span>
+              {numbered && (
+                <span
+                  className={clsx(
+                    "absolute right-1 bottom-0.5 text-[9px] leading-none tabular-nums",
+                    active ? "text-[#16213a]/60" : "text-graphite/70",
+                  )}
+                  aria-hidden
+                >
+                  {index + 1}
+                </span>
+              )}
               <span
                 className="pointer-events-none absolute top-full left-1/2 z-20 mt-2 -translate-x-1/2 rounded-md bg-ink px-2 py-1 text-xs whitespace-nowrap text-on-ink opacity-0 transition-opacity delay-300 group-hover:opacity-100 max-md:hidden"
                 aria-hidden

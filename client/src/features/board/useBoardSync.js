@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useSocket } from "../../providers/SocketProvider";
 import { applyOperation } from "./store";
 
 const FLUSH_INTERVAL_MS = 40;
 const CURSOR_INTERVAL_MS = 50;
+const VIEWPORT_INTERVAL_MS = 120;
 const ACK_TIMEOUT_MS = 10_000;
 
 function toOperation(pending) {
@@ -25,6 +27,7 @@ export function useBoardSync(boardId, store) {
   const socket = useSocket();
   const [phase, setPhase] = useState({ name: "connecting" });
   const [meta, setMeta] = useState(null);
+  const [role, setRole] = useState("viewer"); // "owner" | "editor" can draw; "viewer" can only look
   const [peers, setPeers] = useState([]);
   const [cursors, setCursors] = useState({});
   const [online, setOnline] = useState(false);
@@ -36,6 +39,11 @@ export function useBoardSync(boardId, store) {
   const flushTimer = useRef(null);
   const joined = useRef(false);
   const loaded = useRef(false);
+  const roleRef = useRef("viewer");
+  const peerCount = useRef(0);
+  const latestViewport = useRef(null);
+  const viewportTimer = useRef(null);
+  const viewportListeners = useRef(new Set());
 
   const flush = useCallback(() => {
     clearTimeout(flushTimer.current);
@@ -52,6 +60,7 @@ export function useBoardSync(boardId, store) {
     socket.timeout(ACK_TIMEOUT_MS).emit("board:op", { boardId, op }, (error, response) => {
       setInflight((count) => count - 1);
       if (!error && response?.ok) return;
+      if (response?.readOnly) return; // Access was lowered; retrying would never succeed.
       // Not confirmed: queue it again unless a newer change already superseded it.
       for (const element of op.upsert) {
         if (lastSent.current.get(element.id) === seq && !pending.current.has(element.id)) {
@@ -85,7 +94,9 @@ export function useBoardSync(boardId, store) {
           setPhase({ name: "error", status: response?.status ?? 500, message: response?.error });
           return;
         }
-        const { elements, ...boardMeta } = response.board;
+        const { elements, role: joinedRole, ...boardMeta } = response.board;
+        roleRef.current = joinedRole;
+        setRole(joinedRole);
         if (loaded.current) {
           // Reconnected: keep any edits made while offline on top of the server state.
           store.replace(applyOperation(elements, toOperation(pending.current)));
@@ -112,6 +123,7 @@ export function useBoardSync(boardId, store) {
     };
     const onOp = ({ op }) => store.applyRemote(op);
     const onPresence = (list) => {
+      peerCount.current = list.length;
       setPeers(list);
       const present = new Set(list.map((peer) => peer.socketId));
       setCursors((current) => Object.fromEntries(Object.entries(current).filter(([id]) => present.has(id))));
@@ -127,9 +139,33 @@ export function useBoardSync(boardId, store) {
     };
     const onMeta = (next) => setMeta((current) => ({ ...current, ...next }));
     const onDeleted = () => setPhase({ name: "deleted" });
+    // Someone restored an earlier version: everything on the board is replaced.
+    const onReset = ({ elements, by }) => {
+      pending.current.clear();
+      store.load(elements);
+      toast(by ? `${by} restored an earlier version of this board` : "An earlier version of this board was restored");
+    };
+    const onViewport = (view) => {
+      for (const listener of viewportListeners.current) listener(view);
+    };
+    // Someone started following us: send our view right away instead of waiting for a pan.
+    const onViewportRequest = () => {
+      if (latestViewport.current) socket.volatile.emit("viewport", latestViewport.current);
+    };
     const onRevoked = () => {
       joined.current = false;
-      setPhase({ name: "revoked" });
+      setPhase({ name: "revoked", wasViewer: roleRef.current === "viewer" });
+    };
+    const onRole = ({ role: nextRole }) => {
+      const lostEditing = roleRef.current !== "viewer" && nextRole === "viewer";
+      roleRef.current = nextRole;
+      setRole(nextRole);
+      if (lostEditing) {
+        // Drop unsent edits and history, and show the board as the server has it.
+        pending.current.clear();
+        loaded.current = false;
+        join();
+      }
     };
 
     socket.on("connect", onConnect);
@@ -140,6 +176,10 @@ export function useBoardSync(boardId, store) {
     socket.on("board:meta", onMeta);
     socket.on("board:deleted", onDeleted);
     socket.on("board:revoked", onRevoked);
+    socket.on("board:role", onRole);
+    socket.on("board:reset", onReset);
+    socket.on("viewport", onViewport);
+    socket.on("viewport:request", onViewportRequest);
     if (socket.connected) onConnect();
 
     return () => {
@@ -155,8 +195,35 @@ export function useBoardSync(boardId, store) {
       socket.off("board:meta", onMeta);
       socket.off("board:deleted", onDeleted);
       socket.off("board:revoked", onRevoked);
+      socket.off("board:role", onRole);
+      socket.off("board:reset", onReset);
+      socket.off("viewport", onViewport);
+      socket.off("viewport:request", onViewportRequest);
     };
   }, [socket, boardId, store, flush]);
+
+  // What part of the board we're looking at, shared (when anyone else is here) so
+  // others can follow along. Trailing-edge throttled so the final position is always sent.
+  const sendViewport = useCallback(
+    (view) => {
+      latestViewport.current = view;
+      if (viewportTimer.current) return;
+      viewportTimer.current = setTimeout(() => {
+        viewportTimer.current = null;
+        if (socket && joined.current && peerCount.current > 1 && latestViewport.current) {
+          socket.volatile.emit("viewport", latestViewport.current);
+        }
+      }, VIEWPORT_INTERVAL_MS);
+    },
+    [socket],
+  );
+
+  const subscribeViewport = useCallback((listener) => {
+    viewportListeners.current.add(listener);
+    return () => viewportListeners.current.delete(listener);
+  }, []);
+
+  const requestViewport = useCallback((socketId) => socket?.emit("viewport:request", { socketId }), [socket]);
 
   const lastCursorAt = useRef(0);
   const sendCursor = useCallback(
@@ -172,5 +239,20 @@ export function useBoardSync(boardId, store) {
 
   const saving = inflight > 0 || pending.current.size > 0;
 
-  return { phase, meta, setMeta, peers, cursors, online, saving, sendCursor, socketId: socket?.id };
+  return {
+    phase,
+    meta,
+    setMeta,
+    role,
+    peers,
+    cursors,
+    online,
+    saving,
+    sendCursor,
+    sendViewport,
+    subscribeViewport,
+    requestViewport,
+    socket,
+    socketId: socket?.id,
+  };
 }

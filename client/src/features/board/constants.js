@@ -11,7 +11,10 @@ export const TOOLS = [
   { id: "eraser", label: "Eraser", key: "e" },
 ];
 
-export const DRAWING_TOOLS = new Set(["pen", "rectangle", "ellipse", "arrow", "line", "text"]);
+// Only offered to signed-in people who can edit the board. It has no number key.
+export const COMMENT_TOOL = { id: "comment", label: "Comment", key: "c" };
+
+export const DRAWING_TOOLS =new Set(["pen", "rectangle", "ellipse", "arrow", "line", "text"]);
 export const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
 
 export const STROKE_COLORS = [
