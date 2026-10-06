@@ -13,7 +13,7 @@ A real-time collaborative whiteboard. Sketch with hand-drawn shapes, invite peop
 - **Hand-drawn or clean**: shapes are rendered with Rough.js. Switch any of them between a sketchy and a crisp look.
 - **Infinite canvas**: pan with the hand tool, space-drag or the scroll wheel. Zoom with Ctrl/⌘ + wheel, trackpad pinch or two fingers.
 - **Per-person undo and redo**: undoing your own change never wipes out what collaborators drew in the meantime.
-- **Sharing**: invite people by email, remove them, or leave a board. Access is checked on every request and socket event.
+- **Sharing with levels**: invite people by email to edit, remove them, or leave a board. The owner can also let *anyone with the link* view or edit the board, with no account needed. Viewers can pan and zoom but not change anything, and nobody outside the invite list sees invitees' email addresses. Access is checked on every request and socket event, and changes apply live to people who already have the board open.
 - **Boards dashboard**: live thumbnails, search, filters for owned and shared boards, rename and delete.
 - **Works offline briefly**: edits made while disconnected are queued and synced after reconnecting.
 - **Light and dark themes**: dark mode turns the graph paper into a blueprint.
@@ -22,6 +22,30 @@ A real-time collaborative whiteboard. Sketch with hand-drawn shapes, invite peop
 | Dashboard | Dark mode |
 | --- | --- |
 | ![Dashboard](docs/screenshots/dashboard.png) | ![Dark mode](docs/screenshots/board-dark.png) |
+
+## Guests and accounts
+
+Nobody has to sign up to try Inkboard. Guests draw first; accounts keep, share and collaborate.
+
+| | Guest | Account |
+| --- | --- | --- |
+| Draw on a board | Yes, on a scratch board kept in the browser (`/draw`) | Yes, saved to the cloud |
+| Open a shared link | View, or edit if the owner allows it, under a name they pick | Yes |
+| Export to PNG | Yes | Yes |
+| Several boards, dashboard, other devices | No | Yes |
+| Invite people, set link access | No | Yes |
+| Version history, templates, comments, follow mode | No | Yes |
+
+A guest's scratch board lives in `localStorage` only, so it never reaches the database. **Save board** takes them through sign-up, and the drawing becomes their first real board. Google and GitHub sign-in are offered when the server is configured for them (see below).
+
+Account features:
+
+- **Version history**: boards are checkpointed automatically as people work. Name a version, preview an old one and restore it for everyone. The board as it was is saved first, so a restore can be undone.
+- **Comments and mentions**: pin a thread to any spot on the board, `@mention` a member and resolve threads. Mentions and replies arrive as live notifications.
+- **Follow mode**: click someone's avatar and your view tracks theirs until you pan or zoom.
+- **Templates**: start from a built-in kanban, flowchart, retrospective, SWOT or brainstorm board, or save any board as a template of your own.
+- **Stars and trash**: star boards, and deleted boards stay in a trash for 30 days before they are removed for good.
+- **Profile**: your name, color and photo appear on your cursor and avatar. Connect or disconnect Google and GitHub, or set a password for an account that signed up through one of them.
 
 ## Tech stack
 
@@ -75,8 +99,22 @@ Server (`server/.env`, see [`server/.env.example`](server/.env.example)):
 | `JWT_EXPIRES_IN` | No | Login lifetime, default `7d` |
 | `PORT` | No | API port, default `5000` |
 | `CLIENT_ORIGIN` | No | Allowed origins when the client is hosted on a different domain |
+| `APP_URL` | No | Public address of the app, used for sign-in redirects. Defaults to the address each request arrives on |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | No | Turns on "Continue with Google" |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | No | Turns on "Continue with GitHub" |
 
 Client (`client/.env`): `VITE_API_URL` is only needed if the client and API are deployed separately.
+
+### Sign in with Google or GitHub
+
+The buttons only appear for providers that have both variables set. Create an OAuth app with each provider and give it this callback URL (replace the host with yours; locally the API is on port 5000, or use the Vite address `http://localhost:5173` since it proxies `/api`):
+
+| Provider | Where to create it | Callback URL |
+| --- | --- | --- |
+| Google | Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Web application) | `https://your-app.example/api/auth/oauth/google/callback` |
+| GitHub | GitHub → Settings → Developer settings → OAuth Apps | `https://your-app.example/api/auth/oauth/github/callback` |
+
+Then set the client ID and secret as environment variables (on Render, in the service's Environment tab). Signing in with a provider never merges into an existing password account on its own: if the email already has an account, the person is asked to log in and connect the provider from Settings.
 
 ## Deployment
 
