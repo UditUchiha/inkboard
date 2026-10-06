@@ -14,7 +14,9 @@ const ACTIONS = [
   { label: "Zoom in / out", keys: [MOD, "+ / −"] },
   { label: "Reset zoom", keys: [MOD, "0"] },
   { label: "Fit drawing to screen", keys: ["Shift", "1"] },
-  { label: "Constrain shape or angle", keys: ["Shift + drag"] },
+  { label: "Resize or turn selection", keys: ["Drag a handle"] },
+  { label: "Keep proportions, snap turns to 15°", keys: ["Shift + drag"] },
+  { label: "Constrain a new shape or line", keys: ["Shift + drag"] },
   { label: "Finish text", keys: ["Esc"] },
 ];
 

@@ -141,7 +141,7 @@ Every major competitor has these. They are the cost of being taken seriously as 
 
 | Feature | Notes |
 | --- | --- |
-| Resize and rotate handles | Select can only move things today. Everything below depends on it |
+| ~~Resize and rotate handles~~ | Done: see the backlog |
 | Image upload | Needs blob storage; operations must carry URLs, never base64 |
 | Sticky notes | Cheap on top of text and shapes |
 | Frames | Parent-child behaviour: moving a frame must emit operations for its children |
@@ -318,7 +318,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 
 ### P0: foundations everything else needs
 
-- [ ] **Resize and rotate handles** (M)
+- [x] **Resize and rotate handles:** shapes, strokes and text resize from any side or corner (opposite side stays fixed, even when turned) and turn about their centre; lines and arrows have end handles. Shift keeps proportions or snaps turns to 15°. One undo step per gesture.
 - [ ] **Image upload** (M). Decision needed: where files are stored (see section 11)
 - [ ] **SVG and JSON export and import** (S)
 - [x] **Automated test suite:** server API and sockets, client store and dashboard rules, client/server parity, CI (browser end-to-end flows still to do)

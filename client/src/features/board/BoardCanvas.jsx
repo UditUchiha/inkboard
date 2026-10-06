@@ -5,6 +5,7 @@ import { createElement, elementAt, hitTest, isDegenerate, translate } from "./el
 import { clamp, constrainEnd, toWorld, zoomAround } from "./geometry";
 import { loadCanvasFonts, renderScene } from "./renderer";
 import { useBoardSnapshot } from "./store";
+import { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } from "./transform";
 
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="9" fill="white" fill-opacity=".6" stroke="#16213a" stroke-width="1.5"/></svg>',
@@ -58,12 +59,14 @@ export function BoardCanvas({
 
   const [panning, setPanning] = useState(false);
   const [hovering, setHovering] = useState(false);
+  const [handle, setHandle] = useState(null); // the resize or turn handle under the pointer, or being dragged
+  const [turning, setTurning] = useState(false);
   const gesture = useRef(null);
   const pointers = useRef(new Map());
 
   // Pointer handlers read the latest props from here instead of re-binding.
   const latest = useRef(null);
-  latest.current = { tool, style, viewport, spacePressed, editingId, hovering };
+  latest.current = { tool, style, viewport, spacePressed, editingId, hovering, selectedId, handle };
 
   useEffect(() => {
     onSizeChange?.(size);
@@ -160,9 +163,13 @@ export function BoardCanvas({
       else store.record({ undo: { remove: [g.element.id] }, redo: { upsert: [g.element] } });
     } else if (g.kind === "erase" && g.erased.size > 0) {
       store.record({ undo: { upsert: [...g.erased.values()] }, redo: { remove: [...g.erased.keys()] } });
-    } else if (g.kind === "move" && g.current) {
+    } else if ((g.kind === "move" || g.kind === "transform") && g.current) {
       if (cancelled) store.apply({ upsert: [g.original] });
       else store.record({ undo: { upsert: [g.original] }, redo: { upsert: [g.current] } });
+    }
+    if (g.kind === "transform") {
+      setTurning(false);
+      setHandle(null);
     }
   }
 
@@ -203,6 +210,16 @@ export function BoardCanvas({
 
     switch (activeTool) {
       case "select": {
+        // A handle on the selected element takes priority over whatever is underneath it.
+        const selected = latest.current.selectedId ? store.getElement(latest.current.selectedId) : null;
+        const grabbed = selected ? handleAt(selected, world, vp.zoom) : null;
+        if (grabbed) {
+          const pad = getSelectionBox(selected, vp.zoom).pad ?? 0;
+          gesture.current = { kind: "transform", handle: grabbed, start: world, original: selected, pad, current: null };
+          setHandle(grabbed);
+          setTurning(grabbed === "rotate");
+          return;
+        }
         const hit = elementAt(store.getElements(), world.x, world.y, tolerance);
         onSelect(hit?.id ?? null);
         if (hit) gesture.current = { kind: "move", start: world, original: hit, current: null };
@@ -242,7 +259,10 @@ export function BoardCanvas({
     const g = gesture.current;
     if (!g) {
       if (latest.current.tool === "select") {
-        const over = Boolean(elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom));
+        const selected = latest.current.selectedId ? store.getElement(latest.current.selectedId) : null;
+        const overHandle = selected ? handleAt(selected, world, vp.zoom) : null;
+        if (overHandle !== latest.current.handle) setHandle(overHandle);
+        const over = !overHandle && Boolean(elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom));
         if (over !== latest.current.hovering) setHovering(over);
       }
       return;
@@ -284,6 +304,15 @@ export function BoardCanvas({
         store.apply({ upsert: [moved] });
         return;
       }
+      case "transform": {
+        const next =
+          g.handle === "rotate"
+            ? rotateElement(g.original, g.start, world, { snap: event.shiftKey })
+            : resizeElement(g.original, g.handle, world, { keepAspect: event.shiftKey, pad: g.pad });
+        g.current = next;
+        store.apply({ upsert: [next] });
+        return;
+      }
       default:
     }
   }
@@ -309,7 +338,10 @@ export function BoardCanvas({
   let cursor = "crosshair";
   if (panning) cursor = "grabbing";
   else if (spacePressed || tool === "hand") cursor = "grab";
-  else if (tool === "select") cursor = hovering ? "move" : "default";
+  else if (tool === "select" && handle) {
+    const selected = selectedId ? store.getElement(selectedId) : null;
+    cursor = turning ? "grabbing" : cursorForHandle(handle, selected?.angle ?? 0);
+  } else if (tool === "select") cursor = hovering ? "move" : "default";
   else if (tool === "text") cursor = "text";
   else if (tool === "comment") cursor = "copy";
   else if (tool === "eraser") cursor = ERASER_CURSOR;

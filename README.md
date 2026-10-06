@@ -9,7 +9,7 @@ A real-time collaborative whiteboard. Sketch with hand-drawn shapes, invite peop
 ## Features
 
 - **Live collaboration**: strokes stream to everyone on the board as they're drawn, with named cursors and a presence list.
-- **Drawing tools**: pen (pressure-sensitive with a stylus), rectangle, ellipse, arrow, line, text, eraser, plus select-and-move.
+- **Drawing tools**: pen (pressure-sensitive with a stylus), rectangle, ellipse, arrow, line, text, eraser, plus select-and-move. Selected shapes, strokes and text can be resized from any side or corner and turned with the handle above them (hold Shift to keep proportions or snap to 15° steps). Lines and arrows have a handle on each end.
 - **Hand-drawn or clean**: shapes are rendered with Rough.js. Switch any of them between a sketchy and a crisp look.
 - **Infinite canvas**: pan with the hand tool, space-drag or the scroll wheel. Zoom with Ctrl/⌘ + wheel, trackpad pinch or two fingers.
 - **Per-person undo and redo**: undoing your own change never wipes out what collaborators drew in the meantime.

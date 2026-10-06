@@ -4,7 +4,10 @@ import {
   distanceToSegment,
   expandRect,
   normalizeRect,
+  rectCenter,
   rectContains,
+  rotatePoint,
+  rotatedRectBounds,
   unionRects,
 } from "./geometry";
 
@@ -14,6 +17,13 @@ import {
 //   shapes: { id, type, seed, x1, y1, x2, y2, stroke, fill, strokeWidth, sketchy }
 //   pen:    { id, type, points: [[x, y, pressure]], pressure, stroke, penSize }
 //   text:   { id, type, x1, y1, text, stroke, fontSize, font }
+//
+// Rectangles, ellipses, pen strokes and text can also carry `angle` (radians):
+// they are drawn turned about the centre of their box. Lines and arrows have two
+// ends instead, so they are reshaped by moving an end.
+
+const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "pen", "text"]);
+export const canRotate = (element) => TURNABLE_TYPES.has(element.type);
 
 export const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const newSeed = () => Math.floor(Math.random() * 2 ** 31) + 1;
@@ -65,8 +75,10 @@ export const arrowHeadLength = (element) =>
   Math.min(14 + element.strokeWidth * 3, Math.hypot(element.x2 - element.x1, element.y2 - element.y1) * 0.45);
 
 const boundsCache = new WeakMap();
+const turnedBoundsCache = new WeakMap();
 
-export function getBounds(element) {
+/** The box around an element before any turning, including its stroke. */
+export function getLocalBounds(element) {
   let bounds = boundsCache.get(element);
   if (bounds) return bounds;
 
@@ -107,12 +119,52 @@ export function getBounds(element) {
   return bounds;
 }
 
+/** The upright rectangle that holds the element as it is drawn, turned or not. */
+export function getBounds(element) {
+  if (!canRotate(element) || !element.angle) return getLocalBounds(element);
+  let bounds = turnedBoundsCache.get(element);
+  if (!bounds) {
+    bounds = rotatedRectBounds(getLocalBounds(element), element.angle);
+    turnedBoundsCache.set(element, bounds);
+  }
+  return bounds;
+}
+
+/**
+ * The element's box without its stroke, and the angle it is turned by. Resizing
+ * and turning work on this. Not meant for lines and arrows.
+ */
+export function getFrame(element) {
+  let box;
+  if (element.type === "pen") {
+    const xs = element.points.map((p) => p[0]);
+    const ys = element.points.map((p) => p[1]);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    box = { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+  } else if (element.type === "text") {
+    const { width, height } = measureText(element);
+    box = { x: element.x1, y: element.y1, width, height };
+  } else {
+    box = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+  }
+  const center = rectCenter(box);
+  return { cx: center.x, cy: center.y, width: box.width, height: box.height, angle: element.angle ?? 0 };
+}
+
 export function getSceneBounds(elements) {
   return unionRects(elements.map(getBounds));
 }
 
-export function hitTest(element, x, y, tolerance) {
-  if (!rectContains(expandRect(getBounds(element), tolerance), x, y)) return false;
+export function hitTest(element, pointX, pointY, tolerance) {
+  let x = pointX;
+  let y = pointY;
+  if (canRotate(element) && element.angle) {
+    // Test in the element's own, unturned space.
+    const center = rectCenter(getLocalBounds(element));
+    [x, y] = rotatePoint(x, y, center.x, center.y, -element.angle);
+  }
+  if (!rectContains(expandRect(getLocalBounds(element), tolerance), x, y)) return false;
 
   switch (element.type) {
     case "line":

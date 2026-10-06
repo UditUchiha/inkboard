@@ -55,6 +55,9 @@ export function TextEditor({ element, viewport, onCommit }) {
         lineHeight: LINE_HEIGHT,
         color: element.stroke,
         caretColor: element.stroke,
+        // Turned text is edited turned, about the middle of the text itself.
+        transform: element.angle ? `rotate(${element.angle}rad)` : undefined,
+        transformOrigin: `${(width * zoom) / 2}px ${(height * zoom) / 2}px`,
       }}
     />
   );

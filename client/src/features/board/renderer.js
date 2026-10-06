@@ -1,8 +1,9 @@
 import getStroke from "perfect-freehand";
 import rough from "roughjs";
 import { LINE_HEIGHT } from "./constants";
-import { arrowHeadLength, fontFor, getBounds } from "./elements";
-import { arrowHeadPoints, expandRect, normalizeRect } from "./geometry";
+import { arrowHeadLength, canRotate, fontFor, getBounds, getLocalBounds } from "./elements";
+import { arrowHeadPoints, expandRect, normalizeRect, rectCenter } from "./geometry";
+import { getSelectionBox } from "./transform";
 
 const generator = rough.generator();
 
@@ -84,6 +85,21 @@ function penPath(element) {
 }
 
 function drawElement(ctx, roughCanvas, element) {
+  if (!canRotate(element) || !element.angle) {
+    drawUnturned(ctx, roughCanvas, element);
+    return;
+  }
+  // Turned elements are drawn upright, in a space turned about their centre.
+  const center = rectCenter(getLocalBounds(element));
+  ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.rotate(element.angle);
+  ctx.translate(-center.x, -center.y);
+  drawUnturned(ctx, roughCanvas, element);
+  ctx.restore();
+}
+
+function drawUnturned(ctx, roughCanvas, element) {
   if (element.type === "pen") {
     ctx.fillStyle = element.stroke;
     ctx.fill(penPath(element));
@@ -113,13 +129,47 @@ function drawElement(ctx, roughCanvas, element) {
   for (const drawable of drawables) roughCanvas.draw(drawable);
 }
 
+const SELECTION_COLOR = "#2d5bff";
+const HANDLE_SIZE = 9; // screen pixels
+
+// A dashed box around the selected element, with a handle to drag on each side and
+// corner and one above to turn it. Lines and arrows get a handle on each end instead.
 function drawSelection(ctx, element, zoom) {
-  const bounds = expandRect(getBounds(element), 6 / zoom);
+  const selection = getSelectionBox(element, zoom);
   ctx.save();
-  ctx.strokeStyle = "#2d5bff";
+  ctx.strokeStyle = SELECTION_COLOR;
   ctx.lineWidth = 1.5 / zoom;
   ctx.setLineDash([5 / zoom, 4 / zoom]);
-  ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+
+  if (selection.kind === "box") {
+    const { frame, halfWidth, halfHeight } = selection;
+    ctx.save();
+    ctx.translate(frame.cx, frame.cy);
+    ctx.rotate(frame.angle);
+    ctx.strokeRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);
+    ctx.restore();
+
+    const turn = selection.handles.find((handle) => handle.id === "rotate");
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(selection.top.x, selection.top.y);
+    ctx.lineTo(turn.x, turn.y);
+    ctx.stroke();
+  } else {
+    const bounds = expandRect(getBounds(element), 6 / zoom);
+    ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+  }
+
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#ffffff";
+  const size = HANDLE_SIZE / zoom;
+  for (const handle of selection.handles) {
+    ctx.beginPath();
+    if (handle.id === "rotate") ctx.arc(handle.x, handle.y, size / 2 + 0.5 / zoom, 0, Math.PI * 2);
+    else ctx.rect(handle.x - size / 2, handle.y - size / 2, size, size);
+    ctx.fill();
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

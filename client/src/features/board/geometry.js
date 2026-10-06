@@ -32,6 +32,35 @@ export function expandRect(rect, amount) {
 export const rectContains = (rect, x, y) =>
   x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 
+/** Turns a point about (cx, cy) by `angle` radians. */
+export function rotatePoint(x, y, cx, cy, angle) {
+  if (!angle) return [x, y];
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const dx = x - cx;
+  const dy = y - cy;
+  return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+}
+
+export const rectCenter = (rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+
+/** The smallest upright rectangle that holds `rect` after it is turned about its centre. */
+export function rotatedRectBounds(rect, angle) {
+  if (!angle) return rect;
+  const center = rectCenter(rect);
+  const corners = [
+    [rect.x, rect.y],
+    [rect.x + rect.width, rect.y],
+    [rect.x + rect.width, rect.y + rect.height],
+    [rect.x, rect.y + rect.height],
+  ].map(([x, y]) => rotatePoint(x, y, center.x, center.y, angle));
+  const xs = corners.map((corner) => corner[0]);
+  const ys = corners.map((corner) => corner[1]);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
 export function unionRects(rects) {
   if (rects.length === 0) return null;
   let minX = Infinity;
