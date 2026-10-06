@@ -1,8 +1,17 @@
 import { Server } from "socket.io";
 import { env } from "../config/env.js";
 import { verifyToken } from "../lib/tokens.js";
+import { Board } from "../models/board.model.js";
 import { User } from "../models/user.model.js";
-import { findBoardForMember, serializeBoard } from "../services/boards.js";
+import {
+  canEdit,
+  findBoardForViewing,
+  isMemberRole,
+  recordOpen,
+  roleOf,
+  serializeBoard,
+  serializeMeta,
+} from "../services/boards.js";
 import { sanitizeOperation } from "./operations.js";
 import {
   closeSession,
@@ -10,6 +19,7 @@ import {
   flushAllSessions,
   getSession,
   openSession,
+  resetSession,
   updateSession,
 } from "./sessions.js";
 
@@ -27,9 +37,27 @@ export function attachRealtime(httpServer) {
 
 export { flushAllSessions };
 
+const GUEST_ID = /^g_[a-z0-9]{6,32}$/i;
+
+export function cleanGuestName(value) {
+  const name = String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+  return name || "Guest";
+}
+
+// Connecting without a token is allowed: guests can open boards whose link is
+// shared. They pick a name (and keep a random id) so others can see who they are.
 async function authenticate(socket, next) {
+  const { token, guest } = socket.handshake.auth ?? {};
+  if (!token) {
+    socket.data.user = null;
+    socket.data.guest = {
+      id: GUEST_ID.test(String(guest?.id ?? "")) ? guest.id : `g_${socket.id.replace(/[^a-z0-9]/gi, "")}`,
+      name: cleanGuestName(guest?.name),
+    };
+    return next();
+  }
   try {
-    const { sub } = verifyToken(socket.handshake.auth?.token ?? "");
+    const { sub } = verifyToken(token);
     const user = await User.findById(sub);
     if (!user) throw new Error("User not found");
     socket.data.user = user.toPublic();
@@ -39,19 +67,35 @@ async function authenticate(socket, next) {
   }
 }
 
+function personOf(socket) {
+  const { user, guest } = socket.data;
+  if (user) {
+    return { userId: user.id, name: user.name, color: user.color, avatarUrl: user.avatarUrl, guest: false };
+  }
+  return { userId: guest.id, name: guest.name, color: null, avatarUrl: null, guest: true };
+}
+
+const finite = (value) => Number.isFinite(Number(value));
+
 function handleConnection(socket) {
+  // A private room per account, for notifications and profile changes.
+  if (socket.data.user) socket.join(`user:${socket.data.user.id}`);
+
   socket.on("board:join", async (payload, ack) => {
     const reply = typeof ack === "function" ? ack : () => {};
     const boardId = String(payload?.boardId ?? "");
     try {
-      const board = await findBoardForMember(boardId, socket.data.user.id);
+      const userId = socket.data.user?.id ?? null;
+      const board = await findBoardForViewing(boardId, userId);
       await leaveBoard(socket);
 
       const session = openSession(boardId, board.elements);
       socket.join(boardId);
       socket.data.boardId = boardId;
+      socket.data.role = roleOf(board, userId);
+      if (userId) recordOpen(userId, boardId);
 
-      reply({ ok: true, board: serializeBoard(board, socket.data.user.id, session.elements) });
+      reply({ ok: true, board: serializeBoard(board, userId, session.elements) });
       await broadcastPresence(boardId);
     } catch (error) {
       if (!error.status) console.error(error);
@@ -69,6 +113,7 @@ function handleConnection(socket) {
     const reply = typeof ack === "function" ? ack : () => {};
     const boardId = socket.data.boardId;
     const session = boardId && payload?.boardId === boardId ? getSession(boardId) : null;
+    if (session && !canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
     const op = sanitizeOperation(payload?.op);
     if (!session || !op) return reply({ ok: false });
 
@@ -86,6 +131,35 @@ function handleConnection(socket) {
     socket
       .to(boardId)
       .volatile.emit("cursor", visible ? { socketId: socket.id, x, y } : { socketId: socket.id });
+  });
+
+  // What part of the board someone is looking at, so others can follow along.
+  socket.on("viewport", (payload) => {
+    const boardId = socket.data.boardId;
+    if (!boardId || !["x", "y", "zoom", "width", "height"].every((key) => finite(payload?.[key]))) return;
+    const zoom = Number(payload.zoom);
+    if (zoom <= 0) return;
+    socket.to(boardId).volatile.emit("viewport", {
+      socketId: socket.id,
+      x: Number(payload.x),
+      y: Number(payload.y),
+      zoom,
+      width: Number(payload.width),
+      height: Number(payload.height),
+    });
+  });
+
+  // Someone started following this person: ask them to send their view right away.
+  socket.on("viewport:request", (payload) => {
+    const boardId = socket.data.boardId;
+    const target = io.sockets.sockets.get(String(payload?.socketId ?? ""));
+    if (boardId && target?.data.boardId === boardId) target.emit("viewport:request");
+  });
+
+  socket.on("guest:rename", async (payload) => {
+    if (socket.data.user) return;
+    socket.data.guest.name = cleanGuestName(payload?.name);
+    if (socket.data.boardId) await broadcastPresence(socket.data.boardId);
   });
 
   socket.on("disconnect", () => handleDeparture(socket.data.boardId));
@@ -113,8 +187,13 @@ async function broadcastPresence(boardId) {
   const sockets = await io.in(boardId).fetchSockets();
   io.to(boardId).emit(
     "presence",
-    sockets.map((s) => ({ socketId: s.id, userId: s.data.user.id, name: s.data.user.name })),
+    sockets.map((s) => ({ socketId: s.id, ...personOf(s) })),
   );
+}
+
+function socketsIn(room) {
+  const ids = io?.sockets.adapter.rooms.get(room) ?? [];
+  return [...ids].map((id) => io.sockets.sockets.get(id)).filter(Boolean);
 }
 
 // Hooks used by the REST API so open boards react to changes immediately.
@@ -123,26 +202,74 @@ export function getLiveElements(boardId) {
   return getSession(boardId)?.elements;
 }
 
-export function notifyMetaChanged(boardId, meta) {
-  io?.to(boardId).emit("board:meta", meta);
-}
-
-export async function revokeAccess(boardId, userId) {
-  if (!io) return;
-  const sockets = await io.in(boardId).fetchSockets();
-  const removed = sockets.filter((s) => s.data.user.id === String(userId));
-  if (removed.length === 0) return;
-
-  for (const remote of removed) {
-    const socket = io.sockets.sockets.get(remote.id);
-    socket?.emit("board:revoked");
-    socket?.leave(boardId);
-    if (socket) socket.data.boardId = null;
+// Each person gets the details their role allows: only members see email addresses.
+export function notifyMetaChanged(board) {
+  for (const socket of socketsIn(board.id)) {
+    socket.emit("board:meta", serializeMeta(board, { redact: !isMemberRole(socket.data.role) }));
   }
-  await handleDeparture(boardId);
 }
 
-export async function closeBoard(boardId) {
+/**
+ * Re-checks everyone who has the board open after its access changed (an invite,
+ * a removal, or the link setting): drops people who lost access, upgrades or
+ * downgrades the rest, then sends fresh board details.
+ */
+export async function syncAccess(board) {
+  if (!io) return;
+  let dropped = false;
+  for (const socket of socketsIn(board.id)) {
+    const role = roleOf(board, socket.data.user?.id ?? null);
+    if (!role) {
+      socket.emit("board:revoked");
+      socket.leave(board.id);
+      socket.data.boardId = null;
+      dropped = true;
+    } else if (role !== socket.data.role) {
+      socket.data.role = role;
+      socket.emit("board:role", { role });
+    }
+  }
+  if (dropped) await handleDeparture(board.id);
+  notifyMetaChanged(board);
+}
+
+/** Replaces everything on a board, for everyone who has it open. */
+export async function replaceElements(boardId, elements, actor) {
+  const session = getSession(boardId);
+  if (session) {
+    resetSession(session, elements);
+  } else {
+    await Board.updateOne({ _id: boardId }, { $set: { elements } });
+  }
+  io?.to(boardId).emit("board:reset", { elements, by: actor?.name ?? null });
+}
+
+/** Comments are only shown to signed-in people. */
+export function emitToSignedIn(boardId, event, payload) {
+  for (const socket of socketsIn(boardId)) {
+    if (socket.data.user) socket.emit(event, payload);
+  }
+}
+
+export function notifyUser(userId, notification) {
+  io?.to(`user:${userId}`).emit("notification", notification);
+}
+
+/** Someone changed their name or color: update their open connections and boards. */
+export async function refreshUser(user) {
+  const boards = new Set();
+  for (const socket of socketsIn(`user:${user.id}`)) {
+    socket.data.user = user.toPublic();
+    if (socket.data.boardId) boards.add(socket.data.boardId);
+  }
+  await Promise.all([...boards].map(broadcastPresence));
+}
+
+/**
+ * Sends everyone off a board that was deleted. A board moved to the trash keeps
+ * its latest changes so it can be restored as it was.
+ */
+export async function closeBoard(boardId, { keepChanges = false } = {}) {
   if (!io) return;
   io.to(boardId).emit("board:deleted");
   const sockets = await io.in(boardId).fetchSockets();
@@ -151,5 +278,6 @@ export async function closeBoard(boardId) {
     if (socket) socket.data.boardId = null;
   }
   io.in(boardId).socketsLeave(boardId);
-  discardSession(boardId);
+  if (keepChanges) await closeSession(boardId);
+  else discardSession(boardId);
 }

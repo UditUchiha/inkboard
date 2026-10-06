@@ -1,0 +1,160 @@
+import mongoose from "mongoose";
+import { HttpError } from "../lib/http-error.js";
+import { Thread } from "../models/thread.model.js";
+import { User } from "../models/user.model.js";
+import { emitToSignedIn } from "../realtime/index.js";
+import {
+  canEdit,
+  findBoardForViewing,
+  idOf,
+  isOwner,
+  PERSON_FIELDS,
+  roleOf,
+  serializePerson,
+} from "../services/boards.js";
+import { notify } from "../services/notifications.js";
+
+// Comment threads pinned to the canvas. Anyone signed in who can open the board
+// can read them; people who can edit it can comment. Members can be @mentioned.
+
+const populateThread = [
+  { path: "author", select: PERSON_FIELDS },
+  { path: "messages.author", select: PERSON_FIELDS },
+  { path: "messages.mentions", select: PERSON_FIELDS },
+];
+
+function serializeThread(thread) {
+  return {
+    id: thread.id,
+    x: thread.x,
+    y: thread.y,
+    resolved: thread.resolved,
+    author: serializePerson(thread.author),
+    createdAt: thread.createdAt,
+    messages: thread.messages
+      .filter((message) => message.author)
+      .map((message) => ({
+        id: message.id,
+        author: serializePerson(message.author),
+        body: message.body,
+        mentions: message.mentions.filter(Boolean).map(serializePerson),
+        createdAt: message.createdAt,
+      })),
+  };
+}
+
+async function openBoard(req, { toComment = false } = {}) {
+  const board = await findBoardForViewing(req.params.boardId, req.userId);
+  if (toComment && !canEdit(roleOf(board, req.userId))) {
+    throw new HttpError(403, "Only people who can edit this board can comment on it.");
+  }
+  return board;
+}
+
+async function findThread(board, threadId) {
+  const thread = mongoose.isValidObjectId(threadId)
+    ? await Thread.findOne({ _id: threadId, board: board._id })
+    : null;
+  if (!thread) throw new HttpError(404, "That comment was deleted.");
+  return thread;
+}
+
+function readBody(value) {
+  const body = String(value ?? "").trim();
+  if (!body) throw new HttpError(400, "Write a comment first.");
+  if (body.length > 2000) throw new HttpError(400, "Keep comments under 2,000 characters.");
+  return body;
+}
+
+// Only the board's members can be mentioned, since only they are notified.
+function readMentions(board, ids) {
+  if (!Array.isArray(ids)) return [];
+  const members = new Set([idOf(board.owner), ...board.collaborators.map(idOf)]);
+  return [...new Set(ids.map(String))].filter((id) => members.has(id));
+}
+
+async function publish(board, thread) {
+  await thread.populate(populateThread);
+  const payload = serializeThread(thread);
+  emitToSignedIn(board.id, "thread:upsert", payload);
+  return payload;
+}
+
+async function notifyAbout(board, thread, { actor, body, mentions }) {
+  const excerpt = body.replace(/\s+/g, " ");
+  await notify({ users: mentions, type: "mention", actor, board, thread: thread._id, excerpt });
+  // Everyone else who took part in the thread hears about replies.
+  const mentioned = new Set(mentions);
+  const participants = thread.messages.map((message) => idOf(message.author)).filter((id) => !mentioned.has(id));
+  await notify({ users: participants, type: "reply", actor, board, thread: thread._id, excerpt });
+}
+
+export async function listThreads(req, res) {
+  const board = await openBoard(req);
+  const threads = await Thread.find({ board: board._id }).sort({ createdAt: 1 }).populate(populateThread);
+  res.json({ threads: threads.map(serializeThread) });
+}
+
+export async function createThread(req, res) {
+  const board = await openBoard(req, { toComment: true });
+  const x = Number(req.body?.x);
+  const y = Number(req.body?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new HttpError(400, "Choose where to place the comment.");
+  const body = readBody(req.body?.body);
+  const mentions = readMentions(board, req.body?.mentions);
+
+  const thread = await Thread.create({
+    board: board._id,
+    author: req.userId,
+    x,
+    y,
+    messages: [{ author: req.userId, body, mentions }],
+  });
+  const payload = await publish(board, thread);
+  const actor = await User.findById(req.userId);
+  await notify({ users: mentions, type: "mention", actor, board, thread: thread._id, excerpt: body });
+  res.status(201).json({ thread: payload });
+}
+
+export async function replyToThread(req, res) {
+  const board = await openBoard(req, { toComment: true });
+  const thread = await findThread(board, req.params.threadId);
+  const body = readBody(req.body?.body);
+  const mentions = readMentions(board, req.body?.mentions);
+
+  const previous = thread.messages.map((message) => message.toObject());
+  thread.messages.push({ author: req.userId, body, mentions });
+  thread.resolved = false;
+  await thread.save();
+
+  const payload = await publish(board, thread);
+  const actor = await User.findById(req.userId);
+  await notifyAbout(board, { _id: thread._id, messages: previous }, { actor, body, mentions });
+  res.status(201).json({ thread: payload });
+}
+
+export async function updateThread(req, res) {
+  const board = await openBoard(req, { toComment: true });
+  const thread = await findThread(board, req.params.threadId);
+  if (typeof req.body?.resolved === "boolean") thread.resolved = req.body.resolved;
+  for (const key of ["x", "y"]) {
+    if (req.body?.[key] !== undefined) {
+      const value = Number(req.body[key]);
+      if (!Number.isFinite(value)) throw new HttpError(400, "Choose where to place the comment.");
+      thread[key] = value;
+    }
+  }
+  await thread.save();
+  res.json({ thread: await publish(board, thread) });
+}
+
+export async function deleteThread(req, res) {
+  const board = await openBoard(req, { toComment: true });
+  const thread = await findThread(board, req.params.threadId);
+  if (idOf(thread.author) !== String(req.userId) && !isOwner(board, req.userId)) {
+    throw new HttpError(403, "Only the person who started this thread or the board's owner can delete it.");
+  }
+  await thread.deleteOne();
+  emitToSignedIn(board.id, "thread:delete", { id: thread.id });
+  res.status(204).end();
+}

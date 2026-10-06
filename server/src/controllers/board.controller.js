@@ -1,15 +1,26 @@
+import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.js";
-import { Board } from "../models/board.model.js";
+import { BoardState } from "../models/board-state.model.js";
+import { Board, LINK_ACCESS } from "../models/board.model.js";
+import { Template } from "../models/template.model.js";
 import { User } from "../models/user.model.js";
-import { closeBoard, getLiveElements, notifyMetaChanged, revokeAccess } from "../realtime/index.js";
+import { sanitizeElements } from "../realtime/operations.js";
+import { closeBoard, getLiveElements, notifyMetaChanged, syncAccess } from "../realtime/index.js";
 import {
+  destroyBoard,
   findBoardForMember,
+  findBoardForViewing,
   idOf,
   isOwner,
   populateMembers,
+  roleOf,
   serializeBoard,
   serializeMeta,
 } from "../services/boards.js";
+import { notify } from "../services/notifications.js";
+
+export const TRASH_DAYS = 30;
+const DAY_MS = 24 * 3600 * 1000;
 
 function readTitle(value) {
   const title = String(value ?? "").trim();
@@ -17,27 +28,94 @@ function readTitle(value) {
   return title;
 }
 
+const MAX_BULK_BOARDS = 100;
+
+// Everything the person can open: their own boards, boards they were invited to, and
+// boards they opened through a link that is still shared.
 export async function listBoards(req, res) {
-  const boards = await Board.find({ $or: [{ owner: req.userId }, { collaborators: req.userId }] })
+  const states = await BoardState.find({ user: req.userId });
+  const stateByBoard = new Map(states.map((state) => [String(state.board), state]));
+
+  const boards = await Board.find({
+    deletedAt: null,
+    $or: [
+      { owner: req.userId },
+      { collaborators: req.userId },
+      { _id: { $in: states.map((state) => state.board) }, linkAccess: { $in: ["view", "edit"] } },
+    ],
+  })
     .sort({ updatedAt: -1 })
     .populate(populateMembers);
 
   res.json({
     boards: boards.map((board) =>
-      serializeBoard(board, req.userId, getLiveElements(board.id) ?? board.elements),
+      serializeBoard(
+        board,
+        req.userId,
+        getLiveElements(board.id) ?? board.elements,
+        stateByBoard.get(board.id) ?? null,
+      ),
     ),
   });
 }
 
+// Archive or unarchive several boards at once, for this person only.
+export async function archiveBoards(req, res) {
+  const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))] : [];
+  if (ids.length === 0 || ids.length > MAX_BULK_BOARDS || !ids.every((id) => mongoose.isValidObjectId(id))) {
+    throw new HttpError(400, `Choose between 1 and ${MAX_BULK_BOARDS} boards.`);
+  }
+  if (typeof req.body?.archived !== "boolean") throw new HttpError(400, "archived must be true or false.");
+  const { archived } = req.body;
+
+  // Only boards this person can open; anything else is skipped rather than failing the batch.
+  const boards = await Board.find({ _id: { $in: ids }, deletedAt: null }).select("owner collaborators linkAccess");
+  const allowed = boards.filter((board) => roleOf(board, req.userId)).map((board) => board.id);
+
+  if (allowed.length > 0) {
+    await BoardState.bulkWrite(
+      allowed.map((id) => ({
+        updateOne: { filter: { user: req.userId, board: id }, update: { $set: { archived } }, upsert: true },
+      })),
+    );
+  }
+  res.json({ ids: allowed, archived });
+}
+
+// Drops a board from this person's dashboard. For a board shared by link that means
+// forgetting they ever opened it; opening the link again brings it back.
+export async function forgetBoard(req, res) {
+  if (!mongoose.isValidObjectId(req.params.boardId)) throw new HttpError(404, "This board doesn't exist.");
+  await BoardState.deleteOne({ user: req.userId, board: req.params.boardId });
+  res.status(204).end();
+}
+
+/**
+ * Creates a board: blank, from a saved template (`templateId`), or with
+ * drawings sent along (`elements`), e.g. a built-in template or a board a
+ * guest drew before signing up.
+ */
 export async function createBoard(req, res) {
-  const title = readTitle(req.body?.title) || "Untitled board";
-  const board = await Board.create({ title, owner: req.userId });
+  let title = readTitle(req.body?.title);
+  let elements = sanitizeElements(req.body?.elements);
+
+  const { templateId } = req.body ?? {};
+  if (templateId) {
+    const template = mongoose.isValidObjectId(templateId)
+      ? await Template.findOne({ _id: templateId, owner: req.userId })
+      : null;
+    if (!template) throw new HttpError(404, "That template doesn't exist anymore.");
+    elements = template.elements;
+    title ||= template.title;
+  }
+
+  const board = await Board.create({ title: title || "Untitled board", owner: req.userId, elements });
   await board.populate(populateMembers);
   res.status(201).json({ board: serializeBoard(board, req.userId) });
 }
 
 export async function getBoard(req, res) {
-  const board = await findBoardForMember(req.params.boardId, req.userId);
+  const board = await findBoardForViewing(req.params.boardId, req.userId);
   res.json({ board: serializeBoard(board, req.userId, getLiveElements(board.id) ?? board.elements) });
 }
 
@@ -49,18 +127,91 @@ export async function renameBoard(req, res) {
   board.title = title;
   await board.save();
 
-  notifyMetaChanged(board.id, serializeMeta(board));
+  notifyMetaChanged(board);
   res.json({ board: serializeMeta(board) });
 }
 
+export async function setLinkAccess(req, res) {
+  const board = await findBoardForMember(req.params.boardId, req.userId);
+  if (!isOwner(board, req.userId)) {
+    throw new HttpError(403, "Only the owner can change who can open the link.");
+  }
+
+  const { linkAccess } = req.body ?? {};
+  if (!LINK_ACCESS.includes(linkAccess)) {
+    throw new HttpError(400, `Choose one of: ${LINK_ACCESS.join(", ")}.`);
+  }
+
+  board.linkAccess = linkAccess;
+  await board.save();
+
+  await syncAccess(board);
+  res.json({ board: serializeMeta(board) });
+}
+
+export async function starBoard(req, res) {
+  const board = await findBoardForMember(req.params.boardId, req.userId);
+  const starred = req.body?.starred !== false;
+  // Starring is personal, so it shouldn't count as editing the board.
+  await Board.updateOne(
+    { _id: board._id },
+    starred ? { $addToSet: { starredBy: req.userId } } : { $pull: { starredBy: req.userId } },
+    { timestamps: false },
+  );
+  res.json({ starred });
+}
+
+/** Moves a board to the trash. Everyone loses access until the owner restores it. */
 export async function deleteBoard(req, res) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!isOwner(board, req.userId)) {
     throw new HttpError(403, "Only the owner can delete this board.");
   }
 
-  await board.deleteOne();
-  await closeBoard(board.id);
+  board.deletedAt = new Date();
+  await board.save();
+  await closeBoard(board.id, { keepChanges: true });
+  res.status(204).end();
+}
+
+const serializeTrashed = (board, userId) => ({
+  ...serializeBoard(board, userId),
+  deletedAt: board.deletedAt,
+  purgeAt: new Date(board.deletedAt.getTime() + TRASH_DAYS * DAY_MS),
+});
+
+export async function listTrash(req, res) {
+  const boards = await Board.find({ owner: req.userId, deletedAt: { $ne: null } })
+    .sort({ deletedAt: -1 })
+    .populate(populateMembers);
+  res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId)) });
+}
+
+async function findTrashed(boardId, userId) {
+  const board = mongoose.isValidObjectId(boardId)
+    ? await Board.findOne({ _id: boardId, owner: userId, deletedAt: { $ne: null } })
+    : null;
+  if (!board) throw new HttpError(404, "That board isn't in your trash.");
+  return board;
+}
+
+export async function restoreBoard(req, res) {
+  const board = await findTrashed(req.params.boardId, req.userId);
+  board.deletedAt = null;
+  await board.save();
+  await board.populate(populateMembers);
+  res.json({ board: serializeBoard(board, req.userId) });
+}
+
+export async function purgeBoard(req, res) {
+  const board = await findTrashed(req.params.boardId, req.userId);
+  await destroyBoard(board._id);
+  res.status(204).end();
+}
+
+export async function emptyTrash(req, res) {
+  const boards = await Board.find({ owner: req.userId, deletedAt: { $ne: null } }).select("_id");
+  await Promise.all(boards.map((board) => destroyBoard(board._id)));
   res.status(204).end();
 }
 
@@ -91,7 +242,8 @@ export async function addCollaborator(req, res) {
   await board.save();
   await board.populate(populateMembers);
 
-  notifyMetaChanged(board.id, serializeMeta(board));
+  await syncAccess(board);
+  await notify({ users: [invitee._id], type: "invite", actor: board.owner, board });
   res.status(201).json({ board: serializeMeta(board) });
 }
 
@@ -110,8 +262,9 @@ export async function removeCollaborator(req, res) {
   board.collaborators = board.collaborators.filter((member) => idOf(member) !== targetId);
   await board.save();
   await board.populate(populateMembers);
+  // Forget their filing too, so a board with an open link doesn't linger on their dashboard.
+  await BoardState.deleteOne({ user: targetId, board: board._id });
 
-  await revokeAccess(board.id, targetId);
-  notifyMetaChanged(board.id, serializeMeta(board));
+  await syncAccess(board);
   res.json({ board: serializeMeta(board) });
 }

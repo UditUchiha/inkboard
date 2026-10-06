@@ -8,6 +8,7 @@ import mongoose from "mongoose";
 import { env } from "./config/env.js";
 import { errorHandler, notFound } from "./middleware/error-handler.js";
 import authRoutes from "./routes/auth.routes.js";
+import { notificationRoutes, templateRoutes, threadRoutes, versionRoutes } from "./routes/board-extras.routes.js";
 import boardRoutes from "./routes/board.routes.js";
 
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
@@ -43,7 +44,11 @@ export function createApp() {
   // the client fallback so /health returns JSON instead of the app's HTML.
   app.get(["/health", "/api/health"], health);
   app.use("/api/auth", authRoutes);
+  app.use("/api/boards/:boardId/versions", versionRoutes);
+  app.use("/api/boards/:boardId/threads", threadRoutes);
   app.use("/api/boards", boardRoutes);
+  app.use("/api/templates", templateRoutes);
+  app.use("/api/notifications", notificationRoutes);
   app.use("/api", notFound);
 
   // In production the server also hosts the built client, so the whole app

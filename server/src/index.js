@@ -4,12 +4,14 @@ import { createApp } from "./app.js";
 import { connectDatabase } from "./config/db.js";
 import { env } from "./config/env.js";
 import { attachRealtime, flushAllSessions } from "./realtime/index.js";
+import { startTrashSweeper } from "./services/trash.js";
 
 const app = createApp();
 const server = http.createServer(app);
 const io = attachRealtime(server);
 
 await connectDatabase();
+startTrashSweeper();
 
 server.listen(env.port, () => {
   console.log(`API ready on http://localhost:${env.port}`);

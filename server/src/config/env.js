@@ -37,4 +37,18 @@ export const env = {
     : isProduction
       ? []
       : ["http://localhost:5173"],
+  // Public address of the app, used in OAuth redirects. Leave empty to use the
+  // address each request came in on (fine when the server hosts the client).
+  appUrl: (process.env.APP_URL ?? "").replace(/\/$/, ""),
+  // "Continue with Google / GitHub" only appears for providers configured here.
+  oauth: {
+    google: oauthClient("GOOGLE"),
+    github: oauthClient("GITHUB"),
+  },
 };
+
+function oauthClient(prefix) {
+  const clientId = process.env[`${prefix}_CLIENT_ID`];
+  const clientSecret = process.env[`${prefix}_CLIENT_SECRET`];
+  return clientId && clientSecret ? { clientId, clientSecret } : null;
+}
