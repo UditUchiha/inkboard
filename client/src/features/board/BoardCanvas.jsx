@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useElementSize } from "../../lib/useElementSize";
 import { ERASER_RADIUS, GRID_SIZE, HIT_TOLERANCE, MAX_ZOOM, MIN_ZOOM } from "./constants";
 import { createElement, elementAt, hitTest, isDegenerate, translate } from "./elements";
 import { clamp, constrainEnd, toWorld, zoomAround } from "./geometry";
+import { imagesVersion, subscribeImages } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
 import { useBoardSnapshot } from "./store";
 import { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } from "./transform";
@@ -55,6 +56,7 @@ export function BoardCanvas({
   const canvasRef = useRef(null);
   const size = useElementSize(containerRef);
   const fontsReady = useCanvasFontsReady();
+  const picturesLoaded = useSyncExternalStore(subscribeImages, imagesVersion);
   const { elements } = useBoardSnapshot(store);
 
   const [panning, setPanning] = useState(false);
@@ -81,7 +83,7 @@ export function BoardCanvas({
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
     renderScene(canvas, { elements, viewport, dpr, selectedId, hiddenId: editingId });
-  }, [elements, viewport, size, selectedId, editingId, fontsReady]);
+  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded]);
 
   const screenPoint = (event) => {
     const rect = canvasRef.current.getBoundingClientRect();

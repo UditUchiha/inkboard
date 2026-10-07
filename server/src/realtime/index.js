@@ -12,6 +12,7 @@ import {
   serializeBoard,
   serializeMeta,
 } from "../services/boards.js";
+import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.js";
 import { sanitizeOperation } from "./operations.js";
 import {
   closeSession,
@@ -29,7 +30,8 @@ let io;
 export function attachRealtime(httpServer) {
   io = new Server(httpServer, {
     cors: { origin: env.clientOrigins },
-    maxHttpBufferSize: 2e6,
+    // Room for an uploaded image (up to IMAGE_LIMITS.image) plus the message around it.
+    maxHttpBufferSize: 3e6,
   });
   io.use(authenticate);
   io.on("connection", handleConnection);
@@ -78,6 +80,18 @@ function personOf(socket) {
 
 const finite = (value) => Number.isFinite(Number(value));
 
+// Why an image didn't fit, for the person who tried to add it.
+function spaceMessage(limit, role) {
+  const freeing = "Pictures you remove free their space once no saved version of the board shows them.";
+  if (limit === "board") return `This board is out of image space. ${freeing}`;
+  if (limit === "owner") {
+    return role === "owner"
+      ? `Your boards are out of image space. ${freeing}`
+      : "This board's owner is out of image space. Ask them to remove pictures they don't need.";
+  }
+  return "Image storage is full for now. Try again later.";
+}
+
 function handleConnection(socket) {
   // A private room per account, for notifications and profile changes.
   if (socket.data.user) socket.join(`user:${socket.data.user.id}`);
@@ -122,6 +136,31 @@ function handleConnection(socket) {
     updateSession(session, op);
     socket.to(boardId).emit("board:op", { op });
     reply({ ok: true });
+  });
+
+  // Uploading goes over the socket, not HTTP, so it is checked exactly like a
+  // drawing change: guests with an edit link can add images, viewers can't.
+  socket.on("board:image", async (payload, ack) => {
+    const reply = typeof ack === "function" ? ack : () => {};
+    const boardId = socket.data.boardId;
+    if (!boardId || payload?.boardId !== boardId) return reply({ ok: false, error: "Open the board first." });
+    if (!canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
+
+    const buffer = payload?.data;
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0) return reply({ ok: false, error: "That file couldn't be read." });
+    if (buffer.length > IMAGE_LIMITS.image) return reply({ ok: false, tooLarge: true, error: "That image is too big." });
+    const mime = detectImageType(buffer);
+    if (!mime) return reply({ ok: false, error: "Use a PNG, JPEG, WebP or GIF image." });
+
+    try {
+      const stored = await storeImage({ boardId, buffer, mime, uploadedBy: socket.data.user?.id });
+      if (stored.missing) return reply({ ok: false, error: "This board doesn't exist any more." });
+      if (stored.full) return reply({ ok: false, full: stored.full, error: spaceMessage(stored.full, socket.data.role) });
+      reply({ ok: true, id: stored.id });
+    } catch (error) {
+      console.error(error);
+      reply({ ok: false, error: "The image couldn't be saved. Try again." });
+    }
   });
 
   socket.on("cursor", (payload) => {

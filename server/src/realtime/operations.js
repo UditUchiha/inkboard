@@ -1,10 +1,11 @@
 import mongoose from "mongoose";
+import { IMAGE_ID } from "../services/image-storage.js";
 
 // Boards change through operations: { upsert: Element[], remove: string[] }.
 // Upserted elements replace the element with the same id in place, or are
 // appended when new. The client applies the exact same rules.
 
-const ELEMENT_TYPES = new Set(["pen", "line", "rectangle", "ellipse", "arrow", "text"]);
+const ELEMENT_TYPES = new Set(["pen", "line", "rectangle", "ellipse", "arrow", "text", "image"]);
 export const MAX_ELEMENTS_PER_BOARD = 5000;
 
 // MongoDB refuses documents over 16 MB, and a board is one document. Without
@@ -25,7 +26,8 @@ const isValidElement = (element) =>
   typeof element === "object" &&
   !Array.isArray(element) &&
   isValidId(element.id) &&
-  ELEMENT_TYPES.has(element.type);
+  ELEMENT_TYPES.has(element.type) &&
+  (element.type !== "image" || IMAGE_ID.test(element.imageId));
 
 export function sanitizeOperation(op) {
   if (!op || typeof op !== "object") return null;

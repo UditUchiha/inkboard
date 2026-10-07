@@ -5,6 +5,7 @@ import { Board } from "../models/board.model.js";
 import { Notification } from "../models/notification.model.js";
 import { Thread } from "../models/thread.model.js";
 import { Version } from "../models/version.model.js";
+import { deleteBoardImages } from "./image-storage.js";
 
 export const PERSON_FIELDS = "name color avatarUrl";
 const MEMBER_FIELDS = `${PERSON_FIELDS} email`;
@@ -79,6 +80,7 @@ export async function destroyBoard(boardId) {
     Thread.deleteMany({ board: boardId }),
     Notification.deleteMany({ board: boardId }),
     BoardState.deleteMany({ board: boardId }),
+    deleteBoardImages(boardId),
   ]);
 }
 

@@ -105,7 +105,7 @@ function moveLineEnd(element, handleId, point, snap) {
 /**
  * Drags a resize handle to `point`. The side opposite the handle stays where it
  * is, even when the element is turned. `keepAspect` (Shift) keeps proportions on
- * corners; text always keeps them. `pad` is the selection gap the handle sits
+ * corners; text and pictures always keep them. `pad` is the selection gap the handle sits
  * outside the element by, so the element doesn't jump when the drag starts.
  */
 export function resizeElement(original, handleId, point, { keepAspect = false, pad = 0 } = {}) {
@@ -113,7 +113,7 @@ export function resizeElement(original, handleId, point, { keepAspect = false, p
 
   const frame = getFrame(original);
   const [dx, dy] = DIRECTIONS[handleId];
-  const lockAspect = (keepAspect || original.type === "text") && dx !== 0 && dy !== 0;
+  const lockAspect = (keepAspect || original.type === "text" || original.type === "image") && dx !== 0 && dy !== 0;
 
   // The fixed point, and the point's position along the element's own axes from it.
   const [ax, ay] = rotatePoint(

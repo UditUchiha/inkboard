@@ -10,6 +10,7 @@ import { errorHandler, notFound } from "./middleware/error-handler.js";
 import authRoutes from "./routes/auth.routes.js";
 import { notificationRoutes, templateRoutes, threadRoutes, versionRoutes } from "./routes/board-extras.routes.js";
 import boardRoutes from "./routes/board.routes.js";
+import imageRoutes from "./routes/image.routes.js";
 
 const clientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
 
@@ -34,7 +35,10 @@ export function createApp() {
   app.use(
     helmet({
       // The host terminates HTTPS; upgrading would break plain-HTTP local runs.
-      contentSecurityPolicy: { directives: { upgradeInsecureRequests: null } },
+      // blob: lets a picture someone just added show straight away from their own copy.
+      contentSecurityPolicy: {
+        directives: { upgradeInsecureRequests: null, "img-src": ["'self'", "data:", "blob:"] },
+      },
     }),
   );
   app.use(cors({ origin: env.clientOrigins }));
@@ -47,6 +51,7 @@ export function createApp() {
   app.use("/api/boards/:boardId/versions", versionRoutes);
   app.use("/api/boards/:boardId/threads", threadRoutes);
   app.use("/api/boards", boardRoutes);
+  app.use("/api/images", imageRoutes);
   app.use("/api/templates", templateRoutes);
   app.use("/api/notifications", notificationRoutes);
   app.use("/api", notFound);

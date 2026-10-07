@@ -3,6 +3,7 @@ import rough from "roughjs";
 import { LINE_HEIGHT } from "./constants";
 import { arrowHeadLength, canRotate, fontFor, getBounds, getLocalBounds } from "./elements";
 import { arrowHeadPoints, expandRect, normalizeRect, rectCenter } from "./geometry";
+import { getImage } from "./images";
 import { getSelectionBox } from "./transform";
 
 const generator = rough.generator();
@@ -99,7 +100,40 @@ function drawElement(ctx, roughCanvas, element) {
   ctx.restore();
 }
 
+// A picture, or a plain box in its place while it downloads (or if it can't).
+function drawPicture(ctx, element) {
+  const { image, state } = getImage(element.imageId);
+  const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+  ctx.save();
+  if (state === "ready") {
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(image, x, y, width, height);
+  } else {
+    ctx.fillStyle = "rgba(128, 128, 128, 0.12)";
+    ctx.strokeStyle = "rgba(128, 128, 128, 0.6)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 5]);
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeRect(x, y, width, height);
+    if (state === "failed") {
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + width, y + height);
+      ctx.moveTo(x + width, y);
+      ctx.lineTo(x, y + height);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
 function drawUnturned(ctx, roughCanvas, element) {
+  if (element.type === "image") {
+    drawPicture(ctx, element);
+    return;
+  }
+
   if (element.type === "pen") {
     ctx.fillStyle = element.stroke;
     ctx.fill(penPath(element));

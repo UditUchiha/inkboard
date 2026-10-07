@@ -24,8 +24,18 @@ export async function createTemplate(req, res) {
   const title = String(req.body?.title ?? "").trim() || board.title;
   if (title.length > 60) throw new HttpError(400, "Use 60 characters or fewer for the name.");
 
-  const elements = getLiveElements(board.id) ?? board.elements;
-  if (elements.length === 0) throw new HttpError(400, "Draw something first. An empty board makes an empty template.");
+  // Images belong to the board they were added to and go when it does, so a
+  // template (which outlives the board) can't carry them.
+  const everything = getLiveElements(board.id) ?? board.elements;
+  const elements = everything.filter((element) => element.type !== "image");
+  if (elements.length === 0) {
+    throw new HttpError(
+      400,
+      everything.length > 0
+        ? "Templates can't hold images, and this board has nothing else on it. Draw something first."
+        : "Draw something first. An empty board makes an empty template.",
+    );
+  }
   if ((await Template.countDocuments({ owner: req.userId })) >= MAX_TEMPLATES) {
     throw new HttpError(400, `You can keep up to ${MAX_TEMPLATES} templates. Delete one to save another.`);
   }

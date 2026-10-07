@@ -10,6 +10,8 @@ const ACTIONS = [
   { label: "Duplicate selection", keys: [MOD, "D"] },
   { label: "Delete selection", keys: ["Delete"] },
   { label: "Nudge selection", keys: ["Arrow keys"] },
+  { label: "Add an image", keys: ["I"] },
+  { label: "Paste or drop an image", keys: [MOD, "V"] },
   { label: "Pan while held", keys: ["Space"] },
   { label: "Zoom in / out", keys: [MOD, "+ / −"] },
   { label: "Reset zoom", keys: [MOD, "0"] },

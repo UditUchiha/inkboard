@@ -1,8 +1,9 @@
 import clsx from "clsx";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useElementSize } from "../../lib/useElementSize";
 import { getSceneBounds } from "./elements";
 import { fitViewport } from "./geometry";
+import { imagesVersion, subscribeImages } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
 
 /** A static, scaled-to-fit rendering of a board, used for thumbnails. */
@@ -11,6 +12,7 @@ export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, c
   const canvasRef = useRef(null);
   const size = useElementSize(containerRef);
   const [fontsReady, setFontsReady] = useState(false);
+  const picturesLoaded = useSyncExternalStore(subscribeImages, imagesVersion);
 
   useEffect(() => {
     let active = true;
@@ -29,7 +31,7 @@ export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, c
     const bounds = getSceneBounds(elements);
     const viewport = bounds ? fitViewport(bounds, size, { padding, maxZoom }) : { x: 0, y: 0, zoom: 1 };
     renderScene(canvas, { elements, viewport, dpr });
-  }, [elements, size, padding, maxZoom, fontsReady]);
+  }, [elements, size, padding, maxZoom, fontsReady, picturesLoaded]);
 
   return (
     <div ref={containerRef} className={clsx("relative overflow-hidden", className)}>

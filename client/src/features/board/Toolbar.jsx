@@ -4,6 +4,7 @@ import {
   Circle,
   Eraser,
   Hand,
+  ImagePlus,
   Minus,
   MousePointer2,
   MessageSquarePlus,
@@ -30,7 +31,7 @@ const ICONS = {
 // Dividers separate navigation, drawing, and erasing.
 const GROUP_STARTS = new Set(["pen", "eraser", "comment"]);
 
-export function Toolbar({ tool, onToolChange, withComments = false, className }) {
+export function Toolbar({ tool, onToolChange, onAddImage, withComments = false, className }) {
   const tools = withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS;
   return (
     <div role="toolbar" aria-label="Tools" className={clsx("floating-panel flex items-center gap-0.5 rounded-xl p-1", className)}>
@@ -70,6 +71,23 @@ export function Toolbar({ tool, onToolChange, withComments = false, className })
                 {item.label} <kbd className="ml-1 font-sans text-on-ink/60">{item.key.toUpperCase()}</kbd>
               </span>
             </button>
+            {/* Adding a picture is an action, not a tool: it opens the file picker. */}
+            {item.id === "text" && onAddImage && (
+              <button
+                type="button"
+                aria-label="Add image (I)"
+                onClick={onAddImage}
+                className="group relative grid size-10 place-items-center rounded-lg text-ink transition-colors hover:bg-ink/6"
+              >
+                <ImagePlus className="size-[18px]" strokeWidth={1.75} aria-hidden />
+                <span
+                  className="pointer-events-none absolute top-full left-1/2 z-20 mt-2 -translate-x-1/2 rounded-md bg-ink px-2 py-1 text-xs whitespace-nowrap text-on-ink opacity-0 transition-opacity delay-300 group-hover:opacity-100 max-md:hidden"
+                  aria-hidden
+                >
+                  Add image <kbd className="ml-1 font-sans text-on-ink/60">I</kbd>
+                </span>
+              </button>
+            )}
           </Fragment>
         );
       })}

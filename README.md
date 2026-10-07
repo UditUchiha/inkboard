@@ -17,6 +17,7 @@ A real-time collaborative whiteboard. Sketch with hand-drawn shapes, invite peop
 - **Boards dashboard**: live thumbnails, search, filters for owned and shared boards, rename and delete.
 - **Works offline briefly**: edits made while disconnected are queued and synced after reconnecting.
 - **Light and dark themes**: dark mode turns the graph paper into a blueprint.
+- **Images**: add pictures with the toolbar button (or <kbd>I</kbd>), by pasting, or by dropping files onto the board. They are shrunk in the browser, stored in MongoDB (GridFS), and resize and turn like any shape. Accounts, invited editors and guests with an edit link can add them; see [docs/image-storage.md](docs/image-storage.md) for limits and how to move storage to Cloudflare R2 or Cloudinary.
 - **Keyboard shortcuts** for every tool and action (press <kbd>?</kbd> on a board), and export to PNG.
 
 | Dashboard | Dark mode |
@@ -32,6 +33,7 @@ Nobody has to sign up to try Inkboard. Guests draw first; accounts keep, share a
 | Draw on a board | Yes, on a scratch board kept in the browser (`/draw`) | Yes, saved to the cloud |
 | Open a shared link | View, or edit if the owner allows it, under a name they pick | Yes |
 | Export to PNG | Yes | Yes |
+| Add images | Only on a shared board with an edit link | Yes |
 | Several boards, dashboard, other devices | No | Yes |
 | Invite people, set link access | No | Yes |
 | Version history, templates, comments, follow mode | No | Yes |
@@ -93,8 +95,8 @@ To use your own database instead, such as a free MongoDB Atlas cluster, copy `se
 
 `npm test` runs both packages' tests with Node's built-in test runner, so there is nothing extra to install.
 
-- **Server (`server/tests`)** starts the real app on a free port against a throwaway in-memory MongoDB, then drives it over REST and Socket.IO. It covers sign-up and login, who can open and edit a board (owner, invited editor, link viewer, link contributor, guest) including changes that apply live to people already on the board, the dashboard (link-opened boards, archive, stars, trash and its 30-day sweep), live sync and saving, size limits, version history, comments, notifications and templates. The first run downloads a MongoDB binary, which can take a minute.
-- **Client (`client/tests`)** covers the undo and redo store and the dashboard's section and sort rules.
+- **Server (`server/tests`)** starts the real app on a free port against a throwaway in-memory MongoDB, then drives it over REST and Socket.IO. It covers sign-up and login, who can open and edit a board (owner, invited editor, link viewer, link contributor, guest) including changes that apply live to people already on the board, the dashboard (link-opened boards, archive, stars, trash and its 30-day sweep), live sync and saving, size limits, image upload and the rules around it, version history, comments, notifications and templates. The first run downloads a MongoDB binary, which can take a minute.
+- **Client (`client/tests`)** covers the undo and redo store, the dashboard's section and sort rules, the resize and turn maths, and how pictures are sized and placed.
 - A server test also checks that the browser and the server apply drawing operations identically, since a disagreement would make screens drift from what gets saved.
 
 GitHub Actions runs the tests and the build on every push and pull request (`.github/workflows/ci.yml`).

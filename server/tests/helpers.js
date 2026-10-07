@@ -4,6 +4,11 @@ import mongoose from "mongoose";
 import { io as connectSocket } from "socket.io-client";
 
 process.env.NODE_ENV ??= "test";
+// Tests must not depend on whatever is in a developer's server/.env. Variables already set win over
+// that file, so blanking the sign-in keys keeps social sign-in "not configured" for every test.
+for (const key of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]) {
+  process.env[key] = "";
+}
 
 const { createApp } = await import("../src/app.js");
 const { signToken } = await import("../src/lib/tokens.js");
@@ -113,6 +118,7 @@ export async function startServer() {
       last: (name) => client.of(name).at(-1),
       join: (boardId) => new Promise((resolve) => socket.emit("board:join", { boardId }, resolve)),
       leave: () => socket.emit("board:leave"),
+      image: (boardId, data) => new Promise((resolve) => socket.emit("board:image", { boardId, data }, resolve)),
       op: (boardId, op) => new Promise((resolve) => socket.emit("board:op", { boardId, op }, resolve)),
       close: () => socket.disconnect(),
     };

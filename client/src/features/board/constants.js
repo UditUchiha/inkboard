@@ -80,6 +80,7 @@ export const STYLE_CONTROLS = {
   rectangle: ["stroke", "fill", "strokeWidth", "sketchy"],
   ellipse: ["stroke", "fill", "strokeWidth", "sketchy"],
   text: ["stroke", "font", "fontSize"],
+  image: [],
 };
 
 export const MIN_ZOOM = 0.1;

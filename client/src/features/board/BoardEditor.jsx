@@ -39,10 +39,11 @@ import { useTheme } from "../../providers/ThemeProvider";
 import { BoardCanvas } from "./BoardCanvas";
 import { CommentsLayer } from "./CommentsLayer";
 import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, TOOLS } from "./constants";
-import { duplicate, getSceneBounds, translate } from "./elements";
+import { createImage, duplicate, getSceneBounds, translate } from "./elements";
 import { exportBoardAsPng } from "./exportImage";
-import { fitViewport, zoomAround } from "./geometry";
+import { fitViewport, toWorld, zoomAround } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
+import { ImageError, isImageFile, placementSize, prepareImage, primeImage, uploadImage } from "./images";
 import { PresenceStack } from "./PresenceStack";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { RemoteCursors } from "./RemoteCursors";
@@ -183,6 +184,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
   const [draft, setDraft] = useState(null); // where a new comment is being written
 
   const selected = selectedId ? elements.find((element) => element.id === selectedId) : null;
+  const canAddImages = !readOnly && !local; // a guest's scratch board lives in the browser, with nowhere to keep files
+  const fileInput = useRef(null);
 
   // Follow mode: tracking someone's view until we move ourselves.
   const { followingId, follow, stopFollowing } = useFollow({ sync, canvasSize, setViewport });
@@ -296,6 +299,87 @@ export function BoardEditor({ store, sync, user, local = null }) {
     [selectedId, store],
   );
 
+  // Adds pictures to the board: shrinks and uploads each, then places it where it
+  // was dropped, or in the middle of the screen. Each one is a single undo step.
+  const view = useRef(null);
+  view.current = { viewport, canvasSize };
+  const addImages = useCallback(
+    async (files, dropPoint = null) => {
+      if (local) {
+        toast("Save this board to your account to add images.");
+        return;
+      }
+      for (const [index, file] of files.slice(0, 10).entries()) {
+        const progress = toast.loading(files.length > 1 ? `Adding image ${index + 1} of ${files.length}…` : "Adding image…");
+        try {
+          const picked = await prepareImage(file);
+          const id = await uploadImage(sync.socket, board.id, picked.blob);
+          primeImage(id, picked.blob);
+
+          const { viewport: vp, canvasSize: size } = view.current;
+          const area = { width: size.width / vp.zoom, height: size.height / vp.zoom };
+          const middle = dropPoint ?? { x: -vp.x + area.width / 2, y: -vp.y + area.height / 2 };
+          const shift = index * 24; // keep several pictures from landing exactly on top of each other
+          const fitted = placementSize(picked, area);
+          const element = createImage(
+            id,
+            { x: middle.x - fitted.width / 2 + shift, y: middle.y - fitted.height / 2 + shift },
+            fitted,
+          );
+          store.commit({ undo: { remove: [element.id] }, redo: { upsert: [element] } });
+          setTool("select");
+          setSelectedId(element.id);
+          toast.dismiss(progress);
+        } catch (error) {
+          toast.error(error instanceof ImageError ? error.message : "That image couldn't be added.", { id: progress });
+        }
+      }
+    },
+    [local, sync.socket, board.id, store],
+  );
+
+  // Pictures can be pasted or dropped onto the board.
+  const addImagesRef = useRef(addImages);
+  addImagesRef.current = addImages;
+  useEffect(() => {
+    const imagesIn = (list) => [...(list ?? [])].filter(isImageFile);
+    const blocked = (event) => isTypingTarget(event.target) || document.querySelector("dialog[open]");
+
+    const onPaste = (event) => {
+      const files = imagesIn(event.clipboardData?.files);
+      if (readOnly || files.length === 0 || blocked(event)) return;
+      event.preventDefault();
+      addImagesRef.current(files);
+    };
+    const carriesFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes("Files");
+    const onDragOver = (event) => {
+      if (carriesFiles(event)) event.preventDefault();
+    };
+    const onDrop = (event) => {
+      if (!carriesFiles(event)) return;
+      // Left alone, the browser opens a dropped file in the tab, leaving the board,
+      // so this happens even for people who can only view it.
+      event.preventDefault();
+      const files = imagesIn(event.dataTransfer.files);
+      if (readOnly || blocked(event)) return;
+      if (files.length === 0) {
+        toast.error("Only PNG, JPEG, WebP and GIF images can be added.");
+        return;
+      }
+      const { viewport: vp } = view.current;
+      addImagesRef.current(files, toWorld(vp, event.clientX, event.clientY));
+    };
+
+    window.addEventListener("paste", onPaste);
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("paste", onPaste);
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [readOnly]);
+
   useEffect(() => {
     const withModifier = {
       z: (event) => (event.shiftKey ? store.redo() : store.undo()),
@@ -316,6 +400,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
         setActiveThread(null);
         stopFollowing();
       },
+      i: () => canAddImages && fileInput.current?.click(),
       "?": () => setDialog("shortcuts"),
       "!": fitToScreen, // Shift + 1
     };
@@ -437,6 +522,18 @@ export function BoardEditor({ store, sync, user, local = null }) {
         onPlaceComment={placeComment}
       />
 
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        multiple
+        hidden
+        onChange={(event) => {
+          addImages([...event.target.files]);
+          event.target.value = "";
+        }}
+      />
+
       <RemoteCursors cursors={sync.cursors} peers={sync.peers} viewport={viewport} />
 
       {commentsEnabled && showComments && (
@@ -492,6 +589,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
           <Toolbar
             tool={tool}
             onToolChange={changeTool}
+            onAddImage={canAddImages ? () => fileInput.current?.click() : undefined}
             withComments={canComment}
             className="max-md:max-w-full max-md:overflow-x-auto"
           />

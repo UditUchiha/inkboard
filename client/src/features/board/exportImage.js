@@ -1,4 +1,5 @@
 import { getSceneBounds } from "./elements";
+import { loadImagesOf } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
 
 const MAX_DIMENSION = 8000;
@@ -6,7 +7,7 @@ const MAX_DIMENSION = 8000;
 export async function exportBoardAsPng(elements, fileName) {
   const bounds = getSceneBounds(elements);
   if (!bounds) return false;
-  await loadCanvasFonts();
+  await Promise.all([loadCanvasFonts(), loadImagesOf(elements)]);
 
   const padding = 32;
   const width = bounds.width + padding * 2;

@@ -199,7 +199,7 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
       )}
 
       {selection && (
-        <div className="flex gap-2 border-t border-rule pt-4">
+        <div className={clsx("flex gap-2", controls.length > 0 && "border-t border-rule pt-4")}>
           <button
             type="button"
             onClick={onDuplicate}

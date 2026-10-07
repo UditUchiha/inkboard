@@ -17,12 +17,13 @@ import {
 //   shapes: { id, type, seed, x1, y1, x2, y2, stroke, fill, strokeWidth, sketchy }
 //   pen:    { id, type, points: [[x, y, pressure]], pressure, stroke, penSize }
 //   text:   { id, type, x1, y1, text, stroke, fontSize, font }
+//   image:  { id, type, imageId, x1, y1, x2, y2 }   (imageId names a file stored on the server)
 //
-// Rectangles, ellipses, pen strokes and text can also carry `angle` (radians):
+// Rectangles, ellipses, images, pen strokes and text can also carry `angle` (radians):
 // they are drawn turned about the centre of their box. Lines and arrows have two
 // ends instead, so they are reshaped by moving an end.
 
-const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "pen", "text"]);
+const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "image", "pen", "text"]);
 export const canRotate = (element) => TURNABLE_TYPES.has(element.type);
 
 export const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -56,6 +57,11 @@ export function createElement(type, { x, y }, style, pressure) {
     strokeWidth: style.strokeWidth,
     sketchy: style.sketchy,
   };
+}
+
+/** A picture placed with its top left corner at (x, y). */
+export function createImage(imageId, { x, y }, { width, height }) {
+  return { id: newId(), type: "image", imageId, x1: x, y1: y, x2: x + width, y2: y + height };
 }
 
 let measureContext;
@@ -108,6 +114,9 @@ export function getLocalBounds(element) {
       bounds = expandRect({ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }, element.strokeWidth);
       break;
     }
+    case "image":
+      bounds = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+      break;
     default:
       bounds = expandRect(
         normalizeRect(element.x1, element.y1, element.x2, element.y2),
@@ -203,6 +212,7 @@ export function hitTest(element, pointX, pointY, tolerance) {
       return false;
     }
     case "text":
+    case "image":
       return true; // inside its (tolerance-expanded) bounds, checked above
     default:
       return false;

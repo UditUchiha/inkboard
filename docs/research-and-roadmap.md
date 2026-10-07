@@ -27,7 +27,7 @@ A living document. It records what we learned about the whiteboard market, what 
 
 - **Sync model:** every change is an operation `{ upsert: [element], remove: [id] }`, sent over Socket.IO. The server applies it to an in-memory session and flushes to MongoDB about once a second, and when the last person leaves.
 - **Conflict handling:** last-writer-wins **per element**. Fine for strokes and shapes; it will be exposed by frames, bound connectors and in-place text editing (see section 8).
-- **Elements are small JSON objects**, stored together in one array on the board document. Operations are capped at 2 MB (`maxHttpBufferSize`), boards at 5,000 elements, one element at 500 KB and a whole board at 12 MB, all measured as MongoDB stores them (BSON, two to three times the JSON size for pen strokes). Images therefore cannot be embedded as base64.
+- **Elements are small JSON objects**, stored together in one array on the board document. Socket messages are capped at 3 MB (`maxHttpBufferSize`, sized for one image upload), boards at 5,000 elements, one element at 500 KB and a whole board at 12 MB, all measured as MongoDB stores them (BSON, two to three times the JSON size for pen strokes). Images therefore cannot be embedded as base64; they are stored as separate files and elements hold only an image id (see `docs/image-storage.md`).
 - **Single server instance** with in-memory sessions. A hard crash can lose whatever has not been saved yet: a quarter of a second for a small board, up to a few seconds for a very large one (the delay grows with the board's size, because saving a big board costs real time). A normal shutdown flushes everything first.
 - **Per-person state** lives in a `BoardState` collection: `lastOpenedAt` and `archived`. Stars live on the board (`starredBy`); trash is the board's `deletedAt` (owner only, hides the board for everyone, erased after 30 days).
 - **Dashboard payload:** the board list endpoint returns every board's full drawing so thumbnails can be rendered client-side. This will not scale to many large boards.
@@ -53,6 +53,7 @@ A living document. It records what we learned about the whiteboard market, what 
 | 2026-10-06 | Comments are for signed-in people only; link visitors (including editors) cannot see or write them. Link editors also cannot clear a board or see version history or the member list | Comments and mentions need real identities to notify. Clearing a board is too destructive to give anonymous link holders when the same edit link is shared widely |
 | 2026-10-06 | Version history: a checkpoint is saved before the first change after 10 quiet minutes, the newest 50 automatic ones are kept per board, named versions are kept, and a restore saves the current board first so it can be undone | Gives a recovery point before each burst of work without a version per stroke. Pruning bounds the storage, except for named versions (see section 8) |
 | 2026-10-06 | Notifications (mentions, replies, invites) expire after 60 days; trash after 30 days; each person can keep 30 templates | Keeps the free database small without a cleanup job for notifications (a MongoDB TTL index handles it) |
+| 2026-10-07 | Images are stored in MongoDB GridFS behind a four-function storage layer (`image-storage.js`), uploaded over the board socket, served at `/api/images/:id` by a random 128-bit id with a one-year immutable cache. They are shrunk in the browser (2000 px, WebP, under 1.8 MB), capped at 2 MB each and 25 MB per board, and checked by file signature. SVG is refused. Templates skip images. Files go when their board is deleted for good. Space is also capped per owner (100 MB, all their boards) and for the whole app (300 MB), uploads are handled one at a time, and images no board or version shows are swept after an hour | GridFS needs no new account, so it works on a fresh deploy. The socket reuses the edit permission check, so guests with an edit link can add images and viewers cannot. Access by unguessable id is how Google Docs and Miro do it; the cost is that a copied link keeps working after a board is restricted. R2 and Cloudinary are the upgrade path |
 
 ---
 
@@ -142,7 +143,7 @@ Every major competitor has these. They are the cost of being taken seriously as 
 | Feature | Notes |
 | --- | --- |
 | ~~Resize and rotate handles~~ | Done: see the backlog |
-| Image upload | Needs blob storage; operations must carry URLs, never base64 |
+| ~~Image upload~~ | Done: see the backlog and `docs/image-storage.md` |
 | Sticky notes | Cheap on top of text and shapes |
 | Frames | Parent-child behaviour: moving a frame must emit operations for its children |
 | Connectors that stay attached to shapes | Needs binding fix-ups when an endpoint moves |
@@ -319,7 +320,8 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 ### P0: foundations everything else needs
 
 - [x] **Resize and rotate handles:** shapes, strokes and text resize from any side or corner (opposite side stays fixed, even when turned) and turn about their centre; lines and arrows have end handles. Shift keeps proportions or snaps turns to 15°. One undo step per gesture.
-- [ ] **Image upload** (M). Decision needed: where files are stored (see section 11)
+- [x] **Image upload:** toolbar button, paste and drop; shrunk in the browser (2000 px, WebP), stored in MongoDB GridFS behind a one-file storage layer; permission-checked over the board's socket; resize, turn, undo, PNG export and guests with an edit link all work. Options for R2 and Cloudinary are in `docs/image-storage.md`
+- [ ] **Image follow-ups** (S-M each): small thumbnails for the dashboard; show owners how much image space they use; move storage to R2 when the database nears 300 MB; crop, and alt text
 - [ ] **SVG and JSON export and import** (S)
 - [x] **Automated test suite:** server API and sockets, client store and dashboard rules, client/server parity, CI (browser end-to-end flows still to do)
 - [x] **Durability hardening:** quicker, size-aware saves; element and board size limits (an append-only operation log would close the rest)
@@ -367,7 +369,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 ## 11. Open decisions
 
 1. **Which headline differentiator first?** (section 9: A suggest-mode links, B replay, C classroom, D math, E API and MCP). Suggested: A, then B.
-2. **Where do image files live?** MongoDB GridFS needs no new account but the Atlas free tier is 512 MB; Cloudinary or Cloudflare R2 give more room at the cost of a new account and keys. Suggested: GridFS first, move later if needed. Access control can start with long random file URLs that only people who can open the board will see; the trade-off is that a copied URL keeps working after a board becomes restricted. Signed short-lived URLs are the stricter alternative.
+2. **Where do image files live?** *Decided 2026-10-07: MongoDB GridFS for now; R2 and Cloudinary are written up in `docs/image-storage.md` for later.* The Atlas free tier is 512 MB shared with all board data, so revisit when the database passes about 300 MB. Access control can start with long random file URLs that only people who can open the board will see; the trade-off is that a copied URL keeps working after a board becomes restricted. Signed short-lived URLs are the stricter alternative.
 3. **Merge and deploy:** the `account-features` branch is pushed but not merged to `main`, so the live Render app does not have any of it. Deploying also needs the Google and GitHub OAuth keys set on the server.
 4. **Per-person versus owner trash:** keep "owner trash hides the board for everyone" (with notifications), or switch to Overleaf and Canva's per-person trash?
 5. **Browser end-to-end tests:** add Playwright as a dev dependency (it downloads a browser, about 150 MB, in CI too) so the dashboard and sharing flows are checked automatically? Suggested: yes, a handful of flows, once the next features settle the UI.
