@@ -239,7 +239,7 @@ For each idea, did we find a product that already does it?
 
 - [ ] **Per-element last-writer-wins** will break down with frames, bound connectors and in-place text editing. Budget a small per-element version field (or vector clock) before adding those.
 - [x] **Durability (improved):** small boards now save within about 250 ms (was 1 s), the delay scales with board size, and saves go through the faster driver path. Graceful shutdown already flushes open boards. *Still open:* a hard crash loses what has not been saved yet; closing that completely needs an append-only operation log (which would also give us replay, see idea B).
-- [x] **Unbounded element size (fixed):** found and reproduced during the test work. Element validation only checked `id` and `type`, so any editor, including an anonymous guest on an editable link, could push a board past MongoDB's 16 MB limit and break saving for everyone. Now capped (see section 1). *Still open:* element fields other than size are not validated per type (for example, a rectangle with text-length strings); consider a per-type schema.
+- [x] **Unbounded element size (fixed):** found and reproduced during the test work. Element validation only checked `id` and `type`, so any editor, including an anonymous guest on an editable link, could push a board past MongoDB's 16 MB limit and break saving for everyone. Now capped (see section 1). Every element is also checked against rules for its type (`element-rules.js`): broken geometry or content is refused, odd style values are reset or clamped, and unknown fields are dropped.
 - [x] **Dashboard payload (fixed):** the board list now sends thinned previews instead of full drawings, and thumbnails use small picture copies (see section 1).
 - [x] **Automated tests (server and client done):** 119 tests run with `npm test` and in GitHub Actions. *Still open:* browser end-to-end flows (the dashboard and sharing were checked by hand in a browser, not by a repeatable test). Adding them means a Playwright dev dependency and a browser download in CI.
 - [ ] **Free-tier hosting** sleeps after inactivity; the GitHub Actions keep-alive covers this only while the workflow runs.
@@ -329,7 +329,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] **Automated test suite:** server API and sockets, client store and dashboard rules, client/server parity, CI (browser end-to-end flows still to do)
 - [x] **Durability hardening:** quicker, size-aware saves; element and board size limits (an append-only operation log would close the rest)
 - [ ] **Browser end-to-end tests** for the main flows: share a link, draw as a guest, dashboard actions (S-M, adds a Playwright dev dependency)
-- [ ] **Per-type element validation** on the server (S-M)
+- [x] **Per-type element validation** on the server: geometry and content must be right, style values are repaired, unknown fields are dropped
 - [x] **Dashboard thumbnails:** the board list sends thinned, cached previews instead of full drawings; thumbnails use small picture copies; pictures keep their colors in dark mode
 - [ ] **Run one real Google and one real GitHub sign-in** after the keys are set, and tick this off (S)
 - [ ] **Email verification** at sign-up (S-M, needs an email provider; see open decision 7)
