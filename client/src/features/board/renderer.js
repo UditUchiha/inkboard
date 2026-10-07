@@ -4,25 +4,34 @@ import { LINE_HEIGHT } from "./constants";
 import { arrowHeadLength, canRotate, fontFor, getBounds, getLocalBounds } from "./elements";
 import { arrowHeadPoints, expandRect, normalizeRect, rectCenter } from "./geometry";
 import { getImage } from "./images";
+import { darkInk } from "./ink";
 import { getSelectionBox } from "./transform";
 
 const generator = rough.generator();
 
-// Elements are immutable, so generated shapes can be cached per object.
-const drawableCache = new WeakMap();
+// How the scene being rendered is drawn: its colors (as stored, or as dark mode
+// shows them, see ink.js) and whether pictures come from their small copies
+// (for thumbnails). Set by renderScene.
+const sameInk = (color) => color;
+let ink = sameInk;
+let smallPictures = false;
+
+// Elements are immutable, so generated shapes can be cached per object. Shapes
+// carry their colors, so light and dark mode each have their own.
+const drawableCaches = { light: new WeakMap(), dark: new WeakMap() };
 const penPathCache = new WeakMap();
 
 function roughOptions(element) {
   const sketchy = element.sketchy !== false;
   return {
     seed: element.seed,
-    stroke: element.stroke,
+    stroke: ink(element.stroke),
     strokeWidth: element.strokeWidth,
     roughness: sketchy ? 1.1 : 0,
     bowing: sketchy ? 1 : 0,
     disableMultiStroke: !sketchy,
     preserveVertices: !sketchy,
-    fill: element.fill || undefined,
+    fill: element.fill ? ink(element.fill) : undefined,
     fillStyle: sketchy ? "hachure" : "solid",
     fillWeight: Math.max(element.strokeWidth / 2, 0.75),
     hachureGap: 4 + element.strokeWidth * 2,
@@ -102,15 +111,15 @@ function drawElement(ctx, roughCanvas, element) {
 
 // A picture, or a plain box in its place while it downloads (or if it can't).
 function drawPicture(ctx, element) {
-  const { image, state } = getImage(element.imageId);
+  const { image, state } = getImage(element.imageId, { small: smallPictures });
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   ctx.save();
   if (state === "ready") {
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(image, x, y, width, height);
   } else {
-    ctx.fillStyle = "rgba(128, 128, 128, 0.12)";
-    ctx.strokeStyle = "rgba(128, 128, 128, 0.6)";
+    ctx.fillStyle = ink("rgba(128, 128, 128, 0.12)");
+    ctx.strokeStyle = ink("rgba(128, 128, 128, 0.6)");
     ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 5]);
     ctx.fillRect(x, y, width, height);
@@ -135,7 +144,7 @@ function drawUnturned(ctx, roughCanvas, element) {
   }
 
   if (element.type === "pen") {
-    ctx.fillStyle = element.stroke;
+    ctx.fillStyle = ink(element.stroke);
     ctx.fill(penPath(element));
     return;
   }
@@ -143,7 +152,7 @@ function drawUnturned(ctx, roughCanvas, element) {
   if (element.type === "text") {
     ctx.save();
     ctx.font = fontFor(element);
-    ctx.fillStyle = element.stroke;
+    ctx.fillStyle = ink(element.stroke);
     ctx.textBaseline = "top";
     const lineHeight = element.fontSize * LINE_HEIGHT;
     // Match the half-leading a <textarea> adds, so editing doesn't shift text.
@@ -155,6 +164,7 @@ function drawUnturned(ctx, roughCanvas, element) {
     return;
   }
 
+  const drawableCache = ink === sameInk ? drawableCaches.light : drawableCaches.dark;
   let drawables = drawableCache.get(element);
   if (!drawables) {
     drawables = buildDrawables(element);
@@ -171,7 +181,7 @@ const HANDLE_SIZE = 9; // screen pixels
 function drawSelection(ctx, element, zoom) {
   const selection = getSelectionBox(element, zoom);
   ctx.save();
-  ctx.strokeStyle = SELECTION_COLOR;
+  ctx.strokeStyle = ink(SELECTION_COLOR);
   ctx.lineWidth = 1.5 / zoom;
   ctx.setLineDash([5 / zoom, 4 / zoom]);
 
@@ -195,7 +205,7 @@ function drawSelection(ctx, element, zoom) {
   }
 
   ctx.setLineDash([]);
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = ink("#ffffff");
   const size = HANDLE_SIZE / zoom;
   for (const handle of selection.handles) {
     ctx.beginPath();
@@ -212,7 +222,16 @@ function isVisible(element, view) {
   return b.x <= view.x + view.width && b.x + b.width >= view.x && b.y <= view.y + view.height && b.y + b.height >= view.y;
 }
 
-export function renderScene(canvas, { elements, viewport, dpr = 1, selectedId, hiddenId, background }) {
+/**
+ * Draws `elements` onto `canvas`. Pass `dark` to draw them as dark mode shows
+ * them (pictures keep their own colors), and `smallImages` for thumbnails.
+ */
+export function renderScene(
+  canvas,
+  { elements, viewport, dpr = 1, selectedId, hiddenId, background, dark = false, smallImages = false },
+) {
+  ink = dark ? darkInk : sameInk;
+  smallPictures = smallImages;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);

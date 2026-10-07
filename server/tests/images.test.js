@@ -134,6 +134,26 @@ describe("uploading images", () => {
     });
   });
 
+  it("keeps a small copy for thumbnails, and serves the image itself when there is none", async () => {
+    const { boardId, client } = await ownerOnBoard();
+    const full = png(50_000);
+    const small = webp();
+    const withSmall = ok(await client.image(boardId, full, small));
+    assert.deepEqual(Buffer.from(await (await fetch(`${imageUrl(withSmall)}/small`)).arrayBuffer()), small);
+    assert.deepEqual(Buffer.from(await (await fetch(imageUrl(withSmall))).arrayBuffer()), full);
+
+    const without = ok(await client.image(boardId, full));
+    assert.deepEqual(Buffer.from(await (await fetch(`${imageUrl(without)}/small`)).arrayBuffer()), full);
+  });
+
+  it("drops a small copy that isn't a picture or is too big, but keeps the image", async () => {
+    const { boardId, client } = await ownerOnBoard();
+    for (const small of [Buffer.from("not a picture, just some words"), png(300_000)]) {
+      const id = ok(await client.image(boardId, png(), small));
+      assert.equal((await fetch(`${imageUrl(id)}/small`)).headers.get("content-length"), String(png().length));
+    }
+  });
+
   it("answers 404 for an image that doesn't exist and for a malformed id", async () => {
     assert.equal((await fetch(imageUrl("0".repeat(32)))).status, 404);
     assert.equal((await fetch(imageUrl("not-an-id"))).status, 404);
@@ -230,7 +250,7 @@ describe("cleaning up images nothing shows", () => {
   it("deletes old images that neither the board nor its versions show, and keeps the rest", async () => {
     const { owner, boardId, client } = await ownerOnBoard();
     const placed = ok(await client.image(boardId, png()));
-    const unused = ok(await client.image(boardId, png()));
+    const unused = ok(await client.image(boardId, png(), webp()));
     const inVersion = ok(await client.image(boardId, png()));
     await client.op(boardId, upsert(picture(placed, "a"), picture(inVersion, "b")));
     const saved = await app.request(`/boards/${boardId}/versions`, { method: "POST", user: owner, body: { label: "V" } });
@@ -242,6 +262,7 @@ describe("cleaning up images nothing shows", () => {
 
     assert.equal(await sweepUnusedImages({ boards: [boardId], uploadedBefore: new Date(Date.now() + 1000) }), 1);
     assert.equal(await status(unused), 404);
+    assert.equal((await fetch(`${imageUrl(unused)}/small`)).status, 404);
     assert.equal(await status(placed), 200);
     assert.equal(await status(inVersion), 200);
   });

@@ -15,9 +15,11 @@ import {
   populateMembers,
   roleOf,
   serializeBoard,
+  serializeListed,
   serializeMeta,
 } from "../services/boards.js";
 import { notify } from "../services/notifications.js";
+import { boardPreviews } from "../services/previews.js";
 
 export const TRASH_DAYS = 30;
 const DAY_MS = 24 * 3600 * 1000;
@@ -44,17 +46,15 @@ export async function listBoards(req, res) {
       { _id: { $in: states.map((state) => state.board) }, linkAccess: { $in: ["view", "edit"] } },
     ],
   })
+    // Drawings can be megabytes each; the dashboard only needs previews of them.
+    .select("-elements")
     .sort({ updatedAt: -1 })
     .populate(populateMembers);
+  const previews = await boardPreviews(boards);
 
   res.json({
     boards: boards.map((board) =>
-      serializeBoard(
-        board,
-        req.userId,
-        getLiveElements(board.id) ?? board.elements,
-        stateByBoard.get(board.id) ?? null,
-      ),
+      serializeListed(board, req.userId, previews.get(board.id) ?? [], stateByBoard.get(board.id) ?? null),
     ),
   });
 }
@@ -174,17 +174,19 @@ export async function deleteBoard(req, res) {
   res.status(204).end();
 }
 
-const serializeTrashed = (board, userId) => ({
-  ...serializeBoard(board, userId),
+const serializeTrashed = (board, userId, preview) => ({
+  ...serializeListed(board, userId, preview),
   deletedAt: board.deletedAt,
   purgeAt: new Date(board.deletedAt.getTime() + TRASH_DAYS * DAY_MS),
 });
 
 export async function listTrash(req, res) {
   const boards = await Board.find({ owner: req.userId, deletedAt: { $ne: null } })
+    .select("-elements")
     .sort({ deletedAt: -1 })
     .populate(populateMembers);
-  res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId)) });
+  const previews = await boardPreviews(boards);
+  res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId, previews.get(board.id) ?? [])) });
 }
 
 async function findTrashed(boardId, userId) {

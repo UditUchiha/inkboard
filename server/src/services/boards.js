@@ -119,6 +119,12 @@ export function serializeBoard(board, userId, elements = board.elements, state =
   };
 }
 
+/** A board as the dashboard lists it: a `preview` to draw (see previews.js) instead of its elements. */
+export function serializeListed(board, userId, preview, state = undefined) {
+  const { elements: _elements, ...listed } = serializeBoard(board, userId, [], state);
+  return { ...listed, preview };
+}
+
 /**
  * Remembers that this person opened the board. For a board shared by link this is
  * what puts it on their dashboard. Best effort: failing to record never blocks opening.

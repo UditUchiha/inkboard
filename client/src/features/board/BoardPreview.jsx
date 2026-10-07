@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useElementSize } from "../../lib/useElementSize";
+import { useTheme } from "../../providers/ThemeProvider";
 import { getSceneBounds } from "./elements";
 import { fitViewport } from "./geometry";
 import { imagesVersion, subscribeImages } from "./images";
@@ -13,6 +14,7 @@ export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, c
   const size = useElementSize(containerRef);
   const [fontsReady, setFontsReady] = useState(false);
   const picturesLoaded = useSyncExternalStore(subscribeImages, imagesVersion);
+  const { theme } = useTheme();
 
   useEffect(() => {
     let active = true;
@@ -30,12 +32,12 @@ export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, c
     canvas.height = Math.round(size.height * dpr);
     const bounds = getSceneBounds(elements);
     const viewport = bounds ? fitViewport(bounds, size, { padding, maxZoom }) : { x: 0, y: 0, zoom: 1 };
-    renderScene(canvas, { elements, viewport, dpr });
-  }, [elements, size, padding, maxZoom, fontsReady, picturesLoaded]);
+    renderScene(canvas, { elements, viewport, dpr, dark: theme === "dark", smallImages: true });
+  }, [elements, size, padding, maxZoom, fontsReady, picturesLoaded, theme]);
 
   return (
     <div ref={containerRef} className={clsx("relative overflow-hidden", className)}>
-      <canvas ref={canvasRef} className="canvas-ink absolute inset-0 h-full w-full" aria-hidden />
+      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden />
       {children}
     </div>
   );

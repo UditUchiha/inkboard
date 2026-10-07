@@ -13,6 +13,7 @@ import { deleteImages, imageBytes, listImages, putImage } from "./image-storage.
 // owns, whoever added the pictures), and for the whole app. Tests lower these.
 export const IMAGE_LIMITS = {
   image: 2_000_000,
+  small: 200_000, // the small copy thumbnails draw from
   board: 25_000_000,
   owner: 100_000_000,
   total: 300_000_000,
@@ -59,23 +60,24 @@ async function limitBroken(boardId, ownerBoards, bytes) {
 }
 
 /**
- * Stores an image for a board if there is room. Resolves with `{ id }`, with
+ * Stores an image (with its small copy `{ buffer, mime }`, if any) for a board if there is room. Resolves with `{ id }`, with
  * `{ full }` naming the limit it would break, or `{ missing }` if the board is gone. When there's no room, images
  * nothing shows any more are swept first, so removing pictures frees space.
  */
-export function storeImage({ boardId, buffer, mime, uploadedBy }) {
+export function storeImage({ boardId, buffer, mime, uploadedBy, small }) {
   return oneAtATime(async () => {
     const board = await Board.findById(boardId).select("owner").lean();
     if (!board) return { missing: true };
     const ownerBoards = (await Board.find({ owner: board.owner }).distinct("_id")).map(String);
 
-    let full = await limitBroken(boardId, ownerBoards, buffer.length);
+    const bytes = buffer.length + (small?.buffer.length ?? 0);
+    let full = await limitBroken(boardId, ownerBoards, bytes);
     if (full) {
       await sweepUnusedImages({ boards: full === "total" ? undefined : ownerBoards });
-      full = await limitBroken(boardId, ownerBoards, buffer.length);
+      full = await limitBroken(boardId, ownerBoards, bytes);
     }
     if (full) return { full };
-    return { id: await putImage({ board: boardId, buffer, mime, uploadedBy }) };
+    return { id: await putImage({ board: boardId, buffer, mime, uploadedBy, small }) };
   });
 }
 

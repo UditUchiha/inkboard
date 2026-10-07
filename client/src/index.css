@@ -118,8 +118,11 @@
   }
 
   /*
-   * Drawings are stored in their light-mode colors. In dark mode the canvas is
+   * Drawings are stored in their light-mode colors. In dark mode they are
    * inverted and hue-rotated, so ink becomes chalk while hues stay recognisable.
+   * This filter does it for things drawn outside the board canvas (color
+   * swatches, text being edited); the board canvas converts its own colors with
+   * the same maths (features/board/ink.js), so pictures on it stay untouched.
    */
   [data-theme="dark"] .canvas-ink {
     filter: invert(93%) hue-rotate(180deg);

@@ -18,8 +18,8 @@ function subtitle(board, trashed) {
 export function BoardCard({ board, trashed = false, actions }) {
   const members = [board.owner, ...board.collaborators];
   const preview = (
-    <BoardPreview elements={board.elements} className="aspect-[16/10]">
-      {board.elements.length === 0 && (
+    <BoardPreview elements={board.preview} className="aspect-[16/10]">
+      {board.preview.length === 0 && (
         <span className="absolute inset-0 grid place-items-center text-sm text-graphite">Empty board</span>
       )}
     </BoardPreview>

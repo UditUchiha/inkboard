@@ -118,7 +118,8 @@ export async function startServer() {
       last: (name) => client.of(name).at(-1),
       join: (boardId) => new Promise((resolve) => socket.emit("board:join", { boardId }, resolve)),
       leave: () => socket.emit("board:leave"),
-      image: (boardId, data) => new Promise((resolve) => socket.emit("board:image", { boardId, data }, resolve)),
+      image: (boardId, data, small) =>
+        new Promise((resolve) => socket.emit("board:image", { boardId, data, small }, resolve)),
       op: (boardId, op) => new Promise((resolve) => socket.emit("board:op", { boardId, op }, resolve)),
       close: () => socket.disconnect(),
     };

@@ -18,6 +18,7 @@ const find = (boards, id) => boards.find((board) => board.id === id);
 const setLink = (user, id, linkAccess) => app.request(`/boards/${id}/link-access`, { method: "PATCH", user, body: { linkAccess } });
 const archive = (user, ids, archived) => app.request("/boards/archive", { method: "PATCH", user, body: { ids, archived } });
 const trash = (user, id) => app.request(`/boards/${id}`, { method: "DELETE", user });
+const listTrash = async (user) => (await app.request("/boards/trash", { user })).data.boards;
 const invite = (owner, id, person) => app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
 
 /** Opens the board over a socket, as a person looking at it would, then closes it. */
@@ -66,7 +67,34 @@ describe("the board list", () => {
     const client = await app.connect(owner);
     await client.join(id);
     await client.op(id, upsert(rect("live-1")));
-    assert.deepEqual(find(await list(owner), id).elements.map((element) => element.id), ["live-1"]);
+    assert.deepEqual(find(await list(owner), id).preview.map((element) => element.id), ["live-1"]);
+  });
+
+  it("sends a preview of each drawing rather than the drawing itself", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    const board = find(await list(owner), id);
+    assert.equal(board.elements, undefined);
+    assert.deepEqual(board.preview, []);
+  });
+
+  it("brings a saved board's preview up to date after each change", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    const previewIds = async () => find(await list(owner), id).preview.map((element) => element.id);
+
+    for (const [element, expected] of [
+      ["a", ["a"]],
+      ["b", ["a", "b"]],
+    ]) {
+      const client = await app.connect(owner);
+      await client.join(id);
+      await client.op(id, upsert(rect(element)));
+      client.close();
+      await eventually(async () => JSON.stringify(await previewIds()) === JSON.stringify(expected), {
+        message: `the preview showing ${expected}`,
+      });
+    }
   });
 });
 
@@ -230,16 +258,16 @@ describe("trash", () => {
     assert.equal((await (await app.connect(editor)).join(id)).status, 404);
     assert.equal((await (await app.connect(null)).join(id)).status, 404);
 
-    const trashed = await app.request("/boards/trash", { user: owner });
-    const row = find(trashed.data.boards, id);
+    const row = find(await listTrash(owner), id);
     assert.ok(row.deletedAt);
+    assert.deepEqual(row.preview.map((element) => element.id), ["keep-me"], "the trash shows a preview");
     assert.equal(new Date(row.purgeAt) - new Date(row.deletedAt), TRASH_DAYS * 24 * 3600 * 1000);
     assert.deepEqual((await app.request("/boards/trash", { user: editor })).data.boards, [], "only the owner has a trash for it");
 
     const restored = await app.request(`/boards/${id}/restore`, { method: "POST", user: owner });
     assert.equal(restored.status, 200);
     const back = find(await list(owner), id);
-    assert.deepEqual(back.elements.map((element) => element.id), ["keep-me"], "the latest drawing came back");
+    assert.deepEqual(back.preview.map((element) => element.id), ["keep-me"], "the latest drawing came back");
     assert.ok(find(await list(editor), id), "and the editor has it again");
   });
 

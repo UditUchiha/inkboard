@@ -313,8 +313,9 @@ export function BoardEditor({ store, sync, user, local = null }) {
         const progress = toast.loading(files.length > 1 ? `Adding image ${index + 1} of ${files.length}…` : "Adding image…");
         try {
           const picked = await prepareImage(file);
-          const id = await uploadImage(sync.socket, board.id, picked.blob);
+          const id = await uploadImage(sync.socket, board.id, picked);
           primeImage(id, picked.blob);
+          if (picked.small) primeImage(id, picked.small, { small: true });
 
           const { viewport: vp, canvasSize: size } = view.current;
           const area = { width: size.width / vp.zoom, height: size.height / vp.zoom };

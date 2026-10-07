@@ -30,7 +30,8 @@ A living document. It records what we learned about the whiteboard market, what 
 - **Elements are small JSON objects**, stored together in one array on the board document. Socket messages are capped at 3 MB (`maxHttpBufferSize`, sized for one image upload), boards at 5,000 elements, one element at 500 KB and a whole board at 12 MB, all measured as MongoDB stores them (BSON, two to three times the JSON size for pen strokes). Images therefore cannot be embedded as base64; they are stored as separate files and elements hold only an image id (see `docs/image-storage.md`).
 - **Single server instance** with in-memory sessions. A hard crash can lose whatever has not been saved yet: a quarter of a second for a small board, up to a few seconds for a very large one (the delay grows with the board's size, because saving a big board costs real time). A normal shutdown flushes everything first.
 - **Per-person state** lives in a `BoardState` collection: `lastOpenedAt` and `archived`. Stars live on the board (`starredBy`); trash is the board's `deletedAt` (owner only, hides the board for everyone, erased after 30 days).
-- **Dashboard payload:** the board list endpoint returns every board's full drawing so thumbnails can be rendered client-side. This will not scale to many large boards.
+- **Dashboard payload:** the board list sends a preview of each board instead of its drawing: pen strokes thinned to what a thumbnail can show, at most 1,000 elements (the biggest), cached per board until it changes. Thumbnails draw pictures from a small copy (about 400 px) stored with each image.
+- **Dark mode** converts each ink color on the canvas (`ink.js`, the same maths as the CSS `invert(93%) hue-rotate(180deg)` used for swatches), so pictures are drawn in their own colors.
 
 ---
 
@@ -54,6 +55,8 @@ A living document. It records what we learned about the whiteboard market, what 
 | 2026-10-06 | Version history: a checkpoint is saved before the first change after 10 quiet minutes, the newest 50 automatic ones are kept per board, named versions are kept, and a restore saves the current board first so it can be undone | Gives a recovery point before each burst of work without a version per stroke. Pruning bounds the storage, except for named versions (see section 8) |
 | 2026-10-06 | Notifications (mentions, replies, invites) expire after 60 days; trash after 30 days; each person can keep 30 templates | Keeps the free database small without a cleanup job for notifications (a MongoDB TTL index handles it) |
 | 2026-10-07 | Images are stored in MongoDB GridFS behind a four-function storage layer (`image-storage.js`), uploaded over the board socket, served at `/api/images/:id` by a random 128-bit id with a one-year immutable cache. They are shrunk in the browser (2000 px, WebP, under 1.8 MB), capped at 2 MB each and 25 MB per board, and checked by file signature. SVG is refused. Templates skip images. Files go when their board is deleted for good. Space is also capped per owner (100 MB, all their boards) and for the whole app (300 MB), uploads are handled one at a time, and images no board or version shows are swept after an hour | GridFS needs no new account, so it works on a fresh deploy. The socket reuses the edit permission check, so guests with an edit link can add images and viewers cannot. Access by unguessable id is how Google Docs and Miro do it; the cost is that a copied link keeps working after a board is restricted. R2 and Cloudinary are the upgrade path |
+| 2026-10-07 | Dark mode converts ink colors in the renderer instead of filtering the whole canvas with CSS | The CSS filter turned photos into near-negatives, and no pre-correction can undo it: saturated colors such as pure red are outside what the filter can output. Converting colors with the filter's own maths keeps drawings looking exactly as before (checked against Chromium over 223 colors, within 2/255) and leaves pictures alone |
+| 2026-10-07 | Dashboard thumbnails are drawn in the browser from server-made previews (thinned pen strokes, capped element count, small picture copies), not stored as images | A stored thumbnail image would be wrong in dark mode (it would need a second copy per theme), goes stale when nobody with edit rights reopens the board, and needs an upload path. Previews are always current, cost no storage, and are cached by the board's `updatedAt` |
 
 ---
 
@@ -237,7 +240,7 @@ For each idea, did we find a product that already does it?
 - [ ] **Per-element last-writer-wins** will break down with frames, bound connectors and in-place text editing. Budget a small per-element version field (or vector clock) before adding those.
 - [x] **Durability (improved):** small boards now save within about 250 ms (was 1 s), the delay scales with board size, and saves go through the faster driver path. Graceful shutdown already flushes open boards. *Still open:* a hard crash loses what has not been saved yet; closing that completely needs an append-only operation log (which would also give us replay, see idea B).
 - [x] **Unbounded element size (fixed):** found and reproduced during the test work. Element validation only checked `id` and `type`, so any editor, including an anonymous guest on an editable link, could push a board past MongoDB's 16 MB limit and break saving for everyone. Now capped (see section 1). *Still open:* element fields other than size are not validated per type (for example, a rectangle with text-length strings); consider a per-type schema.
-- [ ] **Dashboard payload:** the board list returns every board's full drawing. Store a small thumbnail (or a cap of elements) per board instead.
+- [x] **Dashboard payload (fixed):** the board list now sends thinned previews instead of full drawings, and thumbnails use small picture copies (see section 1).
 - [x] **Automated tests (server and client done):** 119 tests run with `npm test` and in GitHub Actions. *Still open:* browser end-to-end flows (the dashboard and sharing were checked by hand in a browser, not by a repeatable test). Adding them means a Playwright dev dependency and a browser download in CI.
 - [ ] **Free-tier hosting** sleeps after inactivity; the GitHub Actions keep-alive covers this only while the workflow runs.
 - [ ] **Owner trash hides a board for everyone.** Collaborators should be notified when it happens.
@@ -321,13 +324,13 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 
 - [x] **Resize and rotate handles:** shapes, strokes and text resize from any side or corner (opposite side stays fixed, even when turned) and turn about their centre; lines and arrows have end handles. Shift keeps proportions or snaps turns to 15°. One undo step per gesture.
 - [x] **Image upload:** toolbar button, paste and drop; shrunk in the browser (2000 px, WebP), stored in MongoDB GridFS behind a one-file storage layer; permission-checked over the board's socket; resize, turn, undo, PNG export and guests with an edit link all work. Options for R2 and Cloudinary are in `docs/image-storage.md`
-- [ ] **Image follow-ups** (S-M each): small thumbnails for the dashboard; show owners how much image space they use; move storage to R2 when the database nears 300 MB; crop, and alt text
+- [ ] **Image follow-ups** (S-M each): show owners how much image space they use; move storage to R2 when the database nears 300 MB; crop, and alt text
 - [ ] **SVG and JSON export and import** (S)
 - [x] **Automated test suite:** server API and sockets, client store and dashboard rules, client/server parity, CI (browser end-to-end flows still to do)
 - [x] **Durability hardening:** quicker, size-aware saves; element and board size limits (an append-only operation log would close the rest)
 - [ ] **Browser end-to-end tests** for the main flows: share a link, draw as a guest, dashboard actions (S-M, adds a Playwright dev dependency)
 - [ ] **Per-type element validation** on the server (S-M)
-- [ ] **Dashboard thumbnails:** stop sending full drawings in the board list (S-M)
+- [x] **Dashboard thumbnails:** the board list sends thinned, cached previews instead of full drawings; thumbnails use small picture copies; pictures keep their colors in dark mode
 - [ ] **Run one real Google and one real GitHub sign-in** after the keys are set, and tick this off (S)
 - [ ] **Email verification** at sign-up (S-M, needs an email provider; see open decision 7)
 - [ ] **Bound version-history storage** (S-M; see section 8)
@@ -370,7 +373,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 
 1. **Which headline differentiator first?** (section 9: A suggest-mode links, B replay, C classroom, D math, E API and MCP). Suggested: A, then B.
 2. **Where do image files live?** *Decided 2026-10-07: MongoDB GridFS for now; R2 and Cloudinary are written up in `docs/image-storage.md` for later.* The Atlas free tier is 512 MB shared with all board data, so revisit when the database passes about 300 MB. Access control can start with long random file URLs that only people who can open the board will see; the trade-off is that a copied URL keeps working after a board becomes restricted. Signed short-lived URLs are the stricter alternative.
-3. **Merge and deploy:** the `account-features` branch is pushed but not merged to `main`, so the live Render app does not have any of it. Deploying also needs the Google and GitHub OAuth keys set on the server.
+3. **Merge and deploy:** *Done 2026-10-07: account features, resize and rotate, and images are on `main`, and the OAuth keys are set on the server.* One real Google and one real GitHub sign-in are still to be tried (see the P0 backlog).
 4. **Per-person versus owner trash:** keep "owner trash hides the board for everyone" (with notifications), or switch to Overleaf and Canva's per-person trash?
 5. **Browser end-to-end tests:** add Playwright as a dev dependency (it downloads a browser, about 150 MB, in CI too) so the dashboard and sharing flows are checked automatically? Suggested: yes, a handful of flows, once the next features settle the UI.
 6. **Free-tier promise:** commit to unlimited boards for free? Check hosting and storage costs first.

@@ -43,6 +43,7 @@ browser                                   server                         MongoDB
 | Picked file, before shrinking | 25 MB | `client/src/features/board/images.js` |
 | Longest side after shrinking | 2000 px | same |
 | Files up to 400 KB and 2000 px | uploaded untouched | same |
+| Small copy for thumbnails | 400 px, at most 200 KB | same, and `IMAGE_LIMITS.small` on the server |
 | One stored image | 2 MB | `server/src/services/images.js` |
 | Images per board | 25 MB | same (`IMAGE_LIMITS`) |
 | Images across all the boards one account owns, whoever added them | 100 MB | same |
@@ -57,7 +58,7 @@ Animated GIFs are drawn as a still picture, because the board is a canvas.
 
 - **Space comes back slowly.** Deleting a picture doesn't delete its file straight away, because undo and version history can bring it back. A sweep (every 6 hours, and whenever an upload hits a limit) deletes images that neither their board nor any of its saved versions shows, once they are over an hour old. A picture that made it into a version is kept until that version goes: automatic versions roll off after 50 newer ones, named versions stay until someone deletes them. Undoing the deletion of a swept picture shows a crossed-out box. All of a board's files go when the board is deleted for good.
 - **Templates leave images out.** A template outlives the board it came from, and images belong to a board. Saving a board as a template skips its pictures.
-- **Dashboard thumbnails** download the full pictures. A small thumbnail size is a follow-up (and ties in with sending thumbnails instead of whole drawings).
+- **Thumbnails use a small copy.** With each picture the browser also uploads a copy about 400 px on the long side (WebP, at most 200 KB, checked like the picture). Dashboard cards and version history draw from it at `/api/images/:id/small`; pictures uploaded before small copies existed fall back to the full file there.
 - **Images count against the board's owner**, not the person who added them, since guests have no account to count against. Someone with an edit link can use up the owner's space; the owner can close the link.
 
 ## The alternatives, for later

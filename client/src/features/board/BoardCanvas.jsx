@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useElementSize } from "../../lib/useElementSize";
+import { useTheme } from "../../providers/ThemeProvider";
 import { ERASER_RADIUS, GRID_SIZE, HIT_TOLERANCE, MAX_ZOOM, MIN_ZOOM } from "./constants";
 import { createElement, elementAt, hitTest, isDegenerate, translate } from "./elements";
 import { clamp, constrainEnd, toWorld, zoomAround } from "./geometry";
@@ -57,6 +58,7 @@ export function BoardCanvas({
   const size = useElementSize(containerRef);
   const fontsReady = useCanvasFontsReady();
   const picturesLoaded = useSyncExternalStore(subscribeImages, imagesVersion);
+  const { theme } = useTheme();
   const { elements } = useBoardSnapshot(store);
 
   const [panning, setPanning] = useState(false);
@@ -82,8 +84,8 @@ export function BoardCanvas({
     const height = Math.round(size.height * dpr);
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
-    renderScene(canvas, { elements, viewport, dpr, selectedId, hiddenId: editingId });
-  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded]);
+    renderScene(canvas, { elements, viewport, dpr, selectedId, hiddenId: editingId, dark: theme === "dark" });
+  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme]);
 
   const screenPoint = (event) => {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -352,7 +354,7 @@ export function BoardCanvas({
     <div ref={containerRef} className="graph-paper absolute inset-0" style={gridStyle(viewport)}>
       <canvas
         ref={canvasRef}
-        className="canvas-ink absolute inset-0 h-full w-full touch-none"
+        className="absolute inset-0 h-full w-full touch-none"
         style={{ cursor }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

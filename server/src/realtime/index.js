@@ -30,7 +30,7 @@ let io;
 export function attachRealtime(httpServer) {
   io = new Server(httpServer, {
     cors: { origin: env.clientOrigins },
-    // Room for an uploaded image (up to IMAGE_LIMITS.image) plus the message around it.
+    // Room for an uploaded image (up to IMAGE_LIMITS.image), its small copy, and the message around them.
     maxHttpBufferSize: 3e6,
   });
   io.use(authenticate);
@@ -79,6 +79,14 @@ function personOf(socket) {
 }
 
 const finite = (value) => Number.isFinite(Number(value));
+
+// The small copy sent with an image for thumbnails, or null. It's optional:
+// without one, thumbnails show the image itself, so a bad one is just dropped.
+function readSmallCopy(data) {
+  if (!Buffer.isBuffer(data) || data.length > IMAGE_LIMITS.small) return null;
+  const mime = detectImageType(data);
+  return mime ? { buffer: data, mime } : null;
+}
 
 // Why an image didn't fit, for the person who tried to add it.
 function spaceMessage(limit, role) {
@@ -153,7 +161,8 @@ function handleConnection(socket) {
     if (!mime) return reply({ ok: false, error: "Use a PNG, JPEG, WebP or GIF image." });
 
     try {
-      const stored = await storeImage({ boardId, buffer, mime, uploadedBy: socket.data.user?.id });
+      const small = readSmallCopy(payload.small);
+      const stored = await storeImage({ boardId, buffer, mime, small, uploadedBy: socket.data.user?.id });
       if (stored.missing) return reply({ ok: false, error: "This board doesn't exist any more." });
       if (stored.full) return reply({ ok: false, full: stored.full, error: spaceMessage(stored.full, socket.data.role) });
       reply({ ok: true, id: stored.id });

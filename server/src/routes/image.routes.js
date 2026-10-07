@@ -6,9 +6,9 @@ const router = Router();
 // Images are fetched by <img> tags, which can't send a login token, so access is
 // by knowing the image's random id (see image-storage.js). An image never changes
 // under its id, so browsers and CDNs may keep it for good.
-router.get("/:imageId", async (req, res, next) => {
+async function sendImage(req, res, next, { small = false } = {}) {
   try {
-    const image = await openImage(req.params.imageId);
+    const image = await openImage(req.params.imageId, { small });
     if (!image) return res.status(404).json({ error: "That image doesn't exist." });
 
     res.set({
@@ -24,6 +24,10 @@ router.get("/:imageId", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+}
+
+router.get("/:imageId", (req, res, next) => sendImage(req, res, next));
+// The small copy thumbnails draw from; the full image for images that have none.
+router.get("/:imageId/small", (req, res, next) => sendImage(req, res, next, { small: true }));
 
 export default router;
