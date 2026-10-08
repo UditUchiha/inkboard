@@ -27,24 +27,31 @@ export const PROVIDER_ICONS = { google: GoogleIcon, github: GitHubIcon };
 // The list rarely changes, so it's fetched once per page load.
 let providersRequest = null;
 
-export function useOAuthProviders() {
-  const [providers, setProviders] = useState([]);
+// What the server offers for signing in: Google and GitHub (when set up), and
+// whether email (verification, password reset) is on. Loaded once per page load.
+function useAuthOptions() {
+  const [options, setOptions] = useState({ providers: [], email: false });
   useEffect(() => {
     let active = true;
     providersRequest ??= api.listProviders().then(
-      (data) => data.providers,
+      (data) => ({ providers: data.providers, email: Boolean(data.email) }),
       () => {
         providersRequest = null;
-        return [];
+        return { providers: [], email: false };
       },
     );
-    providersRequest.then((list) => active && setProviders(list));
+    providersRequest.then((loaded) => active && setOptions(loaded));
     return () => {
       active = false;
     };
   }, []);
-  return providers;
+  return options;
 }
+
+export const useOAuthProviders = () => useAuthOptions().providers;
+
+/** Whether email verification and password reset are switched on. */
+export const useEmailEnabled = () => useAuthOptions().email;
 
 export const oauthStartUrl = (provider, next) =>
   `${API_URL}/api/auth/oauth/${provider}${next ? `?next=${encodeURIComponent(next)}` : ""}`;

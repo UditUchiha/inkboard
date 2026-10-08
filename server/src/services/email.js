@@ -1,20 +1,23 @@
 import { env } from "../config/env.js";
 
 // Sends email through Brevo's HTTP API (Render's free plan blocks SMTP ports).
-// Without BREVO_API_KEY and EMAIL_FROM, emails aren't sent: they're kept in
-// `outbox` (tests read it) and, in development, printed to the server log.
+// Email is optional: without BREVO_API_KEY and EMAIL_FROM, the features that
+// need it (verifying addresses, resetting passwords) are switched off, and
+// setting them later switches those on with no other change. Tests never send:
+// their emails are kept in `outbox` to be read back.
 
 const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 const OUTBOX_SIZE = 50;
 
-/** Emails "sent" while no email service is configured, newest last. */
+/** Emails "sent" by tests, or while no email service is configured, newest last. */
 export const outbox = [];
 
+/** Whether email is set up, and with it email verification and password reset. */
 export const emailConfigured = () => Boolean(env.email.brevoApiKey && env.email.from);
 
 /** Sends one email. Throws if the email service refuses it. */
 export async function sendEmail({ to, subject, text, html }) {
-  if (!emailConfigured()) {
+  if (!emailConfigured() || process.env.NODE_ENV === "test") {
     outbox.push({ to, subject, text, html });
     if (outbox.length > OUTBOX_SIZE) outbox.shift();
     if (env.isProduction) {

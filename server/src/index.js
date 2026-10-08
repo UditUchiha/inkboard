@@ -15,11 +15,8 @@ const io = attachRealtime(server);
 
 await connectDatabase();
 await verifyAccountsMadeByProviders();
-if (env.isProduction && !emailConfigured()) {
-  console.warn(
-    "Email isn't set up (BREVO_API_KEY, EMAIL_FROM): verification and password-reset emails won't be sent, " +
-      "so new accounts can't verify their address or be invited to boards.",
-  );
+if (!emailConfigured()) {
+  console.log("Email isn't set up (BREVO_API_KEY, EMAIL_FROM), so email verification and password reset are off.");
 }
 startTrashSweeper();
 startImageSweeper();

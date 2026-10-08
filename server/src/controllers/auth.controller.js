@@ -4,6 +4,7 @@ import { signToken } from "../lib/tokens.js";
 import { User } from "../models/user.model.js";
 import { refreshUser } from "../realtime/index.js";
 import { forgetSecrets, redeemSecret, sendPasswordResetEmail, sendVerificationEmail } from "../services/account-emails.js";
+import { emailConfigured } from "../services/email.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
@@ -49,10 +50,12 @@ export async function register(req, res) {
 
   const user = await User.create({ name, email, password });
   // The account works straight away; the address is verified when they click the link.
-  try {
-    await sendVerificationEmail(user, clientUrlFor(req));
-  } catch (error) {
-    console.error(`Couldn't send the verification email: ${error.message}`);
+  if (emailConfigured()) {
+    try {
+      await sendVerificationEmail(user, clientUrlFor(req));
+    } catch (error) {
+      console.error(`Couldn't send the verification email: ${error.message}`);
+    }
   }
   res.status(201).json({ token: signToken(user), user: user.toAccount() });
 }
@@ -109,6 +112,11 @@ export async function changePassword(req, res) {
   res.json({ user: user.toAccount() });
 }
 
+// Verification and password reset need email, which may not be set up yet.
+function requireEmail() {
+  if (!emailConfigured()) throw new HttpError(503, "Emails aren't set up on this server yet, so this isn't available.");
+}
+
 /** Verifies an address from the link emailed to it. Works without being logged in. */
 export async function verifyEmail(req, res) {
   const userId = await redeemSecret(req.body?.token, "verify-email");
@@ -123,6 +131,7 @@ export async function verifyEmail(req, res) {
 
 /** Sends the verification link again, to the logged-in person. */
 export async function resendVerification(req, res) {
+  requireEmail();
   const user = await findAccount(req.userId);
   if (user.emailVerified) throw new HttpError(400, "Your email is already verified.");
   let sent;
@@ -141,6 +150,7 @@ export async function resendVerification(req, res) {
  * the same either way, so this can't be used to find out who has an account.
  */
 export async function forgotPassword(req, res) {
+  requireEmail();
   const { email } = readCredentials(req.body);
   if (!EMAIL_PATTERN.test(email)) throw new HttpError(400, "Enter a valid email address.");
   const user = await User.findOne({ email });

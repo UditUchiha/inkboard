@@ -3,16 +3,25 @@ import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
 import { startServer } from "./helpers.js";
 
+const { env } = await import("../src/config/env.js");
 const { outbox } = await import("../src/services/email.js");
 const { EmailToken } = await import("../src/models/email-token.model.js");
 const { User } = await import("../src/models/user.model.js");
 const { sendVerificationEmail, verifyAccountsMadeByProviders } = await import("../src/services/account-emails.js");
 
+// Email is off unless it's set up; these tests turn it on (tests never really send).
+const emailSettings = { ...env.email };
+const turnEmail = (on) => Object.assign(env.email, on ? { brevoApiKey: "test-key", from: "inkboard@example.test" } : emailSettings);
+
 let app;
 before(async () => {
   app = await startServer();
+  turnEmail(true);
 });
-after(() => app.stop());
+after(() => {
+  turnEmail(false);
+  return app.stop();
+});
 
 let counter = 0;
 const newEmail = (name) => `${name}-${(counter += 1)}@example.test`;
@@ -128,5 +137,34 @@ describe("accounts from before email verification", () => {
     assert.ok((await verifyAccountsMadeByProviders()) >= 1);
     assert.equal((await User.findOne({ email: viaGoogle })).emailVerified, true);
     assert.equal((await User.findOne({ email: withPassword })).emailVerified, false);
+  });
+});
+
+describe("while email isn't set up", () => {
+  before(() => turnEmail(false));
+  after(() => turnEmail(true));
+
+  it("switches verification and password reset off, and invites work as before", async () => {
+    assert.equal((await app.request("/auth/providers")).data.email, false);
+
+    const sent = outbox.length;
+    const address = newEmail("noemail");
+    const signedUp = await post("/auth/register", { name: "Noa", email: address, password: "a-good-password" });
+    assert.equal(signedUp.status, 201);
+    assert.equal(outbox.length, sent, "no verification email");
+
+    const owner = await app.signUp("Owner");
+    const boardId = await app.createBoard(owner);
+    assert.equal((await post(`/boards/${boardId}/collaborators`, { email: address }, owner)).status, 201);
+
+    const user = { token: signedUp.data.token };
+    assert.equal((await post("/auth/verify-email/resend", {}, user)).status, 503);
+    assert.equal((await post("/auth/forgot-password", { email: address })).status, 503);
+  });
+
+  it("says so when it's on", async () => {
+    turnEmail(true);
+    assert.equal((await app.request("/auth/providers")).data.email, true);
+    turnEmail(false);
   });
 });

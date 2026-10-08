@@ -5,15 +5,17 @@ import { toast } from "sonner";
 import { api } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { Button } from "./Button";
+import { useEmailEnabled } from "./OAuthButtons";
 
 /**
  * Asks someone who hasn't verified their email to do so, with a way to get a
- * new link. Shows nothing once the address is verified.
+ * new link. Shows nothing once the address is verified, or while email isn't set up.
  */
 export function VerifyEmailNotice({ className }) {
   const { user } = useAuth();
+  const emailEnabled = useEmailEnabled();
   const [sending, setSending] = useState(false);
-  if (!user || user.emailVerified) return null;
+  if (!user || user.emailVerified || !emailEnabled) return null;
 
   async function resend() {
     setSending(true);

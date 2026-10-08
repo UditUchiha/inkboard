@@ -7,11 +7,19 @@ const { outbox } = await import("../src/services/email.js");
 const { User } = await import("../src/models/user.model.js");
 const { sendVerificationEmail } = await import("../src/services/account-emails.js");
 
+// Email is off unless it's set up; these tests turn it on (tests never really send).
+const emailSettings = { ...env.email };
+const turnEmail = (on) => Object.assign(env.email, on ? { brevoApiKey: "test-key", from: "inkboard@example.test" } : emailSettings);
+
 let app;
 before(async () => {
   app = await startServer();
+  turnEmail(true);
 });
-after(() => app.stop());
+after(() => {
+  turnEmail(false);
+  return app.stop();
+});
 
 let counter = 0;
 const newEmail = (name) => `${name}-${(counter += 1)}@example.test`;

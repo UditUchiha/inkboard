@@ -6,6 +6,7 @@ import { HttpError } from "../lib/http-error.js";
 import { signToken } from "../lib/tokens.js";
 import { OAUTH_PROVIDERS, User } from "../models/user.model.js";
 import { refreshUser } from "../realtime/index.js";
+import { emailConfigured } from "../services/email.js";
 
 // Sign-in with Google or GitHub uses the authorization-code flow:
 //   1. /api/auth/oauth/:provider sends the browser to the provider, with a random
@@ -122,7 +123,11 @@ const cookieOptions = () => ({
 });
 
 export function listProviders(req, res) {
-  res.json({ providers: enabledProviders().map((name) => ({ id: name, label: PROVIDERS[name].label })) });
+  res.json({
+    providers: enabledProviders().map((name) => ({ id: name, label: PROVIDERS[name].label })),
+    // Whether email verification and password reset are on (see services/email.js).
+    email: emailConfigured(),
+  });
 }
 
 /**

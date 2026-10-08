@@ -115,7 +115,7 @@ Server (`server/.env`, see [`server/.env.example`](server/.env.example)):
 | `APP_URL` | No | Public address of the app, used for sign-in redirects and links in emails. Defaults to the address each request arrives on |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | No | Turns on "Continue with Google" |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | No | Turns on "Continue with GitHub" |
-| `BREVO_API_KEY`, `EMAIL_FROM` | In production | Sends verification and password-reset emails (see below). Without them, development prints emails to the server log |
+| `BREVO_API_KEY`, `EMAIL_FROM` | No | Turns on email verification and password reset (see below) |
 | `EMAIL_FROM_NAME` | No | Name emails come from, default `Inkboard` |
 
 Client (`client/.env`): `VITE_API_URL` is only needed if the client and API are deployed separately.
@@ -132,6 +132,8 @@ The buttons only appear for providers that have both variables set. Create an OA
 Then set the client ID and secret as environment variables (on Render, in the service's Environment tab). Signing in with a provider never merges into an existing password account on its own: if the email already has an account, the person is asked to log in and connect the provider from Settings.
 
 ### Emails: verifying addresses and resetting passwords
+
+These are **off until email is set up**: with `BREVO_API_KEY` and `EMAIL_FROM` empty, invites work for any account, and there's no verify banner or "Forgot password?" link. Setting both turns everything below on, with no other change.
 
 New accounts get a link to verify their email. Until they click it they can use the app, but nobody can invite them to a board by email (so nobody can claim someone else's address and receive their invites). "Forgot password?" on the login page emails a link to choose a new password, which also verifies the address. Accounts made with Google or GitHub count as verified.
 

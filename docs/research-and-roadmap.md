@@ -334,7 +334,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] **Per-type element validation** on the server: geometry and content must be right, style values are repaired, unknown fields are dropped
 - [x] **Dashboard thumbnails:** the board list sends thinned, cached previews instead of full drawings; thumbnails use small picture copies; pictures keep their colors in dark mode
 - [x] **Real Google and GitHub sign-ins** worked on the live app (2026-10-08)
-- [x] **Email verification and password reset:** verification link at sign-up, invites need a verified address, "Forgot password?" with a 1-hour link, via Brevo
+- [ ] **Turn on email verification and password reset:** built and tested (verification link at sign-up, invites need a verified address, "Forgot password?" with a 1-hour link, via Brevo), but off until `BREVO_API_KEY` and `EMAIL_FROM` are set on the server, waiting on a dedicated sender address (S)
 - [x] **Bound version-history storage:** a 30 MB budget per board, oldest autosaves trimmed first, saved versions capped and deletable
 
 ### P1: close table stakes and start the differentiator
@@ -379,7 +379,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 4. **Per-person versus owner trash:** keep "owner trash hides the board for everyone" (with notifications), or switch to Overleaf and Canva's per-person trash?
 5. **Browser end-to-end tests:** *Decided 2026-10-08: not in CI for now.* CI keeps to the server and client tests; UI flows are checked by hand in a browser when they change.
 6. **Free-tier promise:** commit to unlimited boards for free? Check hosting and storage costs first.
-7. **Email verification:** *Decided 2026-10-08: the lighter version, through Brevo* (no domain needed to start; Resend would need one). Accounts work before verifying; invites by email need a verified address. Password reset came with it.
+7. **Email verification:** *Decided 2026-10-08: the lighter version, through Brevo* (no domain needed to start; Resend would need one). Accounts work before verifying; invites by email need a verified address. Password reset came with it. Both stay off until the Brevo settings are added (waiting on a dedicated sender address).
 8. **Version history limits:** *Decided 2026-10-07: a 30 MB budget per board, with the rules in the decision log.* Revisit the numbers (`VERSION_LIMITS` in `server/src/services/versions.js`) once real boards show how big histories get.
 
 ---

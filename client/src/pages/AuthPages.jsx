@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button, ButtonLink } from "../components/Button";
 import { PasswordField, TextField } from "../components/Field";
 import { Logo } from "../components/Logo";
-import { OAuthButtons } from "../components/OAuthButtons";
+import { OAuthButtons, useEmailEnabled } from "../components/OAuthButtons";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { APP_NAME } from "../config";
 import { api } from "../lib/api";
@@ -49,6 +49,7 @@ function ErrorMessage({ children }) {
 
 export function LoginPage() {
   const { login } = useAuth();
+  const emailEnabled = useEmailEnabled();
   const [params] = useSearchParams();
   const [form, setForm] = useState({ email: "", password: "" });
   // Google or GitHub sign-in that failed comes back here with ?error=…
@@ -90,12 +91,14 @@ export function LoginPage() {
       <form onSubmit={submit} className="grid gap-4" noValidate>
         <TextField label="Email" type="email" autoComplete="email" value={form.email} onChange={update("email")} required autoFocus />
         <PasswordField label="Password" autoComplete="current-password" value={form.password} onChange={update("password")} required />
-        <Link
-          to={`/forgot-password${form.email ? `?email=${encodeURIComponent(form.email)}` : ""}`}
-          className="-mt-2 justify-self-end rounded-sm text-sm font-medium text-graphite underline-offset-4 hover:text-ink hover:underline"
-        >
-          Forgot password?
-        </Link>
+        {emailEnabled && (
+          <Link
+            to={`/forgot-password${form.email ? `?email=${encodeURIComponent(form.email)}` : ""}`}
+            className="-mt-2 justify-self-end rounded-sm text-sm font-medium text-graphite underline-offset-4 hover:text-ink hover:underline"
+          >
+            Forgot password?
+          </Link>
+        )}
         <ErrorMessage>{error}</ErrorMessage>
         <Button type="submit" size="lg" loading={submitting} className="mt-2 w-full">
           Log in

@@ -18,6 +18,7 @@ import {
   serializeListed,
   serializeMeta,
 } from "../services/boards.js";
+import { emailConfigured } from "../services/email.js";
 import { notify } from "../services/notifications.js";
 import { boardPreviews } from "../services/previews.js";
 
@@ -237,8 +238,9 @@ export async function addCollaborator(req, res) {
     throw new HttpError(400, "You already own this board.");
   }
   // Anyone can sign up with any address, so only someone who has shown the
-  // address is theirs gets boards shared with it.
-  if (!invitee.emailVerified) {
+  // address is theirs gets boards shared with it. That needs email to be set
+  // up (to send the link); until it is, invites work as they always did.
+  if (emailConfigured() && !invitee.emailVerified) {
     throw new HttpError(
       409,
       "That person hasn't verified their email yet. Ask them to click the link we sent them (or send a new one from Settings), then invite them again.",
