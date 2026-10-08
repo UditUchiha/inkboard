@@ -14,6 +14,9 @@ export const TOOLS = [
 // Only offered to signed-in people who can edit the board. It has no number key.
 export const COMMENT_TOOL = { id: "comment", label: "Comment", key: "c" };
 
+// The most elements a board can hold (the server's limit too).
+export const MAX_ELEMENTS_PER_BOARD = 5000;
+
 export const DRAWING_TOOLS =new Set(["pen", "rectangle", "ellipse", "arrow", "line", "text"]);
 export const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
 

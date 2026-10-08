@@ -21,25 +21,26 @@ let smallPictures = false;
 const drawableCaches = { light: new WeakMap(), dark: new WeakMap() };
 const penPathCache = new WeakMap();
 
-function roughOptions(element) {
+function roughOptions(element, paint) {
   const sketchy = element.sketchy !== false;
   return {
     seed: element.seed,
-    stroke: ink(element.stroke),
+    stroke: paint(element.stroke),
     strokeWidth: element.strokeWidth,
     roughness: sketchy ? 1.1 : 0,
     bowing: sketchy ? 1 : 0,
     disableMultiStroke: !sketchy,
     preserveVertices: !sketchy,
-    fill: element.fill ? ink(element.fill) : undefined,
+    fill: element.fill ? paint(element.fill) : undefined,
     fillStyle: sketchy ? "hachure" : "solid",
     fillWeight: Math.max(element.strokeWidth / 2, 0.75),
     hachureGap: 4 + element.strokeWidth * 2,
   };
 }
 
-function buildDrawables(element) {
-  const options = roughOptions(element);
+// `paint` turns each stored color into the one to draw (see `ink`).
+function buildDrawables(element, paint = ink) {
+  const options = roughOptions(element, paint);
   const { x1, y1, x2, y2 } = element;
   switch (element.type) {
     case "line":
@@ -78,20 +79,33 @@ function svgPathFromOutline(points) {
   return `${path}Z`;
 }
 
+/** A pen stroke's outline as SVG path data, filled with the stroke color to draw it. */
+export function penOutline(element) {
+  const outline = getStroke(element.points, {
+    size: element.penSize,
+    thinning: 0.55,
+    smoothing: 0.5,
+    streamline: 0.45,
+    simulatePressure: !element.pressure,
+  });
+  return svgPathFromOutline(outline);
+}
+
 function penPath(element) {
   let path = penPathCache.get(element);
   if (!path) {
-    const outline = getStroke(element.points, {
-      size: element.penSize,
-      thinning: 0.55,
-      smoothing: 0.5,
-      streamline: 0.45,
-      simulatePressure: !element.pressure,
-    });
-    path = new Path2D(svgPathFromOutline(outline));
+    path = new Path2D(penOutline(element));
     penPathCache.set(element, path);
   }
   return path;
+}
+
+/**
+ * A line, arrow, rectangle or ellipse as the SVG paths the canvas draws, in its
+ * stored colors: `[{ d, stroke, strokeWidth, fill }]`.
+ */
+export function shapePaths(element) {
+  return buildDrawables(element, sameInk).flatMap((drawable) => generator.toPaths(drawable));
 }
 
 function drawElement(ctx, roughCanvas, element) {

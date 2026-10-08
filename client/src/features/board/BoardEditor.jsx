@@ -5,6 +5,9 @@ import {
   Download,
   Ellipsis,
   Eye,
+  FileCode2,
+  FileJson,
+  FileUp,
   History,
   Keyboard,
   LayoutGrid,
@@ -38,9 +41,10 @@ import { getGuest } from "../../lib/guest";
 import { useTheme } from "../../providers/ThemeProvider";
 import { BoardCanvas } from "./BoardCanvas";
 import { CommentsLayer } from "./CommentsLayer";
-import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, TOOLS } from "./constants";
+import { BoardFileError, isBoardFile, parseBoardFile, placeElements } from "./boardFile";
+import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, TOOLS } from "./constants";
 import { createImage, duplicate, getSceneBounds, translate } from "./elements";
-import { exportBoardAsPng } from "./exportImage";
+import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
 import { fitViewport, toWorld, zoomAround } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
 import { ImageError, isImageFile, placementSize, prepareImage, primeImage, uploadImage } from "./images";
@@ -186,6 +190,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
   const selected = selectedId ? elements.find((element) => element.id === selectedId) : null;
   const canAddImages = !readOnly && !local; // a guest's scratch board lives in the browser, with nowhere to keep files
   const fileInput = useRef(null);
+  const boardFileInput = useRef(null);
 
   // Follow mode: tracking someone's view until we move ourselves.
   const { followingId, follow, stopFollowing } = useFollow({ sync, canvasSize, setViewport });
@@ -339,7 +344,75 @@ export function BoardEditor({ store, sync, user, local = null }) {
     [local, sync.socket, board.id, store],
   );
 
-  // Pictures can be pasted or dropped onto the board.
+  // Adds what's in a board file (see boardFile.js) to this board, centred on
+  // the screen, as one undo step. Its pictures are uploaded again so they
+  // belong to this board.
+  const importBoardFile = useCallback(
+    async (file) => {
+      let parsed;
+      try {
+        parsed = parseBoardFile(await file.text());
+      } catch (error) {
+        toast.error(error instanceof BoardFileError ? error.message : "That file couldn't be read.");
+        return;
+      }
+      if (store.getElements().length + parsed.elements.length > MAX_ELEMENTS_PER_BOARD) {
+        toast.error(`That would put more than ${MAX_ELEMENTS_PER_BOARD} elements on this board. Import it into a new board instead.`);
+        return;
+      }
+
+      const progress = toast.loading(`Importing ${file.name}…`);
+      const uploaded = new Map(); // image id in the file -> id on this board
+      const wanted = new Set(parsed.elements.filter((element) => element.type === "image").map((element) => element.imageId));
+      if (!local) {
+        for (const oldId of wanted) {
+          const url = parsed.pictures.get(oldId);
+          if (!url) continue;
+          try {
+            const blob = await (await fetch(url)).blob();
+            const picked = await prepareImage(new File([blob], "picture", { type: blob.type }));
+            const id = await uploadImage(sync.socket, board.id, picked);
+            primeImage(id, picked.blob);
+            if (picked.small) primeImage(id, picked.small, { small: true });
+            uploaded.set(oldId, id);
+          } catch {
+            // Left out below, and counted in the message.
+          }
+        }
+      }
+
+      const kept = parsed.elements.flatMap((element) => {
+        if (element.type !== "image") return [element];
+        return uploaded.has(element.imageId) ? [{ ...element, imageId: uploaded.get(element.imageId) }] : [];
+      });
+      const missing = parsed.elements.length - kept.length;
+      if (kept.length === 0) {
+        toast.error(local ? "Save this board to your account to import pictures." : "None of that file's pictures could be added.", {
+          id: progress,
+        });
+        return;
+      }
+
+      const { viewport: vp, canvasSize: size } = view.current;
+      const center = { x: -vp.x + size.width / vp.zoom / 2, y: -vp.y + size.height / vp.zoom / 2 };
+      const placed = placeElements(kept, center);
+      store.commit({ undo: { remove: placed.map((element) => element.id) }, redo: { upsert: placed } });
+      setTool("select");
+      setSelectedId(null);
+      const added = `Added ${placed.length} ${placed.length === 1 ? "element" : "elements"} from ${file.name}`;
+      if (missing === 0) toast.success(added, { id: progress });
+      else
+        toast.warning(
+          `${added}. ${missing} ${missing === 1 ? "picture" : "pictures"} couldn't be added${local ? ": save this board to your account to import pictures" : ""}.`,
+          { id: progress },
+        );
+    },
+    [local, sync.socket, board.id, store],
+  );
+
+  // Pictures (and board files) can be pasted or dropped onto the board.
+  const importBoardFileRef = useRef(importBoardFile);
+  importBoardFileRef.current = importBoardFile;
   const addImagesRef = useRef(addImages);
   addImagesRef.current = addImages;
   useEffect(() => {
@@ -363,8 +436,13 @@ export function BoardEditor({ store, sync, user, local = null }) {
       event.preventDefault();
       const files = imagesIn(event.dataTransfer.files);
       if (readOnly || blocked(event)) return;
+      const boardFile = [...event.dataTransfer.files].find(isBoardFile);
+      if (files.length === 0 && boardFile) {
+        importBoardFileRef.current(boardFile);
+        return;
+      }
       if (files.length === 0) {
-        toast.error("Only PNG, JPEG, WebP and GIF images can be added.");
+        toast.error("Only PNG, JPEG, WebP and GIF images, or Inkboard board files, can be added.");
         return;
       }
       const { viewport: vp } = view.current;
@@ -476,9 +554,13 @@ export function BoardEditor({ store, sync, user, local = null }) {
     }
   }
 
-  async function exportPng() {
-    const done = await exportBoardAsPng(store.getElements(), board.title);
-    if (!done) toast("Draw something first. There's nothing to export yet.");
+  async function exportAs(exporter) {
+    try {
+      const done = await exporter(store.getElements(), board.title);
+      if (!done) toast("Draw something first. There's nothing to export yet.");
+    } catch {
+      toast.error("The board couldn't be exported. Try again.");
+    }
   }
 
   function clearBoard() {
@@ -521,6 +603,18 @@ export function BoardEditor({ store, sync, user, local = null }) {
         onCursorMove={sync.sendCursor}
         onSizeChange={setCanvasSize}
         onPlaceComment={placeComment}
+      />
+
+      <input
+        ref={boardFileInput}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        onChange={(event) => {
+          const [file] = event.target.files;
+          if (file) importBoardFile(file);
+          event.target.value = "";
+        }}
       />
 
       <input
@@ -619,9 +713,22 @@ export function BoardEditor({ store, sync, user, local = null }) {
             <IconButton label="Board menu" icon={Ellipsis} className="floating-panel rounded-xl" {...props} />
           )}
         >
-          <MenuItem icon={Download} onSelect={exportPng}>
+          <MenuLabel>Export</MenuLabel>
+          <MenuItem icon={Download} onSelect={() => exportAs(exportBoardAsPng)}>
             Export as PNG
           </MenuItem>
+          <MenuItem icon={FileCode2} onSelect={() => exportAs(exportBoardAsSvg)}>
+            Export as SVG
+          </MenuItem>
+          <MenuItem icon={FileJson} onSelect={() => exportAs(exportBoardAsJson)}>
+            Export board file
+          </MenuItem>
+          {!readOnly && (
+            <MenuItem icon={FileUp} onSelect={() => boardFileInput.current?.click()}>
+              Import board file…
+            </MenuItem>
+          )}
+          <MenuSeparator />
           {isMember && !local && (
             <>
               <MenuItem icon={History} onSelect={() => setHistoryOpen(true)}>

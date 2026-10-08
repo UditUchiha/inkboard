@@ -18,7 +18,7 @@ A real-time collaborative whiteboard. Sketch with hand-drawn shapes, invite peop
 - **Works offline briefly**: edits made while disconnected are queued and synced after reconnecting.
 - **Light and dark themes**: dark mode turns the graph paper into a blueprint.
 - **Images**: add pictures with the toolbar button (or <kbd>I</kbd>), by pasting, or by dropping files onto the board. They are shrunk in the browser, stored in MongoDB (GridFS), and resize and turn like any shape. Accounts, invited editors and guests with an edit link can add them; see [docs/image-storage.md](docs/image-storage.md) for limits and how to move storage to Cloudflare R2 or Cloudinary.
-- **Keyboard shortcuts** for every tool and action (press <kbd>?</kbd> on a board), and export to PNG.
+- **Keyboard shortcuts** for every tool and action (press <kbd>?</kbd> on a board), export to PNG or SVG, and board files (`.inkboard.json`, pictures included) to export and import again.
 
 | Dashboard | Dark mode |
 | --- | --- |
@@ -32,7 +32,7 @@ Nobody has to sign up to try Inkboard. Guests draw first; accounts keep, share a
 | --- | --- | --- |
 | Draw on a board | Yes, on a scratch board kept in the browser (`/draw`) | Yes, saved to the cloud |
 | Open a shared link | View, or edit if the owner allows it, under a name they pick | Yes |
-| Export to PNG | Yes | Yes |
+| Export to PNG or SVG, export and import board files | Yes (board-file pictures need an account) | Yes |
 | Add images | Only on a shared board with an edit link | Yes |
 | Several boards, dashboard, other devices | No | Yes |
 | Invite people, set link access | No | Yes |

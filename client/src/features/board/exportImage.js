@@ -1,6 +1,13 @@
+import { BOARD_FILE_EXTENSION, makeBoardFile } from "./boardFile";
 import { getSceneBounds } from "./elements";
+import { downloadBlob, pictureDataUrls, safeFileName } from "./files";
 import { loadImagesOf } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
+import { buildSvg, fontsUsed } from "./svgExport";
+import { fontFacesFor, measureBaselines } from "./svgFonts";
+
+// Exporting a board: as a picture (PNG), as vectors (SVG), or as a board file
+// (JSON) that can be imported again. Each resolves to false when the board is empty.
 
 const MAX_DIMENSION = 8000;
 
@@ -25,11 +32,23 @@ export async function exportBoardAsPng(elements, fileName) {
   });
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${fileName.replace(/[\\/:*?"<>|]+/g, "-").trim() || "board"}.png`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(blob, `${safeFileName(fileName)}.png`);
+  return true;
+}
+
+export async function exportBoardAsSvg(elements, fileName) {
+  if (!getSceneBounds(elements)) return false;
+  await loadCanvasFonts();
+  const fonts = fontsUsed(elements);
+  const [fontFaces, images] = await Promise.all([fontFacesFor(fonts), pictureDataUrls(elements)]);
+  const svg = buildSvg(elements, { images, fontFaces, baselines: measureBaselines(fonts) });
+  downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${safeFileName(fileName)}.svg`);
+  return true;
+}
+
+export async function exportBoardAsJson(elements, title) {
+  if (elements.length === 0) return false;
+  const file = makeBoardFile({ title, elements, pictures: await pictureDataUrls(elements) });
+  downloadBlob(new Blob([JSON.stringify(file)], { type: "application/json" }), `${safeFileName(title)}${BOARD_FILE_EXTENSION}`);
   return true;
 }

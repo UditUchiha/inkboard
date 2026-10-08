@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { applyOperation as clientApply } from "../../client/src/features/board/store.js";
-import { applyOperation as serverApply } from "../src/realtime/operations.js";
+import { MAX_ELEMENTS_PER_BOARD as clientMaxElements } from "../../client/src/features/board/constants.js";
+import { applyOperation as serverApply, MAX_ELEMENTS_PER_BOARD } from "../src/realtime/operations.js";
 
 // Every change is applied by the browser and, separately, by the server. If the
 // two ever disagree, people's screens drift apart from what gets saved. This runs
@@ -62,5 +63,9 @@ describe("client and server apply operations the same way", () => {
     assert.doesNotThrow(() => clientApply(start, op));
     assert.doesNotThrow(() => serverApply(start, op));
     assert.equal(start[0].x1, 1);
+  });
+
+  it("share the same cap on elements per board", () => {
+    assert.equal(clientMaxElements, MAX_ELEMENTS_PER_BOARD);
   });
 });
