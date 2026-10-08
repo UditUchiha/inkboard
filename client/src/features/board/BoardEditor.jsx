@@ -29,6 +29,7 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
+import { STACK_MOVES } from "@inkboard/shared/board-order";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -43,7 +44,7 @@ import { BoardCanvas } from "./BoardCanvas";
 import { CommentsLayer } from "./CommentsLayer";
 import { BoardFileError, isBoardFile, parseBoardFile, placeElements } from "./boardFile";
 import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, TOOLS } from "./constants";
-import { createImage, duplicate, getSceneBounds, translate } from "./elements";
+import { createImage, duplicate, getSceneBounds, stackKey, translate } from "./elements";
 import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
 import { fitViewport, toWorld, zoomAround } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
@@ -292,6 +293,26 @@ export function BoardEditor({ store, sync, user, local = null }) {
     setSelectedId(copy.id);
   }, [selectedId, store]);
 
+  // "front", "forward", "backward" or "back" in the stack. Only the element's
+  // stacking key changes, so it merges with anyone else's edits to it.
+  const moveSelected = useCallback(
+    (where) => {
+      const element = selectedId && store.getElement(selectedId);
+      if (!element) return;
+      const index = stackKey(store.getElements(), element, where);
+      if (!index) return;
+      store.commit({ undo: { upsert: [element] }, redo: { upsert: [{ ...element, index }] } });
+    },
+    [selectedId, store],
+  );
+  const stackMoves = useMemo(
+    () =>
+      selected && !readOnly
+        ? Object.fromEntries(STACK_MOVES.map((where) => [where, stackKey(elements, selected, where) !== null]))
+        : {},
+    [elements, selected, readOnly],
+  );
+
   const nudgeSelected = useCallback(
     (dx, dy) => {
       const element = selectedId && store.getElement(selectedId);
@@ -475,6 +496,11 @@ export function BoardEditor({ store, sync, user, local = null }) {
       z: (event) => (event.shiftKey ? store.redo() : store.undo()),
       y: () => store.redo(),
       d: duplicateSelected,
+      // Shift + ] and Shift + [ read as } and { on most layouts.
+      "]": (event) => moveSelected(event.shiftKey ? "front" : "forward"),
+      "}": () => moveSelected("front"),
+      "[": (event) => moveSelected(event.shiftKey ? "back" : "backward"),
+      "{": () => moveSelected("back"),
       "=": () => zoomBy(1.25),
       "+": () => zoomBy(1.25),
       "-": () => zoomBy(0.8),
@@ -496,7 +522,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
     };
 
     if (readOnly) {
-      for (const key of ["z", "y", "d"]) delete withModifier[key];
+      for (const key of ["z", "y", "d", "]", "}", "[", "{"]) delete withModifier[key];
       for (const key of ["delete", "backspace"]) delete plain[key];
     }
 
@@ -821,6 +847,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
             selection={Boolean(selected && tool === "select")}
             onDuplicate={duplicateSelected}
             onDelete={deleteSelected}
+            stackMoves={stackMoves}
+            onMove={moveSelected}
           />
         </div>
       )}

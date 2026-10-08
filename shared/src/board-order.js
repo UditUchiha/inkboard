@@ -38,6 +38,47 @@ export function compareOrder(a, b) {
 /** The key of the element on top of a sorted board, or null if it's empty. */
 export const topKey = (elements) => (elements.length > 0 ? keyOf(elements.at(-1)) || null : null);
 
+export const STACK_MOVES = ["front", "forward", "backward", "back"];
+
+/**
+ * The key that moves element `id` in the stack of the sorted board `elements`:
+ * to the "front" (top) or "back" (bottom), or a step "forward" or "backward",
+ * past the nearest element above or below it that `overlaps` it (stepping past
+ * one that doesn't would change nothing anyone can see). Returns null when
+ * there's nowhere to move it.
+ */
+export function keyToMove(elements, id, where, overlaps = () => true) {
+  const position = elements.findIndex((element) => element.id === id);
+  if (position < 0) return null;
+  const keys = elements.map(keyOf);
+  if (!keys.every(isOrderKey)) return null;
+  let key = null;
+
+  if (where === "front" && position < elements.length - 1) {
+    key = generateKeyBetween(keys.at(-1), null);
+  } else if (where === "back" && position > 0) {
+    key = generateKeyBetween(null, keys[0]);
+  } else if (where === "forward") {
+    let target = position + 1;
+    while (target < elements.length && !overlaps(elements[target])) target += 1;
+    if (target === elements.length) return null;
+    // Past every element sharing the target's key (ties are broken by id).
+    let next = target + 1;
+    while (next < elements.length && keys[next] === keys[target]) next += 1;
+    key = generateKeyBetween(keys[target], next < elements.length ? keys[next] : null);
+  } else if (where === "backward") {
+    let target = position - 1;
+    while (target >= 0 && !overlaps(elements[target])) target -= 1;
+    if (target < 0) return null;
+    let previous = target - 1;
+    while (previous >= 0 && keys[previous] === keys[target]) previous -= 1;
+    key = generateKeyBetween(previous >= 0 ? keys[previous] : null, keys[target]);
+  }
+  // Keys stepped into the same gap again and again grow longer; past the
+  // longest the server takes, the move would only happen on this screen.
+  return isOrderKey(key) ? key : null;
+}
+
 /**
  * `elements` as a board keeps them: each with a key, sorted. Returns the same
  * array when it already is. A board saved before elements had keys is stacked

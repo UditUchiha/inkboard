@@ -1,3 +1,4 @@
+import { keyToMove } from "@inkboard/shared/board-order";
 import { FILLABLE_TYPES, FONTS, LINE_HEIGHT } from "./constants";
 import {
   arrowHeadPoints,
@@ -6,6 +7,7 @@ import {
   normalizeRect,
   rectCenter,
   rectContains,
+  rectsOverlap,
   rotatePoint,
   rotatedRectBounds,
   unionRects,
@@ -232,7 +234,23 @@ export function translate(element, dx, dy) {
   if (element.type === "text") {
     return { ...element, x1: element.x1 + dx, y1: element.y1 + dy };
   }
-  return { ...element, x1: element.x1 + dx, y1: element.y1 + dy, x2: element.x2 + dx, y2: element.y2 + dy };
+  return {
+    ...element,
+    x1: element.x1 + dx,
+    y1: element.y1 + dy,
+    x2: element.x2 + dx,
+    y2: element.y2 + dy,
+  };
+}
+
+/**
+ * The stacking key that moves `element` to the "front" or "back" of the board,
+ * or a step "forward" or "backward" past the next element it overlaps (see
+ * shared/src/board-order.js). Null when there's nowhere to move it.
+ */
+export function stackKey(elements, element, where) {
+  const bounds = getBounds(element);
+  return keyToMove(elements, element.id, where, (other) => rectsOverlap(bounds, getBounds(other)));
 }
 
 export function duplicate(element) {

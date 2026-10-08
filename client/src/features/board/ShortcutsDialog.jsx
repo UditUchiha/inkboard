@@ -10,6 +10,8 @@ const ACTIONS = [
   { label: "Duplicate selection", keys: [MOD, "D"] },
   { label: "Delete selection", keys: ["Delete"] },
   { label: "Nudge selection", keys: ["Arrow keys"] },
+  { label: "Bring forward / send backward", keys: [MOD, "] / ["] },
+  { label: "Bring to front / send to back", keys: [MOD, "Shift", "] / ["] },
   { label: "Add an image", keys: ["I"] },
   { label: "Paste or drop an image", keys: [MOD, "V"] },
   { label: "Pan while held", keys: ["Space"] },

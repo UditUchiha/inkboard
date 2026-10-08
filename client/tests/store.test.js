@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { FIELD_GROUPS } from "@inkboard/shared/board-merge";
-import { createElement, createImage, duplicate } from "../src/features/board/elements.js";
+import { createElement, createImage, duplicate, stackKey } from "../src/features/board/elements.js";
 import { applyOperation, createBoardStore } from "../src/features/board/store.js";
 
 const rect = (id, x = 0) => ({
@@ -229,6 +229,64 @@ describe("stacking order", () => {
     b.commit({ undo: { remove: ["from-b"] }, redo: { upsert: [rect("from-b")] } });
     deliver();
     assert.deepEqual(ids(a), ids(b));
+  });
+
+  /** Moves element `id` in the stack the way the editor does: one undo step changing only its key. */
+  function moveInStack(store, id, where) {
+    const element = store.getElement(id);
+    const index = stackKey(store.getElements(), element, where);
+    if (index) store.commit({ undo: { upsert: [element] }, redo: { upsert: [{ ...element, index }] } });
+    return index;
+  }
+
+  it("brings an element to the front and sends it back, one undo step each", () => {
+    const store = createBoardStore();
+    for (const id of ["a", "b", "c"]) store.commit({ undo: { remove: [id] }, redo: { upsert: [rect(id)] } });
+    moveInStack(store, "a", "front");
+    assert.deepEqual(ids(store), ["b", "c", "a"]);
+    moveInStack(store, "c", "back");
+    assert.deepEqual(ids(store), ["c", "b", "a"]);
+    store.undo();
+    assert.deepEqual(ids(store), ["b", "c", "a"]);
+    store.undo();
+    assert.deepEqual(ids(store), ["a", "b", "c"]);
+    store.redo();
+    assert.deepEqual(ids(store), ["b", "c", "a"]);
+  });
+
+  it("steps forward past the next element it overlaps, not one far away", () => {
+    const store = createBoardStore();
+    for (const [id, x] of [
+      ["a", 0],
+      ["far", 500],
+      ["b", 5],
+    ]) {
+      store.commit({ undo: { remove: [id] }, redo: { upsert: [{ ...rect(id, x), strokeWidth: 2 }] } });
+    }
+    moveInStack(store, "a", "forward");
+    assert.deepEqual(ids(store), ["far", "b", "a"]);
+    assert.equal(moveInStack(store, "far", "forward"), null, "nothing above it overlaps");
+  });
+
+  it("keeps a reorder and a recolor made at the same time, and the same order for both people", () => {
+    const { a, b, deliver } = pair();
+    for (const id of ["x", "y"]) a.commit({ undo: { remove: [id] }, redo: { upsert: [rect(id)] } });
+    deliver();
+    moveInStack(a, "x", "front");
+    const fromB = b.getElement("x");
+    b.commit({ undo: { upsert: [fromB] }, redo: { upsert: [{ ...fromB, stroke: "#ff0000" }] } });
+    deliver();
+    for (const store of [a, b]) {
+      assert.deepEqual(ids(store), ["y", "x"]);
+      assert.equal(store.getElement("x").stroke, "#ff0000");
+    }
+
+    a.undo();
+    deliver();
+    for (const store of [a, b]) {
+      assert.deepEqual(ids(store), ["x", "y"], "the reorder is undone");
+      assert.equal(store.getElement("x").stroke, "#ff0000", "the other person's color stays");
+    }
   });
 });
 

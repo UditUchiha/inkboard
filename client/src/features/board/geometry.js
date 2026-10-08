@@ -32,6 +32,9 @@ export function expandRect(rect, amount) {
 export const rectContains = (rect, x, y) =>
   x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
 
+export const rectsOverlap = (a, b) =>
+  a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
+
 /** Turns a point about (cx, cy) by `angle` radians. */
 export function rotatePoint(x, y, cx, cy, angle) {
   if (!angle) return [x, y];

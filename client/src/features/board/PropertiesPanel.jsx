@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Ban, CopyPlus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Ban, CopyPlus, Trash2 } from "lucide-react";
 import { FILL_COLORS, FONT_SIZES, FONTS, PEN_SIZES, STROKE_COLORS, STROKE_WIDTHS, STYLE_CONTROLS } from "./constants";
 
 function Section({ label, children }) {
@@ -71,11 +71,18 @@ function Segmented({ options, value, onChange, renderLabel = (option) => option.
 
 const isPreset = (palette, value) => palette.some((item) => item.value === value);
 
+const STACK_BUTTONS = [
+  { where: "back", label: "Send to back", icon: ArrowDownToLine },
+  { where: "backward", label: "Send backward", icon: ArrowDown },
+  { where: "forward", label: "Bring forward", icon: ArrowUp },
+  { where: "front", label: "Bring to front", icon: ArrowUpToLine },
+];
+
 /**
  * Shows the style options for the active drawing tool, or for the selected
  * element when the select tool is active.
  */
-export function PropertiesPanel({ type, values, onChange, selection, onDuplicate, onDelete }) {
+export function PropertiesPanel({ type, values, onChange, selection, onDuplicate, onDelete, stackMoves = {}, onMove }) {
   const controls = STYLE_CONTROLS[type] ?? [];
 
   return (
@@ -192,21 +199,40 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
       )}
 
       {selection && (
-        <div className={clsx("flex gap-2", controls.length > 0 && "border-t border-rule pt-4")}>
-          <button
-            type="button"
-            onClick={onDuplicate}
-            className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-rule text-xs font-medium hover:bg-surface-2"
-          >
-            <CopyPlus className="size-3.5" aria-hidden /> Duplicate
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-rule text-xs font-medium text-danger hover:bg-surface-2"
-          >
-            <Trash2 className="size-3.5" aria-hidden /> Delete
-          </button>
+        <div className={clsx("grid gap-4", controls.length > 0 && "border-t border-rule pt-4")}>
+          <Section label="Layer">
+            <div className="grid grid-cols-4 gap-1 rounded-lg bg-ink/5 p-0.5">
+              {STACK_BUTTONS.map(({ where, label, icon: Icon }) => (
+                <button
+                  key={where}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  disabled={!stackMoves[where]}
+                  onClick={() => onMove(where)}
+                  className="grid h-8 place-items-center rounded-md text-graphite transition-colors enabled:hover:bg-surface enabled:hover:text-ink disabled:opacity-35"
+                >
+                  <Icon className="size-4" strokeWidth={1.75} aria-hidden />
+                </button>
+              ))}
+            </div>
+          </Section>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onDuplicate}
+              className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-rule text-xs font-medium hover:bg-surface-2"
+            >
+              <CopyPlus className="size-3.5" aria-hidden /> Duplicate
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border border-rule text-xs font-medium text-danger hover:bg-surface-2"
+            >
+              <Trash2 className="size-3.5" aria-hidden /> Delete
+            </button>
+          </div>
         </div>
       )}
     </aside>
