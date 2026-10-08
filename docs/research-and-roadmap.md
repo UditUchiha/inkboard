@@ -249,7 +249,7 @@ For each idea, did we find a product that already does it?
 - [x] **Version history storage (bounded):** every version is still a full copy of the board, but each board's history now has a 30 MB budget (see the decision log). *Still open:* storing versions compressed, or as deltas from an operation log, would fit far more history in the same space.
 - [ ] **No email verification at sign-up.** Anyone can register any address, and invites match on email, so a person can register someone else's address and receive boards invited to it. Provider sign-in (Google, GitHub) only trusts emails the provider has verified. Add a verification email, or require it before accepting invites.
 - [ ] **Edit links can be abused.** "Anyone with the link can edit" includes anonymous guests, so a leaked link allows vandalism or spam. Today the recovery is version history and the owner switching the link back to restricted. Cheap hardening: a per-connection limit on change operations, a link password or expiry (see the backlog), and notifying the owner when many guests join.
-- [ ] **OAuth (Google done):** a real Google sign-in worked end to end on the live app (2026-10-08). GitHub has only been tested against dummy credentials; do one real GitHub login.
+- [x] **OAuth verified for real:** Google and GitHub sign-in both worked end to end on the live app (2026-10-08).
 - [ ] **Comment threads and notifications are unbounded per board and per person.** Message length is capped (2,000 characters), but the number of threads and messages is not.
 
 ---
@@ -332,7 +332,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [ ] **Browser end-to-end tests** for the main flows: share a link, draw as a guest, dashboard actions (S-M, adds a Playwright dev dependency)
 - [x] **Per-type element validation** on the server: geometry and content must be right, style values are repaired, unknown fields are dropped
 - [x] **Dashboard thumbnails:** the board list sends thinned, cached previews instead of full drawings; thumbnails use small picture copies; pictures keep their colors in dark mode
-- [ ] **Run one real GitHub sign-in** (Google worked on 2026-10-08), and tick this off (S)
+- [x] **Real Google and GitHub sign-ins** worked on the live app (2026-10-08)
 - [ ] **Email verification** at sign-up (S-M, needs an email provider; see open decision 7)
 - [x] **Bound version-history storage:** a 30 MB budget per board, oldest autosaves trimmed first, saved versions capped and deletable
 
@@ -374,7 +374,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 
 1. **Which headline differentiator first?** (section 9: A suggest-mode links, B replay, C classroom, D math, E API and MCP). Suggested: A, then B.
 2. **Where do image files live?** *Decided 2026-10-07: MongoDB GridFS for now; R2 and Cloudinary are written up in `docs/image-storage.md` for later.* The Atlas free tier is 512 MB shared with all board data, so revisit when the database passes about 300 MB. Access control can start with long random file URLs that only people who can open the board will see; the trade-off is that a copied URL keeps working after a board becomes restricted. Signed short-lived URLs are the stricter alternative.
-3. **Merge and deploy:** *Done 2026-10-07: account features, resize and rotate, and images are on `main`, and the OAuth keys are set on the server.* Google sign-in has been tried for real; one real GitHub sign-in is still to do (see the P0 backlog).
+3. **Merge and deploy:** *Done 2026-10-07: account features, resize and rotate, and images are on `main`, and the OAuth keys are set on the server.* Real Google and GitHub sign-ins worked on 2026-10-08.
 4. **Per-person versus owner trash:** keep "owner trash hides the board for everyone" (with notifications), or switch to Overleaf and Canva's per-person trash?
 5. **Browser end-to-end tests:** add Playwright as a dev dependency (it downloads a browser, about 150 MB, in CI too) so the dashboard and sharing flows are checked automatically? Suggested: yes, a handful of flows, once the next features settle the UI.
 6. **Free-tier promise:** commit to unlimited boards for free? Check hosting and storage costs first.
