@@ -1,6 +1,15 @@
-import { FONTS, LINE_HEIGHT } from "./constants";
-import { canRotate, getLocalBounds, getSceneBounds } from "./elements";
+import {
+  FONTS,
+  FRAME_BORDER,
+  FRAME_FILL,
+  FRAME_LABEL_COLOR,
+  FRAME_LABEL_SIZE,
+  LINE_HEIGHT,
+  NOTE_TEXT_COLOR,
+} from "./constants";
+import { canRotate, frameLabel, getLocalBounds, getSceneBounds, inDrawOrder, isFrame } from "./elements";
 import { normalizeRect, rectCenter } from "./geometry";
+import { noteLayout } from "./notes";
 import { penOutline, shapePaths } from "./renderer";
 
 // A board as an SVG file: the same shapes, strokes and text the canvas draws,
@@ -41,6 +50,37 @@ function textSvg(element, baselines) {
   return `<text font-family="${xml(family)}" font-size="${num(element.fontSize)}" fill="${xml(element.stroke)}" xml:space="preserve">${lines}</text>`;
 }
 
+const fontKey = (font) => (FONTS[font] ? font : "hand");
+
+function noteSvg(element, baselines) {
+  const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+  const layout = noteLayout(element);
+  const font = fontKey(element.font);
+  const top = layout.top + (layout.lineHeight - layout.fontSize) / 2;
+  const baseline = (baselines[font] ?? FALLBACK_BASELINE) * layout.fontSize;
+  const lines = layout.lines
+    .map(
+      (line, index) =>
+        `<tspan x="${num(layout.centerX)}" y="${num(top + baseline + index * layout.lineHeight)}">${xml(line)}</tspan>`,
+    )
+    .join("");
+  return [
+    `<rect x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}" fill="${xml(element.fill)}"/>`,
+    `<text font-family="${xml(FONTS[font].family)}" font-size="${num(layout.fontSize)}" fill="${NOTE_TEXT_COLOR}" text-anchor="middle" xml:space="preserve">${lines}</text>`,
+  ].join("");
+}
+
+const frameSvg = (element) => {
+  const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+  return `<rect x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}" fill="${FRAME_FILL}" stroke="${FRAME_BORDER}" stroke-width="1"/>`;
+};
+
+function frameNameSvg(element, baselines) {
+  const label = frameLabel(element);
+  const baseline = label.bottom - FRAME_LABEL_SIZE + (baselines.sans ?? FALLBACK_BASELINE) * FRAME_LABEL_SIZE;
+  return `<text x="${num(label.x)}" y="${num(baseline)}" font-family="${xml(FONTS.sans.family)}" font-size="${FRAME_LABEL_SIZE}" font-weight="500" fill="${FRAME_LABEL_COLOR}" xml:space="preserve">${xml(label.text)}</text>`;
+}
+
 function pictureSvg(element, images) {
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   const box = `x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}"`;
@@ -57,6 +97,10 @@ function elementSvg(element, { images, baselines }) {
       return textSvg(element, baselines);
     case "image":
       return pictureSvg(element, images);
+    case "sticky":
+      return noteSvg(element, baselines);
+    case "frame":
+      return frameSvg(element);
     default:
       return shapePaths(element)
         .map(
@@ -83,7 +127,11 @@ export function buildSvg(
   const width = bounds.width + SVG_PADDING * 2;
   const height = bounds.height + SVG_PADDING * 2;
 
-  const body = elements.map((element) => turned(element, elementSvg(element, { images, baselines }))).join("\n");
+  const body = [
+    ...inDrawOrder(elements).map((element) => turned(element, elementSvg(element, { images, baselines }))),
+    // Frame names go on top, as on the canvas.
+    ...elements.filter(isFrame).map((frame) => frameNameSvg(frame, baselines)),
+  ].join("\n");
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${num(width)}" height="${num(height)}" viewBox="${num(x)} ${num(y)} ${num(width)} ${num(height)}">`,
     fontFaces && `<defs><style>${fontFaces}</style></defs>`,
@@ -96,10 +144,12 @@ export function buildSvg(
     .join("\n");
 }
 
-/** Text fonts used by `elements`, by key (see FONTS). */
-export const fontsUsed = (elements) =>
-  new Set(
-    elements
-      .filter((element) => element.type === "text" && element.text)
-      .map((element) => (FONTS[element.font] ? element.font : "hand")),
-  );
+/** Text fonts used by `elements`, by key (see FONTS). Frame names are in the sans font. */
+export function fontsUsed(elements) {
+  const fonts = new Set();
+  for (const element of elements) {
+    if ((element.type === "text" || element.type === "sticky") && element.text) fonts.add(fontKey(element.font));
+    if (isFrame(element)) fonts.add("sans");
+  }
+  return fonts;
+}

@@ -93,7 +93,7 @@ export function arrowHeadPoints(x1, y1, x2, y2, length) {
 export function constrainEnd(type, x1, y1, x2, y2) {
   const dx = x2 - x1;
   const dy = y2 - y1;
-  if (type === "rectangle" || type === "ellipse") {
+  if (type !== "line" && type !== "arrow") {
     const side = Math.max(Math.abs(dx), Math.abs(dy));
     return { x2: x1 + side * Math.sign(dx || 1), y2: y1 + side * Math.sign(dy || 1) };
   }

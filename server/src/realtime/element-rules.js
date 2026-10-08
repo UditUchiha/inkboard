@@ -15,14 +15,23 @@ import { IMAGE_ID } from "../services/image-storage.js";
 
 export const COORDINATE_LIMIT = 10_000_000; // far beyond any real drawing
 export const MAX_TEXT_LENGTH = 20_000;
+export const MAX_FRAME_NAME_LENGTH = 200;
 
 const SHAPE_TYPES = new Set(["line", "arrow", "rectangle", "ellipse"]);
 const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
-const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "image", "pen", "text"]);
+const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "image", "pen", "text", "sticky"]);
 const FONTS = new Set(["hand", "sans", "code"]);
 const COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
-const DEFAULTS = { stroke: "#16213a", strokeWidth: 2.5, penSize: 8, fontSize: 32, font: "hand", pressure: 0.5 };
+const DEFAULTS = {
+  stroke: "#16213a",
+  strokeWidth: 2.5,
+  penSize: 8,
+  fontSize: 32,
+  font: "hand",
+  pressure: 0.5,
+  noteFill: "#ffec99",
+};
 // The client's own ranges, with room to spare where resizing can grow things.
 const RANGES = { strokeWidth: [0.1, 100], penSize: [0.5, 200], fontSize: [8, 400] };
 
@@ -75,6 +84,27 @@ function cleanByType(element) {
       fontSize: inRange(element.fontSize, RANGES.fontSize, DEFAULTS.fontSize),
       font: FONTS.has(element.font) ? element.font : DEFAULTS.font,
     };
+  }
+  if (type === "sticky") {
+    if (!box(element) || typeof element.text !== "string" || element.text.length > MAX_TEXT_LENGTH) return null;
+    const { x1, y1, x2, y2 } = element;
+    return {
+      id,
+      type,
+      x1,
+      y1,
+      x2,
+      y2,
+      text: element.text,
+      fill: color(element.fill, DEFAULTS.noteFill),
+      font: FONTS.has(element.font) ? element.font : DEFAULTS.font,
+    };
+  }
+  if (type === "frame") {
+    if (!box(element)) return null;
+    const { x1, y1, x2, y2 } = element;
+    const name = typeof element.name === "string" ? element.name.slice(0, MAX_FRAME_NAME_LENGTH) : "";
+    return { id, type, x1, y1, x2, y2, name };
   }
   if (type === "image") {
     if (!IMAGE_ID.test(element.imageId) || !box(element)) return null;

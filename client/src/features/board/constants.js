@@ -1,4 +1,5 @@
-// Tools appear in the toolbar in this order; number keys 1–9 follow it too.
+// Tools appear in the toolbar in this order; number keys 1–9 follow it too (the
+// tools after the ninth have a letter only).
 export const TOOLS = [
   { id: "select", label: "Select and move", key: "v" },
   { id: "hand", label: "Pan", key: "h" },
@@ -8,6 +9,8 @@ export const TOOLS = [
   { id: "arrow", label: "Arrow", key: "a" },
   { id: "line", label: "Line", key: "l" },
   { id: "text", label: "Text", key: "t" },
+  { id: "sticky", label: "Sticky note", key: "s" },
+  { id: "frame", label: "Frame", key: "f" },
   { id: "eraser", label: "Eraser", key: "e" },
 ];
 
@@ -17,7 +20,9 @@ export const COMMENT_TOOL = { id: "comment", label: "Comment", key: "c" };
 // The most elements a board can hold (the server's limit too).
 export const MAX_ELEMENTS_PER_BOARD = 5000;
 
-export const DRAWING_TOOLS = new Set(["pen", "rectangle", "ellipse", "arrow", "line", "text"]);
+export const NUMBERED_TOOLS = 9;
+
+export const DRAWING_TOOLS = new Set(["pen", "rectangle", "ellipse", "arrow", "line", "text", "sticky"]);
 export const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
 
 export const STROKE_COLORS = [
@@ -36,6 +41,22 @@ export const FILL_COLORS = [
   { name: "Sky", value: "#a5d8ff" },
   { name: "Lilac", value: "#d0bfff" },
 ];
+
+// Sticky notes come in the fill colors, plus a warmer orange. Butter is the default.
+export const NOTE_COLORS = [
+  FILL_COLORS[1],
+  { name: "Peach", value: "#ffd8a8" },
+  ...FILL_COLORS.filter((_, i) => i !== 1),
+];
+export const NOTE_TEXT_COLOR = "#16213a";
+export const NOTE_SIZE = 200; // a new note's side, in board units
+
+// Frames are white pages on the board, named above their top left corner.
+export const FRAME_FILL = "#ffffff";
+export const FRAME_BORDER = "#c3c8d2";
+export const FRAME_LABEL_COLOR = "#5e6676";
+export const FRAME_LABEL_SIZE = 13; // screen pixels in the editor, board units in exports and thumbnails
+export const FRAME_LABEL_GAP = 6;
 
 export const STROKE_WIDTHS = [
   { name: "Thin", value: 1 },
@@ -73,6 +94,7 @@ export const DEFAULT_STYLE = {
   sketchy: true,
   fontSize: 32,
   font: "hand",
+  noteFill: NOTE_COLORS[0].value,
 };
 
 // Which style controls each element type exposes.
@@ -83,6 +105,8 @@ export const STYLE_CONTROLS = {
   rectangle: ["stroke", "fill", "strokeWidth", "sketchy"],
   ellipse: ["stroke", "fill", "strokeWidth", "sketchy"],
   text: ["stroke", "font", "fontSize"],
+  sticky: ["noteFill", "font"],
+  frame: ["name"],
   image: [],
 };
 

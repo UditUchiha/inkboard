@@ -1,6 +1,15 @@
 import clsx from "clsx";
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Ban, CopyPlus, Trash2 } from "lucide-react";
-import { FILL_COLORS, FONT_SIZES, FONTS, PEN_SIZES, STROKE_COLORS, STROKE_WIDTHS, STYLE_CONTROLS } from "./constants";
+import {
+  FILL_COLORS,
+  FONT_SIZES,
+  FONTS,
+  NOTE_COLORS,
+  PEN_SIZES,
+  STROKE_COLORS,
+  STROKE_WIDTHS,
+  STYLE_CONTROLS,
+} from "./constants";
 
 function Section({ label, children }) {
   return (
@@ -90,6 +99,36 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
       aria-label={selection ? "Selected element" : "Tool style"}
       className="floating-panel grid max-h-[calc(100dvh-10rem)] w-60 gap-5 overflow-y-auto rounded-xl p-4"
     >
+      {controls.includes("name") && (
+        <label className="grid gap-2">
+          <span className="text-xs font-medium text-graphite">Name</span>
+          <input
+            value={values.name ?? ""}
+            onChange={(event) => onChange("name", event.target.value.slice(0, 200))}
+            onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+            placeholder="Frame"
+            className="h-8 rounded-lg border border-rule bg-surface px-2 text-sm outline-none focus:border-signal"
+          />
+        </label>
+      )}
+
+      {controls.includes("noteFill") && (
+        <Section label="Color">
+          <div className="flex flex-wrap gap-1.5">
+            {NOTE_COLORS.map((color) => (
+              <Swatch
+                key={color.value}
+                color={color.value}
+                name={color.name}
+                selected={values.fill === color.value}
+                onClick={() => onChange("fill", color.value)}
+              />
+            ))}
+            <CustomColor label="Custom note color" value={values.fill} onChange={(value) => onChange("fill", value)} />
+          </div>
+        </Section>
+      )}
+
       {controls.includes("stroke") && (
         <Section label={type === "text" ? "Color" : "Stroke"}>
           <div className="flex flex-wrap gap-1.5">

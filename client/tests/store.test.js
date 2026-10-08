@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { FIELD_GROUPS } from "@inkboard/shared/board-merge";
-import { createElement, createImage, duplicate, stackKey } from "../src/features/board/elements.js";
+import { createElement, createImage, createNote, duplicate, stackKey } from "../src/features/board/elements.js";
 import { applyOperation, createBoardStore } from "../src/features/board/store.js";
 
 const rect = (id, x = 0) => ({
@@ -372,14 +372,16 @@ describe("property groups", () => {
       penSize: 8,
       fontSize: 32,
       font: "hand",
+      noteFill: "#ffec99",
     };
     const grouped = new Set(Object.values(FIELD_GROUPS).flat());
-    const kinds = ["pen", "text", "line", "arrow", "rectangle", "ellipse"].map((type) =>
+    const kinds = ["pen", "text", "line", "arrow", "rectangle", "ellipse", "frame"].map((type) =>
       createElement(type, { x: 0, y: 0 }, style, 0.5),
     );
     for (const element of [
       ...kinds,
       createImage("a".repeat(32), { x: 0, y: 0 }, { width: 10, height: 10 }),
+      createNote({ x: 0, y: 0 }, style),
       duplicate(kinds[4]),
     ]) {
       for (const field of Object.keys({ ...element, angle: 1, index: "a0" })) {

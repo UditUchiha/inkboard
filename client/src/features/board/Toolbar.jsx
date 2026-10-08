@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Circle,
   Eraser,
+  Frame,
   Hand,
   ImagePlus,
   Minus,
@@ -10,10 +11,11 @@ import {
   MessageSquarePlus,
   Pencil,
   Square,
+  StickyNote,
   Type,
 } from "lucide-react";
 import { Fragment } from "react";
-import { COMMENT_TOOL, TOOLS } from "./constants";
+import { COMMENT_TOOL, NUMBERED_TOOLS, TOOLS } from "./constants";
 
 const ICONS = {
   comment: MessageSquarePlus,
@@ -25,11 +27,13 @@ const ICONS = {
   arrow: ArrowUpRight,
   line: Minus,
   text: Type,
+  sticky: StickyNote,
+  frame: Frame,
   eraser: Eraser,
 };
 
-// Dividers separate navigation, drawing, and erasing.
-const GROUP_STARTS = new Set(["pen", "eraser", "comment"]);
+// Dividers separate navigation, drawing, notes and frames, and erasing.
+const GROUP_STARTS = new Set(["pen", "sticky", "eraser", "comment"]);
 
 export function Toolbar({ tool, onToolChange, onAddImage, withComments = false, className }) {
   const tools = withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS;
@@ -42,7 +46,7 @@ export function Toolbar({ tool, onToolChange, onAddImage, withComments = false, 
       {tools.map((item, index) => {
         const Icon = ICONS[item.id];
         const active = tool === item.id;
-        const numbered = index < TOOLS.length;
+        const numbered = index < NUMBERED_TOOLS;
         return (
           <Fragment key={item.id}>
             {GROUP_STARTS.has(item.id) && <span className="mx-1 h-6 w-px bg-rule" aria-hidden />}

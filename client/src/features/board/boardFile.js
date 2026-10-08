@@ -9,7 +9,7 @@ export const BOARD_FILE_TYPE = "inkboard";
 export const BOARD_FILE_VERSION = 1;
 export const BOARD_FILE_EXTENSION = ".inkboard.json";
 
-const ELEMENT_TYPES = new Set(["pen", "line", "arrow", "rectangle", "ellipse", "text", "image"]);
+const ELEMENT_TYPES = new Set(["pen", "line", "arrow", "rectangle", "ellipse", "text", "image", "sticky", "frame"]);
 
 /** A problem with a board file that can be shown to the person as it is. */
 export class BoardFileError extends Error {}

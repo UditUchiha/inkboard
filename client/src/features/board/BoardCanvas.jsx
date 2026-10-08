@@ -2,7 +2,16 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { useElementSize } from "../../lib/useElementSize";
 import { useTheme } from "../../providers/ThemeProvider";
 import { ERASER_RADIUS, GRID_SIZE, HIT_TOLERANCE, MAX_ZOOM, MIN_ZOOM } from "./constants";
-import { createElement, elementAt, hitTest, isDegenerate, translate } from "./elements";
+import {
+  createElement,
+  createNote,
+  elementAt,
+  hitTest,
+  isDegenerate,
+  nextFrameName,
+  translate,
+  withContents,
+} from "./elements";
 import { clamp, constrainEnd, toWorld, zoomAround } from "./geometry";
 import { imagesVersion, subscribeImages } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
@@ -52,6 +61,7 @@ export function BoardCanvas({
   onCursorMove,
   onSizeChange,
   onPlaceComment,
+  onFrameDrawn,
 }) {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
@@ -84,8 +94,20 @@ export function BoardCanvas({
     const height = Math.round(size.height * dpr);
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
-    renderScene(canvas, { elements, viewport, dpr, selectedId, hiddenId: editingId, dark: theme === "dark" });
+    renderScene(canvas, {
+      elements,
+      viewport,
+      dpr,
+      selectedId,
+      hiddenId: editingId,
+      dark: theme === "dark",
+      screenLabels: true,
+    });
   }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme]);
+
+  // What's under a point, frame names included (they're sized on screen).
+  const pick = (world, vp) =>
+    elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom, { labelScale: 1 / vp.zoom });
 
   const screenPoint = (event) => {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -164,10 +186,16 @@ export function BoardCanvas({
 
     if (g.kind === "draw") {
       if (cancelled || isDegenerate(g.element)) store.apply({ remove: [g.element.id] });
-      else store.record({ undo: { remove: [g.element.id] }, redo: { upsert: [g.element] } });
+      else {
+        store.record({ undo: { remove: [g.element.id] }, redo: { upsert: [g.element] } });
+        if (g.element.type === "frame") onFrameDrawn?.(g.element.id);
+      }
     } else if (g.kind === "erase" && g.erased.size > 0) {
       store.record({ undo: { upsert: [...g.erased.values()] }, redo: { remove: [...g.erased.keys()] } });
-    } else if ((g.kind === "move" || g.kind === "transform") && g.current) {
+    } else if (g.kind === "move" && g.current) {
+      if (cancelled) store.apply({ upsert: g.originals }, { base: g.current });
+      else store.record({ undo: { upsert: g.originals }, redo: { upsert: g.current } });
+    } else if (g.kind === "transform" && g.current) {
       if (cancelled) store.apply({ upsert: [g.original] }, { base: [g.current] });
       else store.record({ undo: { upsert: [g.original] }, redo: { upsert: [g.current] } });
     }
@@ -237,9 +265,10 @@ export function BoardCanvas({
           setTurning(grabbed === "rotate");
           return;
         }
-        const hit = elementAt(store.getElements(), world.x, world.y, tolerance);
+        const hit = pick(world, vp);
         onSelect(hit?.id ?? null);
-        if (hit) gesture.current = { kind: "move", start: world, original: hit, current: null };
+        // A frame takes what's inside it along.
+        if (hit) gesture.current = { kind: "move", start: world, originals: withContents(store.getElements(), hit) };
         else startPan(screen);
         return;
       }
@@ -256,9 +285,16 @@ export function BoardCanvas({
         else onEditText({ element: createElement("text", world, activeStyle), isNew: true });
         return;
       }
+      case "sticky": {
+        const hit = elementAt(store.getElements(), world.x, world.y, tolerance);
+        if (hit?.type === "sticky") onEditText({ element: hit, isNew: false });
+        else onEditText({ element: createNote(world, activeStyle), isNew: true });
+        return;
+      }
       default: {
         const pressure = event.pointerType === "pen" ? event.pressure : undefined;
         const element = createElement(activeTool, world, activeStyle, pressure);
+        if (element.type === "frame") element.name = nextFrameName(store.getElements());
         gesture.current = { kind: "draw", element };
         onSelect(null);
         store.apply({ upsert: [element] });
@@ -279,7 +315,7 @@ export function BoardCanvas({
         const selected = latest.current.selectedId ? store.getElement(latest.current.selectedId) : null;
         const overHandle = selected ? handleAt(selected, world, vp.zoom) : null;
         if (overHandle !== latest.current.handle) setHandle(overHandle);
-        const over = !overHandle && Boolean(elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom));
+        const over = !overHandle && Boolean(pick(world, vp));
         if (over !== latest.current.hovering) setHovering(over);
       }
       return;
@@ -318,9 +354,9 @@ export function BoardCanvas({
         g.last = world;
         return;
       case "move": {
-        const moved = translate(g.original, world.x - g.start.x, world.y - g.start.y);
+        const moved = g.originals.map((element) => translate(element, world.x - g.start.x, world.y - g.start.y));
         // Each step is made from the one before, so only what the drag changes is sent.
-        store.apply({ upsert: [moved] }, { base: [g.current ?? g.original] });
+        store.apply({ upsert: moved }, { base: g.current ?? g.originals });
         g.current = moved;
         return;
       }
@@ -351,8 +387,8 @@ export function BoardCanvas({
     const vp = latest.current.viewport;
     const screen = screenPoint(event);
     const world = toWorld(vp, screen.x, screen.y);
-    const hit = elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom);
-    if (hit?.type === "text") onEditText({ element: hit, isNew: false });
+    const hit = pick(world, vp);
+    if (hit?.type === "text" || hit?.type === "sticky") onEditText({ element: hit, isNew: false });
   }
 
   let cursor = "crosshair";

@@ -43,8 +43,8 @@ import { useTheme } from "../../providers/ThemeProvider";
 import { BoardCanvas } from "./BoardCanvas";
 import { CommentsLayer } from "./CommentsLayer";
 import { BoardFileError, isBoardFile, parseBoardFile, placeElements } from "./boardFile";
-import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, TOOLS } from "./constants";
-import { createImage, duplicate, getSceneBounds, stackKey, translate } from "./elements";
+import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, NUMBERED_TOOLS, TOOLS } from "./constants";
+import { createImage, duplicate, getSceneBounds, isFrame, stackKey, translate, withContents } from "./elements";
 import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
 import { fitViewport, toWorld, zoomAround } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
@@ -56,7 +56,7 @@ import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { useBoardSnapshot } from "./store";
-import { TextEditor } from "./TextEditor";
+import { NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
 import { useFollow } from "./useFollow";
 import { useThreads } from "./useThreads";
@@ -65,13 +65,15 @@ import { VersionHistory } from "./VersionHistory";
 const isTypingTarget = (target) =>
   target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
+const FRAME_COPY_GAP = 80;
+
 const ARROW_KEYS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
 
-// Tools are reachable by letter (V, P, R…) or by position (1–9). Comments have a letter only.
+// Tools are reachable by letter (V, P, R…), and the first nine by position (1–9) too.
 function toolForKey(key, withComments) {
   const byLetter = (withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS).find((item) => item.key === key);
   if (byLetter) return byLetter;
-  return /^[1-9]$/.test(key) ? TOOLS[Number(key) - 1] : null;
+  return /^[1-9]$/.test(key) && Number(key) <= NUMBERED_TOOLS ? TOOLS[Number(key) - 1] : null;
 }
 
 function styleTarget(tool, selected) {
@@ -278,20 +280,35 @@ export function BoardEditor({ store, sync, user, local = null }) {
     if (bounds) changeViewport(fitViewport(bounds, canvasSize, { padding: 96, maxZoom: 2 }));
   }, [store, canvasSize, changeViewport]);
 
-  const deleteSelected = useCallback(() => {
+  // The selected element and, for a frame, everything inside it: they're deleted,
+  // copied and nudged together.
+  const selectedGroup = useCallback(() => {
     const element = selectedId && store.getElement(selectedId);
-    if (!element) return;
-    store.commit({ undo: { upsert: [element] }, redo: { remove: [element.id] } });
-    setSelectedId(null);
+    return element ? withContents(store.getElements(), element) : [];
   }, [selectedId, store]);
 
+  const deleteSelected = useCallback(() => {
+    const group = selectedGroup();
+    if (group.length === 0) return;
+    store.commit({ undo: { upsert: group }, redo: { remove: group.map((element) => element.id) } });
+    setSelectedId(null);
+    if (group.length > 1) {
+      const count = group.length - 1;
+      toast(`Frame and ${count} ${count === 1 ? "element" : "elements"} in it deleted`, {
+        action: { label: "Undo", onClick: () => store.undo() },
+      });
+    }
+  }, [selectedGroup, store]);
+
   const duplicateSelected = useCallback(() => {
-    const element = selectedId && store.getElement(selectedId);
-    if (!element) return;
-    const copy = duplicate(element);
-    store.commit({ undo: { remove: [copy.id] }, redo: { upsert: [copy] } });
-    setSelectedId(copy.id);
-  }, [selectedId, store]);
+    const group = selectedGroup();
+    if (group.length === 0) return;
+    // A frame's copy goes beside it, so the two don't overlap and claim each other's contents.
+    const [dx, dy] = isFrame(group[0]) ? [Math.abs(group[0].x2 - group[0].x1) + FRAME_COPY_GAP, 0] : [16, 16];
+    const copies = group.map((element) => duplicate(element, dx, dy));
+    store.commit({ undo: { remove: copies.map((copy) => copy.id) }, redo: { upsert: copies } });
+    setSelectedId(copies[0].id);
+  }, [selectedGroup, store]);
 
   // "front", "forward", "backward" or "back" in the stack. Only the element's
   // stacking key changes, so it merges with anyone else's edits to it.
@@ -315,15 +332,21 @@ export function BoardEditor({ store, sync, user, local = null }) {
 
   const nudgeSelected = useCallback(
     (dx, dy) => {
-      const element = selectedId && store.getElement(selectedId);
-      if (!element) return;
+      const group = selectedGroup();
+      if (group.length === 0) return;
       store.commit(
-        { undo: { upsert: [element] }, redo: { upsert: [translate(element, dx, dy)] } },
-        { mergeKey: `nudge:${element.id}` },
+        { undo: { upsert: group }, redo: { upsert: group.map((element) => translate(element, dx, dy)) } },
+        { mergeKey: `nudge:${group[0].id}` },
       );
     },
-    [selectedId, store],
+    [selectedGroup, store],
   );
+
+  // A frame just drawn is selected, ready to be named or filled.
+  const selectNewFrame = useCallback((id) => {
+    setTool("select");
+    setSelectedId(id);
+  }, []);
 
   // Adds pictures to the board: shrinks and uploads each, then places it where it
   // was dropped, or in the middle of the screen. Each one is a single undo step.
@@ -517,13 +540,17 @@ export function BoardEditor({ store, sync, user, local = null }) {
         stopFollowing();
       },
       i: () => canAddImages && fileInput.current?.click(),
+      enter: () => {
+        const element = selectedId && store.getElement(selectedId);
+        if (element?.type === "text" || element?.type === "sticky") setEditing({ element, isNew: false });
+      },
       "?": () => setDialog("shortcuts"),
       "!": fitToScreen, // Shift + 1
     };
 
     if (readOnly) {
       for (const key of ["z", "y", "d", "]", "}", "[", "{"]) delete withModifier[key];
-      for (const key of ["delete", "backspace"]) delete plain[key];
+      for (const key of ["delete", "backspace", "enter"]) delete plain[key];
     }
 
     function onKeyDown(event) {
@@ -566,15 +593,17 @@ export function BoardEditor({ store, sync, user, local = null }) {
     const { element, isNew } = editing;
     setEditing(null);
     const value = text.trimEnd();
+    // An empty sticky note is still a note; empty text is nothing.
+    const keepEmpty = element.type === "sticky";
     if (isNew) {
-      if (!value.trim()) return;
+      if (!value.trim() && !keepEmpty) return;
       const created = { ...element, text: value };
       store.commit({ undo: { remove: [created.id] }, redo: { upsert: [created] } });
       return;
     }
     const current = store.getElement(element.id) ?? element;
     if (value === current.text) return;
-    if (!value.trim()) {
+    if (!value.trim() && !keepEmpty) {
       store.commit({ undo: { upsert: [current] }, redo: { remove: [current.id] } });
     } else {
       store.commit({ undo: { upsert: [current] }, redo: { upsert: [{ ...current, text: value }] } });
@@ -582,7 +611,9 @@ export function BoardEditor({ store, sync, user, local = null }) {
   }
 
   function changeStyle(key, value) {
-    setStyle((current) => ({ ...current, [key]: value }));
+    // A note's color is its fill, but new notes keep their own color, apart from new shapes' fill.
+    const styleKey = panelType === "sticky" && key === "fill" ? "noteFill" : key;
+    if (key !== "name") setStyle((current) => ({ ...current, [styleKey]: value }));
     if (selected) {
       store.commit(
         { undo: { upsert: [selected] }, redo: { upsert: [{ ...selected, [key]: value }] } },
@@ -640,6 +671,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
         onCursorMove={sync.sendCursor}
         onSizeChange={setCanvasSize}
         onPlaceComment={placeComment}
+        onFrameDrawn={selectNewFrame}
       />
 
       <input
@@ -688,9 +720,12 @@ export function BoardEditor({ store, sync, user, local = null }) {
         />
       )}
 
-      {editing && (
-        <TextEditor key={editing.element.id} element={editing.element} viewport={viewport} onCommit={commitText} />
-      )}
+      {editing &&
+        (editing.element.type === "sticky" ? (
+          <NoteEditor key={editing.element.id} element={editing.element} viewport={viewport} onCommit={commitText} />
+        ) : (
+          <TextEditor key={editing.element.id} element={editing.element} viewport={viewport} onCommit={commitText} />
+        ))}
 
       {/* Top left: back to boards, title */}
       <div className="floating-panel absolute top-3 left-3 flex items-center gap-0.5 rounded-xl p-1">
@@ -842,7 +877,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
         <div className={clsx("absolute left-3 max-md:bottom-[7.5rem] md:top-20", !panelOpen && "max-md:hidden")}>
           <PropertiesPanel
             type={panelType}
-            values={selected ?? style}
+            values={selected ?? (panelType === "sticky" ? { ...style, fill: style.noteFill } : style)}
             onChange={changeStyle}
             selection={Boolean(selected && tool === "select")}
             onDuplicate={duplicateSelected}

@@ -1,5 +1,5 @@
 import { Dialog } from "../../components/Dialog";
-import { TOOLS } from "./constants";
+import { NUMBERED_TOOLS, TOOLS } from "./constants";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const MOD = isMac ? "⌘" : "Ctrl";
@@ -10,6 +10,7 @@ const ACTIONS = [
   { label: "Duplicate selection", keys: [MOD, "D"] },
   { label: "Delete selection", keys: ["Delete"] },
   { label: "Nudge selection", keys: ["Arrow keys"] },
+  { label: "Edit selected text or note", keys: ["Enter"] },
   { label: "Bring forward / send backward", keys: [MOD, "] / ["] },
   { label: "Bring to front / send to back", keys: [MOD, "Shift", "] / ["] },
   { label: "Add an image", keys: ["I"] },
@@ -22,6 +23,7 @@ const ACTIONS = [
   { label: "Keep proportions, snap turns to 15°", keys: ["Shift + drag"] },
   { label: "Constrain a new shape or line", keys: ["Shift + drag"] },
   { label: "Finish text", keys: ["Esc"] },
+  { label: "Move a frame and everything in it", keys: ["Drag the frame"] },
 ];
 
 function Keys({ keys }) {
@@ -46,7 +48,9 @@ export function ShortcutsDialog({ open, onClose }) {
             {TOOLS.map((tool, index) => (
               <li key={tool.id} className="flex items-center justify-between gap-4 text-sm">
                 {tool.label}
-                <Keys keys={[tool.key.toUpperCase(), String(index + 1)]} />
+                <Keys
+                  keys={index < NUMBERED_TOOLS ? [tool.key.toUpperCase(), String(index + 1)] : [tool.key.toUpperCase()]}
+                />
               </li>
             ))}
           </ul>

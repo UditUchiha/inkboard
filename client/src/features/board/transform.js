@@ -32,8 +32,9 @@ const normalizeAngle = (angle) => Math.atan2(Math.sin(angle), Math.cos(angle));
 
 /**
  * What to draw around a selected element and where its handles are.
- * Boxes (rectangles, ellipses, strokes, text) get eight resize handles and a
- * turn handle; lines and arrows get a handle on each end. `zoom` keeps handle
+ * Boxes (rectangles, ellipses, strokes, text, notes, frames) get eight resize
+ * handles and, unless they're frames, a turn handle; lines and arrows get a
+ * handle on each end. `zoom` keeps handle
  * sizes steady on screen.
  */
 export function getSelectionBox(element, zoom) {
@@ -63,7 +64,7 @@ export function getSelectionBox(element, zoom) {
     const [dx, dy] = DIRECTIONS[id];
     return { id, ...place(dx * halfWidth, dy * halfHeight) };
   });
-  handles.push({ id: "rotate", ...place(0, -(halfHeight + ROTATE_HANDLE_DISTANCE / zoom)) });
+  if (canRotate(element)) handles.push({ id: "rotate", ...place(0, -(halfHeight + ROTATE_HANDLE_DISTANCE / zoom)) });
 
   return { kind: "box", frame, pad, halfWidth, halfHeight, top: place(0, -halfHeight), handles };
 }

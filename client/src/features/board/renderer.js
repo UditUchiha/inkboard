@@ -1,20 +1,32 @@
 import getStroke from "perfect-freehand";
 import rough from "roughjs";
-import { LINE_HEIGHT } from "./constants";
-import { arrowHeadLength, canRotate, fontFor, getBounds, getLocalBounds } from "./elements";
+import { FRAME_BORDER, FRAME_FILL, FRAME_LABEL_COLOR, LINE_HEIGHT, NOTE_TEXT_COLOR } from "./constants";
+import {
+  arrowHeadLength,
+  canRotate,
+  fontFor,
+  frameLabel,
+  getBounds,
+  getLocalBounds,
+  inDrawOrder,
+  isFrame,
+} from "./elements";
 import { arrowHeadPoints, expandRect, normalizeRect, rectCenter } from "./geometry";
 import { getImage } from "./images";
 import { darkInk } from "./ink";
+import { forgetNoteMeasurements, noteLayout } from "./notes";
 import { getSelectionBox } from "./transform";
 
 const generator = rough.generator();
 
 // How the scene being rendered is drawn: its colors (as stored, or as dark mode
-// shows them, see ink.js) and whether pictures come from their small copies
-// (for thumbnails). Set by renderScene.
+// shows them, see ink.js), whether pictures come from their small copies (for
+// thumbnails), and how many board units a pixel of frame name or border takes
+// (see frameLabel). Set by renderScene.
 const sameInk = (color) => color;
 let ink = sameInk;
 let smallPictures = false;
+let labelScale = 1;
 
 // Elements are immutable, so generated shapes can be cached per object. Shapes
 // carry their colors, so light and dark mode each have their own.
@@ -151,9 +163,67 @@ function drawPicture(ctx, element) {
   ctx.restore();
 }
 
+// A note casts a soft shadow, sized with the board so it zooms like the note.
+function drawNote(ctx, element) {
+  const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+  const transform = ctx.getTransform();
+  const pixels = Math.hypot(transform.a, transform.b); // device pixels per board unit
+  ctx.save();
+  ctx.shadowColor = "rgba(22, 33, 58, 0.18)";
+  ctx.shadowBlur = Math.min(width, height) * 0.05 * pixels;
+  ctx.shadowOffsetY = Math.min(width, height) * 0.015 * pixels;
+  ctx.fillStyle = ink(element.fill);
+  ctx.fillRect(x, y, width, height);
+  ctx.restore();
+
+  const layout = noteLayout(element);
+  ctx.save();
+  ctx.font = fontFor({ fontSize: layout.fontSize, font: element.font });
+  ctx.fillStyle = ink(NOTE_TEXT_COLOR);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const offset = (layout.lineHeight - layout.fontSize) / 2;
+  layout.lines.forEach((line, index) => {
+    ctx.fillText(line, layout.centerX, layout.top + offset + index * layout.lineHeight);
+  });
+  ctx.restore();
+}
+
+function drawFrame(ctx, element) {
+  const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+  ctx.save();
+  ctx.fillStyle = ink(FRAME_FILL);
+  ctx.fillRect(x, y, width, height);
+  ctx.strokeStyle = ink(FRAME_BORDER);
+  ctx.lineWidth = labelScale;
+  ctx.strokeRect(x, y, width, height);
+  ctx.restore();
+}
+
+// Names go above everything, so a drawing reaching over a frame's top edge can't hide one.
+function drawFrameName(ctx, element) {
+  const label = frameLabel(element, labelScale);
+  ctx.save();
+  ctx.font = label.font;
+  ctx.fillStyle = ink(FRAME_LABEL_COLOR);
+  ctx.textBaseline = "bottom";
+  ctx.fillText(label.text, label.x, label.bottom);
+  ctx.restore();
+}
+
 function drawUnturned(ctx, roughCanvas, element) {
   if (element.type === "image") {
     drawPicture(ctx, element);
+    return;
+  }
+
+  if (element.type === "sticky") {
+    drawNote(ctx, element);
+    return;
+  }
+
+  if (element.type === "frame") {
+    drawFrame(ctx, element);
     return;
   }
 
@@ -208,11 +278,13 @@ function drawSelection(ctx, element, zoom) {
     ctx.restore();
 
     const turn = selection.handles.find((handle) => handle.id === "rotate");
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(selection.top.x, selection.top.y);
-    ctx.lineTo(turn.x, turn.y);
-    ctx.stroke();
+    if (turn) {
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(selection.top.x, selection.top.y);
+      ctx.lineTo(turn.x, turn.y);
+      ctx.stroke();
+    }
   } else {
     const bounds = expandRect(getBounds(element), 6 / zoom);
     ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
@@ -240,14 +312,26 @@ function isVisible(element, view) {
 
 /**
  * Draws `elements` onto `canvas`. Pass `dark` to draw them as dark mode shows
- * them (pictures keep their own colors), and `smallImages` for thumbnails.
+ * them (pictures keep their own colors), `smallImages` for thumbnails, and
+ * `screenLabels` to keep frame names the same size on screen at any zoom.
  */
 export function renderScene(
   canvas,
-  { elements, viewport, dpr = 1, selectedId, hiddenId, background, dark = false, smallImages = false },
+  {
+    elements,
+    viewport,
+    dpr = 1,
+    selectedId,
+    hiddenId,
+    background,
+    dark = false,
+    smallImages = false,
+    screenLabels = false,
+  },
 ) {
   ink = dark ? darkInk : sameInk;
   smallPictures = smallImages;
+  labelScale = screenLabels ? 1 / viewport.zoom : 1;
   const ctx = canvas.getContext("2d");
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -268,11 +352,14 @@ export function renderScene(
 
   const roughCanvas = rough.canvas(canvas);
   let selected = null;
-  for (const element of elements) {
+  const frames = [];
+  for (const element of inDrawOrder(elements)) {
     if (element.id === selectedId) selected = element;
     if (element.id === hiddenId || !isVisible(element, view)) continue;
     drawElement(ctx, roughCanvas, element);
+    if (isFrame(element)) frames.push(element);
   }
+  for (const frame of frames) drawFrameName(ctx, frame);
   if (selected && selected.id !== hiddenId) drawSelection(ctx, selected, viewport.zoom);
 }
 
@@ -284,6 +371,8 @@ export function loadCanvasFonts() {
     ['32px "Caveat Variable"', '32px "Archivo Variable"', '32px "JetBrains Mono Variable"'].map((font) =>
       document.fonts.load(font),
     ),
-  ).catch(() => {});
+  )
+    .catch(() => {})
+    .then(forgetNoteMeasurements);
   return fontsPromise;
 }

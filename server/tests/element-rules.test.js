@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { cleanElement, COORDINATE_LIMIT, MAX_TEXT_LENGTH } from "../src/realtime/element-rules.js";
+import {
+  cleanElement,
+  COORDINATE_LIMIT,
+  MAX_FRAME_NAME_LENGTH,
+  MAX_TEXT_LENGTH,
+} from "../src/realtime/element-rules.js";
 import { eventually, rect, startServer, upsert } from "./helpers.js";
 
 // What the client creates (see client/src/features/board/elements.js).
@@ -38,6 +43,28 @@ const picture = (overrides = {}) => ({
   ...overrides,
 });
 const line = (overrides = {}) => ({ ...rect("l"), type: "line", ...overrides });
+const note = (overrides = {}) => ({
+  id: "n",
+  type: "sticky",
+  x1: 0,
+  y1: 0,
+  x2: 200,
+  y2: 200,
+  text: "Ship it",
+  fill: "#ffec99",
+  font: "hand",
+  ...overrides,
+});
+const frame = (overrides = {}) => ({
+  id: "f",
+  type: "frame",
+  x1: 0,
+  y1: 0,
+  x2: 800,
+  y2: 600,
+  name: "Frame 1",
+  ...overrides,
+});
 
 describe("element rules", () => {
   it("keeps every kind of element the app makes exactly as it is", () => {
@@ -49,11 +76,16 @@ describe("element rules", () => {
       pen(),
       text(),
       picture(),
+      note(),
+      note({ text: "" }),
+      frame(),
+      frame({ name: "" }),
     ]) {
       assert.deepEqual(cleanElement(element), element);
     }
-    const turned = { ...rect("r"), angle: 1.2 };
-    assert.deepEqual(cleanElement(turned), turned);
+    for (const turned of [{ ...rect("r"), angle: 1.2 }, note({ angle: -0.3 })]) {
+      assert.deepEqual(cleanElement(turned), turned);
+    }
   });
 
   it("refuses elements whose shape or content is broken", () => {
@@ -75,6 +107,10 @@ describe("element rules", () => {
       text({ x1: undefined }),
       picture({ imageId: "../../etc/passwd" }),
       picture({ x2: Infinity }),
+      note({ text: undefined }),
+      note({ text: "x".repeat(MAX_TEXT_LENGTH + 1) }),
+      note({ y2: "200" }),
+      frame({ x2: undefined }),
     ];
     for (const element of broken) assert.equal(cleanElement(element), null, JSON.stringify(element));
   });
@@ -141,6 +177,7 @@ describe("element rules", () => {
     assert.deepEqual(cleanElement(sneaky), rect("r"));
     assert.equal({}.polluted, undefined);
     assert.deepEqual(cleanElement({ ...line(), angle: 2 }), line(), "lines and arrows don't turn");
+    assert.deepEqual(cleanElement(frame({ angle: 2, stroke: "#000000", text: "hi" })), frame(), "nor do frames");
   });
 
   it("repairs how an element looks instead of refusing it", () => {
@@ -164,6 +201,9 @@ describe("element rules", () => {
     );
     assert.deepEqual(cleanElement(text({ fontSize: 2, font: "comic" })), text({ fontSize: 8, font: "hand" }));
     assert.equal(cleanElement(line({ fill: "#ffffff" })).fill, null, "only rectangles and ellipses are filled");
+    assert.deepEqual(cleanElement(note({ fill: "yellow", font: "comic" })), note({ fill: "#ffec99", font: "hand" }));
+    assert.equal(cleanElement(frame({ name: 42 })).name, "", "a name that isn't text");
+    assert.equal(cleanElement(frame({ name: "x".repeat(500) })).name.length, MAX_FRAME_NAME_LENGTH);
   });
 
   it("keeps a stroke's good points and evens out odd pressures", () => {

@@ -36,6 +36,7 @@ export const FIELD_GROUPS = {
   penSize: ["penSize"],
   sketchy: ["sketchy"],
   font: ["font"],
+  name: ["name"],
   index: ["index"],
 };
 // Every field an element can have belongs to exactly one group. A field that
