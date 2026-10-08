@@ -138,8 +138,8 @@ New accounts get a link to verify their email. Until they click it they can use 
 Emails go through [Brevo](https://www.brevo.com)'s API (free: 300 a day), because Render's free plan blocks SMTP. To set it up:
 
 1. Create a free Brevo account.
-2. Under **Senders, Domains & Dedicated IPs → Senders**, add the address emails should come from (your Gmail works) and confirm it with the code Brevo sends.
-3. Under **SMTP & API → API Keys**, generate an API key.
+2. Open **Settings** (your account name at the top right) → **Senders, Domains, IPs → Senders**, click **Add a sender** with the address emails should come from (your Gmail works), and confirm it with the code Brevo sends.
+3. In **Settings → SMTP & API → API Keys**, generate an API key (it's shown once; it starts with `xkeysib-`).
 4. On Render (Environment tab), set `BREVO_API_KEY`, `EMAIL_FROM` (the sender from step 2), and `APP_URL` (e.g. `https://inkboard-b9k8.onrender.com`) so links in emails point to the app.
 
 Without your own domain, some emails may land in spam, so the app tells people to check there. Adding a domain to Brevo later (it gives you DNS records to add) fixes that, and nothing in the app changes.
