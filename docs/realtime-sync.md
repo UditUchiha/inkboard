@@ -1,0 +1,81 @@
+# How boards stay in sync
+
+Everyone on a board edits their own copy straight away and sends the change. Changes reach the server, and from it everyone else, in different orders, so two people can change the same thing at the same moment. The rules below make sure that **everyone who has seen the same changes has the same board**, whatever order they arrived in. In the literature this is a state-based **CRDT**: a map of last-writer-wins registers, with tombstones for removed entries. It's close to what Excalidraw does, with property-level merging added.
+
+The rules live in one place, [`shared/src/board-merge.js`](../shared/src/board-merge.js), which the browser and the server both import, so they can't drift apart. Stacking order is in [`shared/src/board-order.js`](../shared/src/board-order.js).
+
+## Changes and stamps
+
+A change is an operation: `{ upsert: Element[], remove: Removal[] }`.
+
+Each change carries a **stamp**: a `version` (one past the newest the person making it had seen) and a random `versionNonce`. Of two stamps, the higher version is newer; for the same version, the lower nonce. Every replica compares stamps the same way, so they all pick the same winner.
+
+## Property groups
+
+An element's fields are split into groups that change independently:
+
+| Group | Fields |
+|---|---|
+| `shape` | `type`, `seed`, `imageId`, `x1`, `y1`, `x2`, `y2`, `points`, `pressure`, `angle`, `fontSize` |
+| `text` | `text` |
+| `stroke`, `fill`, `strokeWidth`, `penSize`, `sketchy`, `font` | one field each |
+| `index` | `index` (its place in the stack) |
+
+Each group carries its own stamp, and when two copies of an element meet, each group is taken from whichever copy has it newer. So a move and a recolor made at the same time are both kept. The fields of one group always travel together: a move never mixes one person's corners with another's (a text's `fontSize` is in `shape` because resizing text changes it).
+
+An element stores its newest stamp as `version` / `versionNonce`, and lists only the groups whose stamp is older in `stamps`, e.g. `stamps: { stroke: [3, 81920], index: [1, 5] }`. A freshly created element has no `stamps`.
+
+**Adding a field to elements?** Put it in a group in `FIELD_GROUPS`, or it won't survive a merge. A client test checks every field the editor creates.
+
+## What the browser stamps
+
+The store ([`store.js`](../client/src/features/board/store.js)) stamps only the groups a change actually changed, compared with the element it was made from (its **base**), and takes every other group from the element as it is now:
+
+- a step of a drag is compared with the step before it;
+- a commit (`{ undo, redo }`) is compared with its other side, so undoing a move puts the shape back but keeps a color someone else picked since;
+- otherwise, the element as it is now.
+
+A new element is stamped whole and placed on top. One coming back (an undo of a removal) is stamped whole and goes back to its old place in the stack.
+
+## Removals and tombstones
+
+A removal `{ id, version, versionNonce }` hides an element if it's newer than everything in it. The element is then kept as a **tombstone**: the removal's stamp plus the element's last data. Then:
+
+- a change made before the removal and arriving after it doesn't bring the element back, but is remembered in the tombstone;
+- a newer change brings it back (an undo, or an edit by someone who hadn't seen the removal), merged with what the tombstone remembers.
+
+The server passes on every change it takes in, including changes to removed elements, so that whoever brings an element back brings back the same thing everywhere.
+
+## Stacking order
+
+Each element has an `index`, a string key from [fractional indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing) (`"a0"`, `"a1"`, … `"b00"`). Boards are kept sorted by key, then by id, and drawn in that order. So two elements added at the same moment (and given the same key) stack the same way on every screen. A key can always be made above, below or between others, so moving an element in the stack would only change that element's `index` (there is no UI for this yet).
+
+## The server
+
+For each `board:op` the server ([`realtime/index.js`](../server/src/realtime/index.js)):
+
+1. **cleans** the elements ([`element-rules.js`](../server/src/realtime/element-rules.js));
+2. **prepares** the operation (`prepareOperation`): gives new elements without a key a place on top, and handles browsers still running an older app, which say so by not sending `sync: 2` when they join. Their elements are taken whole at their version, and ones without a version are stamped as the newest edit;
+3. **plans** it with the shared rules, without changing anything (`planOperation`);
+4. **checks sizes** against what would actually change (`admit`);
+5. **commits** it and passes on what changed (`effectOf`): each element as the server now has it, merged.
+
+Removed elements' data is kept in memory while a board is open, up to 12 MB. Past that the oldest keep only their stamp. Stamps are also **saved with the board** (`removed`, hidden from ordinary queries), for 30 days and up to 2,000, so an edit from someone who was offline while everyone left can't bring back what was removed since.
+
+**Restoring a version** stamps the restored elements well ahead of everything else (`RESTORE_LEAD`), and removes what the version doesn't have with removals just as new. Changes still on their way from before the restore can't undo parts of it.
+
+## Reconnecting
+
+A browser that reconnects takes the board as the server has it, with its unsent changes merged on top (`store.rejoin`). It drops its own tombstones, because the server's copy is the reference. A change that fails to send is merged in again before being resent, which is harmless if it's already there.
+
+## Tests
+
+- [`shared/tests/board-merge.test.js`](../shared/tests/board-merge.test.js): the rules, including the defining property. Random changes are applied in many orders, and every order must give the same board, stacking order included (500 sets × 6 orders).
+- [`server/tests/convergence.test.js`](../server/tests/convergence.test.js): three real browser stores and the real server rules, adding, dragging, recoloring, removing, undoing and redoing, with messages delivered in random order. Every browser must match the server exactly (400 sessions; 6,000 longer ones were also run while building this).
+- [`server/tests/sync.test.js`](../server/tests/sync.test.js): the same over real sockets, older apps, saved removals and restores.
+
+## Known limits
+
+- Two edits with the same version *and* the same random nonce (about 1 in 2 billion per pair of crossing edits) can be resolved differently on different screens until a reload.
+- Text is one register: two people typing in the same text box at once keep one person's text, not both. Merging characters would need a text CRDT (e.g. Yjs).
+- If a board's removed-element data passes the in-memory budget, or after a board is closed and reopened, a removed element brought back by a partial edit returns with that edit's data only. The server's copy stays the reference, and screens match it after a reconnect.

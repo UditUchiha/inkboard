@@ -76,8 +76,8 @@ export async function restoreVersion(req, res) {
     label: "Before restoring an earlier version",
     author: req.userId,
   });
-  await replaceElements(board.id, version.elements, actor);
-  res.json({ elements: version.elements });
+  const elements = await replaceElements(board.id, version.elements, actor);
+  res.json({ elements });
 }
 
 /**

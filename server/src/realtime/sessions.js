@@ -1,7 +1,9 @@
+import { commitPlan } from "@inkboard/shared/board-merge";
+import { inStackOrder } from "@inkboard/shared/board-order";
 import mongoose from "mongoose";
 import { Board } from "../models/board.model.js";
 import { lastVersionTime, recordVersion } from "../services/versions.js";
-import { applyOperation, elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES } from "./operations.js";
+import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.js";
 
 // Boards that are open in at least one browser live in memory, so every
 // stroke can be broadcast immediately. Changes are written to MongoDB shortly
@@ -57,12 +59,79 @@ export function admit(session, op) {
   return null;
 }
 
-export function openSession(boardId, elements) {
+// Removed elements are remembered with their last data while the board is open
+// (see shared/src/board-merge.js), up to this much. Past it the oldest keep only
+// their stamp, which still stops older changes bringing them back.
+const MAX_BURIED_BYTES = MAX_BOARD_BYTES;
+
+// Tombstones are also saved with the board (their stamps, not their data), so
+// a change made long ago, by someone who was offline while everyone else left,
+// can't bring back what was removed since. Kept this long, and this many.
+export const REMOVED_LIMITS = { ageMs: 30 * 24 * 3600 * 1000, count: 2000 };
+
+const isStampNumber = (value, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && value >= 0 && value <= max;
+
+/** Saved tombstones (`removed` on a board) as a session keeps them, leaving out any for elements on the board. */
+export function readRemoved(removed, elements) {
+  const live = new Set(elements.map((element) => element.id));
+  const cutoff = Date.now() - REMOVED_LIMITS.ageMs;
+  const entries = (Array.isArray(removed) ? removed : [])
+    .filter(
+      (entry) =>
+        typeof entry?.id === "string" &&
+        !live.has(entry.id) &&
+        isStampNumber(entry.version) &&
+        isStampNumber(entry.versionNonce, 2 ** 31 - 1) &&
+        Number.isFinite(entry.at) &&
+        entry.at > cutoff,
+    )
+    .sort((a, b) => a.at - b.at)
+    .slice(-REMOVED_LIMITS.count);
+  return {
+    tombstones: new Map(entries.map(({ id, version, versionNonce }) => [id, { version, versionNonce }])),
+    removedAt: new Map(entries.map(({ id, at }) => [id, at])),
+  };
+}
+
+// The session's tombstones as they're saved, oldest first. Ones past the limits are forgotten here too.
+function removedList(session) {
+  const cutoff = Date.now() - REMOVED_LIMITS.ageMs;
+  const excess = session.removedAt.size - REMOVED_LIMITS.count;
+  let position = 0;
+  for (const [id, at] of session.removedAt) {
+    if (position >= excess && at > cutoff) break;
+    position += 1;
+    forget(session, id);
+  }
+  return [...session.removedAt].map(([id, at]) => {
+    const { version, versionNonce } = session.tombstones.get(id);
+    return { id, version, versionNonce, at };
+  });
+}
+
+function forget(session, id) {
+  session.tombstones.delete(id);
+  session.removedAt.delete(id);
+  session.buriedBytes -= session.buried.get(id) ?? 0;
+  session.buried.delete(id);
+}
+
+/** The open board `boardId`, opening it with `elements` and saved tombstones (`removed`) if it isn't open yet. */
+export function openSession(boardId, elements, removed = []) {
   let session = sessions.get(boardId);
   if (!session) {
-    // Tombstones (removed id -> stamp of its removal, see operations.js) live as
-    // long as the board is open; that's when changes cross each other.
-    session = { boardId, elements, tombstones: new Map(), dirty: false, timer: null, lastVersionAt: null };
+    // A board saved before elements had places in the stack gets them now, in the order it was saved.
+    const ordered = inStackOrder(elements);
+    session = {
+      boardId,
+      elements: ordered,
+      ...readRemoved(removed, ordered), // tombstones (removed id -> { version, versionNonce, element }) and removedAt (id -> time)
+      buried: new Map(), // removed id -> bytes of the data its tombstone keeps, oldest first
+      buriedBytes: 0,
+      dirty: false,
+      timer: null,
+      lastVersionAt: null,
+    };
     measure(session);
     sessions.set(boardId, session);
     lastVersionTime(boardId)
@@ -85,19 +154,71 @@ function checkpoint(session) {
   );
 }
 
-export function updateSession(session, op) {
-  checkpoint(session);
-  session.elements = applyOperation(session.elements, op, session.tombstones);
-  markDirty(session);
+/**
+ * Carries out a plan (see planOperation) on an open board. Returns the ids of
+ * new elements left out because the board has as many as it can hold.
+ */
+export function updateSession(session, plan) {
+  const changes = plan.shown.size > 0 || plan.hidden.size > 0;
+  if (changes) checkpoint(session);
+  const { elements, dropped } = commitPlan(plan, session.tombstones, { limit: MAX_ELEMENTS_PER_BOARD });
+  session.elements = elements;
+  for (const id of dropped) {
+    session.bytes -= session.sizes.get(id) ?? 0;
+    session.sizes.delete(id);
+  }
+  bury(session, plan.graves);
+  const now = Date.now();
+  for (const [id, tombstone] of plan.graves) {
+    if (!tombstone) session.removedAt.delete(id);
+    else if (plan.hidden.has(id)) {
+      session.removedAt.delete(id); // so the map stays oldest first
+      session.removedAt.set(id, now);
+    }
+  }
+  if (changes) markDirty(session);
+  return dropped;
 }
 
-/** Replaces everything on an open board (restoring a version). */
-export function resetSession(session, elements) {
+// Keeps count of the data tombstones hold, and lets the oldest go past MAX_BURIED_BYTES.
+function bury(session, graves) {
+  for (const [id, tombstone] of graves) {
+    session.buriedBytes -= session.buried.get(id) ?? 0;
+    session.buried.delete(id);
+    if (tombstone?.element) {
+      const bytes = elementBytes(tombstone.element);
+      session.buried.set(id, bytes);
+      session.buriedBytes += bytes;
+    }
+  }
+  for (const [id, bytes] of session.buried) {
+    if (session.buriedBytes <= MAX_BURIED_BYTES) break;
+    const { element: _data, ...stamp } = session.tombstones.get(id);
+    session.tombstones.set(id, stamp);
+    session.buried.delete(id);
+    session.buriedBytes -= bytes;
+  }
+}
+
+/**
+ * Puts `snapshot` (an earlier version) back on an open board, stamped as the
+ * newest edit (see restoreOver). Returns the board's elements as restored.
+ */
+export function resetSession(session, snapshot) {
+  const now = Date.now();
+  const before = new Set(session.tombstones.keys());
+  const { elements, tombstones } = restoreOver(session.elements, session.tombstones, snapshot);
   session.elements = elements;
-  session.tombstones = new Map();
+  session.tombstones = tombstones;
+  for (const id of session.removedAt.keys()) if (!tombstones.has(id)) session.removedAt.delete(id);
+  for (const id of tombstones.keys()) if (!before.has(id)) session.removedAt.set(id, now);
+  session.buried = new Map();
+  session.buriedBytes = 0;
+  bury(session, [...tombstones].filter(([id]) => !before.has(id)));
   measure(session);
-  session.lastVersionAt = Date.now();
+  session.lastVersionAt = now;
   markDirty(session);
+  return elements;
 }
 
 function markDirty(session) {
@@ -116,7 +237,7 @@ async function persist(session) {
     // elements, so it is used here; updatedAt is kept current by hand.
     await Board.collection.updateOne(
       { _id: new mongoose.Types.ObjectId(session.boardId) },
-      { $set: { elements: session.elements, updatedAt: new Date() } },
+      { $set: { elements: session.elements, removed: removedList(session), updatedAt: new Date() } },
     );
   } catch (error) {
     console.error(`Could not save board ${session.boardId}: ${error.message}`);

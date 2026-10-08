@@ -1,0 +1,17 @@
+{
+  "name": "@inkboard/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rules the browser and the server must apply identically, such as how boards merge changes.",
+  "type": "module",
+  "exports": {
+    "./board-merge": "./src/board-merge.js",
+    "./board-order": "./src/board-order.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "fractional-indexing": "^4.0.0"
+  }
+}

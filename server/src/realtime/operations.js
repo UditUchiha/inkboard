@@ -1,13 +1,18 @@
 import { randomInt } from "node:crypto";
+import { groupsOf, isStamped, stampOf, withStamps } from "@inkboard/shared/board-merge";
+import { inStackOrder, keyAbove, topKey } from "@inkboard/shared/board-order";
 import mongoose from "mongoose";
 import { cleanElement, isValidId } from "./element-rules.js";
 
-// Boards change through operations: { upsert: Element[], remove: Removal[] }.
-// Upserted elements replace the element with the same id in place, or are
-// appended when new. The client applies the exact same rules (including the
-// version rules below). Each element is checked and cleaned first (see element-rules.js).
+// Boards change through operations: { upsert: Element[], remove: Removal[] },
+// taken in by the rules in shared/src/board-merge.js, which the browser applies
+// too. Each element is checked and cleaned first (see element-rules.js).
 
 export const MAX_ELEMENTS_PER_BOARD = 5000;
+
+// The rules for merging changes the current app follows (it says so when it
+// joins a board): 2, each element's property groups carry their own stamps.
+export const SYNC_FORMAT = 2;
 
 // MongoDB refuses documents over 16 MB, and a board is one document. Without
 // limits, one huge element (or enough of them) makes every later save fail and
@@ -55,103 +60,66 @@ export function sanitizeElements(list) {
   return elements;
 }
 
-// Two people can change the same element at once, and their changes arrive in
-// different orders. Every change is stamped: an upserted element, and a removal,
-// carry a `version` (one past the state they were made from) and a random
-// `versionNonce`. A change only takes effect over a state it supersedes: the
-// higher version wins, and for the same version the lower nonce. Removed
-// elements leave a tombstone (their removal's stamp) so an older edit arriving
-// late can't bring them back. The client applies the identical rules
-// (client/src/features/board/store.js), so everyone ends up with the same board.
-const versionOf = (stamped) => (Number.isInteger(stamped?.version) ? stamped.version : 0);
-const nonceOf = (stamped) => (Number.isInteger(stamped?.versionNonce) ? stamped.versionNonce : 0);
-
-/** Whether the change `incoming` should win over `current`, an earlier state of the same element. */
-export function supersedes(incoming, current) {
-  const difference = versionOf(incoming) - versionOf(current);
-  return difference !== 0 ? difference > 0 : nonceOf(incoming) <= nonceOf(current);
-}
-
-const stampOf = (removal, current) =>
-  Number.isInteger(removal.version)
-    ? { version: removal.version, versionNonce: nonceOf(removal) }
-    : { version: versionOf(current) + 1, versionNonce: 0 };
-
 /**
- * The part of `op` that changes the board: upserts and removals that don't
- * supersede the element's current state (or its tombstone) are dropped, so
- * they're neither stored, counted against the board's size, nor passed on.
- * Changes without a stamp come from a browser still running an older version
- * of the app; they're stamped as the newest edit, so they work as they always did.
+ * Gets an operation ready to be taken in. Changes from browsers still running
+ * an older version of the app (`legacy`) don't stamp each property group: an
+ * element from one is taken as a whole, at its version, and one without a
+ * version (older still) is stamped here as the newest edit, so those people's
+ * changes keep working as they always did. Every element gets a place in the
+ * stack: the one it has, or, for a new element, the top.
  */
-export function keepNewer(elements, op, tombstones = new Map()) {
+export function prepareOperation(elements, op, tombstones, { legacy = false } = {}) {
   const ids = new Set([...op.upsert.map((element) => element.id), ...op.remove.map((removal) => removal.id)]);
   const live = new Map();
   for (const element of elements) if (ids.has(element.id)) live.set(element.id, element);
-  const newest = (id) => live.get(id) ?? tombstones.get(id);
-  const stamped = (change) =>
-    Number.isInteger(change.version) ? change : { ...change, version: versionOf(newest(change.id)) + 1, versionNonce: randomInt(2 ** 31) };
+  const newest = (id) => Math.max(stampOf(live.get(id)).version, stampOf(tombstones.get(id)).version);
+  const fresh = (id) => ({ version: newest(id) + 1, versionNonce: randomInt(2 ** 31) });
+  let top = topKey(elements);
 
-  const upsert = [];
-  for (const element of op.upsert.map(stamped)) {
-    const current = newest(element.id);
-    if (!current || supersedes(element, current)) upsert.push(element);
-  }
-  const remove = [];
-  for (const removal of op.remove.map(stamped)) {
-    const current = newest(removal.id);
-    if (!current || supersedes(removal, current)) remove.push(removal);
-  }
+  const upsert = op.upsert.map((incoming) => {
+    let element = incoming;
+    if (legacy || !isStamped(element)) {
+      const stamp = isStamped(element) ? stampOf(element) : fresh(element.id);
+      element = withStamps(element, Object.fromEntries(groupsOf(element).map((group) => [group, stamp])));
+    }
+    if (element.index === undefined) {
+      const known = live.get(element.id) ?? tombstones.get(element.id)?.element;
+      let index = known?.index;
+      if (index === undefined) {
+        index = keyAbove(top);
+        top = index;
+      }
+      element = { ...element, index };
+    }
+    return element;
+  });
+  const remove = op.remove.map((removal) => (isStamped(removal) ? removal : { id: removal.id, ...fresh(removal.id) }));
   return { upsert, remove };
 }
 
 /**
- * Applies `op` to `elements` and returns the new list (the old one isn't
- * changed). `tombstones` (id -> stamp of its removal) is read and updated.
+ * The board after restoring `snapshot` (an earlier version) over `elements`.
+ * Restored elements are stamped as the newest edit of everything, and elements
+ * the snapshot doesn't have are removed by a removal just as new, so changes
+ * still on their way from before the restore can't undo parts of it. They're
+ * stamped well ahead: each step of a drag is a new version, so someone in the
+ * middle of one can have dozens on the way. Returns { elements, tombstones }.
  */
-export function applyOperation(elements, { upsert = [], remove = [] }, tombstones = new Map()) {
-  if (upsert.length === 0 && remove.length === 0) return elements;
-  const live = new Map(elements.map((element) => [element.id, element]));
-  const changed = new Map(); // id -> its new state, kept in its place
-  const added = new Map(); // id -> element appended at the end, in order
+export const RESTORE_LEAD = 1000;
 
-  for (const entry of remove) {
-    const removal = typeof entry === "string" ? { id: entry } : entry;
-    const current = live.get(removal.id);
-    if (current) {
-      if (!Number.isInteger(removal.version) || supersedes(removal, current)) {
-        live.delete(removal.id);
-        changed.delete(removal.id);
-        tombstones.set(removal.id, stampOf(removal, current));
-      }
-    } else if (Number.isInteger(removal.version)) {
-      const tombstone = tombstones.get(removal.id);
-      if (!tombstone || supersedes(removal, tombstone)) tombstones.set(removal.id, stampOf(removal));
-    }
-  }
+export function restoreOver(elements, tombstones, snapshot) {
+  let newest = 0;
+  for (const stamped of [...elements, ...tombstones.values(), ...snapshot]) newest = Math.max(newest, stampOf(stamped).version);
+  const stamp = () => ({ version: newest + RESTORE_LEAD, versionNonce: randomInt(2 ** 31) });
 
-  for (const element of upsert) {
-    const current = added.get(element.id) ?? changed.get(element.id) ?? live.get(element.id);
-    if (current) {
-      if (!supersedes(element, current)) continue;
-      if (added.has(element.id)) added.set(element.id, element);
-      else changed.set(element.id, element);
-    } else {
-      const tombstone = tombstones.get(element.id);
-      if (tombstone && !supersedes(element, tombstone)) continue;
-      tombstones.delete(element.id);
-      added.set(element.id, element);
-    }
-  }
-
-  const next = [];
+  const restored = inStackOrder(snapshot).map((element) => {
+    const now = stamp();
+    return withStamps(element, Object.fromEntries(groupsOf(element).map((group) => [group, now])));
+  });
+  const kept = new Set(restored.map((element) => element.id));
+  const graves = new Map([...tombstones].filter(([id]) => !kept.has(id)));
   for (const element of elements) {
-    if (!live.has(element.id)) continue;
-    next.push(changed.get(element.id) ?? element);
+    if (!kept.has(element.id)) graves.set(element.id, { ...stamp(), element });
   }
-  for (const element of added.values()) {
-    if (next.length >= MAX_ELEMENTS_PER_BOARD) break;
-    next.push(element);
-  }
-  return next;
+  return { elements: restored, tombstones: graves };
 }

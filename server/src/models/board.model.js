@@ -12,6 +12,9 @@ const boardSchema = new mongoose.Schema(
     collaborators: [{ type: ObjectId, ref: "User", index: true }],
     linkAccess: { type: String, enum: LINK_ACCESS, default: "restricted" },
     elements: { type: [Mixed], default: [] },
+    // Elements removed lately: { id, version, versionNonce, at }. Only needed
+    // when the board is opened for editing (see realtime/sessions.js).
+    removed: { type: [Mixed], default: [], select: false },
     // People who starred the board on their dashboard.
     starredBy: [{ type: ObjectId, ref: "User", index: true }],
     // Set when the owner moves the board to the trash; it's deleted for good 30 days later.

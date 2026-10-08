@@ -59,13 +59,15 @@ Account features:
 
 ## How real-time sync works
 
-Every change to a board is an **operation**: `{ upsert: Element[], remove: id[] }`. Elements are small, immutable JSON objects (a shape's corners, a stroke's points, a text's content), so the same operation can be applied identically on every client and on the server.
+Every change to a board is an **operation**: `{ upsert: Element[], remove: Removal[] }`. Elements are small, immutable JSON objects (a shape's corners, a stroke's points, a text's content).
 
 1. The client applies an operation locally, then batches operations every 40 ms and sends them over Socket.IO.
-2. The server checks that the socket has joined that board, applies the operation to an in-memory copy, and broadcasts it to everyone else in the room.
-3. Changes are written to MongoDB at most once per second, and flushed when the last person leaves or the server shuts down.
+2. The server checks that the socket has joined that board, merges the operation into an in-memory copy, and passes what changed to everyone else in the room.
+3. Changes are written to MongoDB within a quarter of a second for a small board, and flushed when the last person leaves or the server shuts down.
 
-Undo history stores the inverse operation for only the elements you changed, which is why undo is safe with several people drawing at once.
+Changes can cross on the way, so boards merge them as a **CRDT**: each group of an element's properties (its shape, its color, its text, …) carries a stamp, the newest wins group by group, removed elements leave tombstones, and each element has a stacking key. The browser and the server share these rules (`shared/`), so everyone ends up with the same board whatever order changes arrive in, and a move and a recolor made at the same moment are both kept. See [docs/realtime-sync.md](docs/realtime-sync.md).
+
+Undo history stores the inverse operation for only the elements you changed, and undo only reverts the properties the step changed, which is why undo is safe with several people drawing at once.
 
 ## Getting started
 
@@ -93,11 +95,11 @@ To use your own database instead, such as a free MongoDB Atlas cluster, copy `se
 
 ### Tests
 
-`npm test` runs both packages' tests with Node's built-in test runner, so there is nothing extra to install.
+`npm test` runs every package's tests with Node's built-in test runner, so there is nothing extra to install.
 
 - **Server (`server/tests`)** starts the real app on a free port against a throwaway in-memory MongoDB, then drives it over REST and Socket.IO. It covers sign-up and login, who can open and edit a board (owner, invited editor, link viewer, link contributor, guest) including changes that apply live to people already on the board, the dashboard (link-opened boards, archive, stars, trash and its 30-day sweep), live sync and saving, size limits, image upload and the rules around it, version history, comments, notifications and templates. The first run downloads a MongoDB binary, which can take a minute.
 - **Client (`client/tests`)** covers the undo and redo store, the dashboard's section and sort rules, the resize and turn maths, and how pictures are sized and placed.
-- A server test also checks that the browser and the server apply drawing operations identically, since a disagreement would make screens drift from what gets saved.
+- **Shared (`shared/tests`)** checks the merge rules, including that the same changes give the same board in whatever order they arrive. A server test plays three people editing with the real browser store and server rules, with messages delivered in random order, and expects every screen to match the server.
 
 GitHub Actions runs the tests and the build on every push and pull request (`.github/workflows/ci.yml`).
 
@@ -169,6 +171,7 @@ client/                 React app
   src/features/landing/ Interactive demo on the home page
   src/pages/            Landing, auth, dashboard and board pages
   src/providers/        Auth, theme and socket context
+shared/                 Rules the browser and server share: merging changes, stacking order
 server/                 Express + Socket.IO API
   src/controllers/      REST handlers for auth and boards
   src/realtime/         Socket events, live board sessions, operations

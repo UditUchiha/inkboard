@@ -118,7 +118,8 @@ export async function startServer() {
       events,
       of: (name) => events.filter((event) => event.name === name).map((event) => event.payload),
       last: (name) => client.of(name).at(-1),
-      join: (boardId) => new Promise((resolve) => socket.emit("board:join", { boardId }, resolve)),
+      // `sync`: which merge rules the app says it follows (see SYNC_FORMAT); left out, an older app's.
+      join: (boardId, { sync } = {}) => new Promise((resolve) => socket.emit("board:join", { boardId, sync }, resolve)),
       leave: () => socket.emit("board:leave"),
       image: (boardId, data, small) =>
         new Promise((resolve) => socket.emit("board:image", { boardId, data, small }, resolve)),

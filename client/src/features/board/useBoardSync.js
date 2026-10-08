@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSocket } from "../../providers/SocketProvider";
-import { applyOperation, toOperation, toOperations } from "./store";
+import { toOperation, toOperations } from "./store";
 
 const FLUSH_INTERVAL_MS = 40;
 const CURSOR_INTERVAL_MS = 50;
 const VIEWPORT_INTERVAL_MS = 120;
 const ACK_TIMEOUT_MS = 10_000;
+// Which rules for merging changes this app follows. 2: each element's property
+// groups carry their own stamps (see shared/src/board-merge.js).
+const SYNC_FORMAT = 2;
 
 /**
  * Connects a board store to the server: joins the board's room, streams local
@@ -62,20 +65,26 @@ export function useBoardSync(boardId, store) {
           return;
         }
         // Not confirmed: queue it again unless a newer change already superseded it.
+        const again = { upsert: [], remove: [] };
         for (const element of op.upsert) {
           if (lastSent.current.get(element.id) === seq && !pending.current.has(element.id)) {
             pending.current.set(element.id, element);
+            again.upsert.push(element);
           }
         }
         for (const removal of op.remove) {
           if (lastSent.current.get(removal.id) === seq && !pending.current.has(removal.id)) {
             pending.current.set(removal.id, { removal });
+            again.remove.push(removal);
           }
         }
+        // A reconnect in the meantime showed the board as the server has it,
+        // which may not include this change yet. Merging it in again is harmless otherwise.
+        if (again.upsert.length > 0 || again.remove.length > 0) store.applyRemote(again);
         if (joined.current) flushTimer.current ??= setTimeout(flush, FLUSH_INTERVAL_MS * 10);
       });
     }
-  }, [socket, boardId]);
+  }, [socket, boardId, store]);
 
   useEffect(() => {
     store.setBroadcaster((op) => {
@@ -91,7 +100,7 @@ export function useBoardSync(boardId, store) {
     let active = true;
 
     const join = () => {
-      socket.emit("board:join", { boardId }, (response) => {
+      socket.emit("board:join", { boardId, sync: SYNC_FORMAT }, (response) => {
         if (!active) return;
         if (!response?.ok) {
           setPhase({ name: "error", status: response?.status ?? 500, message: response?.error });
@@ -102,7 +111,7 @@ export function useBoardSync(boardId, store) {
         setRole(joinedRole);
         if (loaded.current) {
           // Reconnected: keep any edits made while offline on top of the server state.
-          store.replace(applyOperation(elements, toOperation(pending.current)));
+          store.rejoin(elements, toOperation(pending.current));
         } else {
           store.load(elements);
           loaded.current = true;

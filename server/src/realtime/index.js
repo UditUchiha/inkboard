@@ -13,7 +13,8 @@ import {
   serializeMeta,
 } from "../services/boards.js";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.js";
-import { keepNewer, sanitizeOperation } from "./operations.js";
+import { effectOf, planOperation } from "@inkboard/shared/board-merge";
+import { prepareOperation, restoreOver, sanitizeOperation, SYNC_FORMAT } from "./operations.js";
 import {
   closeSession,
   discardSession,
@@ -21,6 +22,7 @@ import {
   getSession,
   admit,
   openSession,
+  readRemoved,
   resetSession,
   updateSession,
 } from "./sessions.js";
@@ -112,10 +114,14 @@ function handleConnection(socket) {
       const board = await findBoardForViewing(boardId, userId);
       await leaveBoard(socket);
 
-      const session = openSession(boardId, board.elements);
+      // The first person to open the board brings in what was removed from it lately, too.
+      const removed = getSession(boardId) ? [] : ((await Board.findById(boardId).select("+removed").lean())?.removed ?? []);
+      const session = openSession(boardId, board.elements, removed);
       socket.join(boardId);
       socket.data.boardId = boardId;
       socket.data.role = roleOf(board, userId);
+      // Browsers still running an older version of the app merge changes by older rules (see prepareOperation).
+      socket.data.legacy = payload?.sync !== SYNC_FORMAT;
       if (userId) recordOpen(userId, boardId);
 
       reply({ ok: true, board: serializeBoard(board, userId, session.elements) });
@@ -139,13 +145,16 @@ function handleConnection(socket) {
     if (session && !canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
     const sanitized = sanitizeOperation(payload?.op);
     if (!session || !sanitized) return reply({ ok: false });
-    // Edits that someone else's newer edit already replaced change nothing.
-    const op = keepNewer(session.elements, sanitized, session.tombstones);
-    if (op.upsert.length === 0 && op.remove.length === 0) return reply({ ok: true });
-    if (admit(session, op)) return reply({ ok: false, tooLarge: true });
+    const op = prepareOperation(session.elements, sanitized, session.tombstones, { legacy: socket.data.legacy });
+    const plan = planOperation(session.elements, op, session.tombstones);
+    // What actually changes: edits that newer ones already replaced are left out.
+    // Others are sent each element as the server now has it, merged.
+    const effect = effectOf(plan);
+    if (admit(session, { upsert: [...plan.shown.values()], remove: effect.remove })) return reply({ ok: false, tooLarge: true });
 
-    updateSession(session, op);
-    socket.to(boardId).emit("board:op", { op });
+    const dropped = new Set(updateSession(session, plan));
+    if (dropped.size > 0) effect.upsert = effect.upsert.filter((element) => !dropped.has(element.id));
+    if (effect.upsert.length > 0 || effect.remove.length > 0) socket.to(boardId).emit("board:op", { op: effect });
     reply({ ok: true });
   });
 
@@ -286,15 +295,37 @@ export async function syncAccess(board) {
   notifyMetaChanged(board);
 }
 
-/** Replaces everything on a board, for everyone who has it open. */
-export async function replaceElements(boardId, elements, actor) {
+/**
+ * Puts an earlier version's elements back on a board, for everyone who has it
+ * open. Resolves with the board's elements as restored.
+ */
+export async function replaceElements(boardId, snapshot, actor) {
   const session = getSession(boardId);
+  let elements;
   if (session) {
-    resetSession(session, elements);
+    elements = resetSession(session, snapshot);
   } else {
-    await Board.updateOne({ _id: boardId }, { $set: { elements } });
+    const board = await Board.findById(boardId).select("+removed").lean();
+    const current = openSessionless(board);
+    const restored = restoreOver(current.elements, current.tombstones, snapshot);
+    elements = restored.elements;
+    const at = Date.now();
+    const removed = [...restored.tombstones].map(([id, { version, versionNonce }]) => ({
+      id,
+      version,
+      versionNonce,
+      at: current.removedAt.get(id) ?? at,
+    }));
+    await Board.updateOne({ _id: boardId }, { $set: { elements, removed } });
   }
   io?.to(boardId).emit("board:reset", { elements, by: actor?.name ?? null });
+  return elements;
+}
+
+// A closed board's elements and tombstones, as a session would hold them.
+function openSessionless(board) {
+  const elements = board?.elements ?? [];
+  return { elements, ...readRemoved(board?.removed, elements) };
 }
 
 /** Comments are only shown to signed-in people. */

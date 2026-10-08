@@ -52,6 +52,21 @@ describe("element rules", () => {
     for (const element of broken) assert.equal(cleanElement(element), null, JSON.stringify(element));
   });
 
+  it("keeps a place in the stack, and drops one that isn't a stacking key", () => {
+    assert.equal(cleanElement({ ...rect("r"), index: "a0" }).index, "a0");
+    for (const bad of ["", "a", "a0 ", "!x", 7, "a".repeat(200)]) {
+      assert.equal("index" in cleanElement({ ...rect("r"), index: bad }), false, JSON.stringify(bad));
+    }
+  });
+
+  it("keeps the stamps of a shape's property groups, with the newest as its version", () => {
+    const cleaned = cleanElement({ ...rect("r"), version: 2, versionNonce: 1, stamps: { stroke: [9, 4], fill: [1, 1], made: [1, 1], sketchy: "x" } });
+    assert.equal(cleaned.version, 9, "a group newer than the version it came with");
+    assert.equal(cleaned.versionNonce, 4);
+    assert.deepEqual(cleaned.stamps, { shape: [2, 1], fill: [1, 1], strokeWidth: [2, 1], sketchy: [2, 1], index: [2, 1] });
+    assert.equal("stamps" in cleanElement({ ...rect("r"), stamps: { stroke: [9, 4] } }), false, "no version, no stamps");
+  });
+
   it("keeps which edit an element is, and drops a version that isn't one", () => {
     assert.deepEqual(cleanElement({ ...rect("r"), version: 7, versionNonce: 12345 }), { ...rect("r"), version: 7, versionNonce: 12345 });
     for (const bad of [{ version: -1 }, { version: 1.5 }, { version: "3" }, { versionNonce: 2 ** 31 }, { versionNonce: -2 }]) {
@@ -109,7 +124,7 @@ describe("element rules on a live board", () => {
     await editor.join(boardId);
     await watcher.join(boardId);
 
-    const sent = { ...rect("r"), version: 1, versionNonce: 5 };
+    const sent = { ...rect("r"), index: "a0", version: 1, versionNonce: 5 };
     assert.equal((await editor.op(boardId, upsert({ ...sent, extra: "x".repeat(1000) }))).ok, true);
     await eventually(() => watcher.of("board:op").length > 0, { message: "the change reaching the other screen" });
     assert.deepEqual(watcher.of("board:op")[0].op.upsert, [sent]);

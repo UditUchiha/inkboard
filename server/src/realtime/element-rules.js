@@ -1,3 +1,5 @@
+import { cleanStamps, groupStamps, withStamps } from "@inkboard/shared/board-merge";
+import { isOrderKey } from "@inkboard/shared/board-order";
 import { IMAGE_ID } from "../services/image-storage.js";
 
 // What each kind of element may contain, matching what the client creates (see
@@ -107,10 +109,19 @@ export function cleanElement(element) {
   if (TURNABLE_TYPES.has(clean.type) && typeof element.angle === "number" && Number.isFinite(element.angle)) {
     clean.angle = element.angle;
   }
-  // Which edit of the element this is (see operations.js).
-  if (Number.isSafeInteger(element.version) && element.version >= 0) clean.version = element.version;
-  if (Number.isInteger(element.versionNonce) && element.versionNonce >= 0 && element.versionNonce < 2 ** 31) {
-    clean.versionNonce = element.versionNonce;
+  // Where it sits in the stack (see shared/src/board-order.js).
+  if (isOrderKey(element.index)) clean.index = element.index;
+  // Which edit of the element, and of each group of its properties, this is
+  // (see shared/src/board-merge.js). Brought into shape: `version` is the newest
+  // stamp and `stamps` lists only older ones.
+  if (Number.isSafeInteger(element.version) && element.version >= 0) {
+    clean.version = element.version;
+    if (Number.isInteger(element.versionNonce) && element.versionNonce >= 0 && element.versionNonce < 2 ** 31) {
+      clean.versionNonce = element.versionNonce;
+    }
+    const stamps = cleanStamps(element.stamps);
+    if (stamps) clean.stamps = stamps;
+    return withStamps(clean, groupStamps(clean));
   }
   return clean;
 }

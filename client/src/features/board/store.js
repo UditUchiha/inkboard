@@ -1,85 +1,29 @@
 import { useSyncExternalStore } from "react";
+import { applyOperation, copyGroup, FIELD_GROUPS, groupsOf, groupStamps, stampOf, withStamps } from "@inkboard/shared/board-merge";
+import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/board-order";
 
 // Every change to a board is an operation: { upsert: Element[], remove: Removal[] }.
-// Upserts replace an element with the same id in place, or append it.
+// The rules for taking one in, the same in the browser and on the server, are
+// in shared/src/board-merge.js: each group of an element's properties (its
+// shape, its color, its text, …) carries the stamp of its latest change, the
+// newest stamp wins group by group, and removed elements leave a tombstone.
+// So everyone ends up with the same board whatever order changes arrive in.
 //
-// Two people can change the same element at once, and their changes reach the
-// server and each other in different orders. So every change is stamped: each
-// upserted element carries its `version` (one more than the copy it was made
-// from) and a random `versionNonce`, and so does each removal ({ id, version,
-// versionNonce }). A change only takes effect over a state of the element it
-// supersedes: the higher version wins, and for two changes made from the same
-// copy, the lower nonce. Removed elements leave a tombstone (their removal's
-// stamp), so an older edit arriving late can't bring them back, while a newer
-// one (undo, say) can. Everyone, the server included, applies this same rule,
-// so everyone ends up with the same board whatever order changes arrive in.
-// Unstamped elements count as version 0, which is plain "last write wins".
+// This store stamps the changes made here. A change only stamps the groups it
+// actually changed, compared with the element it was made from (its `base`),
+// and takes everything else from the element as it is now. So moving a shape
+// while someone else recolors it keeps both: the move doesn't carry the old
+// color along.
 
-const versionOf = (stamped) => (Number.isInteger(stamped?.version) ? stamped.version : 0);
-const nonceOf = (stamped) => (Number.isInteger(stamped?.versionNonce) ? stamped.versionNonce : 0);
-
-/** Whether the change `incoming` should win over `current`, an earlier state of the same element. */
-export function supersedes(incoming, current) {
-  const difference = versionOf(incoming) - versionOf(current);
-  return difference !== 0 ? difference > 0 : nonceOf(incoming) <= nonceOf(current);
-}
+export { applyOperation };
 
 export const newVersionNonce = () => Math.floor(Math.random() * 2 ** 31);
 
-// A removal from an older browser is just an id: it removes whatever is there.
+const versionOf = (stamped) => stampOf(stamped).version;
 const removalOf = (entry) => (typeof entry === "string" ? { id: entry } : entry);
-const stampOf = (removal, current) =>
-  Number.isInteger(removal.version)
-    ? { version: removal.version, versionNonce: nonceOf(removal) }
-    : { version: versionOf(current) + 1, versionNonce: 0 };
 
-/**
- * Applies `op` to `elements` and returns the new list (the old one isn't
- * changed). `tombstones` (id -> stamp of its removal) is read and updated.
- */
-export function applyOperation(elements, { upsert = [], remove = [] }, tombstones = new Map()) {
-  if (upsert.length === 0 && remove.length === 0) return elements;
-  const live = new Map(elements.map((element) => [element.id, element]));
-  const changed = new Map(); // id -> its new state, kept in its place
-  const added = new Map(); // id -> element appended at the end, in order
-
-  for (const entry of remove) {
-    const removal = removalOf(entry);
-    const current = live.get(removal.id);
-    if (current) {
-      if (!Number.isInteger(removal.version) || supersedes(removal, current)) {
-        live.delete(removal.id);
-        changed.delete(removal.id);
-        tombstones.set(removal.id, stampOf(removal, current));
-      }
-    } else if (Number.isInteger(removal.version)) {
-      const tombstone = tombstones.get(removal.id);
-      if (!tombstone || supersedes(removal, tombstone)) tombstones.set(removal.id, stampOf(removal));
-    }
-  }
-
-  for (const element of upsert) {
-    const current = added.get(element.id) ?? changed.get(element.id) ?? live.get(element.id);
-    if (current) {
-      if (!supersedes(element, current)) continue;
-      if (added.has(element.id)) added.set(element.id, element);
-      else changed.set(element.id, element);
-    } else {
-      const tombstone = tombstones.get(element.id);
-      if (tombstone && !supersedes(element, tombstone)) continue;
-      tombstones.delete(element.id);
-      added.set(element.id, element);
-    }
-  }
-
-  const next = [];
-  for (const element of elements) {
-    if (!live.has(element.id)) continue;
-    next.push(changed.get(element.id) ?? element);
-  }
-  for (const element of added.values()) next.push(element);
-  return next;
-}
+// Whether `a` and `b` differ in any field of `group`.
+const differs = (a, b, group) => FIELD_GROUPS[group].some((field) => field in a !== field in b || a[field] !== b[field]);
 
 /** Changes waiting to be sent (id -> element, or { removal }) as one operation. */
 export function toOperation(pending) {
@@ -99,7 +43,7 @@ const MERGE_WINDOW_MS = 1000;
 // never wipes out what collaborators drew in the meantime.
 export function createBoardStore() {
   let elements = [];
-  let tombstones = new Map(); // removed element id -> stamp of its removal
+  let tombstones = new Map(); // removed element id -> { version, versionNonce, element }
   let undoStack = [];
   let redoStack = [];
   let snapshot = { elements, canUndo: false, canRedo: false };
@@ -111,26 +55,59 @@ export function createBoardStore() {
     for (const listener of listeners) listener();
   }
 
-  // A change made here is a new edit of each element it touches: one version
-  // past its current state (on screen, or its tombstone, or the copy an undo
-  // brings back, whichever is newest), with a new nonce.
-  function stamp(op) {
+  // Stamps a change made here, or returns null if it changes nothing. `base`
+  // holds the elements the change was made from, where that isn't simply what's
+  // on the board now (a step of a drag is made from the step before; an undo
+  // from the state it undoes).
+  function stamp(op, base = []) {
     const upsert = op.upsert ?? [];
     const remove = (op.remove ?? []).map(removalOf);
-    if (upsert.length === 0 && remove.length === 0) return op;
     const ids = new Set([...upsert.map((element) => element.id), ...remove.map((removal) => removal.id)]);
     const current = new Map();
     for (const element of elements) if (ids.has(element.id)) current.set(element.id, element);
-    const next = (id, ...also) =>
-      Math.max(versionOf(current.get(id)), versionOf(tombstones.get(id)), ...also.map(versionOf)) + 1;
-    return {
-      upsert: upsert.map((element) => ({ ...element, version: next(element.id, element), versionNonce: newVersionNonce() })),
-      remove: remove.map((removal) => ({ id: removal.id, version: next(removal.id), versionNonce: newVersionNonce() })),
-    };
+    const before = new Map(base.map((element) => [element.id, element]));
+    // One version past the newest this element has had here, with a new nonce.
+    const next = (id, ...also) => ({
+      version: Math.max(versionOf(current.get(id)), versionOf(tombstones.get(id)), ...also.map(versionOf)) + 1,
+      versionNonce: newVersionNonce(),
+    });
+    let top = topKey(elements);
+
+    const stamped = { upsert: [], remove: remove.map((removal) => ({ id: removal.id, ...next(removal.id) })) };
+    for (const element of upsert) {
+      const live = current.get(element.id);
+      if (!live) {
+        // New elements go on top; one coming back (an undo) returns to its place.
+        const tombstone = tombstones.get(element.id);
+        let index = tombstone ? (element.index ?? tombstone.element?.index) : undefined;
+        if (!isOrderKey(index)) index = keyAbove(top);
+        if (top === null || index > top) top = index;
+        const fields = { ...element, index };
+        const stampNow = next(element.id, element);
+        stamped.upsert.push(withStamps(fields, Object.fromEntries(groupsOf(fields).map((group) => [group, stampNow]))));
+        continue;
+      }
+      const from = before.get(element.id) ?? live;
+      const groups = new Set([...groupsOf(element), ...groupsOf(from)]);
+      // The store keeps the stack order; a change that leaves `index` out isn't moving the element in it.
+      if (!("index" in element)) groups.delete("index");
+      const changed = [...groups].filter((group) => differs(element, from, group));
+      if (changed.length === 0) continue;
+      const stampNow = next(element.id);
+      const stamps = groupStamps(live);
+      const fields = { ...live };
+      for (const group of changed) {
+        copyGroup(fields, element, group);
+        stamps[group] = stampNow;
+      }
+      stamped.upsert.push(withStamps(fields, stamps));
+    }
+    return stamped.upsert.length > 0 || stamped.remove.length > 0 ? stamped : null;
   }
 
-  function apply(op) {
-    const stamped = stamp(op);
+  function apply(op, { base } = {}) {
+    const stamped = stamp(op, base);
+    if (!stamped) return;
     elements = applyOperation(elements, stamped, tombstones);
     publish();
     broadcast(stamped);
@@ -164,15 +141,19 @@ export function createBoardStore() {
 
     /** Replace everything and forget history (first load). */
     load(next) {
-      elements = next;
+      elements = inStackOrder(next);
       tombstones = new Map();
       undoStack = [];
       redoStack = [];
       publish();
     },
-    /** Replace elements but keep history (reconnects). */
-    replace(next) {
-      elements = next;
+    /**
+     * Reconnected: the board as the server has it, with `unsent` (changes made
+     * here that it hasn't confirmed) on top. History is kept.
+     */
+    rejoin(next, unsent = { upsert: [], remove: [] }) {
+      tombstones = new Map();
+      elements = applyOperation(inStackOrder(next), unsent, tombstones);
       publish();
     },
     /** Apply a collaborator's change. */
@@ -180,26 +161,32 @@ export function createBoardStore() {
       elements = applyOperation(elements, op, tombstones);
       publish();
     },
-    /** A live, in-progress change (e.g. mid-stroke): shared, but not in history. */
+    /**
+     * A live, in-progress change (e.g. mid-stroke): shared, but not in history.
+     * Pass `{ base }` when the change wasn't made from the elements as they are
+     * now (see stamp).
+     */
     apply,
     /** Add a finished change to history (its redo state is already applied). */
     record,
     /** Apply a change and add it to history in one step. */
     commit(entry, options) {
-      apply(entry.redo);
+      apply(entry.redo, { base: entry.undo?.upsert });
       record(entry, options);
     },
+    // Undo and redo only change what the step changed: undoing a move puts the
+    // shape back, but keeps a color someone else picked since.
     undo() {
       const entry = undoStack.pop();
       if (!entry) return;
       redoStack.push(entry);
-      apply(entry.undo);
+      apply(entry.undo, { base: entry.redo?.upsert });
     },
     redo() {
       const entry = redoStack.pop();
       if (!entry) return;
       undoStack.push({ ...entry, mergeKey: undefined });
-      apply(entry.redo);
+      apply(entry.redo, { base: entry.undo?.upsert });
     },
   };
 }

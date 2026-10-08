@@ -168,7 +168,7 @@ export function BoardCanvas({
     } else if (g.kind === "erase" && g.erased.size > 0) {
       store.record({ undo: { upsert: [...g.erased.values()] }, redo: { remove: [...g.erased.keys()] } });
     } else if ((g.kind === "move" || g.kind === "transform") && g.current) {
-      if (cancelled) store.apply({ upsert: [g.original] });
+      if (cancelled) store.apply({ upsert: [g.original] }, { base: [g.current] });
       else store.record({ undo: { upsert: [g.original] }, redo: { upsert: [g.current] } });
     }
     if (g.kind === "transform") {
@@ -304,8 +304,9 @@ export function BoardCanvas({
         return;
       case "move": {
         const moved = translate(g.original, world.x - g.start.x, world.y - g.start.y);
+        // Each step is made from the one before, so only what the drag changes is sent.
+        store.apply({ upsert: [moved] }, { base: [g.current ?? g.original] });
         g.current = moved;
-        store.apply({ upsert: [moved] });
         return;
       }
       case "transform": {
@@ -313,8 +314,8 @@ export function BoardCanvas({
           g.handle === "rotate"
             ? rotateElement(g.original, g.start, world, { snap: event.shiftKey })
             : resizeElement(g.original, g.handle, world, { keepAspect: event.shiftKey, pad: g.pad });
+        store.apply({ upsert: [next] }, { base: [g.current ?? g.original] });
         g.current = next;
-        store.apply({ upsert: [next] });
         return;
       }
       default:

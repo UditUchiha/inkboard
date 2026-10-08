@@ -5,7 +5,8 @@
   "description": "A real-time collaborative whiteboard with hand-drawn shapes, live cursors and sharing.",
   "workspaces": [
     "client",
-    "server"
+    "server",
+    "shared"
   ],
   "engines": {
     "node": ">=20.12"
