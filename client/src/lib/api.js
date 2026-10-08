@@ -81,6 +81,7 @@ export const api = {
   getVersion: (id, versionId) => request(`/boards/${id}/versions/${versionId}`),
   saveVersion: (id, label) => request(`/boards/${id}/versions`, { method: "POST", body: { label } }),
   restoreVersion: (id, versionId) => request(`/boards/${id}/versions/${versionId}/restore`, { method: "POST" }),
+  deleteVersion: (id, versionId) => request(`/boards/${id}/versions/${versionId}`, { method: "DELETE" }),
 
   listTemplates: () => request("/templates"),
   saveTemplate: (boardId, title) => request("/templates", { method: "POST", body: { boardId, title } }),

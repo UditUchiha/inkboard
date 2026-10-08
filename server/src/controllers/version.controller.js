@@ -4,7 +4,7 @@ import { User } from "../models/user.model.js";
 import { Version } from "../models/version.model.js";
 import { getLiveElements, replaceElements } from "../realtime/index.js";
 import { findBoardForMember, PERSON_FIELDS, serializePerson } from "../services/boards.js";
-import { recordVersion } from "../services/versions.js";
+import { checkRoomForNamedVersion, recordVersion } from "../services/versions.js";
 
 // Version history is for members (the owner and invited editors).
 
@@ -51,7 +51,9 @@ export async function saveVersion(req, res) {
   if (!label) throw new HttpError(400, "Give this version a name.");
   if (label.length > 60) throw new HttpError(400, "Use 60 characters or fewer for the name.");
 
-  const version = await recordVersion(board._id, currentElements(board), {
+  const elements = currentElements(board);
+  await checkRoomForNamedVersion(board._id, elements);
+  const version = await recordVersion(board._id, elements, {
     kind: "named",
     label,
     author: req.userId,
@@ -76,4 +78,18 @@ export async function restoreVersion(req, res) {
   });
   await replaceElements(board.id, version.elements, actor);
   res.json({ elements: version.elements });
+}
+
+/**
+ * Deletes a saved (named) version, to make room for new ones. Automatic and
+ * before-restore versions are cleared on their own as the history fills up.
+ */
+export async function deleteVersion(req, res) {
+  const board = await findBoardForMember(req.params.boardId, req.userId);
+  const version = await findVersion(board, req.params.versionId);
+  if (version.kind !== "named") {
+    throw new HttpError(400, "Only versions saved by name can be deleted. Autosaves are cleared on their own.");
+  }
+  await version.deleteOne();
+  res.status(204).end();
 }

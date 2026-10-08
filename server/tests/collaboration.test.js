@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import mongoose from "mongoose";
 import { Version } from "../src/models/version.model.js";
-import { recordVersion } from "../src/services/versions.js";
+import { pruneVersions, recordVersion, VERSION_LIMITS } from "../src/services/versions.js";
 import { eventually, rect, settle, startServer, upsert } from "./helpers.js";
 
 let app;
@@ -12,6 +13,22 @@ after(() => app.stop());
 
 const invite = (owner, id, person) => app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
 const setLink = (user, id, linkAccess) => app.request(`/boards/${id}/link-access`, { method: "PATCH", user, body: { linkAccess } });
+
+// Runs `fn` with some version-history limits lowered.
+async function withVersionLimits(changes, fn) {
+  const saved = { ...VERSION_LIMITS };
+  Object.assign(VERSION_LIMITS, changes);
+  try {
+    return await fn();
+  } finally {
+    Object.assign(VERSION_LIMITS, saved);
+  }
+}
+
+// A drawing of about `bytes` as MongoDB stores it.
+const drawing = (bytes, id = "pen") => [
+  { id, type: "pen", points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i) => [i + 0.25, i + 0.5, 0.5]), pressure: false, stroke: "#16213a", penSize: 8 },
+];
 
 /** A board with an owner and one invited editor. */
 async function team() {
@@ -113,6 +130,75 @@ describe("version history", () => {
     for (let index = 0; index < 55; index += 1) await recordVersion(id, [rect(`e${index}`)], { kind: "auto" });
     assert.equal(await Version.countDocuments({ board: id, kind: "auto" }), 50);
     assert.equal(await Version.countDocuments({ board: id, kind: "named" }), 1);
+  });
+
+  it("trims the oldest autosaves to keep a board's history within its space, but always keeps the newest few", async () => {
+    const { owner, id } = await team();
+    await withVersionLimits({ bytes: 500_000 }, async () => {
+      await recordVersion(id, drawing(200_000), { kind: "named", label: "Big keeper", author: owner.id });
+      for (let index = 0; index < 8; index += 1) await recordVersion(id, drawing(60_000, `e${index}`), { kind: "auto" });
+
+      const autos = await Version.find({ board: id, kind: "auto" }).sort({ createdAt: -1 }).lean();
+      const total = (await Version.find({ board: id }).lean()).reduce((sum, version) => sum + version.bytes, 0);
+      assert.ok(total <= 500_000, `history takes ${total} bytes`);
+      assert.ok(autos.length >= 3 && autos.length < 8, `${autos.length} autosaves kept`);
+      assert.equal(autos[0].elements[0].id, "e7", "the newest are the ones kept");
+      assert.equal(await Version.countDocuments({ board: id, kind: "named" }), 1);
+
+      // Even far over budget, the newest three autosaves stay.
+      for (let index = 0; index < 3; index += 1) await recordVersion(id, drawing(400_000, `big${index}`), { kind: "auto" });
+      assert.equal(await Version.countDocuments({ board: id, kind: "auto" }), 3);
+    });
+  });
+
+  it("keeps only the newest before-restore snapshots", async () => {
+    const { id } = await team();
+    await withVersionLimits({ restore: 2 }, async () => {
+      for (let index = 0; index < 4; index += 1) await recordVersion(id, [rect(`r${index}`)], { kind: "restore" });
+      const kept = await Version.find({ board: id, kind: "restore" }).sort({ createdAt: -1 }).lean();
+      assert.deepEqual(kept.map((version) => version.elements[0].id), ["r3", "r2"]);
+    });
+  });
+
+  it("measures versions saved before sizes were recorded", async () => {
+    const { id } = await team();
+    const old = await Version.collection.insertOne({ board: new mongoose.Types.ObjectId(id), kind: "auto", elements: drawing(10_000), elementCount: 1, createdAt: new Date(0) });
+    await pruneVersions(id);
+    const measured = await Version.findById(old.insertedId).lean();
+    assert.ok(measured.bytes > 5_000, `measured ${measured.bytes} bytes`);
+  });
+
+  it("refuses a new saved version when there are too many, or no room, and explains why", async () => {
+    const { owner, id } = await team();
+    const save = (label) => app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label } });
+    await withVersionLimits({ named: 2 }, async () => {
+      assert.equal((await save("one")).status, 201);
+      assert.equal((await save("two")).status, 201);
+      const refused = await save("three");
+      assert.equal(refused.status, 400);
+      assert.match(refused.data.error, /2 saved versions.*Delete one/);
+    });
+    await withVersionLimits({ bytes: 1 }, async () => {
+      const refused = await save("too big");
+      assert.equal(refused.status, 400);
+      assert.match(refused.data.error, /used up their space/);
+    });
+  });
+
+  it("lets members delete saved versions, but not autosaves, and not anyone else", async () => {
+    const { owner, editor, id } = await team();
+    const viewer = await app.signUp("Viewer");
+    await setLink(owner, id, "view");
+    const { data } = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "Old idea" } });
+    const auto = await recordVersion(id, [rect("a")], { kind: "auto" });
+    const remove = (user, versionId) => app.request(`/boards/${id}/versions/${versionId}`, { method: "DELETE", user });
+
+    assert.equal((await remove(viewer, data.version.id)).status, 403);
+    assert.equal((await remove(editor, auto.id)).status, 400);
+    assert.equal((await remove(editor, data.version.id)).status, 204);
+    assert.equal((await remove(editor, data.version.id)).status, 404);
+    const { data: history } = await app.request(`/boards/${id}/versions`, { user: owner });
+    assert.deepEqual(history.versions.map((version) => version.kind), ["auto"]);
   });
 
   it("is for members only, and a version can only be fetched through its own board", async () => {

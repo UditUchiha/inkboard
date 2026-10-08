@@ -8,7 +8,7 @@ import {
   replyToThread,
   updateThread,
 } from "../controllers/thread.controller.js";
-import { getVersion, listVersions, restoreVersion, saveVersion } from "../controllers/version.controller.js";
+import { deleteVersion, getVersion, listVersions, restoreVersion, saveVersion } from "../controllers/version.controller.js";
 import { requireAuth } from "../middleware/auth.js";
 
 // Mounted at /api/boards/:boardId/versions
@@ -18,6 +18,7 @@ versionRoutes.get("/", listVersions);
 versionRoutes.post("/", saveVersion);
 versionRoutes.get("/:versionId", getVersion);
 versionRoutes.post("/:versionId/restore", restoreVersion);
+versionRoutes.delete("/:versionId", deleteVersion);
 
 // Mounted at /api/boards/:boardId/threads
 export const threadRoutes = Router({ mergeParams: true });

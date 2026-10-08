@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Bookmark, History, LoaderCircle, RotateCcw, X } from "lucide-react";
+import { Bookmark, History, LoaderCircle, RotateCcw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../components/Avatar";
@@ -44,14 +44,14 @@ function VersionRow({ version, selected, onSelect }) {
   );
 }
 
-function Preview({ boardId, version, onRestored }) {
+function Preview({ boardId, version, onRestored, onDeleted }) {
   const [elements, setElements] = useState(null);
-  const [restoring, setRestoring] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(null); // "restore" | "delete"
 
   useEffect(() => {
     setElements(null);
-    setConfirming(false);
+    setConfirming(null);
     let active = true;
     api
       .getVersion(boardId, version.id)
@@ -63,14 +63,26 @@ function Preview({ boardId, version, onRestored }) {
   }, [boardId, version.id]);
 
   async function restore() {
-    setRestoring(true);
+    setBusy(true);
     try {
       await api.restoreVersion(boardId, version.id);
       toast.success("Version restored. What was here before is saved in the history.");
       onRestored();
     } catch (error) {
       toast.error(error.message);
-      setRestoring(false);
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    try {
+      await api.deleteVersion(boardId, version.id);
+      toast.success("Version deleted");
+      onDeleted();
+    } catch (error) {
+      toast.error(error.message);
+      setBusy(false);
     }
   }
 
@@ -92,21 +104,35 @@ function Preview({ boardId, version, onRestored }) {
       {confirming ? (
         <div className="mt-3 rounded-lg bg-surface-2 p-3">
           <p className="text-sm">
-            Everyone on the board will see this version. The current board is saved in the history first, so you can come back to it.
+            {confirming === "restore"
+              ? "Everyone on the board will see this version. The current board is saved in the history first, so you can come back to it."
+              : `Delete “${version.label}” from the history for everyone? This can't be undone.`}
           </p>
           <div className="mt-3 flex justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setConfirming(false)}>
+            <Button variant="secondary" size="sm" onClick={() => setConfirming(null)}>
               Cancel
             </Button>
-            <Button size="sm" loading={restoring} onClick={restore}>
-              Restore
-            </Button>
+            {confirming === "restore" ? (
+              <Button size="sm" loading={busy} onClick={restore}>
+                Restore
+              </Button>
+            ) : (
+              <Button variant="danger" size="sm" loading={busy} onClick={remove}>
+                Delete
+              </Button>
+            )}
           </div>
         </div>
       ) : (
-        <Button variant="secondary" className="mt-3 w-full" icon={RotateCcw} disabled={!elements} onClick={() => setConfirming(true)}>
-          Restore this version
-        </Button>
+        <div className="mt-3 flex gap-2">
+          <Button variant="secondary" className="flex-1" icon={RotateCcw} disabled={!elements} onClick={() => setConfirming("restore")}>
+            Restore this version
+          </Button>
+          {/* Saved versions are kept until someone deletes them; autosaves clear on their own. */}
+          {version.kind === "named" && (
+            <IconButton label="Delete this version" icon={Trash2} onClick={() => setConfirming("delete")} />
+          )}
+        </div>
       )}
     </div>
   );
@@ -207,6 +233,10 @@ export function VersionHistory({ boardId, onClose }) {
           onRestored={() => {
             setSelectedId(null);
             load();
+          }}
+          onDeleted={() => {
+            setSelectedId(null);
+            setVersions((list) => list.filter((version) => version.id !== selected.id));
           }}
         />
       )}
