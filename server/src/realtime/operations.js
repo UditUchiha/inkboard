@@ -107,7 +107,8 @@ export const RESTORE_LEAD = 1000;
 
 export function restoreOver(elements, tombstones, snapshot) {
   let newest = 0;
-  for (const stamped of [...elements, ...tombstones.values(), ...snapshot]) newest = Math.max(newest, stampOf(stamped).version);
+  for (const stamped of [...elements, ...tombstones.values(), ...snapshot])
+    newest = Math.max(newest, stampOf(stamped).version);
   const stamp = () => ({ version: newest + RESTORE_LEAD, versionNonce: randomInt(2 ** 31) });
 
   const restored = inStackOrder(snapshot).map((element) => {

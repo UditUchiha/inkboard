@@ -114,13 +114,27 @@ function BulkBar({ section, picked, actions, onClear }) {
         </>
       ) : (
         <>
-          <Button size="sm" variant="secondary" icon={Star} disabled={!members} title={members ? undefined : "Only people invited to a board can star it"} onClick={() => actions.starAll(picked)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={Star}
+            disabled={!members}
+            title={members ? undefined : "Only people invited to a board can star it"}
+            onClick={() => actions.starAll(picked)}
+          >
             Star
           </Button>
           <Button size="sm" variant="secondary" onClick={() => actions.archive(picked, !archived)}>
             {archived ? "Unarchive" : "Archive"}
           </Button>
-          <Button size="sm" variant="secondary" icon={Trash2} disabled={!owned} title={owned ? undefined : "Only the owner can move a board to the trash"} onClick={() => actions.trash(picked)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={Trash2}
+            disabled={!owned}
+            title={owned ? undefined : "Only the owner can move a board to the trash"}
+            onClick={() => actions.trash(picked)}
+          >
             Move to trash
           </Button>
         </>
@@ -159,7 +173,11 @@ export default function DashboardPage() {
   useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.target instanceof HTMLElement && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName))) return;
+      if (
+        event.target instanceof HTMLElement &&
+        (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName))
+      )
+        return;
       if (document.querySelector("dialog[open]")) return;
       event.preventDefault();
       searchRef.current?.focus();
@@ -173,7 +191,10 @@ export default function DashboardPage() {
   const counts = useMemo(
     () =>
       Object.fromEntries(
-        SECTIONS.map((item) => [item.id, item.id === "trash" ? trash.length : (boards ?? []).filter(item.matches).length]),
+        SECTIONS.map((item) => [
+          item.id,
+          item.id === "trash" ? trash.length : (boards ?? []).filter(item.matches).length,
+        ]),
       ),
     [boards, trash],
   );
@@ -217,7 +238,10 @@ export default function DashboardPage() {
 
     async starAll(list) {
       const starred = !list.every((board) => board.starred);
-      patch(list.map((board) => board.id), { starred });
+      patch(
+        list.map((board) => board.id),
+        { starred },
+      );
       setSelected(new Set());
       const results = await Promise.allSettled(list.map((board) => api.starBoard(board.id, starred)));
       results.forEach((result, index) => {
@@ -228,9 +252,15 @@ export default function DashboardPage() {
 
     async archive(list, archived) {
       const before = list.map((board) => [board.id, board.archived]);
-      patch(list.map((board) => board.id), { archived });
+      patch(
+        list.map((board) => board.id),
+        { archived },
+      );
       try {
-        await api.archiveBoards(list.map((board) => board.id), archived);
+        await api.archiveBoards(
+          list.map((board) => board.id),
+          archived,
+        );
       } catch (error) {
         before.forEach(([id, was]) => patch([id], { archived: was }));
         toast.error(error.message);
@@ -250,7 +280,9 @@ export default function DashboardPage() {
       drop(done.map((board) => board.id));
       setSelected(new Set());
       refresh().catch(() => {});
-      toast(`Moved ${quoted(done)} to the trash`, { action: { label: "Undo", onClick: () => actions.restore(done, true) } });
+      toast(`Moved ${quoted(done)} to the trash`, {
+        action: { label: "Undo", onClick: () => actions.restore(done, true) },
+      });
     },
 
     async restore(list, quiet = false) {
@@ -318,7 +350,10 @@ export default function DashboardPage() {
       label: "Leave board",
     },
     purge: {
-      title: confirm?.boards.length === 1 ? `Delete “${confirm.boards[0].title}” forever?` : `Delete ${confirm?.boards.length} boards forever?`,
+      title:
+        confirm?.boards.length === 1
+          ? `Delete “${confirm.boards[0].title}” forever?`
+          : `Delete ${confirm?.boards.length} boards forever?`,
       description: "The drawings, comments and history are erased for everyone. This can't be undone.",
       label: "Delete forever",
     },
@@ -330,7 +365,7 @@ export default function DashboardPage() {
   }[confirm?.kind ?? "leave"];
 
   const firstName = user.name.split(" ")[0];
-    const loading = !boards && !loadError;
+  const loading = !boards && !loadError;
 
   return (
     <div className="min-h-dvh">
@@ -342,7 +377,9 @@ export default function DashboardPage() {
           <VerifyEmailNotice className="mb-6" />
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h1 className="text-[2rem] leading-none font-extrabold tracking-tight [font-stretch:80%]">{section.label}</h1>
+              <h1 className="text-[2rem] leading-none font-extrabold tracking-tight [font-stretch:80%]">
+                {section.label}
+              </h1>
               <p className="mt-2 text-graphite">{section.description(firstName)}</p>
             </div>
             <Button icon={Plus} onClick={() => setChoosing(true)} loading={creating} className="md:hidden">
@@ -358,7 +395,10 @@ export default function DashboardPage() {
           <div className="mt-6 flex items-center gap-2">
             <label className="relative min-w-0 flex-1">
               <span className="sr-only">Search boards</span>
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-graphite" aria-hidden />
+              <Search
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-graphite"
+                aria-hidden
+              />
               <input
                 ref={searchRef}
                 type="search"
@@ -367,7 +407,9 @@ export default function DashboardPage() {
                 placeholder={`Search ${section.label.toLowerCase()}`}
                 className="peer h-10 w-full rounded-lg border border-rule bg-surface pr-3 pl-9 text-sm transition-colors placeholder:text-graphite/70 focus:border-signal focus:ring-3 focus:ring-signal/20 focus:outline-none"
               />
-              <kbd className="pointer-events-none absolute top-1/2 right-3 hidden -translate-y-1/2 rounded border border-rule px-1.5 font-code text-xs text-graphite peer-focus:hidden sm:block">/</kbd>
+              <kbd className="pointer-events-none absolute top-1/2 right-3 hidden -translate-y-1/2 rounded border border-rule px-1.5 font-code text-xs text-graphite peer-focus:hidden sm:block">
+                /
+              </kbd>
             </label>
             {!inTrash && <SortMenu sort={sort} onChange={setSort} />}
             <ViewToggle view={view} onChange={setView} />
@@ -392,8 +434,9 @@ export default function DashboardPage() {
               </ul>
             )}
 
-            {boards && visible.length === 0 && (
-              query ? (
+            {boards &&
+              visible.length === 0 &&
+              (query ? (
                 <p className="mt-16 text-center text-graphite">No boards match “{query.trim()}”.</p>
               ) : (
                 <div className="graph-paper grid place-items-center rounded-xl border border-dashed border-graphite/40 px-6 py-20 text-center">
@@ -405,8 +448,7 @@ export default function DashboardPage() {
                     </Button>
                   ) : null}
                 </div>
-              )
-            )}
+              ))}
 
             {visible.length > 0 && view === "list" && (
               <>
@@ -418,7 +460,11 @@ export default function DashboardPage() {
                   trashed={inTrash}
                   sort={sort}
                   onSort={(key) =>
-                    setSort(sort.key === key ? { key, dir: sort.dir === "asc" ? "desc" : "asc" } : { key, dir: SORT_KEYS[key].defaultDir })
+                    setSort(
+                      sort.key === key
+                        ? { key, dir: sort.dir === "asc" ? "desc" : "asc" }
+                        : { key, dir: SORT_KEYS[key].defaultDir },
+                    )
                   }
                   selected={selected}
                   onToggle={(id) =>
@@ -428,7 +474,11 @@ export default function DashboardPage() {
                       return next;
                     })
                   }
-                  onToggleAll={() => setSelected(picked.length === visible.length ? new Set() : new Set(visible.map((board) => board.id)))}
+                  onToggleAll={() =>
+                    setSelected(
+                      picked.length === visible.length ? new Set() : new Set(visible.map((board) => board.id)),
+                    )
+                  }
                   actions={actions}
                 />
               </>
@@ -445,7 +495,13 @@ export default function DashboardPage() {
         </main>
       </div>
 
-      <NewBoardDialog open={choosing} onClose={() => setChoosing(false)} onCreate={createBoard} busy={creating} signedIn />
+      <NewBoardDialog
+        open={choosing}
+        onClose={() => setChoosing(false)}
+        onCreate={createBoard}
+        busy={creating}
+        signedIn
+      />
       <RenameDialog
         board={renaming}
         onClose={() => setRenaming(null)}

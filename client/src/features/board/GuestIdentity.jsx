@@ -43,7 +43,14 @@ export function GuestIdentity({ socket }) {
         description="Other people see this name next to your cursor. Make an account to keep your own boards."
       >
         <form onSubmit={save} className="grid gap-5">
-          <TextField label="Your name" value={name} onChange={(event) => setName(event.target.value)} maxLength={40} autoFocus required />
+          <TextField
+            label="Your name"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            maxLength={40}
+            autoFocus
+            required
+          />
           <div className="flex flex-wrap justify-between gap-2">
             <ButtonLink to={`/register?next=${next}`} variant="secondary">
               Create an account

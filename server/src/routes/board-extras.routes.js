@@ -8,7 +8,13 @@ import {
   replyToThread,
   updateThread,
 } from "../controllers/thread.controller.js";
-import { deleteVersion, getVersion, listVersions, restoreVersion, saveVersion } from "../controllers/version.controller.js";
+import {
+  deleteVersion,
+  getVersion,
+  listVersions,
+  restoreVersion,
+  saveVersion,
+} from "../controllers/version.controller.js";
 import { requireAuth } from "../middleware/auth.js";
 
 // Mounted at /api/boards/:boardId/versions

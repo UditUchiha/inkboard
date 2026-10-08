@@ -15,11 +15,14 @@ after(() => app.stop());
 
 const list = async (user) => (await app.request("/boards", { user })).data.boards;
 const find = (boards, id) => boards.find((board) => board.id === id);
-const setLink = (user, id, linkAccess) => app.request(`/boards/${id}/link-access`, { method: "PATCH", user, body: { linkAccess } });
-const archive = (user, ids, archived) => app.request("/boards/archive", { method: "PATCH", user, body: { ids, archived } });
+const setLink = (user, id, linkAccess) =>
+  app.request(`/boards/${id}/link-access`, { method: "PATCH", user, body: { linkAccess } });
+const archive = (user, ids, archived) =>
+  app.request("/boards/archive", { method: "PATCH", user, body: { ids, archived } });
 const trash = (user, id) => app.request(`/boards/${id}`, { method: "DELETE", user });
 const listTrash = async (user) => (await app.request("/boards/trash", { user })).data.boards;
-const invite = (owner, id, person) => app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
+const invite = (owner, id, person) =>
+  app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
 
 /** Opens the board over a socket, as a person looking at it would, then closes it. */
 async function visit(user, boardId) {
@@ -67,7 +70,10 @@ describe("the board list", () => {
     const client = await app.connect(owner);
     await client.join(id);
     await client.op(id, upsert(rect("live-1")));
-    assert.deepEqual(find(await list(owner), id).preview.map((element) => element.id), ["live-1"]);
+    assert.deepEqual(
+      find(await list(owner), id).preview.map((element) => element.id),
+      ["live-1"],
+    );
   });
 
   it("sends a preview of each drawing rather than the drawing itself", async () => {
@@ -212,8 +218,20 @@ describe("archive", () => {
     assert.equal((await archive(owner, [], true)).status, 400);
     assert.equal((await archive(owner, ["not-an-id"], true)).status, 400);
     assert.equal((await archive(owner, [id], "yes")).status, 400);
-    assert.equal((await archive(owner, Array.from({ length: 101 }, () => new mongoose.Types.ObjectId().toString()), true)).status, 400);
-    assert.equal((await app.request("/boards/archive", { method: "PATCH", body: { ids: [id], archived: true } })).status, 401);
+    assert.equal(
+      (
+        await archive(
+          owner,
+          Array.from({ length: 101 }, () => new mongoose.Types.ObjectId().toString()),
+          true,
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await app.request("/boards/archive", { method: "PATCH", body: { ids: [id], archived: true } })).status,
+      401,
+    );
   });
 });
 
@@ -260,14 +278,26 @@ describe("trash", () => {
 
     const row = find(await listTrash(owner), id);
     assert.ok(row.deletedAt);
-    assert.deepEqual(row.preview.map((element) => element.id), ["keep-me"], "the trash shows a preview");
+    assert.deepEqual(
+      row.preview.map((element) => element.id),
+      ["keep-me"],
+      "the trash shows a preview",
+    );
     assert.equal(new Date(row.purgeAt) - new Date(row.deletedAt), TRASH_DAYS * 24 * 3600 * 1000);
-    assert.deepEqual((await app.request("/boards/trash", { user: editor })).data.boards, [], "only the owner has a trash for it");
+    assert.deepEqual(
+      (await app.request("/boards/trash", { user: editor })).data.boards,
+      [],
+      "only the owner has a trash for it",
+    );
 
     const restored = await app.request(`/boards/${id}/restore`, { method: "POST", user: owner });
     assert.equal(restored.status, 200);
     const back = find(await list(owner), id);
-    assert.deepEqual(back.preview.map((element) => element.id), ["keep-me"], "the latest drawing came back");
+    assert.deepEqual(
+      back.preview.map((element) => element.id),
+      ["keep-me"],
+      "the latest drawing came back",
+    );
     assert.ok(find(await list(editor), id), "and the editor has it again");
   });
 

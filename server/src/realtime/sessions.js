@@ -72,7 +72,8 @@ const MAX_BURIED_BYTES = MAX_BOARD_BYTES;
 // can't bring back what was removed since. Kept this long, and this many.
 export const REMOVED_LIMITS = { ageMs: 30 * 24 * 3600 * 1000, count: 2000 };
 
-const isStampNumber = (value, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(value) && value >= 0 && value <= max;
+const isStampNumber = (value, max = Number.MAX_SAFE_INTEGER) =>
+  Number.isSafeInteger(value) && value >= 0 && value <= max;
 
 /** Saved tombstones (`removed` on a board) as a session keeps them, leaving out any for elements on the board. */
 export function readRemoved(removed, elements) {
@@ -227,7 +228,10 @@ export function resetSession(session, snapshot) {
   dateRestored(session.removedAt, before, tombstones, now);
   session.buried = new Map();
   session.buriedBytes = 0;
-  bury(session, [...tombstones].filter(([id]) => !before.has(id)));
+  bury(
+    session,
+    [...tombstones].filter(([id]) => !before.has(id)),
+  );
   measure(session);
   session.lastVersionAt = now;
   markDirty(session);

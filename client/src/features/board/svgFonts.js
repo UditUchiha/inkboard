@@ -46,4 +46,3 @@ export function measureBaselines(keys) {
   }
   return baselines;
 }
-

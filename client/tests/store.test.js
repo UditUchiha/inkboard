@@ -4,7 +4,16 @@ import { FIELD_GROUPS } from "@inkboard/shared/board-merge";
 import { createElement, createImage, duplicate } from "../src/features/board/elements.js";
 import { applyOperation, createBoardStore } from "../src/features/board/store.js";
 
-const rect = (id, x = 0) => ({ id, type: "rectangle", x1: x, y1: 0, x2: x + 10, y2: 10, stroke: "#000000", fill: null });
+const rect = (id, x = 0) => ({
+  id,
+  type: "rectangle",
+  x1: x,
+  y1: 0,
+  x2: x + 10,
+  y2: 10,
+  stroke: "#000000",
+  fill: null,
+});
 const ids = (store) => store.getElements().map((element) => element.id);
 const stamped = (element, version, versionNonce = 0) => ({ ...element, version, versionNonce });
 
@@ -27,7 +36,10 @@ describe("applyOperation", () => {
       upsert: [stamped(rect("a", 5), 2), stamped(rect("c"), 1)],
       remove: [{ id: "b", version: 2, versionNonce: 0 }],
     });
-    assert.deepEqual(next.map((element) => element.id), ["a", "c"]);
+    assert.deepEqual(
+      next.map((element) => element.id),
+      ["a", "c"],
+    );
     assert.equal(next[0].x1, 5);
   });
 
@@ -93,7 +105,11 @@ describe("a board store", () => {
     store.undo();
     assert.equal(sent.length, 2);
     assert.deepEqual(sent[1].upsert, []);
-    assert.deepEqual(sent[1].remove.map((removal) => [removal.id, removal.version]), [["a", 2]], "the undo is the element's second edit");
+    assert.deepEqual(
+      sent[1].remove.map((removal) => [removal.id, removal.version]),
+      [["a", 2]],
+      "the undo is the element's second edit",
+    );
   });
 
   it("doesn't broadcast changes that came from collaborators, the first load or a reconnect", () => {
@@ -147,7 +163,10 @@ describe("a board store", () => {
     assert.ok(back.version > removal.version, "stamped past the removal, so the server takes it too");
     assert.deepEqual(ids(store), ["a", "b", "c"]);
     const tombstones = new Map([["a", { version: removal.version, versionNonce: removal.versionNonce }]]);
-    assert.deepEqual(applyOperation(server, sent.at(-1), tombstones).map((element) => element.id), ["a", "b", "c"]);
+    assert.deepEqual(
+      applyOperation(server, sent.at(-1), tombstones).map((element) => element.id),
+      ["a", "b", "c"],
+    );
   });
 
   it("keeps something removed while this screen was offline removed, even with an unsent change to it", () => {
@@ -287,10 +306,24 @@ describe("changes that cross", () => {
 
 describe("property groups", () => {
   it("cover every field the editor gives an element, so none is lost when changes merge", () => {
-    const style = { stroke: "#000000", fill: "#ffffff", strokeWidth: 2, sketchy: true, penSize: 8, fontSize: 32, font: "hand" };
+    const style = {
+      stroke: "#000000",
+      fill: "#ffffff",
+      strokeWidth: 2,
+      sketchy: true,
+      penSize: 8,
+      fontSize: 32,
+      font: "hand",
+    };
     const grouped = new Set(Object.values(FIELD_GROUPS).flat());
-    const kinds = ["pen", "text", "line", "arrow", "rectangle", "ellipse"].map((type) => createElement(type, { x: 0, y: 0 }, style, 0.5));
-    for (const element of [...kinds, createImage("a".repeat(32), { x: 0, y: 0 }, { width: 10, height: 10 }), duplicate(kinds[4])]) {
+    const kinds = ["pen", "text", "line", "arrow", "rectangle", "ellipse"].map((type) =>
+      createElement(type, { x: 0, y: 0 }, style, 0.5),
+    );
+    for (const element of [
+      ...kinds,
+      createImage("a".repeat(32), { x: 0, y: 0 }, { width: 10, height: 10 }),
+      duplicate(kinds[4]),
+    ]) {
       for (const field of Object.keys({ ...element, angle: 1, index: "a0" })) {
         assert.ok(field === "id" || grouped.has(field), `${element.type}.${field} isn't in a group`);
       }

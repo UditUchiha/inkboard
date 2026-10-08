@@ -23,7 +23,8 @@ before(async () => {
 after(() => app.stop());
 
 const stored = async (boardId) => (await Board.findById(boardId).lean()).elements.map((element) => element.id);
-const invite = (owner, id, person) => app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
+const invite = (owner, id, person) =>
+  app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
 
 /** An owner and one invited editor, both on a fresh board (on an older app unless `sync` says otherwise). */
 async function pair({ sync } = {}) {
@@ -44,7 +45,10 @@ describe("live drawing", () => {
     assert.deepEqual(await a.op(id, upsert(rect("one"), rect("two"))), { ok: true });
 
     const received = await eventually(() => b.of("board:op")[0], { message: "the operation" });
-    assert.deepEqual(received.op.upsert.map((element) => element.id), ["one", "two"]);
+    assert.deepEqual(
+      received.op.upsert.map((element) => element.id),
+      ["one", "two"],
+    );
     await settle();
     assert.equal(a.of("board:op").length, 0);
   });
@@ -57,7 +61,10 @@ describe("live drawing", () => {
 
     const returning = await app.connect(owner);
     const joined = await returning.join(id);
-    assert.deepEqual(joined.board.elements.map((element) => element.id), ["x"]);
+    assert.deepEqual(
+      joined.board.elements.map((element) => element.id),
+      ["x"],
+    );
     assert.equal(joined.board.elements[0].stroke, "#ff0000");
     assert.equal(joined.board.elements[0].x1, 50);
   });
@@ -67,7 +74,10 @@ describe("live drawing", () => {
     await a.op(id, upsert(rect("fresh")));
     const second = await app.connect(owner);
     const joined = await second.join(id);
-    assert.deepEqual(joined.board.elements.map((element) => element.id), ["fresh"]);
+    assert.deepEqual(
+      joined.board.elements.map((element) => element.id),
+      ["fresh"],
+    );
   });
 
   it("ignores changes sent without joining, or aimed at another board", async () => {
@@ -87,11 +97,19 @@ describe("live drawing", () => {
     assert.deepEqual(await a.op(id, "nonsense"), { ok: false });
     assert.deepEqual(await a.op(id, upsert({ id: "x", type: "not-a-shape" }, { type: "pen" }, null, 5)), { ok: false });
 
-    assert.deepEqual(await a.op(id, { upsert: [rect("good"), { id: "", type: "pen" }], remove: ["", 7, "gone"] }), { ok: true });
+    assert.deepEqual(await a.op(id, { upsert: [rect("good"), { id: "", type: "pen" }], remove: ["", 7, "gone"] }), {
+      ok: true,
+    });
     const received = await eventually(() => b.of("board:op")[0], { message: "the sanitised operation" });
-    assert.deepEqual(received.op.upsert.map((element) => element.id), ["good"]);
+    assert.deepEqual(
+      received.op.upsert.map((element) => element.id),
+      ["good"],
+    );
     // A plain id (from an older browser) is stamped as the newest removal.
-    assert.deepEqual(received.op.remove.map((removal) => removal.id), ["gone"]);
+    assert.deepEqual(
+      received.op.remove.map((removal) => removal.id),
+      ["gone"],
+    );
     assert.equal(received.op.remove[0].version, 1);
   });
 });
@@ -100,7 +118,10 @@ describe("changes that cross", () => {
   const at = (version, versionNonce, extra = {}) => ({ ...rect("x"), index: "a0", version, versionNonce, ...extra });
   // `element` with the groups in `changed` stamped as a newer edit, as the current app sends it.
   const edit = (element, changed, stamp, fields) =>
-    withStamps({ ...element, ...fields }, { ...groupStamps(element), ...Object.fromEntries(changed.map((group) => [group, stamp])) });
+    withStamps(
+      { ...element, ...fields },
+      { ...groupStamps(element), ...Object.fromEntries(changed.map((group) => [group, stamp])) },
+    );
 
   it("keep both a move and a recolor made at the same time, and everyone ends up with both", async () => {
     const { id, a, b } = await pair({ sync: SYNC_FORMAT });
@@ -117,9 +138,12 @@ describe("changes that cross", () => {
     assert.deepEqual([saved.x1, saved.x2, saved.stroke], [500, 600, "#e03131"]);
 
     // Each screen: its own change, plus what it was sent.
-    await eventually(() => a.of("board:op").length === 1 || b.of("board:op").length === 2, { message: "the second change passed on" });
+    await eventually(() => a.of("board:op").length === 1 || b.of("board:op").length === 2, {
+      message: "the second change passed on",
+    });
     await settle();
-    const screen = (own, client) => client.of("board:op").reduce((board, { op }) => applyOperation(board, op), applyOperation([start], upsert(own)));
+    const screen = (own, client) =>
+      client.of("board:op").reduce((board, { op }) => applyOperation(board, op), applyOperation([start], upsert(own)));
     assert.deepEqual(screen(moved, a), [saved]);
     assert.deepEqual(screen(recolored, b), [saved]);
   });
@@ -163,15 +187,23 @@ describe("changes that cross", () => {
     await eventually(() => b.of("board:op").length === 1, { message: "the shape reaching b" });
 
     // Both change the shape from version 1 at the same moment; the lower nonce wins.
-    const [fromA, fromB] = await Promise.all([a.op(id, upsert(at(2, 5, { stroke: "#e03131" }))), b.op(id, upsert(at(2, 9, { x1: 500 })))]);
+    const [fromA, fromB] = await Promise.all([
+      a.op(id, upsert(at(2, 5, { stroke: "#e03131" }))),
+      b.op(id, upsert(at(2, 9, { x1: 500 }))),
+    ]);
     assert.equal(fromA.ok && fromB.ok, true);
     await flushAllSessions();
     const saved = (await Board.findById(id).lean()).elements;
     assert.deepEqual(saved, [at(2, 5, { stroke: "#e03131" })]);
 
     // b must have been sent a's change; a's own change needs nothing from b.
-    await eventually(() => b.of("board:op").some((message) => message.op.upsert[0]?.versionNonce === 5), { message: "a's change reaching b" });
-    assert.ok(!a.of("board:op").some((message) => message.op.upsert[0]?.versionNonce === 9), "b's losing change isn't passed on");
+    await eventually(() => b.of("board:op").some((message) => message.op.upsert[0]?.versionNonce === 5), {
+      message: "a's change reaching b",
+    });
+    assert.ok(
+      !a.of("board:op").some((message) => message.op.upsert[0]?.versionNonce === 9),
+      "b's losing change isn't passed on",
+    );
   });
 
   it("keep a removal over an older edit that arrives after it, and let a newer edit bring the element back", async () => {
@@ -200,10 +232,17 @@ describe("changes that cross", () => {
 describe("stacking order", () => {
   it("gives a board saved before elements had places in the stack places, in the order it was saved", async () => {
     const owner = await app.signUp("Owner");
-    const { data } = await app.request("/boards", { method: "POST", user: owner, body: { elements: [rect("c"), rect("a"), rect("b")] } });
+    const { data } = await app.request("/boards", {
+      method: "POST",
+      user: owner,
+      body: { elements: [rect("c"), rect("a"), rect("b")] },
+    });
     const joined = await (await app.connect(owner)).join(data.board.id, { sync: SYNC_FORMAT });
     const { elements } = joined.board;
-    assert.deepEqual(elements.map((element) => element.id), ["c", "a", "b"]);
+    assert.deepEqual(
+      elements.map((element) => element.id),
+      ["c", "a", "b"],
+    );
     const keys = elements.map((element) => element.index);
     assert.deepEqual([...keys].sort(), keys);
   });
@@ -226,7 +265,9 @@ describe("removals that outlast the board being open", () => {
     await a.op(id, { upsert: [], remove: [{ id: "x", version: 3, versionNonce: 0 }] });
     a.close();
     b.close();
-    await eventually(async () => (await Board.findById(id).select("+removed").lean()).removed.length === 1, { message: "the removal saved" });
+    await eventually(async () => (await Board.findById(id).select("+removed").lean()).removed.length === 1, {
+      message: "the removal saved",
+    });
 
     // Someone who was offline the whole time comes back with an edit they made before it.
     const back = await app.connect(editor);
@@ -245,7 +286,12 @@ describe("removals that outlast the board being open", () => {
     const old = { id: "old", version: 1, versionNonce: 0, at: now - REMOVED_LIMITS.ageMs - 1000 };
     const live = { id: "on-board", version: 1, versionNonce: 0, at: now };
     const broken = { id: "broken", version: -1, versionNonce: 0, at: now };
-    const many = Array.from({ length: REMOVED_LIMITS.count + 5 }, (_, n) => ({ id: `r${n}`, version: 2, versionNonce: 1, at: now - 1000 + n }));
+    const many = Array.from({ length: REMOVED_LIMITS.count + 5 }, (_, n) => ({
+      id: `r${n}`,
+      version: 2,
+      versionNonce: 1,
+      at: now - 1000 + n,
+    }));
     const { tombstones, removedAt } = readRemoved([old, live, broken, ...many], [rect("on-board")]);
     assert.equal(tombstones.size, REMOVED_LIMITS.count);
     assert.equal(tombstones.has("r0"), false, "the oldest go first");
@@ -259,14 +305,28 @@ describe("restoring a version", () => {
     const { owner, id, a } = await pair({ sync: SYNC_FORMAT });
     await a.op(id, upsert({ ...rect("kept"), index: "a0", version: 1, versionNonce: 0 }));
     await flushAllSessions();
-    const saved = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "Start" } });
+    const saved = await app.request(`/boards/${id}/versions`, {
+      method: "POST",
+      user: owner,
+      body: { label: "Start" },
+    });
     await a.op(id, upsert({ ...rect("added"), index: "a1", version: 1, versionNonce: 0 }));
 
-    const restored = await app.request(`/boards/${id}/versions/${saved.data.version.id}/restore`, { method: "POST", user: owner });
-    assert.deepEqual(restored.data.elements.map((element) => element.id), ["kept"]);
+    const restored = await app.request(`/boards/${id}/versions/${saved.data.version.id}/restore`, {
+      method: "POST",
+      user: owner,
+    });
+    assert.deepEqual(
+      restored.data.elements.map((element) => element.id),
+      ["kept"],
+    );
     assert.ok(restored.data.elements[0].version >= RESTORE_LEAD, "stamped well ahead");
     await eventually(() => a.of("board:reset").length === 1, { message: "the restore reaching the screen" });
-    assert.deepEqual(a.last("board:reset").removed.map((removal) => removal.id), ["added"], "with what it removed");
+    assert.deepEqual(
+      a.last("board:reset").removed.map((removal) => removal.id),
+      ["added"],
+      "with what it removed",
+    );
 
     // Edits from before the restore, still on their way.
     await a.op(id, upsert({ ...rect("kept", 999), index: "a0", version: 40, versionNonce: 0 }));
@@ -284,16 +344,26 @@ describe("restoring a version", () => {
     await a.join(id, { sync: SYNC_FORMAT });
     await a.op(id, upsert({ ...rect("kept"), index: "a0", version: 1, versionNonce: 0 }));
     await flushAllSessions();
-    const saved = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "Start" } });
+    const saved = await app.request(`/boards/${id}/versions`, {
+      method: "POST",
+      user: owner,
+      body: { label: "Start" },
+    });
     await a.op(id, upsert({ ...rect("added"), index: "a1", version: 1, versionNonce: 0 }));
     a.close();
     await eventually(async () => (await stored(id)).length === 2, { message: "the board saved as everyone left" });
 
     await app.request(`/boards/${id}/versions/${saved.data.version.id}/restore`, { method: "POST", user: owner });
     const board = await Board.findById(id).select("+removed").lean();
-    assert.deepEqual(board.elements.map((element) => element.id), ["kept"]);
+    assert.deepEqual(
+      board.elements.map((element) => element.id),
+      ["kept"],
+    );
     assert.ok(board.elements[0].version >= RESTORE_LEAD);
-    assert.deepEqual(board.removed.map((entry) => entry.id), ["added"]);
+    assert.deepEqual(
+      board.removed.map((entry) => entry.id),
+      ["added"],
+    );
   });
 });
 
@@ -308,7 +378,11 @@ describe("saving", () => {
     const { id, a } = await pair();
     const startedAt = Date.now();
     await a.op(id, upsert(rect("quick")));
-    await eventually(async () => (await stored(id)).includes("quick"), { timeout: 700, interval: 20, message: "a quick save" });
+    await eventually(async () => (await stored(id)).includes("quick"), {
+      timeout: 700,
+      interval: 20,
+      message: "a quick save",
+    });
     assert.ok(Date.now() - startedAt < 700);
   });
 
@@ -317,7 +391,9 @@ describe("saving", () => {
     const before = (await Board.findById(id).lean()).updatedAt;
     await settle(30);
     await a.op(id, upsert(rect("touch")));
-    await eventually(async () => (await Board.findById(id).lean()).updatedAt > before, { message: "updatedAt to move" });
+    await eventually(async () => (await Board.findById(id).lean()).updatedAt > before, {
+      message: "updatedAt to move",
+    });
   });
 
   it("saves everything when the last person leaves", async () => {
@@ -326,10 +402,13 @@ describe("saving", () => {
     await b.op(id, upsert(rect("b-1")));
     a.leave();
     b.close();
-    await eventually(async () => {
-      const ids = await stored(id);
-      return ids.includes("a-1") && ids.includes("b-1");
-    }, { message: "the save on leaving" });
+    await eventually(
+      async () => {
+        const ids = await stored(id);
+        return ids.includes("a-1") && ids.includes("b-1");
+      },
+      { message: "the save on leaving" },
+    );
   });
 
   it("saves when someone just closes the tab", async () => {
@@ -356,7 +435,10 @@ describe("saving", () => {
 
     const returning = await app.connect(owner);
     const joined = await returning.join(id);
-    assert.deepEqual(joined.board.elements.map((element) => element.id), ["persisted"]);
+    assert.deepEqual(
+      joined.board.elements.map((element) => element.id),
+      ["persisted"],
+    );
   });
 });
 
@@ -406,7 +488,10 @@ describe("size limits", () => {
     await guest.op(id, upsert({ ...stroke("gone", 1_000), version: 1, versionNonce: 0 }));
     await guest.op(id, { upsert: [], remove: [{ id: "gone", version: 5, versionNonce: 0 }] });
     await eventually(() => watcher.of("board:op").length === 2, { message: "the stroke and its removal" });
-    const result = await guest.op(id, upsert({ ...stroke("gone", MAX_ELEMENT_BYTES + 50_000), version: 2, versionNonce: 0 }));
+    const result = await guest.op(
+      id,
+      upsert({ ...stroke("gone", MAX_ELEMENT_BYTES + 50_000), version: 2, versionNonce: 0 }),
+    );
     assert.deepEqual(result, { ok: false, tooLarge: true });
     await settle();
     assert.equal(watcher.of("board:op").length, 2, "nobody is sent it");
@@ -430,7 +515,10 @@ describe("size limits", () => {
 
     // Everyone else's work still saves: nothing was left in a state the database refuses.
     await watcher.op(id, upsert(rect("still-works")));
-    await eventually(async () => (await stored(id)).includes("still-works"), { timeout: 15000, message: "the later save" });
+    await eventually(async () => (await stored(id)).includes("still-works"), {
+      timeout: 15000,
+      message: "the later save",
+    });
     assert.equal((await stored(id)).length, accepted + 1);
   });
 
@@ -444,18 +532,30 @@ describe("size limits", () => {
     assert.equal((await guest.op(id, upsert(stroke("f0", 1_000)))).ok, true, "shrinking one element in place is fine");
     assert.equal((await guest.op(id, { upsert: [], remove: ["f1", "f2"] })).ok, true, "removing is fine");
     assert.equal((await guest.op(id, upsert(stroke("another", nearLimit)))).ok, true, "there is room again");
-    assert.equal((await guest.op(id, upsert(stroke("f3", nearLimit)))).ok, true, "replacing with the same size doesn't count twice");
+    assert.equal(
+      (await guest.op(id, upsert(stroke("f3", nearLimit)))).ok,
+      true,
+      "replacing with the same size doesn't count twice",
+    );
   });
 
   it("keeps the same limits after a board is restored from a version", async () => {
     const { owner, id, guest } = await guestOnEditableLink();
     const nearLimit = MAX_ELEMENT_BYTES - 10_000;
-    const saved = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "Empty" } });
+    const saved = await app.request(`/boards/${id}/versions`, {
+      method: "POST",
+      user: owner,
+      body: { label: "Empty" },
+    });
     let filled = 0;
     while ((await guest.op(id, upsert(stroke(`g${filled}`, nearLimit)))).ok) filled += 1;
 
     await app.request(`/boards/${id}/versions/${saved.data.version.id}/restore`, { method: "POST", user: owner });
-    assert.equal((await guest.op(id, upsert(stroke("after-restore", nearLimit)))).ok, true, "the restored (empty) board has room again");
+    assert.equal(
+      (await guest.op(id, upsert(stroke("after-restore", nearLimit)))).ok,
+      true,
+      "the restored (empty) board has room again",
+    );
   });
 });
 
@@ -502,8 +602,12 @@ describe("cursors and views", () => {
 });
 
 describe("operation rules", () => {
-  const prepare = (elements, op, tombstones = new Map(), options = {}) => prepareOperation(elements, op, tombstones, options);
-  const board = [{ ...rect("a"), index: "a0", version: 4, versionNonce: 0 }, { ...rect("b"), index: "a1", version: 2, versionNonce: 0 }];
+  const prepare = (elements, op, tombstones = new Map(), options = {}) =>
+    prepareOperation(elements, op, tombstones, options);
+  const board = [
+    { ...rect("a"), index: "a0", version: 4, versionNonce: 0 },
+    { ...rect("b"), index: "a1", version: 2, versionNonce: 0 },
+  ];
 
   it("stamp a change from a browser on an older app without versions as the newest edit, whole", () => {
     const [element] = prepare(board, upsert({ ...rect("a"), stroke: "#e03131" }), new Map(), { legacy: true }).upsert;
@@ -528,29 +632,52 @@ describe("operation rules", () => {
   });
 
   it("stamp removals without one as the newest edit", () => {
-    assert.deepEqual(prepare(board, sanitizeOperation(remove("b"))).remove.map((removal) => removal.version), [3]);
+    assert.deepEqual(
+      prepare(board, sanitizeOperation(remove("b"))).remove.map((removal) => removal.version),
+      [3],
+    );
   });
 
   it("stop growing a board past the element cap", () => {
     const full = Array.from({ length: MAX_ELEMENTS_PER_BOARD }, (_, index) => ({ ...rect(`e${index}`), version: 1 }));
     const next = applyOperation(
       full,
-      { upsert: [{ ...rect("one-too-many"), version: 1 }, { ...rect("e0"), stroke: "#e03131", version: 2 }], remove: [] },
+      {
+        upsert: [
+          { ...rect("one-too-many"), version: 1 },
+          { ...rect("e0"), stroke: "#e03131", version: 2 },
+        ],
+        remove: [],
+      },
       new Map(),
       { limit: MAX_ELEMENTS_PER_BOARD },
     );
     assert.equal(next.length, MAX_ELEMENTS_PER_BOARD);
-    assert.equal(next.find((element) => element.id === "e0").stroke, "#e03131", "existing elements can still be edited");
-    assert.equal(next.some((element) => element.id === "one-too-many"), false);
+    assert.equal(
+      next.find((element) => element.id === "e0").stroke,
+      "#e03131",
+      "existing elements can still be edited",
+    );
+    assert.equal(
+      next.some((element) => element.id === "one-too-many"),
+      false,
+    );
   });
 
   it("are rejected when there is nothing valid in them", () => {
     assert.equal(sanitizeOperation({ upsert: [{ id: "x" }], remove: [] }), null);
-    assert.deepEqual(sanitizeOperation({ upsert: [rect("ok")], remove: ["a"] }), { upsert: [rect("ok")], remove: [{ id: "a" }] });
+    assert.deepEqual(sanitizeOperation({ upsert: [rect("ok")], remove: ["a"] }), {
+      upsert: [rect("ok")],
+      remove: [{ id: "a" }],
+    });
     assert.deepEqual(
       sanitizeOperation({
         upsert: [],
-        remove: [{ id: "b", version: 3, versionNonce: 9, extra: 1 }, { id: "c", version: -1 }, { id: "d", version: 2 ** 53 - 1, versionNonce: 0 }],
+        remove: [
+          { id: "b", version: 3, versionNonce: 9, extra: 1 },
+          { id: "c", version: -1 },
+          { id: "d", version: 2 ** 53 - 1, versionNonce: 0 },
+        ],
       }).remove,
       [{ id: "b", version: 3, versionNonce: 9 }, { id: "c" }, { id: "d" }],
     );

@@ -102,7 +102,14 @@ export function MentionTextarea({ text, mentions, onChange, onSubmit, members, p
                   index === highlight ? "bg-signal/10" : "hover:bg-ink/6",
                 )}
               >
-                <Avatar id={member.id} name={member.name} color={member.color} src={member.avatarUrl} size="xs" decorative />
+                <Avatar
+                  id={member.id}
+                  name={member.name}
+                  color={member.color}
+                  src={member.avatarUrl}
+                  size="xs"
+                  decorative
+                />
                 <span className="truncate">{member.name}</span>
               </button>
             </li>

@@ -88,7 +88,10 @@ export function BoardTable({ boards, trashed = false, sort, onSort, selected, on
             const isSelected = selected.has(board.id);
             const left = trashed ? daysLeft(board.purgeAt) : 0;
             return (
-              <tr key={board.id} className={clsx("group transition-colors", isSelected ? "bg-signal/6" : "hover:bg-surface-2")}>
+              <tr
+                key={board.id}
+                className={clsx("group transition-colors", isSelected ? "bg-signal/6" : "hover:bg-surface-2")}
+              >
                 <td className="py-2 pr-0 pl-4">
                   <input
                     type="checkbox"
@@ -100,11 +103,16 @@ export function BoardTable({ boards, trashed = false, sort, onSort, selected, on
                 </td>
                 <td className="max-w-0 min-w-40 px-3 py-2">
                   <div className="flex items-center gap-1">
-                    {!trashed && isMember(board) && <StarButton board={board} onToggle={actions.toggleStar} className="-ml-1.5 shrink-0" />}
+                    {!trashed && isMember(board) && (
+                      <StarButton board={board} onToggle={actions.toggleStar} className="-ml-1.5 shrink-0" />
+                    )}
                     {trashed ? (
                       <span className="truncate font-medium">{board.title}</span>
                     ) : (
-                      <Link to={`/board/${board.id}`} className="truncate rounded-sm font-medium hover:underline hover:underline-offset-4">
+                      <Link
+                        to={`/board/${board.id}`}
+                        className="truncate rounded-sm font-medium hover:underline hover:underline-offset-4"
+                      >
                         {board.title}
                       </Link>
                     )}

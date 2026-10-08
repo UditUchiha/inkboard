@@ -3,7 +3,12 @@ import { HttpError } from "../lib/http-error.js";
 import { signToken } from "../lib/tokens.js";
 import { User } from "../models/user.model.js";
 import { refreshUser } from "../realtime/index.js";
-import { forgetSecrets, redeemSecret, sendPasswordResetEmail, sendVerificationEmail } from "../services/account-emails.js";
+import {
+  forgetSecrets,
+  redeemSecret,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from "../services/account-emails.js";
 import { emailConfigured } from "../services/email.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -12,7 +17,9 @@ const ACCOUNT_FIELDS = "+password +googleId +githubId";
 
 function readCredentials(body) {
   return {
-    email: String(body?.email ?? "").trim().toLowerCase(),
+    email: String(body?.email ?? "")
+      .trim()
+      .toLowerCase(),
     password: String(body?.password ?? ""),
   };
 }
@@ -141,7 +148,8 @@ export async function resendVerification(req, res) {
     console.error(`Couldn't send the verification email: ${error.message}`);
     throw new HttpError(502, "The email couldn't be sent. Try again in a few minutes.");
   }
-  if (!sent) throw new HttpError(429, "We just sent you one. Check your inbox and spam folder, or try again in a minute.");
+  if (!sent)
+    throw new HttpError(429, "We just sent you one. Check your inbox and spam folder, or try again in a minute.");
   res.json({ sent: true });
 }
 

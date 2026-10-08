@@ -239,7 +239,10 @@ async function findOrCreateUser(provider, profile) {
   if (existing) return existing;
 
   if (!profile.email) {
-    throw new HttpError(400, `Your ${provider.label} account has no verified email address, so it can't be used to sign in.`);
+    throw new HttpError(
+      400,
+      `Your ${provider.label} account has no verified email address, so it can't be used to sign in.`,
+    );
   }
   // Emails aren't verified at sign-up, so silently attaching a provider to an
   // existing password account could hand that account to whoever created it.
@@ -253,7 +256,13 @@ async function findOrCreateUser(provider, profile) {
 
   const name = (profile.name ?? "").trim().slice(0, 60) || profile.email.split("@")[0];
   // The provider only gives us verified addresses (see above), so this one is verified too.
-  return User.create({ name, email: profile.email, emailVerified: true, [field]: profile.id, avatarUrl: profile.avatarUrl });
+  return User.create({
+    name,
+    email: profile.email,
+    emailVerified: true,
+    [field]: profile.id,
+    avatarUrl: profile.avatarUrl,
+  });
 }
 
 /** Disconnects a provider, as long as the account keeps another way to sign in. */
@@ -264,7 +273,8 @@ export async function disconnectProvider(req, res) {
 
   const user = await User.findById(req.userId).select("+password +googleId +githubId");
   if (!user) throw new HttpError(401, "This account no longer exists.");
-  const otherWays = OAUTH_PROVIDERS.filter((other) => other !== name && user[`${other}Id`]).length + (user.password ? 1 : 0);
+  const otherWays =
+    OAUTH_PROVIDERS.filter((other) => other !== name && user[`${other}Id`]).length + (user.password ? 1 : 0);
   if (otherWays === 0) {
     throw new HttpError(400, `Set a password first, so you can still log in without ${label}.`);
   }

@@ -73,7 +73,10 @@ function play(seed) {
     if (roll < 0.45) return store.commit({ undo: { upsert: [target] }, redo: { remove: [target.id] } });
     if (roll < 0.62) {
       const key = next() < 0.5 ? "stroke" : "fill";
-      return store.commit({ undo: { upsert: [target] }, redo: { upsert: [{ ...target, [key]: pick(COLORS) }] } }, { mergeKey: `style:${target.id}:${key}` });
+      return store.commit(
+        { undo: { upsert: [target] }, redo: { upsert: [{ ...target, [key]: pick(COLORS) }] } },
+        { mergeKey: `style:${target.id}:${key}` },
+      );
     }
     // A drag: a few steps, each made from the one before, with deliveries in between.
     let previous = target;

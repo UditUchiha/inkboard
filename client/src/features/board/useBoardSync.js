@@ -60,7 +60,9 @@ export function useBoardSync(boardId, store) {
         if (response?.tooLarge) {
           // Retrying can't help. Put this screen back to what everyone else has, so it
           // doesn't keep a drawing that was never saved.
-          toast.error("That change was too big to save, so it was undone. The board may be full: delete something or start a new board.");
+          toast.error(
+            "That change was too big to save, so it was undone. The board may be full: delete something or start a new board.",
+          );
           resync.current();
           return;
         }

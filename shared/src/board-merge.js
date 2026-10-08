@@ -86,7 +86,8 @@ export function cleanStamps(stamps) {
   const clean = {};
   for (const group of Object.keys(FIELD_GROUPS)) {
     const pair = stamps[group];
-    if (Array.isArray(pair) && pair.length === 2 && isVersion(pair[0]) && isNonce(pair[1])) clean[group] = [pair[0], pair[1]];
+    if (Array.isArray(pair) && pair.length === 2 && isVersion(pair[0]) && isNonce(pair[1]))
+      clean[group] = [pair[0], pair[1]];
   }
   return Object.keys(clean).length > 0 ? clean : undefined;
 }
@@ -99,7 +100,9 @@ export function groupStamps(element) {
   for (const group of groupsOf(element)) {
     const pair = listed?.[group];
     stamps[group] =
-      Array.isArray(pair) && isVersion(pair[0]) && isNonce(pair[1]) ? { version: pair[0], versionNonce: pair[1] } : newest;
+      Array.isArray(pair) && isVersion(pair[0]) && isNonce(pair[1])
+        ? { version: pair[0], versionNonce: pair[1] }
+        : newest;
   }
   return stamps;
 }

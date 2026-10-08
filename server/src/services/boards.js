@@ -109,7 +109,8 @@ export function serializeMeta(board, { redact = false } = {}) {
 // Pass `state` (a BoardState or null) to include this person's own filing, as the dashboard does.
 export function serializeBoard(board, userId, elements = board.elements, state = undefined) {
   const role = roleOf(board, userId);
-  const filing = state === undefined ? {} : { lastOpenedAt: state?.lastOpenedAt ?? null, archived: state?.archived ?? false };
+  const filing =
+    state === undefined ? {} : { lastOpenedAt: state?.lastOpenedAt ?? null, archived: state?.archived ?? false };
   return {
     ...serializeMeta(board, { redact: !isMemberRole(role) }),
     ...filing,

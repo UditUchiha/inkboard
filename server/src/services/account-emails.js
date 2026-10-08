@@ -18,11 +18,20 @@ const hashOf = (secret) => createHash("sha256").update(secret).digest("hex");
  * null if one was sent less than RESEND_AFTER_MS ago.
  */
 async function issueSecret(user, purpose) {
-  const recent = await EmailToken.exists({ user: user._id, purpose, createdAt: { $gt: new Date(Date.now() - RESEND_AFTER_MS) } });
+  const recent = await EmailToken.exists({
+    user: user._id,
+    purpose,
+    createdAt: { $gt: new Date(Date.now() - RESEND_AFTER_MS) },
+  });
   if (recent) return null;
   await EmailToken.deleteMany({ user: user._id, purpose });
   const secret = randomBytes(32).toString("base64url");
-  await EmailToken.create({ user: user._id, purpose, hash: hashOf(secret), expiresAt: new Date(Date.now() + LINK_LIFETIME_MS[purpose]) });
+  await EmailToken.create({
+    user: user._id,
+    purpose,
+    hash: hashOf(secret),
+    expiresAt: new Date(Date.now() + LINK_LIFETIME_MS[purpose]),
+  });
   return secret;
 }
 
@@ -86,7 +95,10 @@ export async function sendPasswordResetEmail(user, appUrl) {
     subject: "Reset your Inkboard password",
     ...linkEmail({
       greeting: `Hi ${user.name},`,
-      lines: ["Someone asked to reset the password for your Inkboard account. If it was you, choose a new one below.", "The link works for 1 hour, once."],
+      lines: [
+        "Someone asked to reset the password for your Inkboard account. If it was you, choose a new one below.",
+        "The link works for 1 hour, once.",
+      ],
       button: "Choose a new password",
       link,
       footer: "If you didn't ask for this, you can ignore this email: your password stays the same.",

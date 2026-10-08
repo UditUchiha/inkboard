@@ -43,9 +43,17 @@ export function DashboardNav({ activeId, counts, onCreate, creating }) {
       <nav aria-label="Boards" className="md:mt-5">
         <div className="flex gap-1 overflow-x-auto max-md:pb-1 md:flex-col md:overflow-visible">
           {groups.map((sections, index) => (
-            <ul key={sections[0].id} className={clsx("flex gap-1 md:flex-col", index > 0 && "md:mt-3 md:border-t md:border-rule md:pt-3")}>
+            <ul
+              key={sections[0].id}
+              className={clsx("flex gap-1 md:flex-col", index > 0 && "md:mt-3 md:border-t md:border-rule md:pt-3")}
+            >
               {sections.map((section) => (
-                <NavLink key={section.id} section={section} active={section.id === activeId} count={counts[section.id]} />
+                <NavLink
+                  key={section.id}
+                  section={section}
+                  active={section.id === activeId}
+                  count={counts[section.id]}
+                />
               ))}
             </ul>
           ))}

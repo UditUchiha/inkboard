@@ -46,7 +46,10 @@ export { flushAllSessions };
 const GUEST_ID = /^g_[a-z0-9]{6,32}$/i;
 
 export function cleanGuestName(value) {
-  const name = String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+  const name = String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 40);
   return name || "Guest";
 }
 
@@ -116,7 +119,9 @@ function handleConnection(socket) {
       await leaveBoard(socket);
 
       // The first person to open the board brings in what was removed from it lately, too.
-      const removed = getSession(boardId) ? [] : ((await Board.findById(boardId).select("removed").lean())?.removed ?? []);
+      const removed = getSession(boardId)
+        ? []
+        : ((await Board.findById(boardId).select("removed").lean())?.removed ?? []);
       const session = openSession(boardId, board.elements, removed);
       socket.join(boardId);
       socket.data.boardId = boardId;
@@ -127,7 +132,11 @@ function handleConnection(socket) {
 
       // With the stamps of what was removed lately, so a change to one of those
       // that's still on its way can't bring it back on this screen.
-      reply({ ok: true, board: serializeBoard(board, userId, session.elements), removed: removedStamps(session.tombstones) });
+      reply({
+        ok: true,
+        board: serializeBoard(board, userId, session.elements),
+        removed: removedStamps(session.tombstones),
+      });
       await broadcastPresence(boardId);
     } catch (error) {
       if (!error.status) console.error(error);
@@ -172,8 +181,10 @@ function handleConnection(socket) {
     if (!canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
 
     const buffer = payload?.data;
-    if (!Buffer.isBuffer(buffer) || buffer.length === 0) return reply({ ok: false, error: "That file couldn't be read." });
-    if (buffer.length > IMAGE_LIMITS.image) return reply({ ok: false, tooLarge: true, error: "That image is too big." });
+    if (!Buffer.isBuffer(buffer) || buffer.length === 0)
+      return reply({ ok: false, error: "That file couldn't be read." });
+    if (buffer.length > IMAGE_LIMITS.image)
+      return reply({ ok: false, tooLarge: true, error: "That image is too big." });
     const mime = detectImageType(buffer);
     if (!mime) return reply({ ok: false, error: "Use a PNG, JPEG, WebP or GIF image." });
 
@@ -181,7 +192,8 @@ function handleConnection(socket) {
       const small = readSmallCopy(payload.small);
       const stored = await storeImage({ boardId, buffer, mime, small, uploadedBy: socket.data.user?.id });
       if (stored.missing) return reply({ ok: false, error: "This board doesn't exist any more." });
-      if (stored.full) return reply({ ok: false, full: stored.full, error: spaceMessage(stored.full, socket.data.role) });
+      if (stored.full)
+        return reply({ ok: false, full: stored.full, error: spaceMessage(stored.full, socket.data.role) });
       reply({ ok: true, id: stored.id });
     } catch (error) {
       console.error(error);
@@ -195,9 +207,7 @@ function handleConnection(socket) {
     const x = Number(payload?.x);
     const y = Number(payload?.y);
     const visible = Number.isFinite(x) && Number.isFinite(y);
-    socket
-      .to(boardId)
-      .volatile.emit("cursor", visible ? { socketId: socket.id, x, y } : { socketId: socket.id });
+    socket.to(boardId).volatile.emit("cursor", visible ? { socketId: socket.id, x, y } : { socketId: socket.id });
   });
 
   // What part of the board someone is looking at, so others can follow along.

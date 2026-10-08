@@ -165,7 +165,13 @@ function ConnectedAccounts() {
                 <p className="text-sm text-graphite">{connected ? "Connected" : "Not connected"}</p>
               </div>
               {connected ? (
-                <Button variant="secondary" size="sm" icon={Link2Off} loading={busy === id} onClick={() => disconnect(id, label)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Link2Off}
+                  loading={busy === id}
+                  onClick={() => disconnect(id, label)}
+                >
                   Disconnect
                 </Button>
               ) : (
@@ -237,7 +243,11 @@ function PasswordSection() {
           required
         />
         <div>
-          <Button type="submit" loading={saving} disabled={!form.newPassword || (user.hasPassword && !form.currentPassword)}>
+          <Button
+            type="submit"
+            loading={saving}
+            disabled={!form.newPassword || (user.hasPassword && !form.currentPassword)}
+          >
             {user.hasPassword ? "Change password" : "Set password"}
           </Button>
         </div>
@@ -262,7 +272,10 @@ export default function SettingsPage() {
     if (error) toast.error(error);
     if (connected) {
       toast.success(`${connected[0].toUpperCase() + connected.slice(1)} connected`);
-      api.me().then(({ user: fresh }) => updateUser(fresh)).catch(() => {});
+      api
+        .me()
+        .then(({ user: fresh }) => updateUser(fresh))
+        .catch(() => {});
     }
     setParams({}, { replace: true });
   }, [params, setParams, updateUser]);

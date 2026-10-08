@@ -76,7 +76,11 @@ describe("protected routes", () => {
 describe("profile and password", () => {
   it("lets people change their name and colour, and checks the colour", async () => {
     const user = await app.signUp("Original");
-    const renamed = await app.request("/auth/me", { method: "PATCH", user, body: { name: "  New Name ", color: "#e8590c" } });
+    const renamed = await app.request("/auth/me", {
+      method: "PATCH",
+      user,
+      body: { name: "  New Name ", color: "#e8590c" },
+    });
     assert.equal(renamed.status, 200);
     assert.equal(renamed.data.user.name, "New Name");
     assert.equal(renamed.data.user.color, "#e8590c");
@@ -91,12 +95,24 @@ describe("profile and password", () => {
     const { data } = await register({ name: "Grace", email: "grace@example.test", password: "first password" });
     const user = { token: data.token };
 
-    const wrong = await app.request("/auth/password", { method: "POST", user, body: { currentPassword: "nope", newPassword: "second password" } });
+    const wrong = await app.request("/auth/password", {
+      method: "POST",
+      user,
+      body: { currentPassword: "nope", newPassword: "second password" },
+    });
     assert.equal(wrong.status, 400);
-    const tooShort = await app.request("/auth/password", { method: "POST", user, body: { currentPassword: "first password", newPassword: "short" } });
+    const tooShort = await app.request("/auth/password", {
+      method: "POST",
+      user,
+      body: { currentPassword: "first password", newPassword: "short" },
+    });
     assert.equal(tooShort.status, 400);
 
-    const ok = await app.request("/auth/password", { method: "POST", user, body: { currentPassword: "first password", newPassword: "second password" } });
+    const ok = await app.request("/auth/password", {
+      method: "POST",
+      user,
+      body: { currentPassword: "first password", newPassword: "second password" },
+    });
     assert.equal(ok.status, 200);
     assert.equal((await login({ email: "grace@example.test", password: "first password" })).status, 401);
     assert.equal((await login({ email: "grace@example.test", password: "second password" })).status, 200);

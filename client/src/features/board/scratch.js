@@ -86,7 +86,13 @@ export function useScratchBoard() {
     const guest = getGuest();
     return {
       phase: { name: "ready" },
-      meta: { id: "local", title, owner: { id: guest.id, name: guest.name }, collaborators: [], linkAccess: "restricted" },
+      meta: {
+        id: "local",
+        title,
+        owner: { id: guest.id, name: guest.name },
+        collaborators: [],
+        linkAccess: "restricted",
+      },
       setMeta: (update) => {
         const next = typeof update === "function" ? update({ title }) : update;
         if (typeof next.title !== "string" || next.title === title) return;

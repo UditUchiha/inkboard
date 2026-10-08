@@ -34,7 +34,11 @@ const GROUP_STARTS = new Set(["pen", "eraser", "comment"]);
 export function Toolbar({ tool, onToolChange, onAddImage, withComments = false, className }) {
   const tools = withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS;
   return (
-    <div role="toolbar" aria-label="Tools" className={clsx("floating-panel flex items-center gap-0.5 rounded-xl p-1", className)}>
+    <div
+      role="toolbar"
+      aria-label="Tools"
+      className={clsx("floating-panel flex items-center gap-0.5 rounded-xl p-1", className)}
+    >
       {tools.map((item, index) => {
         const Icon = ICONS[item.id];
         const active = tool === item.id;

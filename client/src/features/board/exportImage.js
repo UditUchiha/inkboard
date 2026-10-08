@@ -49,6 +49,9 @@ export async function exportBoardAsSvg(elements, fileName) {
 export async function exportBoardAsJson(elements, title) {
   if (elements.length === 0) return false;
   const file = makeBoardFile({ title, elements, pictures: await pictureDataUrls(elements) });
-  downloadBlob(new Blob([JSON.stringify(file)], { type: "application/json" }), `${safeFileName(title)}${BOARD_FILE_EXTENSION}`);
+  downloadBlob(
+    new Blob([JSON.stringify(file)], { type: "application/json" }),
+    `${safeFileName(title)}${BOARD_FILE_EXTENSION}`,
+  );
   return true;
 }

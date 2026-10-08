@@ -184,7 +184,13 @@ export function BoardCanvas({
 
   function handlePointerDown(event) {
     if (event.button !== 0 && event.button !== 1) return;
-    const { tool: activeTool, style: activeStyle, viewport: vp, spacePressed: space, editingId: editing } = latest.current;
+    const {
+      tool: activeTool,
+      style: activeStyle,
+      viewport: vp,
+      spacePressed: space,
+      editingId: editing,
+    } = latest.current;
     const screen = screenPoint(event);
     canvasRef.current.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, screen);
@@ -219,7 +225,14 @@ export function BoardCanvas({
         const grabbed = selected ? handleAt(selected, world, vp.zoom) : null;
         if (grabbed) {
           const pad = getSelectionBox(selected, vp.zoom).pad ?? 0;
-          gesture.current = { kind: "transform", handle: grabbed, start: world, original: selected, pad, current: null };
+          gesture.current = {
+            kind: "transform",
+            handle: grabbed,
+            start: world,
+            original: selected,
+            pad,
+            current: null,
+          };
           setHandle(grabbed);
           setTurning(grabbed === "rotate");
           return;
@@ -293,7 +306,8 @@ export function BoardCanvas({
         return;
       }
       case "draw": {
-        const next = g.element.type === "pen" ? extendStroke(g.element, event, vp) : resizeShape(g.element, world, event.shiftKey);
+        const next =
+          g.element.type === "pen" ? extendStroke(g.element, event, vp) : resizeShape(g.element, world, event.shiftKey);
         // Made from the step before, so a color someone picks mid-draw isn't painted over.
         store.apply({ upsert: [next] }, { base: [g.element] });
         g.element = next;

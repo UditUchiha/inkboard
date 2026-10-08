@@ -165,7 +165,11 @@ describe("who can upload", () => {
     const owner = await app.signUp("Owner");
     const editor = await app.signUp("Editor");
     const boardId = await app.createBoard(owner);
-    await app.request(`/boards/${boardId}/collaborators`, { method: "POST", user: owner, body: { email: editor.email } });
+    await app.request(`/boards/${boardId}/collaborators`, {
+      method: "POST",
+      user: owner,
+      body: { email: editor.email },
+    });
 
     const asEditor = await app.connect(editor);
     await asEditor.join(boardId);
@@ -179,7 +183,9 @@ describe("who can upload", () => {
     assert.equal(refused.readOnly, true);
 
     await setLink(owner, boardId, "edit");
-    await eventually(() => guest.last("board:role")?.role === "contributor", { message: "guest becoming a contributor" });
+    await eventually(() => guest.last("board:role")?.role === "contributor", {
+      message: "guest becoming a contributor",
+    });
     assert.equal((await guest.image(boardId, png())).ok, true);
   });
 
@@ -212,7 +218,12 @@ describe("image elements on a board", () => {
 
   it("drops image elements that don't name a real image id", async () => {
     const { boardId, client } = await ownerOnBoard();
-    const bad = [picture("../../etc/passwd"), picture(undefined), picture("short"), { ...picture("a".repeat(32)), imageId: 5 }];
+    const bad = [
+      picture("../../etc/passwd"),
+      picture(undefined),
+      picture("short"),
+      { ...picture("a".repeat(32)), imageId: 5 },
+    ];
     for (const element of bad) assert.equal((await client.op(boardId, upsert(element))).ok, false);
     assert.equal((await client.op(boardId, upsert(picture("a".repeat(32))))).ok, true);
   });
@@ -230,7 +241,11 @@ describe("image elements on a board", () => {
   it("explains why a board with only images can't become a template", async () => {
     const { owner, boardId, client } = await ownerOnBoard();
     await client.op(boardId, upsert(picture(ok(await client.image(boardId, png())))));
-    const { status: code, data } = await app.request("/templates", { method: "POST", user: owner, body: { boardId, title: "T" } });
+    const { status: code, data } = await app.request("/templates", {
+      method: "POST",
+      user: owner,
+      body: { boardId, title: "T" },
+    });
     assert.equal(code, 400);
     assert.match(data.error, /can't hold images/);
   });
@@ -240,9 +255,16 @@ describe("image elements on a board", () => {
     const { id } = await client.image(boardId, png());
     await client.op(boardId, upsert(picture(id), rect("box")));
 
-    const { status, data } = await app.request("/templates", { method: "POST", user: owner, body: { boardId, title: "T" } });
+    const { status, data } = await app.request("/templates", {
+      method: "POST",
+      user: owner,
+      body: { boardId, title: "T" },
+    });
     assert.equal(status, 201);
-    assert.deepEqual(data.template.elements.map((element) => element.type), ["rectangle"]);
+    assert.deepEqual(
+      data.template.elements.map((element) => element.type),
+      ["rectangle"],
+    );
   });
 });
 
@@ -253,7 +275,11 @@ describe("cleaning up images nothing shows", () => {
     const unused = ok(await client.image(boardId, png(), webp()));
     const inVersion = ok(await client.image(boardId, png()));
     await client.op(boardId, upsert(picture(placed, "a"), picture(inVersion, "b")));
-    const saved = await app.request(`/boards/${boardId}/versions`, { method: "POST", user: owner, body: { label: "V" } });
+    const saved = await app.request(`/boards/${boardId}/versions`, {
+      method: "POST",
+      user: owner,
+      body: { label: "V" },
+    });
     assert.equal(saved.status, 201);
     await client.op(boardId, remove("b"));
 

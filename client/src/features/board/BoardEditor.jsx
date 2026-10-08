@@ -315,7 +315,9 @@ export function BoardEditor({ store, sync, user, local = null }) {
         return;
       }
       for (const [index, file] of files.slice(0, 10).entries()) {
-        const progress = toast.loading(files.length > 1 ? `Adding image ${index + 1} of ${files.length}…` : "Adding image…");
+        const progress = toast.loading(
+          files.length > 1 ? `Adding image ${index + 1} of ${files.length}…` : "Adding image…",
+        );
         try {
           const picked = await prepareImage(file);
           const id = await uploadImage(sync.socket, board.id, picked);
@@ -357,13 +359,17 @@ export function BoardEditor({ store, sync, user, local = null }) {
         return;
       }
       if (store.getElements().length + parsed.elements.length > MAX_ELEMENTS_PER_BOARD) {
-        toast.error(`That would put more than ${MAX_ELEMENTS_PER_BOARD} elements on this board. Import it into a new board instead.`);
+        toast.error(
+          `That would put more than ${MAX_ELEMENTS_PER_BOARD} elements on this board. Import it into a new board instead.`,
+        );
         return;
       }
 
       const progress = toast.loading(`Importing ${file.name}…`);
       const uploaded = new Map(); // image id in the file -> id on this board
-      const wanted = new Set(parsed.elements.filter((element) => element.type === "image").map((element) => element.imageId));
+      const wanted = new Set(
+        parsed.elements.filter((element) => element.type === "image").map((element) => element.imageId),
+      );
       if (!local) {
         for (const oldId of wanted) {
           const url = parsed.pictures.get(oldId);
@@ -387,9 +393,14 @@ export function BoardEditor({ store, sync, user, local = null }) {
       });
       const missing = parsed.elements.length - kept.length;
       if (kept.length === 0) {
-        toast.error(local ? "Save this board to your account to import pictures." : "None of that file's pictures could be added.", {
-          id: progress,
-        });
+        toast.error(
+          local
+            ? "Save this board to your account to import pictures."
+            : "None of that file's pictures could be added.",
+          {
+            id: progress,
+          },
+        );
         return;
       }
 
@@ -758,7 +769,12 @@ export function BoardEditor({ store, sync, user, local = null }) {
             ["dark", "Dark", Moon],
             ["system", "Match system", Monitor],
           ].map(([value, label, Icon]) => (
-            <MenuItem key={value} icon={Icon} onSelect={() => setPreference(value)} hint={preference === value ? <Check className="size-4" /> : null}>
+            <MenuItem
+              key={value}
+              icon={Icon}
+              onSelect={() => setPreference(value)}
+              hint={preference === value ? <Check className="size-4" /> : null}
+            >
               {label}
             </MenuItem>
           ))}
@@ -797,12 +813,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
 
       {/* Style panel */}
       {panelType && (
-        <div
-          className={clsx(
-            "absolute left-3 max-md:bottom-[7.5rem] md:top-20",
-            !panelOpen && "max-md:hidden",
-          )}
-        >
+        <div className={clsx("absolute left-3 max-md:bottom-[7.5rem] md:top-20", !panelOpen && "max-md:hidden")}>
           <PropertiesPanel
             type={panelType}
             values={selected ?? style}
@@ -833,7 +844,12 @@ export function BoardEditor({ store, sync, user, local = null }) {
             {Math.round(viewport.zoom * 100)}%
           </button>
           <IconButton label="Zoom in" icon={Plus} onClick={() => zoomBy(1.25)} />
-          <IconButton label="Fit drawing to screen" icon={Maximize} onClick={fitToScreen} disabled={elements.length === 0} />
+          <IconButton
+            label="Fit drawing to screen"
+            icon={Maximize}
+            onClick={fitToScreen}
+            disabled={elements.length === 0}
+          />
         </div>
         {panelType && (
           <div className="floating-panel rounded-xl p-1 md:hidden">
@@ -856,18 +872,18 @@ export function BoardEditor({ store, sync, user, local = null }) {
         onSave={saveCurrentAsTemplate}
       />
       {!local && (
-      <ShareDialog
-        open={dialog === "share"}
-        onClose={() => setDialog(null)}
-        board={board}
-        role={role}
-        currentUser={user}
-        onBoardChange={(updated) => setMeta((current) => ({ ...current, ...updated }))}
-        onLeft={() => {
-          toast(`You left “${board.title}”`);
-          navigate("/boards");
-        }}
-      />
+        <ShareDialog
+          open={dialog === "share"}
+          onClose={() => setDialog(null)}
+          board={board}
+          role={role}
+          currentUser={user}
+          onBoardChange={(updated) => setMeta((current) => ({ ...current, ...updated }))}
+          onLeft={() => {
+            toast(`You left “${board.title}”`);
+            navigate("/boards");
+          }}
+        />
       )}
       <ShortcutsDialog open={dialog === "shortcuts"} onClose={() => setDialog(null)} />
       <ConfirmDialog

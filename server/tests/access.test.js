@@ -124,10 +124,13 @@ describe("anyone with the link can view", () => {
     const guest = await app.connect(null, { guest: { id: "g_abcdef123456", name: "  Ada   Guest " } });
     await guest.join(boardId);
 
-    const presence = await eventually(() => {
-      const list = ownerClient.last("presence");
-      return list?.length === 2 && list;
-    }, { message: "both people in presence" });
+    const presence = await eventually(
+      () => {
+        const list = ownerClient.last("presence");
+        return list?.length === 2 && list;
+      },
+      { message: "both people in presence" },
+    );
     const guestEntry = presence.find((person) => person.guest);
     assert.equal(guestEntry.name, "Ada Guest");
     assert.equal(guestEntry.userId, "g_abcdef123456");
@@ -183,7 +186,10 @@ describe("access changes reach people who already have the board open", () => {
     const richMeta = client.last("board:meta");
     assert.equal(richMeta.collaborators[0].email, person.email, "members get the full list again");
 
-    assert.equal((await app.request(`/boards/${boardId}/collaborators/${person.id}`, { method: "DELETE", user: owner })).status, 200);
+    assert.equal(
+      (await app.request(`/boards/${boardId}/collaborators/${person.id}`, { method: "DELETE", user: owner })).status,
+      200,
+    );
     await eventually(() => client.last("board:role")?.role === "viewer", { message: "downgrade to viewer" });
     assert.equal(client.of("board:revoked").length, 0, "the link is still open, so they stay as a viewer");
     assert.equal((await client.op(boardId, upsert(rect("again")))).readOnly, true);
@@ -248,12 +254,19 @@ describe("invites", () => {
     const person = await app.signUp("Person");
     const boardId = await app.createBoard(owner);
 
-    const unknown = await app.request(`/boards/${boardId}/collaborators`, { method: "POST", user: owner, body: { email: "nobody@example.test" } });
+    const unknown = await app.request(`/boards/${boardId}/collaborators`, {
+      method: "POST",
+      user: owner,
+      body: { email: "nobody@example.test" },
+    });
     assert.equal(unknown.status, 404);
     assert.equal((await invite(owner, boardId, owner)).status, 400);
     assert.equal((await invite(owner, boardId, person)).status, 201);
     assert.equal((await invite(owner, boardId, person)).status, 409);
-    assert.equal((await app.request(`/boards/${boardId}/collaborators`, { method: "POST", user: owner, body: {} })).status, 400);
+    assert.equal(
+      (await app.request(`/boards/${boardId}/collaborators`, { method: "POST", user: owner, body: {} })).status,
+      400,
+    );
   });
 
   it("lets people leave on their own, but not the owner", async () => {
@@ -262,8 +275,14 @@ describe("invites", () => {
     const boardId = await app.createBoard(owner);
     await invite(owner, boardId, person);
 
-    assert.equal((await app.request(`/boards/${boardId}/collaborators/me`, { method: "DELETE", user: owner })).status, 400);
-    assert.equal((await app.request(`/boards/${boardId}/collaborators/me`, { method: "DELETE", user: person })).status, 200);
+    assert.equal(
+      (await app.request(`/boards/${boardId}/collaborators/me`, { method: "DELETE", user: owner })).status,
+      400,
+    );
+    assert.equal(
+      (await app.request(`/boards/${boardId}/collaborators/me`, { method: "DELETE", user: person })).status,
+      200,
+    );
     assert.equal((await (await app.connect(person)).join(boardId)).status, 403);
   });
 

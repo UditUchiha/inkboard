@@ -51,7 +51,8 @@ function distanceToSegment(p, a, b) {
   const dx = b[0] - a[0];
   const dy = b[1] - a[1];
   const lengthSquared = dx * dx + dy * dy;
-  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lengthSquared));
+  const t =
+    lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lengthSquared));
   return Math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy));
 }
 
@@ -86,7 +87,9 @@ export function simplifyPoints(points, tolerance) {
 
 function previewStroke(element, tolerance) {
   if (!Array.isArray(element.points)) return element;
-  const valid = element.points.filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]));
+  const valid = element.points.filter(
+    (point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]),
+  );
   const points = simplifyPoints(valid, tolerance).map(([x, y, pressure]) => [
     round(x, 1),
     round(y, 1),

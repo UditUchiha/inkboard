@@ -22,13 +22,24 @@ export function PresenceStack({ people, followingId, onFollow }) {
               onClick={() => onFollow(following ? null : person.socketId)}
               aria-pressed={following}
               aria-label={following ? `Stop following ${person.name}` : `Follow ${person.name}`}
-              title={following ? `Following ${person.name}. Click to stop` : `${person.name}${person.guest ? " (guest)" : ""}. Click to follow their view`}
+              title={
+                following
+                  ? `Following ${person.name}. Click to stop`
+                  : `${person.name}${person.guest ? " (guest)" : ""}. Click to follow their view`
+              }
               className={clsx(
                 "block rounded-full transition-transform hover:z-10 hover:-translate-y-0.5 focus-visible:z-10",
                 following && "z-10 ring-2 ring-signal ring-offset-2 ring-offset-paper",
               )}
             >
-              <Avatar id={person.userId} name={person.name} color={person.color} src={person.avatarUrl} size="sm" title="" />
+              <Avatar
+                id={person.userId}
+                name={person.name}
+                color={person.color}
+                src={person.avatarUrl}
+                size="sm"
+                title=""
+              />
             </button>
           </li>
         );

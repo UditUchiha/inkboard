@@ -32,12 +32,15 @@ export function VerifyEmailNotice({ className }) {
   return (
     <div
       role="status"
-      className={clsx("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-signal/30 bg-signal/8 px-4 py-3 text-sm", className)}
+      className={clsx(
+        "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-signal/30 bg-signal/8 px-4 py-3 text-sm",
+        className,
+      )}
     >
       <MailCheck className="size-4 shrink-0 text-signal" aria-hidden />
       <p className="min-w-0 flex-1">
-        Verify <strong className="font-semibold">{user.email}</strong> so people can invite you to their boards. The link is in your
-        inbox (check spam too).
+        Verify <strong className="font-semibold">{user.email}</strong> so people can invite you to their boards. The
+        link is in your inbox (check spam too).
       </p>
       <Button variant="secondary" size="sm" loading={sending} onClick={resend}>
         Send a new link

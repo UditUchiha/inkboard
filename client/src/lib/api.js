@@ -74,12 +74,9 @@ export const api = {
   archiveBoards: (ids, archived) => request("/boards/archive", { method: "PATCH", body: { ids, archived } }),
   // Drop a board from this person's dashboard (used for boards they only opened from a link).
   forgetBoard: (id) => request(`/boards/${id}/state`, { method: "DELETE" }),
-  setLinkAccess: (id, linkAccess) =>
-    request(`/boards/${id}/link-access`, { method: "PATCH", body: { linkAccess } }),
-  inviteCollaborator: (id, email) =>
-    request(`/boards/${id}/collaborators`, { method: "POST", body: { email } }),
-  removeCollaborator: (id, userId) =>
-    request(`/boards/${id}/collaborators/${userId}`, { method: "DELETE" }),
+  setLinkAccess: (id, linkAccess) => request(`/boards/${id}/link-access`, { method: "PATCH", body: { linkAccess } }),
+  inviteCollaborator: (id, email) => request(`/boards/${id}/collaborators`, { method: "POST", body: { email } }),
+  removeCollaborator: (id, userId) => request(`/boards/${id}/collaborators/${userId}`, { method: "DELETE" }),
 
   listVersions: (id) => request(`/boards/${id}/versions`),
   getVersion: (id, versionId) => request(`/boards/${id}/versions/${versionId}`),

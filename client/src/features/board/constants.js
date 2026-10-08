@@ -17,7 +17,7 @@ export const COMMENT_TOOL = { id: "comment", label: "Comment", key: "c" };
 // The most elements a board can hold (the server's limit too).
 export const MAX_ELEMENTS_PER_BOARD = 5000;
 
-export const DRAWING_TOOLS =new Set(["pen", "rectangle", "ellipse", "arrow", "line", "text"]);
+export const DRAWING_TOOLS = new Set(["pen", "rectangle", "ellipse", "arrow", "line", "text"]);
 export const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
 
 export const STROKE_COLORS = [

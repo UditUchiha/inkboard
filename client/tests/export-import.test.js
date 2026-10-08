@@ -8,7 +8,8 @@ globalThis.document ??= {
 };
 
 const { buildSvg, fontsUsed, SVG_PADDING } = await import("../src/features/board/svgExport.js");
-const { BoardFileError, makeBoardFile, parseBoardFile, placeElements } = await import("../src/features/board/boardFile.js");
+const { BoardFileError, makeBoardFile, parseBoardFile, placeElements } =
+  await import("../src/features/board/boardFile.js");
 const { getSceneBounds } = await import("../src/features/board/elements.js");
 const { toOperations } = await import("../src/features/board/store.js");
 
@@ -26,8 +27,29 @@ const rect = (id, x = 0, y = 0, extra = {}) => ({
   sketchy: false,
   ...extra,
 });
-const pen = { id: "p", type: "pen", points: [[0, 0, 0.5], [20, 10, 0.5], [40, 0, 0.5], [60, 15, 0.5]], pressure: false, stroke: "#1971c2", penSize: 8 };
-const text = { id: "t", type: "text", x1: 10, y1: 200, text: "Fish & <chips>\nline two", stroke: "#16213a", fontSize: 20, font: "sans" };
+const pen = {
+  id: "p",
+  type: "pen",
+  points: [
+    [0, 0, 0.5],
+    [20, 10, 0.5],
+    [40, 0, 0.5],
+    [60, 15, 0.5],
+  ],
+  pressure: false,
+  stroke: "#1971c2",
+  penSize: 8,
+};
+const text = {
+  id: "t",
+  type: "text",
+  x1: 10,
+  y1: 200,
+  text: "Fish & <chips>\nline two",
+  stroke: "#16213a",
+  fontSize: 20,
+  font: "sans",
+};
 const picture = { id: "i", type: "image", imageId: "a".repeat(32), x1: 200, y1: 0, x2: 300, y2: 80 };
 
 describe("SVG export", () => {
@@ -38,7 +60,12 @@ describe("SVG export", () => {
   it("frames the drawing with padding, on a white background", () => {
     const svg = buildSvg([rect("r", 10, 20)]);
     const bounds = getSceneBounds([rect("r", 10, 20)]);
-    const viewBox = [bounds.x - SVG_PADDING, bounds.y - SVG_PADDING, bounds.width + SVG_PADDING * 2, bounds.height + SVG_PADDING * 2];
+    const viewBox = [
+      bounds.x - SVG_PADDING,
+      bounds.y - SVG_PADDING,
+      bounds.width + SVG_PADDING * 2,
+      bounds.height + SVG_PADDING * 2,
+    ];
     assert.match(svg, new RegExp(`viewBox="${viewBox.map((n) => Math.round(n * 100) / 100).join(" ")}"`));
     assert.match(svg, /<rect [^>]*fill="#ffffff"\/>/);
     assert.ok(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'));
@@ -69,7 +96,10 @@ describe("SVG export", () => {
 
   it("embeds pictures it has, and marks where the others go", () => {
     const withPicture = buildSvg([picture], { images: new Map([[picture.imageId, "data:image/png;base64,AAAA"]]) });
-    assert.match(withPicture, /<image x="200" y="0" width="100" height="80" preserveAspectRatio="none" href="data:image\/png;base64,AAAA"\/>/);
+    assert.match(
+      withPicture,
+      /<image x="200" y="0" width="100" height="80" preserveAspectRatio="none" href="data:image\/png;base64,AAAA"\/>/,
+    );
     assert.match(buildSvg([picture]), /stroke-dasharray/);
   });
 
@@ -104,12 +134,20 @@ describe("board files", () => {
       [JSON.stringify({ type: "inkboard", version: 1, elements: [{ nope: true }, 5] }), /empty/],
     ];
     for (const [text, message] of cases) {
-      assert.throws(() => parseBoardFile(text), (error) => error instanceof BoardFileError && message.test(error.message));
+      assert.throws(
+        () => parseBoardFile(text),
+        (error) => error instanceof BoardFileError && message.test(error.message),
+      );
     }
   });
 
   it("ignores pictures that aren't images", () => {
-    const file = { type: "inkboard", version: 1, elements: [picture], images: { [picture.imageId]: "javascript:alert(1)" } };
+    const file = {
+      type: "inkboard",
+      version: 1,
+      elements: [picture],
+      images: { [picture.imageId]: "javascript:alert(1)" },
+    };
     assert.equal(parseBoardFile(JSON.stringify(file)).pictures.size, 0);
   });
 
@@ -119,7 +157,9 @@ describe("board files", () => {
     assert.ok(placed.every((element, index) => element.id !== original[index].id));
     assert.equal(new Set(placed.map((element) => element.id)).size, 2);
     const bounds = getSceneBounds(placed);
-    assert.ok(Math.abs(bounds.x + bounds.width / 2 - 1000) < 1e-9 && Math.abs(bounds.y + bounds.height / 2 - 1000) < 1e-9);
+    assert.ok(
+      Math.abs(bounds.x + bounds.width / 2 - 1000) < 1e-9 && Math.abs(bounds.y + bounds.height / 2 - 1000) < 1e-9,
+    );
     assert.equal(placed[1].x1 - placed[0].x1, 200);
   });
 });
@@ -127,19 +167,28 @@ describe("board files", () => {
 describe("sending changes", () => {
   it("splits a big change into pieces under the size limit, in order", () => {
     const pending = new Map();
-    for (let index = 0; index < 50; index += 1) pending.set(`e${index}`, rect(`e${index}`, index, 0, { note: "x".repeat(1000) }));
+    for (let index = 0; index < 50; index += 1)
+      pending.set(`e${index}`, rect(`e${index}`, index, 0, { note: "x".repeat(1000) }));
     pending.set("gone", { removal: { id: "gone", version: 2, versionNonce: 1 } });
     const operations = toOperations(pending, 10_000);
 
     assert.ok(operations.length > 1);
     for (const op of operations) assert.ok(JSON.stringify(op).length < 12_000, "each piece stays near the limit");
-    assert.deepEqual(operations.flatMap((op) => op.upsert.map((element) => element.id)), [...pending.keys()].slice(0, 50));
+    assert.deepEqual(
+      operations.flatMap((op) => op.upsert.map((element) => element.id)),
+      [...pending.keys()].slice(0, 50),
+    );
     assert.deepEqual(operations.at(-1).remove, [{ id: "gone", version: 2, versionNonce: 1 }]);
   });
 
   it("sends a small change in one go", () => {
     const removal = { id: "b", version: 1, versionNonce: 0 };
-    const operations = toOperations(new Map([["a", rect("a")], ["b", { removal }]]));
+    const operations = toOperations(
+      new Map([
+        ["a", rect("a")],
+        ["b", { removal }],
+      ]),
+    );
     assert.deepEqual(operations, [{ upsert: [rect("a")], remove: [removal] }]);
   });
 });

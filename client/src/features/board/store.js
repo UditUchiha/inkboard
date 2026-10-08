@@ -34,7 +34,8 @@ const versionOf = (stamped) => stampOf(stamped).version;
 const removalOf = (entry) => (typeof entry === "string" ? { id: entry } : entry);
 
 // Whether `a` and `b` differ in any field of `group`.
-const differs = (a, b, group) => FIELD_GROUPS[group].some((field) => field in a !== field in b || a[field] !== b[field]);
+const differs = (a, b, group) =>
+  FIELD_GROUPS[group].some((field) => field in a !== field in b || a[field] !== b[field]);
 
 /** Changes waiting to be sent (id -> element, or { removal }) as one operation. */
 export function toOperation(pending) {

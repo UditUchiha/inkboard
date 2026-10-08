@@ -94,10 +94,7 @@ export function getLocalBounds(element) {
       const ys = element.points.map((p) => p[1]);
       const x = Math.min(...xs);
       const y = Math.min(...ys);
-      bounds = expandRect(
-        { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y },
-        element.penSize / 2,
-      );
+      bounds = expandRect({ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }, element.penSize / 2);
       break;
     }
     case "text": {
@@ -177,7 +174,9 @@ export function hitTest(element, pointX, pointY, tolerance) {
 
   switch (element.type) {
     case "line":
-      return distanceToSegment(x, y, element.x1, element.y1, element.x2, element.y2) <= tolerance + element.strokeWidth / 2;
+      return (
+        distanceToSegment(x, y, element.x1, element.y1, element.x2, element.y2) <= tolerance + element.strokeWidth / 2
+      );
     case "arrow": {
       const reach = tolerance + element.strokeWidth / 2;
       if (distanceToSegment(x, y, element.x1, element.y1, element.x2, element.y2) <= reach) return true;

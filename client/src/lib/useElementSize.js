@@ -8,9 +8,7 @@ export function useElementSize(ref) {
     if (!element) return undefined;
     const update = () => {
       const { width, height } = element.getBoundingClientRect();
-      setSize((current) =>
-        current.width === width && current.height === height ? current : { width, height },
-      );
+      setSize((current) => (current.width === width && current.height === height ? current : { width, height }));
     };
     update();
     const observer = new ResizeObserver(update);

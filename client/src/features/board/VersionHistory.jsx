@@ -125,7 +125,13 @@ function Preview({ boardId, version, onRestored, onDeleted }) {
         </div>
       ) : (
         <div className="mt-3 flex gap-2">
-          <Button variant="secondary" className="flex-1" icon={RotateCcw} disabled={!elements} onClick={() => setConfirming("restore")}>
+          <Button
+            variant="secondary"
+            className="flex-1"
+            icon={RotateCcw}
+            disabled={!elements}
+            onClick={() => setConfirming("restore")}
+          >
             Restore this version
           </Button>
           {/* Saved versions are kept until someone deletes them; autosaves clear on their own. */}

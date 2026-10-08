@@ -45,7 +45,8 @@ export function parseBoardFile(text) {
   }
   // The server checks every element properly; this just skips anything that isn't one.
   const elements = data.elements.filter(
-    (element) => element && typeof element === "object" && typeof element.id === "string" && ELEMENT_TYPES.has(element.type),
+    (element) =>
+      element && typeof element === "object" && typeof element.id === "string" && ELEMENT_TYPES.has(element.type),
   );
   if (elements.length === 0) throw new BoardFileError("That board file is empty.");
 

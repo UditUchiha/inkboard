@@ -116,7 +116,12 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
   const current = LINK_OPTIONS.find((option) => option.value === linkAccess);
 
   return (
-    <Dialog open={open} onClose={onClose} title="Share this board" description={DESCRIPTIONS[role] ?? DESCRIPTIONS.viewer}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Share this board"
+      description={DESCRIPTIONS[role] ?? DESCRIPTIONS.viewer}
+    >
       {isOwner && (
         <form onSubmit={invite} className="flex items-start gap-2">
           <TextField

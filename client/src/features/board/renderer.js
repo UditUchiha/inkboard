@@ -233,7 +233,9 @@ function drawSelection(ctx, element, zoom) {
 
 function isVisible(element, view) {
   const b = getBounds(element);
-  return b.x <= view.x + view.width && b.x + b.width >= view.x && b.y <= view.y + view.height && b.y + b.height >= view.y;
+  return (
+    b.x <= view.x + view.width && b.x + b.width >= view.x && b.y <= view.y + view.height && b.y + b.height >= view.y
+  );
 }
 
 /**

@@ -43,7 +43,15 @@ function Pin({ thread, point, active, onClick }) {
       )}
       style={{ transform: `translate(${point.x}px, ${point.y}px) translateY(-100%)` }}
     >
-      <Avatar id={thread.author.id} name={thread.author.name} color={thread.author.color} src={thread.author.avatarUrl} size="sm" className="ring-0" title="" />
+      <Avatar
+        id={thread.author.id}
+        name={thread.author.name}
+        color={thread.author.color}
+        src={thread.author.avatarUrl}
+        size="sm"
+        className="ring-0"
+        title=""
+      />
       {thread.resolved ? (
         <span className="absolute -top-1 -right-1 grid size-4 place-items-center rounded-full bg-[#2f9e44] text-white">
           <Check className="size-3" strokeWidth={3} aria-hidden />
@@ -134,14 +142,23 @@ function ThreadView({ thread, canComment, canDelete, members, onReply, onResolve
               onClick={() => onResolve(!thread.resolved)}
             />
           )}
-          {canDelete && <IconButton label="Delete thread" icon={Trash2} size="sm" onClick={onDelete} className="text-danger" />}
+          {canDelete && (
+            <IconButton label="Delete thread" icon={Trash2} size="sm" onClick={onDelete} className="text-danger" />
+          )}
           <IconButton label="Close" icon={X} size="sm" onClick={onClose} />
         </div>
       </div>
       <ul className="max-h-64 divide-y divide-rule overflow-y-auto">
         {thread.messages.map((message) => (
           <li key={message.id} className="flex gap-2.5 px-3 py-2.5">
-            <Avatar id={message.author.id} name={message.author.name} color={message.author.color} src={message.author.avatarUrl} size="xs" decorative />
+            <Avatar
+              id={message.author.id}
+              name={message.author.name}
+              color={message.author.color}
+              src={message.author.avatarUrl}
+              size="xs"
+              decorative
+            />
             <div className="min-w-0 flex-1">
               <p className="text-sm">
                 <span className="font-semibold">{message.author.name}</span>{" "}
@@ -199,7 +216,9 @@ export function CommentsLayer({
         <>
           <span
             className="pointer-events-none absolute top-0 left-0 size-9 rounded-full rounded-bl-none bg-signal/80 shadow-md ring-2 ring-surface"
-            style={{ transform: `translate(${toScreen(viewport, draft.x, draft.y).x}px, ${toScreen(viewport, draft.x, draft.y).y}px) translateY(-100%)` }}
+            style={{
+              transform: `translate(${toScreen(viewport, draft.x, draft.y).x}px, ${toScreen(viewport, draft.x, draft.y).y}px) translateY(-100%)`,
+            }}
             aria-hidden
           />
           <Popover point={toScreen(viewport, draft.x, draft.y)} size={size} label="New comment" onClose={onDraftClose}>
@@ -222,7 +241,12 @@ export function CommentsLayer({
       )}
 
       {active && !draft && (
-        <Popover point={toScreen(viewport, active.x, active.y)} size={size} label="Comment thread" onClose={() => onActive(null)}>
+        <Popover
+          point={toScreen(viewport, active.x, active.y)}
+          size={size}
+          label="Comment thread"
+          onClose={() => onActive(null)}
+        >
           <ThreadView
             thread={active}
             canComment={canComment}

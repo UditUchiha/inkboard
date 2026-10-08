@@ -12,9 +12,8 @@ before(() => {
 });
 
 const { getBounds, getFrame, hitTest } = await import("../src/features/board/elements.js");
-const { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } = await import(
-  "../src/features/board/transform.js"
-);
+const { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } =
+  await import("../src/features/board/transform.js");
 const { rotatePoint, rotatedRectBounds } = await import("../src/features/board/geometry.js");
 
 const near = (actual, expected, message, tolerance = 1e-6) =>
@@ -52,7 +51,12 @@ const pen = (overrides = {}) => ({
 });
 const box = (element) => {
   const frame = getFrame(element);
-  return { x1: frame.cx - frame.width / 2, y1: frame.cy - frame.height / 2, x2: frame.cx + frame.width / 2, y2: frame.cy + frame.height / 2 };
+  return {
+    x1: frame.cx - frame.width / 2,
+    y1: frame.cy - frame.height / 2,
+    x2: frame.cx + frame.width / 2,
+    y2: frame.cy + frame.height / 2,
+  };
 };
 const handle = (element, id, zoom = 1) => getSelectionBox(element, zoom).handles.find((h) => h.id === id);
 
@@ -105,7 +109,10 @@ describe("selection handles", () => {
 
   it("puts one handle on each end of a line or arrow", () => {
     const line = { id: "l", type: "arrow", x1: 0, y1: 0, x2: 50, y2: 20, strokeWidth: 2, stroke: "#000" };
-    assert.deepEqual(getSelectionBox(line, 1).handles.map((h) => h.id), ["start", "end"]);
+    assert.deepEqual(
+      getSelectionBox(line, 1).handles.map((h) => h.id),
+      ["start", "end"],
+    );
   });
 
   it("keeps handles a steady size on screen as you zoom", () => {
@@ -136,7 +143,11 @@ describe("selection handles", () => {
     assert.equal(cursorForHandle("n", 0), "ns-resize");
     assert.equal(cursorForHandle("se", 0), "nwse-resize");
     assert.equal(cursorForHandle("ne", 0), "nesw-resize");
-    assert.equal(cursorForHandle("e", Math.PI / 2), "ns-resize", "an east handle on a quarter-turned box pulls vertically");
+    assert.equal(
+      cursorForHandle("e", Math.PI / 2),
+      "ns-resize",
+      "an east handle on a quarter-turned box pulls vertically",
+    );
     assert.equal(cursorForHandle("rotate"), "grab");
   });
 });
@@ -216,7 +227,12 @@ describe("resizing", () => {
   });
 
   it("doesn't blow up on a perfectly straight stroke", () => {
-    const straight = pen({ points: [[0, 0, 0.5], [100, 0, 0.5]] });
+    const straight = pen({
+      points: [
+        [0, 0, 0.5],
+        [100, 0, 0.5],
+      ],
+    });
     const resized = resizeElement(straight, "s", { x: 50, y: 40 });
     assert.ok(resized.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])));
   });

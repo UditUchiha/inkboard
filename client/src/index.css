@@ -105,6 +105,8 @@
   .graph-paper {
     --cell: 24px;
     background-color: var(--paper);
+    /* One grid line per row. */
+    /* prettier-ignore */
     background-image:
       linear-gradient(var(--grid-major) 1px, transparent 1px),
       linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),

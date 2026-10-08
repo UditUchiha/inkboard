@@ -136,9 +136,7 @@ export function DemoBoard() {
         />
         {size.width > 0 && (
           <div className="pointer-events-none absolute inset-0" aria-hidden>
-            {progress > 0 && (
-              <Cursor person={MAYA} x={mayaAt.x} y={mayaAt.y} scale={scale} glide={progress === 1} />
-            )}
+            {progress > 0 && <Cursor person={MAYA} x={mayaAt.x} y={mayaAt.y} scale={scale} glide={progress === 1} />}
             <Cursor person={SAM} x={SAM.rest.x} y={SAM.rest.y} scale={scale} />
           </div>
         )}

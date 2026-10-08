@@ -9,7 +9,8 @@ const { sendVerificationEmail } = await import("../src/services/account-emails.j
 
 // Email is off unless it's set up; these tests turn it on (tests never really send).
 const emailSettings = { ...env.email };
-const turnEmail = (on) => Object.assign(env.email, on ? { brevoApiKey: "test-key", from: "inkboard@example.test" } : emailSettings);
+const turnEmail = (on) =>
+  Object.assign(env.email, on ? { brevoApiKey: "test-key", from: "inkboard@example.test" } : emailSettings);
 
 let app;
 before(async () => {
@@ -28,7 +29,9 @@ const post = (path, body, user) => app.request(path, { method: "POST", body, use
 // The newest email sent to `to`, and the secret in its link.
 function lastEmailTo(to) {
   const email = outbox.findLast((sent) => sent.to === to);
-  return email && { ...email, token: email.text.match(/token=([\w-]+)/)?.[1], link: email.text.match(/https?:\/\/\S+/)?.[0] };
+  return (
+    email && { ...email, token: email.text.match(/token=([\w-]+)/)?.[1], link: email.text.match(/https?:\/\/\S+/)?.[0] }
+  );
 }
 
 // The auth routes allow 30 tries per 15 minutes from one address, so accounts are
@@ -72,14 +75,21 @@ describe("forgetting a password", () => {
 
     assert.equal((await post("/auth/login", { email: user.email, password: "the-old-password" })).status, 401);
     assert.equal((await post("/auth/login", { email: user.email, password: "the-new-password" })).status, 200);
-    assert.equal((await post("/auth/reset-password", { token, password: "another-password" })).status, 400, "the link works once");
+    assert.equal(
+      (await post("/auth/reset-password", { token, password: "another-password" })).status,
+      400,
+      "the link works once",
+    );
   });
 
   it("lets someone who signed up with Google or GitHub set a password the same way", async () => {
     const email = newEmail("oauth");
     const user = await User.create({ name: "Dee", email, googleId: "g-123", emailVerified: true });
     await post("/auth/forgot-password", { email });
-    const reset = await post("/auth/reset-password", { token: lastEmailTo(email).token, password: "now-with-a-password" });
+    const reset = await post("/auth/reset-password", {
+      token: lastEmailTo(email).token,
+      password: "now-with-a-password",
+    });
     assert.equal(reset.status, 200);
     assert.equal(reset.data.user.hasPassword, true);
     assert.equal(reset.data.user.id, user.id);
@@ -97,7 +107,10 @@ describe("forgetting a password", () => {
     };
     const client = env.clientOrigins[0] ?? "http://localhost:5173";
     if (env.clientOrigins.includes(client)) assert.ok((await ask(client)).startsWith(`${client}/reset-password?`));
-    assert.ok((await ask("https://evil.example")).startsWith(`${app.url}/reset-password?`), "an unknown origin is ignored");
+    assert.ok(
+      (await ask("https://evil.example")).startsWith(`${app.url}/reset-password?`),
+      "an unknown origin is ignored",
+    );
     assert.ok((await ask(null)).startsWith(`${app.url}/reset-password?`));
   });
 

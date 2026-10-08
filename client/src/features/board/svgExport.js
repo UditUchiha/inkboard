@@ -33,7 +33,10 @@ function textSvg(element, baselines) {
   const baseline = (baselines[font] ?? FALLBACK_BASELINE) * element.fontSize;
   const lines = element.text
     .split("\n")
-    .map((line, index) => `<tspan x="${num(element.x1)}" y="${num(top + baseline + index * lineHeight)}">${xml(line)}</tspan>`)
+    .map(
+      (line, index) =>
+        `<tspan x="${num(element.x1)}" y="${num(top + baseline + index * lineHeight)}">${xml(line)}</tspan>`,
+    )
     .join("");
   return `<text font-family="${xml(family)}" font-size="${num(element.fontSize)}" fill="${xml(element.stroke)}" xml:space="preserve">${lines}</text>`;
 }
@@ -69,7 +72,10 @@ function elementSvg(element, { images, baselines }) {
  * `images` maps image ids to data URLs, `fontFaces` is CSS (@font-face rules)
  * to embed, and `baselines` gives each font's baseline as a share of its size.
  */
-export function buildSvg(elements, { images = new Map(), fontFaces = "", baselines = {}, background = "#ffffff" } = {}) {
+export function buildSvg(
+  elements,
+  { images = new Map(), fontFaces = "", baselines = {}, background = "#ffffff" } = {},
+) {
   const bounds = getSceneBounds(elements);
   if (!bounds) return null;
   const x = bounds.x - SVG_PADDING;
@@ -81,7 +87,8 @@ export function buildSvg(elements, { images = new Map(), fontFaces = "", baselin
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${num(width)}" height="${num(height)}" viewBox="${num(x)} ${num(y)} ${num(width)} ${num(height)}">`,
     fontFaces && `<defs><style>${fontFaces}</style></defs>`,
-    background && `<rect x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}" fill="${xml(background)}"/>`,
+    background &&
+      `<rect x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}" fill="${xml(background)}"/>`,
     body,
     "</svg>",
   ]
@@ -91,4 +98,8 @@ export function buildSvg(elements, { images = new Map(), fontFaces = "", baselin
 
 /** Text fonts used by `elements`, by key (see FONTS). */
 export const fontsUsed = (elements) =>
-  new Set(elements.filter((element) => element.type === "text" && element.text).map((element) => (FONTS[element.font] ? element.font : "hand")));
+  new Set(
+    elements
+      .filter((element) => element.type === "text" && element.text)
+      .map((element) => (FONTS[element.font] ? element.font : "hand")),
+  );

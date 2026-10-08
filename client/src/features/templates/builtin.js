@@ -140,7 +140,10 @@ const brainstorm = () => {
   ];
   const cx = 400;
   const cy = 280;
-  const elements = [oval(cx - 110, cy - 50, cx + 110, cy + 50, { fill: "#ffec99" }), text(cx - 70, cy - 18, "Big idea", { fontSize: 32 })];
+  const elements = [
+    oval(cx - 110, cy - 50, cx + 110, cy + 50, { fill: "#ffec99" }),
+    text(cx - 70, cy - 18, "Big idea", { fontSize: 32 }),
+  ];
   for (const [dx, dy] of spokes) {
     const bx = cx + dx * 250;
     const by = cy + dy * 170;

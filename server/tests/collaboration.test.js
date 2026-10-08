@@ -11,8 +11,10 @@ before(async () => {
 });
 after(() => app.stop());
 
-const invite = (owner, id, person) => app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
-const setLink = (user, id, linkAccess) => app.request(`/boards/${id}/link-access`, { method: "PATCH", user, body: { linkAccess } });
+const invite = (owner, id, person) =>
+  app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
+const setLink = (user, id, linkAccess) =>
+  app.request(`/boards/${id}/link-access`, { method: "PATCH", user, body: { linkAccess } });
 
 // Runs `fn` with some version-history limits lowered.
 async function withVersionLimits(changes, fn) {
@@ -27,7 +29,14 @@ async function withVersionLimits(changes, fn) {
 
 // A drawing of about `bytes` as MongoDB stores it.
 const drawing = (bytes, id = "pen") => [
-  { id, type: "pen", points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i) => [i + 0.25, i + 0.5, 0.5]), pressure: false, stroke: "#16213a", penSize: 8 },
+  {
+    id,
+    type: "pen",
+    points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i) => [i + 0.25, i + 0.5, 0.5]),
+    pressure: false,
+    stroke: "#16213a",
+    penSize: 8,
+  },
 ];
 
 /** A board with an owner and one invited editor. */
@@ -46,7 +55,11 @@ describe("version history", () => {
     await client.join(id);
     await client.op(id, upsert(rect("live-only")));
 
-    const saved = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "  Milestone 1 " } });
+    const saved = await app.request(`/boards/${id}/versions`, {
+      method: "POST",
+      user: owner,
+      body: { label: "  Milestone 1 " },
+    });
     assert.equal(saved.status, 201);
     assert.equal(saved.data.version.label, "Milestone 1");
     assert.equal(saved.data.version.kind, "named");
@@ -54,7 +67,10 @@ describe("version history", () => {
     assert.equal(saved.data.version.author.name, "Owner");
 
     const detail = await app.request(`/boards/${id}/versions/${saved.data.version.id}`, { user: owner });
-    assert.deepEqual(detail.data.version.elements.map((element) => element.id), ["live-only"]);
+    assert.deepEqual(
+      detail.data.version.elements.map((element) => element.id),
+      ["live-only"],
+    );
   });
 
   it("needs a sensible name", async () => {
@@ -72,7 +88,10 @@ describe("version history", () => {
     await settle(20);
     await save("second");
     const { data } = await app.request(`/boards/${id}/versions`, { user: owner });
-    assert.deepEqual(data.versions.map((version) => version.label), ["second", "first"]);
+    assert.deepEqual(
+      data.versions.map((version) => version.label),
+      ["second", "first"],
+    );
     assert.equal(data.versions[0].elements, undefined);
   });
 
@@ -84,15 +103,28 @@ describe("version history", () => {
     await editorClient.join(id);
 
     await ownerClient.op(id, upsert(rect("original")));
-    const { data } = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "Good state" } });
+    const { data } = await app.request(`/boards/${id}/versions`, {
+      method: "POST",
+      user: owner,
+      body: { label: "Good state" },
+    });
     await editorClient.op(id, upsert(rect("regrettable")));
 
-    const restored = await app.request(`/boards/${id}/versions/${data.version.id}/restore`, { method: "POST", user: editor });
+    const restored = await app.request(`/boards/${id}/versions/${data.version.id}/restore`, {
+      method: "POST",
+      user: editor,
+    });
     assert.equal(restored.status, 200);
-    assert.deepEqual(restored.data.elements.map((element) => element.id), ["original"]);
+    assert.deepEqual(
+      restored.data.elements.map((element) => element.id),
+      ["original"],
+    );
 
     const reset = await eventually(() => ownerClient.of("board:reset")[0], { message: "the reset broadcast" });
-    assert.deepEqual(reset.elements.map((element) => element.id), ["original"]);
+    assert.deepEqual(
+      reset.elements.map((element) => element.id),
+      ["original"],
+    );
     assert.equal(reset.by, "Editor");
 
     const { data: history } = await app.request(`/boards/${id}/versions`, { user: owner });
@@ -101,7 +133,10 @@ describe("version history", () => {
     assert.equal(safety.elementCount, 2);
 
     const rejoined = await (await app.connect(owner)).join(id);
-    assert.deepEqual(rejoined.board.elements.map((element) => element.id), ["original"]);
+    assert.deepEqual(
+      rejoined.board.elements.map((element) => element.id),
+      ["original"],
+    );
   });
 
   it("takes an automatic checkpoint before a burst of work, but not again straight away", async () => {
@@ -112,11 +147,14 @@ describe("version history", () => {
     await client.op(id, upsert(rect("b")));
     await client.op(id, upsert(rect("c")));
 
-    const autos = await eventually(async () => {
-      const { data } = await app.request(`/boards/${id}/versions`, { user: owner });
-      const found = data.versions.filter((version) => version.kind === "auto");
-      return found.length > 0 && found;
-    }, { message: "an automatic version" });
+    const autos = await eventually(
+      async () => {
+        const { data } = await app.request(`/boards/${id}/versions`, { user: owner });
+        const found = data.versions.filter((version) => version.kind === "auto");
+        return found.length > 0 && found;
+      },
+      { message: "an automatic version" },
+    );
     await settle();
     assert.equal(autos.length, 1);
     assert.equal(autos[0].elementCount, 1, "it holds the board as it was before the burst");
@@ -136,7 +174,8 @@ describe("version history", () => {
     const { owner, id } = await team();
     await withVersionLimits({ bytes: 500_000 }, async () => {
       await recordVersion(id, drawing(200_000), { kind: "named", label: "Big keeper", author: owner.id });
-      for (let index = 0; index < 8; index += 1) await recordVersion(id, drawing(60_000, `e${index}`), { kind: "auto" });
+      for (let index = 0; index < 8; index += 1)
+        await recordVersion(id, drawing(60_000, `e${index}`), { kind: "auto" });
 
       const autos = await Version.find({ board: id, kind: "auto" }).sort({ createdAt: -1 }).lean();
       const total = (await Version.find({ board: id }).lean()).reduce((sum, version) => sum + version.bytes, 0);
@@ -146,7 +185,8 @@ describe("version history", () => {
       assert.equal(await Version.countDocuments({ board: id, kind: "named" }), 1);
 
       // Even far over budget, the newest three autosaves stay.
-      for (let index = 0; index < 3; index += 1) await recordVersion(id, drawing(400_000, `big${index}`), { kind: "auto" });
+      for (let index = 0; index < 3; index += 1)
+        await recordVersion(id, drawing(400_000, `big${index}`), { kind: "auto" });
       assert.equal(await Version.countDocuments({ board: id, kind: "auto" }), 3);
     });
   });
@@ -156,13 +196,22 @@ describe("version history", () => {
     await withVersionLimits({ restore: 2 }, async () => {
       for (let index = 0; index < 4; index += 1) await recordVersion(id, [rect(`r${index}`)], { kind: "restore" });
       const kept = await Version.find({ board: id, kind: "restore" }).sort({ createdAt: -1 }).lean();
-      assert.deepEqual(kept.map((version) => version.elements[0].id), ["r3", "r2"]);
+      assert.deepEqual(
+        kept.map((version) => version.elements[0].id),
+        ["r3", "r2"],
+      );
     });
   });
 
   it("measures versions saved before sizes were recorded", async () => {
     const { id } = await team();
-    const old = await Version.collection.insertOne({ board: new mongoose.Types.ObjectId(id), kind: "auto", elements: drawing(10_000), elementCount: 1, createdAt: new Date(0) });
+    const old = await Version.collection.insertOne({
+      board: new mongoose.Types.ObjectId(id),
+      kind: "auto",
+      elements: drawing(10_000),
+      elementCount: 1,
+      createdAt: new Date(0),
+    });
     await pruneVersions(id);
     const measured = await Version.findById(old.insertedId).lean();
     assert.ok(measured.bytes > 5_000, `measured ${measured.bytes} bytes`);
@@ -189,7 +238,11 @@ describe("version history", () => {
     const { owner, editor, id } = await team();
     const viewer = await app.signUp("Viewer");
     await setLink(owner, id, "view");
-    const { data } = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "Old idea" } });
+    const { data } = await app.request(`/boards/${id}/versions`, {
+      method: "POST",
+      user: owner,
+      body: { label: "Old idea" },
+    });
     const auto = await recordVersion(id, [rect("a")], { kind: "auto" });
     const remove = (user, versionId) => app.request(`/boards/${id}/versions/${versionId}`, { method: "DELETE", user });
 
@@ -198,7 +251,10 @@ describe("version history", () => {
     assert.equal((await remove(editor, data.version.id)).status, 204);
     assert.equal((await remove(editor, data.version.id)).status, 404);
     const { data: history } = await app.request(`/boards/${id}/versions`, { user: owner });
-    assert.deepEqual(history.versions.map((version) => version.kind), ["auto"]);
+    assert.deepEqual(
+      history.versions.map((version) => version.kind),
+      ["auto"],
+    );
   });
 
   it("is for members only, and a version can only be fetched through its own board", async () => {
@@ -209,8 +265,14 @@ describe("version history", () => {
     const { data } = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "v" } });
 
     assert.equal((await app.request(`/boards/${id}/versions`, { user: viewer })).status, 403);
-    assert.equal((await app.request(`/boards/${id}/versions`, { method: "POST", user: viewer, body: { label: "x" } })).status, 403);
-    assert.equal((await app.request(`/boards/${id}/versions/${data.version.id}/restore`, { method: "POST", user: viewer })).status, 403);
+    assert.equal(
+      (await app.request(`/boards/${id}/versions`, { method: "POST", user: viewer, body: { label: "x" } })).status,
+      403,
+    );
+    assert.equal(
+      (await app.request(`/boards/${id}/versions/${data.version.id}/restore`, { method: "POST", user: viewer })).status,
+      403,
+    );
     assert.equal((await app.request(`/boards/${otherId}/versions/${data.version.id}`, { user: owner })).status, 404);
     assert.equal((await app.request(`/boards/${id}/versions/not-an-id`, { user: owner })).status, 404);
   });
@@ -221,11 +283,19 @@ describe("comments", () => {
 
   it("lets editors start a thread pinned to the canvas, and mention members", async () => {
     const { owner, editor, id } = await team();
-    const { status, data } = await comment(editor, id, { x: 120, y: -40, body: "  Looks off @Owner ", mentions: [owner.id] });
+    const { status, data } = await comment(editor, id, {
+      x: 120,
+      y: -40,
+      body: "  Looks off @Owner ",
+      mentions: [owner.id],
+    });
     assert.equal(status, 201);
     assert.equal(data.thread.x, 120);
     assert.equal(data.thread.messages[0].body, "Looks off @Owner");
-    assert.deepEqual(data.thread.messages[0].mentions.map((person) => person.id), [owner.id]);
+    assert.deepEqual(
+      data.thread.messages[0].mentions.map((person) => person.id),
+      [owner.id],
+    );
 
     const list = await app.request(`/boards/${id}/threads`, { user: owner });
     assert.equal(list.data.threads.length, 1);
@@ -282,13 +352,25 @@ describe("comments", () => {
     assert.equal(first.data.notifications[0].actor.name, "Editor");
     assert.equal(first.data.notifications[0].board.title, "Team board");
     const own = (await app.request("/notifications", { user: editor })).data.notifications;
-    assert.deepEqual(own.map((n) => n.type), ["invite"], "the author isn't notified about their own comment");
+    assert.deepEqual(
+      own.map((n) => n.type),
+      ["invite"],
+      "the author isn't notified about their own comment",
+    );
 
-    const reply = await app.request(`/boards/${id}/threads/${threadId}/messages`, { method: "POST", user: owner, body: { body: "answer" } });
+    const reply = await app.request(`/boards/${id}/threads/${threadId}/messages`, {
+      method: "POST",
+      user: owner,
+      body: { body: "answer" },
+    });
     assert.equal(reply.status, 201);
     assert.equal(reply.data.thread.messages.length, 2);
     const forEditor = (await app.request("/notifications", { user: editor })).data.notifications;
-    assert.deepEqual(forEditor.map((n) => n.type).sort(), ["invite", "reply"], "a reply notification, on top of the earlier invite");
+    assert.deepEqual(
+      forEditor.map((n) => n.type).sort(),
+      ["invite", "reply"],
+      "a reply notification, on top of the earlier invite",
+    );
   });
 
   it("reopens a resolved thread on reply, and lets editors resolve or move it", async () => {
@@ -369,7 +451,16 @@ describe("notifications", () => {
     const { data } = await app.request("/notifications", { user: person });
     assert.equal(data.unread, 3);
 
-    assert.equal((await app.request("/notifications/read", { method: "POST", user: person, body: { ids: [data.notifications[0].id, "bad"] } })).status, 204);
+    assert.equal(
+      (
+        await app.request("/notifications/read", {
+          method: "POST",
+          user: person,
+          body: { ids: [data.notifications[0].id, "bad"] },
+        })
+      ).status,
+      204,
+    );
     assert.equal((await app.request("/notifications", { user: person })).data.unread, 2);
     assert.equal((await app.request("/notifications/read", { method: "POST", user: person, body: {} })).status, 204);
     assert.equal((await app.request("/notifications", { user: person })).data.unread, 0);
@@ -404,10 +495,17 @@ describe("templates", () => {
     assert.equal(made.data.template.elements.length, 2);
     assert.equal((await app.request("/templates", { user: owner })).data.templates.length, 1);
 
-    const fromTemplate = await app.request("/boards", { method: "POST", user: owner, body: { templateId: made.data.template.id } });
+    const fromTemplate = await app.request("/boards", {
+      method: "POST",
+      user: owner,
+      body: { templateId: made.data.template.id },
+    });
     assert.equal(fromTemplate.status, 201);
     assert.equal(fromTemplate.data.board.title, "Retro", "the template's name is the default title");
-    assert.deepEqual(fromTemplate.data.board.elements.map((element) => element.id), ["t1", "t2"]);
+    assert.deepEqual(
+      fromTemplate.data.board.elements.map((element) => element.id),
+      ["t1", "t2"],
+    );
   });
 
   it("refuse an empty board, a long name, or a board you can't change", async () => {
@@ -434,7 +532,10 @@ describe("templates", () => {
     const { data } = await save(owner, id, "Private");
 
     assert.deepEqual((await app.request("/templates", { user: other })).data.templates, []);
-    assert.equal((await app.request("/boards", { method: "POST", user: other, body: { templateId: data.template.id } })).status, 404);
+    assert.equal(
+      (await app.request("/boards", { method: "POST", user: other, body: { templateId: data.template.id } })).status,
+      404,
+    );
     assert.equal((await app.request(`/templates/${data.template.id}`, { method: "DELETE", user: other })).status, 404);
     assert.equal((await app.request(`/templates/${data.template.id}`, { method: "DELETE", user: owner })).status, 204);
     assert.equal((await app.request(`/templates/${data.template.id}`, { method: "DELETE", user: owner })).status, 404);
@@ -455,14 +556,27 @@ describe("creating boards", () => {
   it("accepts drawings sent along (for example from a guest's scratch board) and drops anything invalid", async () => {
     const owner = await app.signUp("Owner");
     const elements = [rect("keep"), rect("keep"), { id: "bad", type: "unknown" }, null, rect("also-keep")];
-    const { status, data } = await app.request("/boards", { method: "POST", user: owner, body: { title: "Imported", elements } });
+    const { status, data } = await app.request("/boards", {
+      method: "POST",
+      user: owner,
+      body: { title: "Imported", elements },
+    });
     assert.equal(status, 201);
-    assert.deepEqual(data.board.elements.map((element) => element.id), ["keep", "also-keep"]);
+    assert.deepEqual(
+      data.board.elements.map((element) => element.id),
+      ["keep", "also-keep"],
+    );
   });
 
   it("falls back to a default title and rejects a very long one", async () => {
     const owner = await app.signUp("Owner");
-    assert.equal((await app.request("/boards", { method: "POST", user: owner, body: {} })).data.board.title, "Untitled board");
-    assert.equal((await app.request("/boards", { method: "POST", user: owner, body: { title: "x".repeat(81) } })).status, 400);
+    assert.equal(
+      (await app.request("/boards", { method: "POST", user: owner, body: {} })).data.board.title,
+      "Untitled board",
+    );
+    assert.equal(
+      (await app.request("/boards", { method: "POST", user: owner, body: { title: "x".repeat(81) } })).status,
+      400,
+    );
   });
 });

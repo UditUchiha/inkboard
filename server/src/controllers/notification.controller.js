@@ -18,9 +18,8 @@ export async function listNotifications(req, res) {
 /** Marks the given notifications as read, or all of them when no ids are sent. */
 export async function markRead(req, res) {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(mongoose.isValidObjectId) : null;
-  await Notification.updateMany(
-    ids ? { user: req.userId, _id: { $in: ids } } : { user: req.userId, read: false },
-    { $set: { read: true } },
-  );
+  await Notification.updateMany(ids ? { user: req.userId, _id: { $in: ids } } : { user: req.userId, read: false }, {
+    $set: { read: true },
+  });
   res.status(204).end();
 }

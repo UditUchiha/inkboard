@@ -11,7 +11,8 @@ const { sendVerificationEmail, verifyAccountsMadeByProviders } = await import(".
 
 // Email is off unless it's set up; these tests turn it on (tests never really send).
 const emailSettings = { ...env.email };
-const turnEmail = (on) => Object.assign(env.email, on ? { brevoApiKey: "test-key", from: "inkboard@example.test" } : emailSettings);
+const turnEmail = (on) =>
+  Object.assign(env.email, on ? { brevoApiKey: "test-key", from: "inkboard@example.test" } : emailSettings);
 
 let app;
 before(async () => {
@@ -30,7 +31,9 @@ const post = (path, body, user) => app.request(path, { method: "POST", body, use
 // The newest email sent to `to`, and the secret in its link.
 function lastEmailTo(to) {
   const email = outbox.findLast((sent) => sent.to === to);
-  return email && { ...email, token: email.text.match(/token=([\w-]+)/)?.[1], link: email.text.match(/https?:\/\/\S+/)?.[0] };
+  return (
+    email && { ...email, token: email.text.match(/token=([\w-]+)/)?.[1], link: email.text.match(/https?:\/\/\S+/)?.[0] }
+  );
 }
 
 // The auth routes allow 30 tries per 15 minutes from one address, so accounts are
@@ -45,7 +48,10 @@ async function account(name = "Ana", { password, verified = false } = {}) {
 // Makes the last link sent look older, as if the resend wait had passed.
 // (Through the driver: Mongoose won't change createdAt.)
 const ageLinks = (userId) =>
-  EmailToken.collection.updateMany({ user: new mongoose.Types.ObjectId(userId) }, { $set: { createdAt: new Date(Date.now() - 5 * 60 * 1000) } });
+  EmailToken.collection.updateMany(
+    { user: new mongoose.Types.ObjectId(userId) },
+    { $set: { createdAt: new Date(Date.now() - 5 * 60 * 1000) } },
+  );
 
 describe("verifying an email address", () => {
   it("emails a link at sign-up, and the account works before it's clicked", async () => {

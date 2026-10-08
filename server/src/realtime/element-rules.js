@@ -27,7 +27,8 @@ const DEFAULTS = { stroke: "#16213a", strokeWidth: 2.5, penSize: 8, fontSize: 32
 const RANGES = { strokeWidth: [0.1, 100], penSize: [0.5, 200], fontSize: [8, 400] };
 
 export const isValidId = (id) => typeof id === "string" && id.length > 0 && id.length <= 64;
-const isCoordinate = (value) => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= COORDINATE_LIMIT;
+const isCoordinate = (value) =>
+  typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= COORDINATE_LIMIT;
 const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
 const color = (value, fallback) => (typeof value === "string" && COLOR.test(value) ? value : fallback);

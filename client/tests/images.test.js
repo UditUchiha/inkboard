@@ -31,8 +31,10 @@ describe("shrinking a picture before upload", () => {
   });
 
   it("recognises the four formats the server takes, and nothing else", () => {
-    for (const type of ["image/png", "image/jpeg", "image/webp", "image/gif"]) assert.equal(isImageFile({ type }), true);
-    for (const type of ["image/svg+xml", "application/pdf", "text/html", ""]) assert.equal(isImageFile({ type }), false);
+    for (const type of ["image/png", "image/jpeg", "image/webp", "image/gif"])
+      assert.equal(isImageFile({ type }), true);
+    for (const type of ["image/svg+xml", "application/pdf", "text/html", ""])
+      assert.equal(isImageFile({ type }), false);
     assert.equal(isImageFile(undefined), false);
   });
 });

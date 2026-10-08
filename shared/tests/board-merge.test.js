@@ -34,7 +34,8 @@ const rect = (id, fields = {}) => ({
   ...fields,
 });
 const at = (version, versionNonce = 0) => ({ version, versionNonce });
-const everyGroup = (element, stamp) => withStamps(element, Object.fromEntries(Object.keys(groupStamps(element)).map((group) => [group, stamp])));
+const everyGroup = (element, stamp) =>
+  withStamps(element, Object.fromEntries(Object.keys(groupStamps(element)).map((group) => [group, stamp])));
 
 describe("stamps", () => {
   it("count the higher version as newer, and for the same version the lower nonce", () => {
@@ -53,7 +54,9 @@ describe("stamps", () => {
   });
 
   it("drop listed stamps that aren't well formed", () => {
-    assert.deepEqual(cleanStamps({ shape: [1, 2], stroke: [-1, 0], fill: [1, 2 ** 31], nope: [1, 1], text: "x" }), { shape: [1, 2] });
+    assert.deepEqual(cleanStamps({ shape: [1, 2], stroke: [-1, 0], fill: [1, 2 ** 31], nope: [1, 1], text: "x" }), {
+      shape: [1, 2],
+    });
     assert.equal(cleanStamps([1, 2]), undefined);
     assert.equal(cleanStamps(null), undefined);
   });
@@ -99,11 +102,21 @@ describe("merging two copies of an element", () => {
 describe("applying operations", () => {
   it("keeps the board sorted by place in the stack, then by id", () => {
     const board = applyOperation([], {
-      upsert: [rect("c", { index: "a1", version: 1 }), rect("b", { index: "a0", version: 1 }), rect("a", { index: "a1", version: 1 })],
+      upsert: [
+        rect("c", { index: "a1", version: 1 }),
+        rect("b", { index: "a0", version: 1 }),
+        rect("a", { index: "a1", version: 1 }),
+      ],
     });
-    assert.deepEqual(board.map((element) => element.id), ["b", "a", "c"]);
+    assert.deepEqual(
+      board.map((element) => element.id),
+      ["b", "a", "c"],
+    );
     const moved = applyOperation(board, { upsert: [rect("b", { index: "a2", version: 2 })] });
-    assert.deepEqual(moved.map((element) => element.id), ["a", "c", "b"]);
+    assert.deepEqual(
+      moved.map((element) => element.id),
+      ["a", "c", "b"],
+    );
   });
 
   it("hides a removed element, keeps it out against older changes, and brings it back for newer ones", () => {
@@ -131,7 +144,9 @@ describe("applying operations", () => {
   it("don't change the board or elements they were given", () => {
     const start = Object.freeze([Object.freeze(everyGroup(rect("a"), at(1)))]);
     const tombstones = new Map();
-    assert.doesNotThrow(() => applyOperation(start, { upsert: [everyGroup(rect("a", { x1: 4 }), at(2))], remove: [] }, tombstones));
+    assert.doesNotThrow(() =>
+      applyOperation(start, { upsert: [everyGroup(rect("a", { x1: 4 }), at(2))], remove: [] }, tombstones),
+    );
     assert.doesNotThrow(() => applyOperation(start, { remove: [{ id: "a", ...at(9) }] }, tombstones));
     assert.equal(start[0].x1, 0);
   });
@@ -140,16 +155,35 @@ describe("applying operations", () => {
     const board = [everyGroup(rect("a"), at(2)), everyGroup(rect("b"), at(2))];
     const plan = planOperation(board, {
       upsert: [everyGroup(rect("a", { x1: 1 }), at(1)), everyGroup(rect("b", { x1: 1 }), at(3))],
-      remove: [{ id: "a", ...at(1) }, { id: "c", ...at(1) }],
+      remove: [
+        { id: "a", ...at(1) },
+        { id: "c", ...at(1) },
+      ],
     });
     const effect = effectOf(plan);
-    assert.deepEqual(effect.upsert.map((element) => element.id), ["b"], "the older edit of a changes nothing");
-    assert.deepEqual(effect.remove.map((removal) => removal.id), ["c"], "c wasn't there, but the removal is news to others");
+    assert.deepEqual(
+      effect.upsert.map((element) => element.id),
+      ["b"],
+      "the older edit of a changes nothing",
+    );
+    assert.deepEqual(
+      effect.remove.map((removal) => removal.id),
+      ["c"],
+      "c wasn't there, but the removal is news to others",
+    );
   });
 
   it("stops at a limit on how many elements a board can have", () => {
-    const board = applyOperation([], { upsert: [rect("a", { version: 1 }), rect("b", { version: 1, index: "a1" })] }, new Map(), { limit: 1 });
-    assert.deepEqual(board.map((element) => element.id), ["a"]);
+    const board = applyOperation(
+      [],
+      { upsert: [rect("a", { version: 1 }), rect("b", { version: 1, index: "a1" })] },
+      new Map(),
+      { limit: 1 },
+    );
+    assert.deepEqual(
+      board.map((element) => element.id),
+      ["a"],
+    );
   });
 
   it("pass on a change to a removed element with its removal, so a screen that never saw the removal keeps it hidden", () => {
@@ -157,7 +191,11 @@ describe("applying operations", () => {
     let board = applyOperation([], { upsert: [everyGroup(rect("a"), at(1))] }, tombstones);
     board = applyOperation(board, { remove: [{ id: "a", ...at(3) }] }, tombstones);
     const effect = effectOf(planOperation(board, { upsert: [everyGroup(rect("a", { x1: 7 }), at(2))] }, tombstones));
-    assert.deepEqual(effect.upsert.map((element) => element.x1), [7], "the change is passed on");
+    assert.deepEqual(
+      effect.upsert.map((element) => element.x1),
+      [7],
+      "the change is passed on",
+    );
     assert.deepEqual(effect.remove, [{ id: "a", ...at(3) }], "with the removal");
     assert.deepEqual(applyOperation([], effect, new Map()), [], "a screen that opened the board after the removal");
   });
@@ -168,7 +206,10 @@ describe("applying operations", () => {
     board = applyOperation(board, { remove: [{ id: "a", ...at(2) }] }, tombstones);
     board = applyOperation(board, { upsert: [everyGroup(rect("b", { index: "a1" }), at(1))] }, tombstones);
     board = applyOperation(board, { upsert: [everyGroup(rect("a"), at(3))] }, tombstones, { limit: 1 });
-    assert.deepEqual(board.map((element) => element.id), ["b"]);
+    assert.deepEqual(
+      board.map((element) => element.id),
+      ["b"],
+    );
     assert.equal(tombstones.get("a")?.version, 2, "its tombstone still stops older changes");
   });
 });

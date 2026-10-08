@@ -1,14 +1,6 @@
 import clsx from "clsx";
 import { Ban, CopyPlus, Trash2 } from "lucide-react";
-import {
-  FILL_COLORS,
-  FONT_SIZES,
-  FONTS,
-  PEN_SIZES,
-  STROKE_COLORS,
-  STROKE_WIDTHS,
-  STYLE_CONTROLS,
-} from "./constants";
+import { FILL_COLORS, FONT_SIZES, FONTS, PEN_SIZES, STROKE_COLORS, STROKE_WIDTHS, STYLE_CONTROLS } from "./constants";
 
 function Section({ label, children }) {
   return (
@@ -109,9 +101,7 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
               onChange={(value) => onChange("stroke", value)}
             />
           </div>
-          {!isPreset(STROKE_COLORS, values.stroke) && (
-            <p className="text-xs text-graphite">Custom: {values.stroke}</p>
-          )}
+          {!isPreset(STROKE_COLORS, values.stroke) && <p className="text-xs text-graphite">Custom: {values.stroke}</p>}
         </Section>
       )}
 
@@ -184,7 +174,10 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
             value={values.font}
             onChange={(value) => onChange("font", value)}
             renderLabel={(option) => (
-              <span style={{ fontFamily: FONTS[option.value].family }} className={option.value === "hand" ? "text-base" : ""}>
+              <span
+                style={{ fontFamily: FONTS[option.value].family }}
+                className={option.value === "hand" ? "text-base" : ""}
+              >
                 {option.name}
               </span>
             )}

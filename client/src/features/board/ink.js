@@ -26,7 +26,9 @@ const clamp01 = (value) => Math.min(1, Math.max(0, value));
 /** `[r, g, b]` (0-255) as dark mode shows it. */
 export function darkRgb([r, g, b]) {
   const inverted = [r, g, b].map((channel) => clamp01(INVERT + (channel / 255) * (1 - 2 * INVERT)));
-  return HUE.map((row) => Math.round(clamp01(row[0] * inverted[0] + row[1] * inverted[1] + row[2] * inverted[2]) * 255));
+  return HUE.map((row) =>
+    Math.round(clamp01(row[0] * inverted[0] + row[1] * inverted[1] + row[2] * inverted[2]) * 255),
+  );
 }
 
 // "#rgb", "#rrggbb", "#rrggbbaa", "rgb(...)" or "rgba(...)" as [r, g, b, alpha], or null.

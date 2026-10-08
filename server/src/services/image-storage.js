@@ -25,7 +25,9 @@ function getBucket() {
     bucket = new mongoose.mongo.GridFSBucket(db, { bucketName: BUCKET });
     bucketDb = db;
     // Looking images up by board (for the space limits and for cleanup) needs this.
-    files().createIndex({ "metadata.board": 1 }).catch(() => {});
+    files()
+      .createIndex({ "metadata.board": 1 })
+      .catch(() => {});
   }
   return bucket;
 }
@@ -79,7 +81,10 @@ export async function openImage(id, { small = false } = {}) {
 /** Bytes of images held by some boards, or by every board when `boards` is left out. */
 export async function imageBytes({ boards } = {}) {
   const [total] = await files()
-    .aggregate([{ $match: matching({ boards }, { withSmall: true }) }, { $group: { _id: null, bytes: { $sum: "$length" } } }])
+    .aggregate([
+      { $match: matching({ boards }, { withSmall: true }) },
+      { $group: { _id: null, bytes: { $sum: "$length" } } },
+    ])
     .toArray();
   return total?.bytes ?? 0;
 }
@@ -98,7 +103,10 @@ export async function deleteImages(ids) {
   const found = await files()
     .find({ filename: { $in: [...ids, ...ids.map(smallName)] } }, { projection: { _id: 1 } })
     .toArray();
-  for (const file of found) await getBucket().delete(file._id).catch(() => {});
+  for (const file of found)
+    await getBucket()
+      .delete(file._id)
+      .catch(() => {});
 }
 
 /** Deletes every image that belongs to a board. */

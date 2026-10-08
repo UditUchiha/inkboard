@@ -51,9 +51,18 @@ export function NotificationsMenu({ className }) {
                 onClick={() => navigate(notificationLink(item))}
                 className="flex w-full gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-ink/6 focus-visible:bg-ink/6 focus-visible:outline-none"
               >
-                <Avatar id={item.actor.id} name={item.actor.name} color={item.actor.color} src={item.actor.avatarUrl} size="sm" decorative />
+                <Avatar
+                  id={item.actor.id}
+                  name={item.actor.name}
+                  color={item.actor.color}
+                  src={item.actor.avatarUrl}
+                  size="sm"
+                  decorative
+                />
                 <span className="min-w-0 flex-1">
-                  <span className={clsx("block text-sm", !item.read && "font-semibold")}>{describeNotification(item)}</span>
+                  <span className={clsx("block text-sm", !item.read && "font-semibold")}>
+                    {describeNotification(item)}
+                  </span>
                   {item.excerpt && <span className="block truncate text-sm text-graphite">{item.excerpt}</span>}
                   <span className="block text-xs text-graphite">{timeAgo(item.createdAt)}</span>
                 </span>

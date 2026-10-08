@@ -33,7 +33,12 @@ function Choice({ title, detail, disabled, onClick, children, action }) {
 function BuiltinChoice({ template, disabled, onChoose }) {
   const elements = useMemo(() => template.build(), [template]);
   return (
-    <Choice title={template.title} detail={template.detail} disabled={disabled} onClick={() => onChoose({ title: template.title, elements })}>
+    <Choice
+      title={template.title}
+      detail={template.detail}
+      disabled={disabled}
+      onClick={() => onChoose({ title: template.title, elements })}
+    >
       <BoardPreview elements={elements} className="aspect-[16/10]" padding={10} />
     </Choice>
   );
@@ -80,7 +85,11 @@ export function NewBoardDialog({ open, onClose, onCreate, busy = false, signedIn
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Choice title="Blank board" detail="Start from nothing" disabled={busy} onClick={() => onCreate({})}>
           <span className="grid aspect-[16/10] place-items-center text-graphite">
-            {busy ? <LoaderCircle className="size-6 animate-spin" aria-hidden /> : <FilePlus2 className="size-7" strokeWidth={1.5} aria-hidden />}
+            {busy ? (
+              <LoaderCircle className="size-6 animate-spin" aria-hidden />
+            ) : (
+              <FilePlus2 className="size-7" strokeWidth={1.5} aria-hidden />
+            )}
           </span>
         </Choice>
         {BUILTIN_TEMPLATES.map((template) => (

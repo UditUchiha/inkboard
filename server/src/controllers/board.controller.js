@@ -224,15 +224,14 @@ export async function addCollaborator(req, res) {
     throw new HttpError(403, "Only the owner can invite people.");
   }
 
-  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  const email = String(req.body?.email ?? "")
+    .trim()
+    .toLowerCase();
   if (!email) throw new HttpError(400, "Enter the email address of the person to invite.");
 
   const invitee = await User.findOne({ email });
   if (!invitee) {
-    throw new HttpError(
-      404,
-      "No account uses that email yet. Ask them to sign up, then invite them again.",
-    );
+    throw new HttpError(404, "No account uses that email yet. Ask them to sign up, then invite them again.");
   }
   if (idOf(invitee) === idOf(board.owner)) {
     throw new HttpError(400, "You already own this board.");

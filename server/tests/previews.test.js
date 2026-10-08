@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { MAX_PREVIEW_ELEMENTS, previewElements, simplifyPoints } from "../src/services/previews.js";
 
-const stroke = (id, points, extra = {}) => ({ id, type: "pen", points, pressure: false, stroke: "#000", penSize: 4, ...extra });
+const stroke = (id, points, extra = {}) => ({
+  id,
+  type: "pen",
+  points,
+  pressure: false,
+  stroke: "#000",
+  penSize: 4,
+  ...extra,
+});
 const box = (id, size) => ({ id, type: "rectangle", x1: 0, y1: 0, x2: size, y2: size, stroke: "#000" });
 
 describe("simplifying a line", () => {
@@ -39,7 +47,10 @@ describe("board previews", () => {
     const elements = [box("frame", 2000), stroke("pen", wiggle), { id: "t", type: "text", x1: 5, y1: 5, text: "Hi" }];
     const preview = previewElements(elements);
 
-    assert.deepEqual(preview.map((element) => element.id), ["frame", "pen", "t"]);
+    assert.deepEqual(
+      preview.map((element) => element.id),
+      ["frame", "pen", "t"],
+    );
     assert.equal(preview[0], elements[0]);
     assert.equal(preview[2], elements[2]);
     assert.ok(preview[1].points.length < 200, `${preview[1].points.length} points kept of 2000`);
@@ -47,14 +58,33 @@ describe("board previews", () => {
   });
 
   it("draws strokes without real pen pressure at an even width", () => {
-    const [preview] = previewElements([stroke("pen", [[0, 0, 0.9], [50, 50, 0.1], [100, 0, 0.3]])]);
+    const [preview] = previewElements([
+      stroke("pen", [
+        [0, 0, 0.9],
+        [50, 50, 0.1],
+        [100, 0, 0.3],
+      ]),
+    ]);
     assert.equal(preview.pressure, true);
     assert.ok(preview.points.every((point) => point[2] === 0.5));
   });
 
   it("keeps real pen pressure", () => {
-    const [preview] = previewElements([stroke("pen", [[0, 0, 0.9], [50, 50, 0.1], [100, 0, 0.3]], { pressure: true })]);
-    assert.deepEqual(preview.points.map((point) => point[2]), [0.9, 0.1, 0.3]);
+    const [preview] = previewElements([
+      stroke(
+        "pen",
+        [
+          [0, 0, 0.9],
+          [50, 50, 0.1],
+          [100, 0, 0.3],
+        ],
+        { pressure: true },
+      ),
+    ]);
+    assert.deepEqual(
+      preview.points.map((point) => point[2]),
+      [0.9, 0.1, 0.3],
+    );
   });
 
   it("keeps only the biggest elements of a very busy board, in their order", () => {

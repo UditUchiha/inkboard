@@ -7,7 +7,14 @@ process.env.NODE_ENV ??= "test";
 // Tests must not depend on whatever is in a developer's server/.env. Variables already set win over
 // that file, so blanking these keeps social sign-in "not configured" and emails unsent (kept in the
 // outbox) for every test.
-for (const key of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "BREVO_API_KEY", "EMAIL_FROM"]) {
+for (const key of [
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GITHUB_CLIENT_ID",
+  "GITHUB_CLIENT_SECRET",
+  "BREVO_API_KEY",
+  "EMAIL_FROM",
+]) {
   process.env[key] = "";
 }
 

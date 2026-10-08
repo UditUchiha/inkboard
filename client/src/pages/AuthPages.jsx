@@ -89,8 +89,22 @@ export function LoginPage() {
       }
     >
       <form onSubmit={submit} className="grid gap-4" noValidate>
-        <TextField label="Email" type="email" autoComplete="email" value={form.email} onChange={update("email")} required autoFocus />
-        <PasswordField label="Password" autoComplete="current-password" value={form.password} onChange={update("password")} required />
+        <TextField
+          label="Email"
+          type="email"
+          autoComplete="email"
+          value={form.email}
+          onChange={update("email")}
+          required
+          autoFocus
+        />
+        <PasswordField
+          label="Password"
+          autoComplete="current-password"
+          value={form.password}
+          onChange={update("password")}
+          required
+        />
         {emailEnabled && (
           <Link
             to={`/forgot-password${form.email ? `?email=${encodeURIComponent(form.email)}` : ""}`}
@@ -155,8 +169,23 @@ export function RegisterPage() {
       }
     >
       <form onSubmit={submit} className="grid gap-4" noValidate>
-        <TextField label="Name" autoComplete="name" value={form.name} onChange={update("name")} required maxLength={60} autoFocus />
-        <TextField label="Email" type="email" autoComplete="email" value={form.email} onChange={update("email")} required />
+        <TextField
+          label="Name"
+          autoComplete="name"
+          value={form.name}
+          onChange={update("name")}
+          required
+          maxLength={60}
+          autoFocus
+        />
+        <TextField
+          label="Email"
+          type="email"
+          autoComplete="email"
+          value={form.email}
+          onChange={update("email")}
+          required
+        />
         <PasswordField
           label="Password"
           autoComplete="new-password"
@@ -206,18 +235,24 @@ export function ForgotPasswordPage() {
   return (
     <AuthLayout
       title="Reset your password"
-      subtitle={sentTo ? "Check your email." : "Enter your account's email and we'll send you a link to choose a new password."}
+      subtitle={
+        sentTo ? "Check your email." : "Enter your account's email and we'll send you a link to choose a new password."
+      }
       footer={<>Remembered it? {loginLink}</>}
     >
       {sentTo ? (
         <div className="grid gap-3 text-[15px]">
           <p>
-            If an account uses <strong className="font-semibold">{sentTo}</strong>, a link to reset its password is on its way. It
-            works for 1 hour.
+            If an account uses <strong className="font-semibold">{sentTo}</strong>, a link to reset its password is on
+            its way. It works for 1 hour.
           </p>
           <p className="text-graphite">
             Not there after a few minutes? Check your spam folder, or{" "}
-            <button type="button" onClick={() => setSentTo(null)} className="font-medium text-ink underline underline-offset-4">
+            <button
+              type="button"
+              onClick={() => setSentTo(null)}
+              className="font-medium text-ink underline underline-offset-4"
+            >
               try again
             </button>
             .
@@ -225,7 +260,15 @@ export function ForgotPasswordPage() {
         </div>
       ) : (
         <form onSubmit={submit} className="grid gap-4" noValidate>
-          <TextField label="Email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus />
+          <TextField
+            label="Email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+            autoFocus
+          />
           <ErrorMessage>{error}</ErrorMessage>
           <Button type="submit" size="lg" loading={submitting} disabled={!email.trim()} className="mt-2 w-full">
             Send reset link
@@ -242,7 +285,9 @@ export function ResetPasswordPage() {
   const [params] = useSearchParams();
   const token = params.get("token");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(token ? "" : "This link is incomplete. Open the link from the email again, or ask for a new one.");
+  const [error, setError] = useState(
+    token ? "" : "This link is incomplete. Open the link from the email again, or ask for a new one.",
+  );
   const [passwordError, setPasswordError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -304,7 +349,9 @@ export function VerifyEmailPage() {
   const [params] = useSearchParams();
   const token = params.get("token");
   const [result, setResult] = useState(
-    token ? { phase: "verifying" } : { phase: "failed", message: "This link is incomplete. Open the link from the email again." },
+    token
+      ? { phase: "verifying" }
+      : { phase: "failed", message: "This link is incomplete. Open the link from the email again." },
   );
   // A link works once, so it's sent once, even if React runs the effect twice.
   const sent = useRef(false);
@@ -330,7 +377,9 @@ export function VerifyEmailPage() {
   const signedIn = status === "authenticated";
   return (
     <AuthLayout
-      title={{ verifying: "Verifying your email…", done: "Email verified", failed: "That link didn't work" }[result.phase]}
+      title={
+        { verifying: "Verifying your email…", done: "Email verified", failed: "That link didn't work" }[result.phase]
+      }
       subtitle={
         result.phase === "done"
           ? `${result.email} is verified. People can now invite you to their boards.`
@@ -349,7 +398,9 @@ export function VerifyEmailPage() {
         (signedIn ? (
           <VerifyEmailNotice />
         ) : (
-          <p className="text-[15px] text-graphite">Log in to get a new link: there's a button for it on your boards page.</p>
+          <p className="text-[15px] text-graphite">
+            Log in to get a new link: there's a button for it on your boards page.
+          </p>
         ))}
     </AuthLayout>
   );

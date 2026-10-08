@@ -100,7 +100,10 @@ export function BoardMenu({ board, trashed = false, actions }) {
               {board.starred ? "Unstar" : "Star"}
             </MenuItem>
           )}
-          <MenuItem icon={board.archived ? ArchiveRestore : Archive} onSelect={() => actions.archive([board], !board.archived)}>
+          <MenuItem
+            icon={board.archived ? ArchiveRestore : Archive}
+            onSelect={() => actions.archive([board], !board.archived)}
+          >
             {board.archived ? "Unarchive" : "Archive"}
           </MenuItem>
           <MenuSeparator />

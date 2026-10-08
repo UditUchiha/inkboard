@@ -44,12 +44,7 @@ export function Button({
   ...props
 }) {
   return (
-    <button
-      type={type}
-      disabled={disabled || loading}
-      className={buttonClass({ variant, size, className })}
-      {...props}
-    >
+    <button type={type} disabled={disabled || loading} className={buttonClass({ variant, size, className })} {...props}>
       {loading ? (
         <LoaderCircle className="size-4 animate-spin" aria-hidden />
       ) : (

@@ -52,9 +52,7 @@ async function openBoard(req, { toComment = false } = {}) {
 }
 
 async function findThread(board, threadId) {
-  const thread = mongoose.isValidObjectId(threadId)
-    ? await Thread.findOne({ _id: threadId, board: board._id })
-    : null;
+  const thread = mongoose.isValidObjectId(threadId) ? await Thread.findOne({ _id: threadId, board: board._id }) : null;
   if (!thread) throw new HttpError(404, "That comment was deleted.");
   return thread;
 }

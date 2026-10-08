@@ -152,7 +152,11 @@ export function resizeElement(original, handleId, point, { keepAspect = false, p
       };
     }
     case "text": {
-      const fontSize = clamp(Math.round(original.fontSize * (width / Math.max(frame.width, 1))), MIN_FONT_SIZE, MAX_FONT_SIZE);
+      const fontSize = clamp(
+        Math.round(original.fontSize * (width / Math.max(frame.width, 1))),
+        MIN_FONT_SIZE,
+        MAX_FONT_SIZE,
+      );
       const resized = { ...original, fontSize };
       const size = measureText(resized);
       return { ...resized, x1: cx - size.width / 2, y1: cy - size.height / 2 };

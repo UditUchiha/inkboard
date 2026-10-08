@@ -42,7 +42,10 @@ describe("dashboard sections", () => {
 
   it("leaves no board unfindable", () => {
     for (const item of boards) {
-      assert.ok(SECTIONS.some((candidate) => candidate.id !== "trash" && candidate.matches(item)), item.title);
+      assert.ok(
+        SECTIONS.some((candidate) => candidate.id !== "trash" && candidate.matches(item)),
+        item.title,
+      );
     }
   });
 

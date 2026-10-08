@@ -2,11 +2,25 @@
 // so their cursor and presence look the same every time they open a shared board.
 
 const GUEST_KEY = "inkboard.guest";
-const ANIMALS = ["Otter", "Fox", "Heron", "Badger", "Lynx", "Panda", "Koala", "Falcon", "Moose", "Gecko", "Orca", "Wombat"];
+const ANIMALS = [
+  "Otter",
+  "Fox",
+  "Heron",
+  "Badger",
+  "Lynx",
+  "Panda",
+  "Koala",
+  "Falcon",
+  "Moose",
+  "Gecko",
+  "Orca",
+  "Wombat",
+];
 
 let cached = null;
 
-const randomId = () => `g_${[...crypto.getRandomValues(new Uint8Array(12))].map((n) => (n % 36).toString(36)).join("")}`;
+const randomId = () =>
+  `g_${[...crypto.getRandomValues(new Uint8Array(12))].map((n) => (n % 36).toString(36)).join("")}`;
 
 function save(guest) {
   cached = guest;

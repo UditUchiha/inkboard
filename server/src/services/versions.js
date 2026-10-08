@@ -64,10 +64,13 @@ export async function pruneVersions(boardId) {
     if (version.kind === "named") continue;
     counts[version.kind] += 1;
     if (counts[version.kind] > VERSION_LIMITS[version.kind]) doomed.add(String(version._id));
-    else if (version.kind === "auto" ? counts.auto > VERSION_LIMITS.keepAuto : counts.restore > 1) removable.push(version);
+    else if (version.kind === "auto" ? counts.auto > VERSION_LIMITS.keepAuto : counts.restore > 1)
+      removable.push(version);
   }
 
-  let total = versions.filter((version) => !doomed.has(String(version._id))).reduce((sum, version) => sum + version.bytes, 0);
+  let total = versions
+    .filter((version) => !doomed.has(String(version._id)))
+    .reduce((sum, version) => sum + version.bytes, 0);
   for (const version of removable.reverse()) {
     if (total <= VERSION_LIMITS.bytes) break;
     doomed.add(String(version._id));
@@ -82,11 +85,17 @@ export async function checkRoomForNamedVersion(boardId, elements) {
   await measureOldVersions(boardId);
   const named = await Version.find({ board: boardId, kind: "named" }).select("bytes").lean();
   if (named.length >= VERSION_LIMITS.named) {
-    throw new HttpError(400, `This board already has ${named.length} saved versions, the most it can keep. Delete one to save another.`);
+    throw new HttpError(
+      400,
+      `This board already has ${named.length} saved versions, the most it can keep. Delete one to save another.`,
+    );
   }
   const used = named.reduce((sum, version) => sum + version.bytes, 0);
   if (used + sizeOf(elements) > VERSION_LIMITS.bytes) {
-    throw new HttpError(400, "Saved versions of this board have used up their space. Delete an older one to save this one.");
+    throw new HttpError(
+      400,
+      "Saved versions of this board have used up their space. Delete an older one to save this one.",
+    );
   }
 }
 
