@@ -49,6 +49,10 @@ export const api = {
   me: () => request("/auth/me"),
   updateProfile: (input) => request("/auth/me", { method: "PATCH", body: input }),
   changePassword: (input) => request("/auth/password", { method: "POST", body: input }),
+  verifyEmail: (token) => request("/auth/verify-email", { method: "POST", body: { token } }),
+  resendVerification: () => request("/auth/verify-email/resend", { method: "POST" }),
+  forgotPassword: (email) => request("/auth/forgot-password", { method: "POST", body: { email } }),
+  resetPassword: (input) => request("/auth/reset-password", { method: "POST", body: input }),
   listProviders: () => request("/auth/providers"),
   // Returns a URL that starts connecting the provider to the signed-in account.
   linkProvider: (provider) => request(`/auth/oauth/${provider}/link`, { method: "POST" }),

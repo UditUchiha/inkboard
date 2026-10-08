@@ -3,7 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router";
 import { Toaster } from "sonner";
 import { ButtonLink } from "./components/Button";
 import { FullPageMessage, GuestOnly, RequireAuth } from "./components/RouteGuards";
-import { LoginPage, RegisterPage } from "./pages/AuthPages";
+import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage, VerifyEmailPage } from "./pages/AuthPages";
 import BoardPage from "./pages/BoardPage";
 import DashboardPage from "./pages/DashboardPage";
 import DrawPage from "./pages/DrawPage";
@@ -55,6 +55,17 @@ export default function App() {
                     </GuestOnly>
                   }
                 />
+                <Route
+                  path="/forgot-password"
+                  element={
+                    <GuestOnly>
+                      <ForgotPasswordPage />
+                    </GuestOnly>
+                  }
+                />
+                {/* Links from emails: they work whether or not someone is logged in. */}
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/verify-email" element={<VerifyEmailPage />} />
                 <Route
                   path="/register"
                   element={

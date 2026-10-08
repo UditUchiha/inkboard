@@ -236,6 +236,14 @@ export async function addCollaborator(req, res) {
   if (idOf(invitee) === idOf(board.owner)) {
     throw new HttpError(400, "You already own this board.");
   }
+  // Anyone can sign up with any address, so only someone who has shown the
+  // address is theirs gets boards shared with it.
+  if (!invitee.emailVerified) {
+    throw new HttpError(
+      409,
+      "That person hasn't verified their email yet. Ask them to click the link we sent them (or send a new one from Settings), then invite them again.",
+    );
+  }
   if (board.collaborators.some((member) => idOf(member) === idOf(invitee))) {
     throw new HttpError(409, `${invitee.name} already has access.`);
   }

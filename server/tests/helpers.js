@@ -5,8 +5,9 @@ import { io as connectSocket } from "socket.io-client";
 
 process.env.NODE_ENV ??= "test";
 // Tests must not depend on whatever is in a developer's server/.env. Variables already set win over
-// that file, so blanking the sign-in keys keeps social sign-in "not configured" for every test.
-for (const key of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]) {
+// that file, so blanking these keeps social sign-in "not configured" and emails unsent (kept in the
+// outbox) for every test.
+for (const key of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "BREVO_API_KEY", "EMAIL_FROM"]) {
   process.env[key] = "";
 }
 
@@ -79,11 +80,12 @@ export async function startServer() {
    * Creates an account directly in the database and returns it with a login token.
    * Going around /auth/register keeps tests fast (no password hashing) and clear of
    * the sign-up rate limit; the register and login routes have their own tests.
+   * The address counts as verified unless `verified: false` is passed.
    */
-  async function signUp(name = "Person") {
+  async function signUp(name = "Person", { verified = true } = {}) {
     counter += 1;
     const email = `${name.toLowerCase().replace(/\W+/g, "")}-${counter}@example.test`;
-    const user = await User.create({ name, email });
+    const user = await User.create({ name, email, emailVerified: verified });
     return { ...user.toPublic(), token: signToken(user), email };
   }
 

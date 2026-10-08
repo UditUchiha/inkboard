@@ -90,6 +90,8 @@ export function AuthProvider({ children }) {
       status,
       login: async (input) => startSession(await api.login(input)),
       register: async (input) => startSession(await api.register(input)),
+      // Starts a session from `{ token, user }`, as a password reset returns.
+      startSession,
       adoptToken,
       updateUser: setUser,
       logout,

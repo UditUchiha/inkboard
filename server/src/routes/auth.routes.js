@@ -1,6 +1,16 @@
 import { Router } from "express";
 import { rateLimit } from "express-rate-limit";
-import { changePassword, login, me, register, updateProfile } from "../controllers/auth.controller.js";
+import {
+  changePassword,
+  forgotPassword,
+  login,
+  me,
+  register,
+  resendVerification,
+  resetPassword,
+  updateProfile,
+  verifyEmail,
+} from "../controllers/auth.controller.js";
 import {
   createLinkTicket,
   disconnectProvider,
@@ -25,6 +35,10 @@ router.post("/login", authLimiter, login);
 router.get("/me", requireAuth, me);
 router.patch("/me", requireAuth, updateProfile);
 router.post("/password", authLimiter, requireAuth, changePassword);
+router.post("/verify-email", authLimiter, verifyEmail);
+router.post("/verify-email/resend", authLimiter, requireAuth, resendVerification);
+router.post("/forgot-password", authLimiter, forgotPassword);
+router.post("/reset-password", authLimiter, resetPassword);
 
 router.get("/providers", listProviders);
 router.get("/oauth/:provider", authLimiter, startOAuth);

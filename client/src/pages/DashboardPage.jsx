@@ -7,6 +7,7 @@ import { AppHeader } from "../components/AppHeader";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/Dialog";
 import { Menu, MenuItem, MenuLabel } from "../components/Menu";
+import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { APP_NAME } from "../config";
 import { BoardCard } from "../features/dashboard/BoardCard";
 import { BoardTable } from "../features/dashboard/BoardTable";
@@ -338,6 +339,7 @@ export default function DashboardPage() {
         <DashboardNav activeId={section.id} counts={counts} onCreate={() => setChoosing(true)} creating={creating} />
 
         <main className="min-w-0">
+          <VerifyEmailNotice className="mb-6" />
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h1 className="text-[2rem] leading-none font-extrabold tracking-tight [font-stretch:80%]">{section.label}</h1>

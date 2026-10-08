@@ -7,6 +7,9 @@ const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true, maxlength: 60 },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    // Whether the person has shown the address is theirs (a link sent to it, or
+    // Google or GitHub vouching for it). Invites by email need it.
+    emailVerified: { type: Boolean, default: false },
     // Accounts created through Google or GitHub have no password until they set one.
     password: { type: String, select: false },
     googleId: { type: String, unique: true, sparse: true, select: false },
@@ -37,6 +40,7 @@ userSchema.methods.toPublic = function toPublic() {
 userSchema.methods.toAccount = function toAccount() {
   return {
     ...this.toPublic(),
+    emailVerified: this.emailVerified,
     hasPassword: Boolean(this.password),
     providers: Object.fromEntries(OAUTH_PROVIDERS.map((provider) => [provider, Boolean(this[`${provider}Id`])])),
   };

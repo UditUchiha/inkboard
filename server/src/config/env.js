@@ -40,6 +40,14 @@ export const env = {
   // Public address of the app, used in OAuth redirects. Leave empty to use the
   // address each request came in on (fine when the server hosts the client).
   appUrl: (process.env.APP_URL ?? "").replace(/\/$/, ""),
+  // Emails (verifying an address, resetting a password) go through Brevo's API:
+  // Render's free plan blocks SMTP. EMAIL_FROM must be a sender verified in Brevo.
+  // Without them, emails are printed to the server log instead (development).
+  email: {
+    brevoApiKey: process.env.BREVO_API_KEY || null,
+    from: process.env.EMAIL_FROM || null,
+    fromName: process.env.EMAIL_FROM_NAME || "Inkboard",
+  },
   // "Continue with Google / GitHub" only appears for providers configured here.
   oauth: {
     google: oauthClient("GOOGLE"),

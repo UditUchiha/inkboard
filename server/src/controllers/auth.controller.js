@@ -1,7 +1,9 @@
+import { clientUrlFor } from "../lib/app-url.js";
 import { HttpError } from "../lib/http-error.js";
 import { signToken } from "../lib/tokens.js";
 import { User } from "../models/user.model.js";
 import { refreshUser } from "../realtime/index.js";
+import { forgetSecrets, redeemSecret, sendPasswordResetEmail, sendVerificationEmail } from "../services/account-emails.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
@@ -46,6 +48,12 @@ export async function register(req, res) {
   }
 
   const user = await User.create({ name, email, password });
+  // The account works straight away; the address is verified when they click the link.
+  try {
+    await sendVerificationEmail(user, clientUrlFor(req));
+  } catch (error) {
+    console.error(`Couldn't send the verification email: ${error.message}`);
+  }
   res.status(201).json({ token: signToken(user), user: user.toAccount() });
 }
 
@@ -99,4 +107,67 @@ export async function changePassword(req, res) {
   user.password = next;
   await user.save();
   res.json({ user: user.toAccount() });
+}
+
+/** Verifies an address from the link emailed to it. Works without being logged in. */
+export async function verifyEmail(req, res) {
+  const userId = await redeemSecret(req.body?.token, "verify-email");
+  const user = userId && (await User.findById(userId));
+  if (!user) throw new HttpError(400, "This link has expired or was already used. Log in and ask for a new one.");
+  if (!user.emailVerified) {
+    user.emailVerified = true;
+    await user.save();
+  }
+  res.json({ email: user.email });
+}
+
+/** Sends the verification link again, to the logged-in person. */
+export async function resendVerification(req, res) {
+  const user = await findAccount(req.userId);
+  if (user.emailVerified) throw new HttpError(400, "Your email is already verified.");
+  let sent;
+  try {
+    sent = await sendVerificationEmail(user, clientUrlFor(req));
+  } catch (error) {
+    console.error(`Couldn't send the verification email: ${error.message}`);
+    throw new HttpError(502, "The email couldn't be sent. Try again in a few minutes.");
+  }
+  if (!sent) throw new HttpError(429, "We just sent you one. Check your inbox and spam folder, or try again in a minute.");
+  res.json({ sent: true });
+}
+
+/**
+ * Emails a password-reset link, if an account uses the address. The answer is
+ * the same either way, so this can't be used to find out who has an account.
+ */
+export async function forgotPassword(req, res) {
+  const { email } = readCredentials(req.body);
+  if (!EMAIL_PATTERN.test(email)) throw new HttpError(400, "Enter a valid email address.");
+  const user = await User.findOne({ email });
+  if (user) {
+    try {
+      await sendPasswordResetEmail(user, clientUrlFor(req));
+    } catch (error) {
+      console.error(`Couldn't send a password reset email: ${error.message}`);
+    }
+  }
+  res.json({ sent: true });
+}
+
+/**
+ * Sets a new password from a reset link, and logs the person in. Following the
+ * link proves the address is theirs, so it also counts as verifying it.
+ */
+export async function resetPassword(req, res) {
+  const password = String(req.body?.password ?? "");
+  checkNewPassword(password); // before using up the link, so a too-short password can be fixed and retried
+  const userId = await redeemSecret(req.body?.token, "reset-password");
+  const user = userId && (await findAccount(userId).catch(() => null));
+  if (!user) throw new HttpError(400, "This link has expired or was already used. Ask for a new one.");
+
+  user.password = password;
+  user.emailVerified = true;
+  await user.save();
+  await forgetSecrets(user._id, "reset-password");
+  res.json({ token: signToken(user), user: user.toAccount() });
 }

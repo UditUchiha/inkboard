@@ -8,6 +8,7 @@ import { Avatar } from "../components/Avatar";
 import { Button } from "../components/Button";
 import { PasswordField, TextField } from "../components/Field";
 import { PROVIDER_ICONS, useOAuthProviders } from "../components/OAuthButtons";
+import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { API_URL, APP_NAME } from "../config";
 import { api } from "../lib/api";
 import { PEOPLE_COLORS, colorFor } from "../lib/format";
@@ -272,6 +273,7 @@ export default function SettingsPage() {
       <main className="mx-auto max-w-2xl px-4 pt-10 pb-20 sm:px-6">
         <h1 className="text-[2.5rem] leading-none font-extrabold tracking-tight [font-stretch:80%]">Settings</h1>
         <p className="mt-2 text-graphite">{user.email}</p>
+        <VerifyEmailNotice className="mt-4" />
         <div className="mt-8 grid gap-6">
           <ProfileSection />
           <ConnectedAccounts />

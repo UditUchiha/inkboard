@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
+import { appUrlFor } from "../lib/app-url.js";
 import { HttpError } from "../lib/http-error.js";
 import { signToken } from "../lib/tokens.js";
 import { OAUTH_PROVIDERS, User } from "../models/user.model.js";
@@ -98,7 +99,7 @@ function providerFrom(req) {
 }
 
 // With trust proxy enabled in production, req.protocol is the public one.
-const baseUrl = (req) => env.appUrl || `${req.protocol}://${req.get("host")}`;
+const baseUrl = appUrlFor;
 const callbackUrl = (req, provider) => `${baseUrl(req)}/api/auth/oauth/${provider}/callback`;
 
 // Only follow redirects to paths inside the app.
@@ -246,7 +247,8 @@ async function findOrCreateUser(provider, profile) {
   }
 
   const name = (profile.name ?? "").trim().slice(0, 60) || profile.email.split("@")[0];
-  return User.create({ name, email: profile.email, [field]: profile.id, avatarUrl: profile.avatarUrl });
+  // The provider only gives us verified addresses (see above), so this one is verified too.
+  return User.create({ name, email: profile.email, emailVerified: true, [field]: profile.id, avatarUrl: profile.avatarUrl });
 }
 
 /** Disconnects a provider, as long as the account keeps another way to sign in. */
