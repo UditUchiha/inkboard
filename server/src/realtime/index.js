@@ -13,7 +13,7 @@ import {
   serializeMeta,
 } from "../services/boards.js";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.js";
-import { sanitizeOperation } from "./operations.js";
+import { keepNewer, sanitizeOperation } from "./operations.js";
 import {
   closeSession,
   discardSession,
@@ -137,8 +137,11 @@ function handleConnection(socket) {
     const boardId = socket.data.boardId;
     const session = boardId && payload?.boardId === boardId ? getSession(boardId) : null;
     if (session && !canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
-    const op = sanitizeOperation(payload?.op);
-    if (!session || !op) return reply({ ok: false });
+    const sanitized = sanitizeOperation(payload?.op);
+    if (!session || !sanitized) return reply({ ok: false });
+    // Edits that someone else's newer edit already replaced change nothing.
+    const op = keepNewer(session.elements, sanitized, session.tombstones);
+    if (op.upsert.length === 0 && op.remove.length === 0) return reply({ ok: true });
     if (admit(session, op)) return reply({ ok: false, tooLarge: true });
 
     updateSession(session, op);

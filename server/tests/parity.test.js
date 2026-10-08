@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyOperation as clientApply } from "../../client/src/features/board/store.js";
+import { applyOperation as clientApply, supersedes as clientSupersedes } from "../../client/src/features/board/store.js";
 import { MAX_ELEMENTS_PER_BOARD as clientMaxElements } from "../../client/src/features/board/constants.js";
-import { applyOperation as serverApply, MAX_ELEMENTS_PER_BOARD } from "../src/realtime/operations.js";
+import { applyOperation as serverApply, MAX_ELEMENTS_PER_BOARD, supersedes as serverSupersedes } from "../src/realtime/operations.js";
 
 // Every change is applied by the browser and, separately, by the server. If the
 // two ever disagree, people's screens drift apart from what gets saved. This runs
@@ -63,6 +63,41 @@ describe("client and server apply operations the same way", () => {
     assert.doesNotThrow(() => clientApply(start, op));
     assert.doesNotThrow(() => serverApply(start, op));
     assert.equal(start[0].x1, 1);
+  });
+
+  it("agree when changes are stamped: who wins, what gets removed, and what stays removed", () => {
+    const ids = ["a", "b", "c", "d"];
+    for (let seed = 1; seed <= 300; seed += 1) {
+      const next = random(seed);
+      const stamp = () => ({ version: Math.floor(next() * 6), versionNonce: Math.floor(next() * 4) });
+      let client = [];
+      let server = [];
+      const clientTombstones = new Map();
+      const serverTombstones = new Map();
+      for (let step = 0; step < 25; step += 1) {
+        const pick = () => ids[Math.floor(next() * ids.length)];
+        const op = {
+          upsert: Array.from({ length: Math.floor(next() * 3) }, () => ({ ...element(pick(), Math.floor(next() * 100)), ...stamp() })),
+          remove: Array.from({ length: Math.floor(next() * 2) }, () => (next() < 0.2 ? pick() : { id: pick(), ...stamp() })),
+        };
+        client = clientApply(client, op, clientTombstones);
+        server = serverApply(server, op, serverTombstones);
+        assert.deepEqual(client, server, `elements diverged at seed ${seed}, step ${step}`);
+        assert.deepEqual([...clientTombstones], [...serverTombstones], `tombstones diverged at seed ${seed}, step ${step}`);
+      }
+    }
+  });
+
+  it("agree on which of two changes wins", () => {
+    const cases = [
+      [{ version: 2 }, { version: 1 }],
+      [{ version: 1 }, { version: 2 }],
+      [{ version: 2, versionNonce: 3 }, { version: 2, versionNonce: 7 }],
+      [{ version: 2, versionNonce: 7 }, { version: 2, versionNonce: 3 }],
+      [{}, {}],
+      [{ version: 0 }, {}],
+    ];
+    for (const [a, b] of cases) assert.equal(clientSupersedes(a, b), serverSupersedes(a, b), JSON.stringify([a, b]));
   });
 
   it("share the same cap on elements per board", () => {

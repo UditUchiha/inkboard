@@ -86,7 +86,52 @@ describe("live drawing", () => {
     assert.deepEqual(await a.op(id, { upsert: [rect("good"), { id: "", type: "pen" }], remove: ["", 7, "gone"] }), { ok: true });
     const received = await eventually(() => b.of("board:op")[0], { message: "the sanitised operation" });
     assert.deepEqual(received.op.upsert.map((element) => element.id), ["good"]);
-    assert.deepEqual(received.op.remove, ["gone"]);
+    // A plain id (from an older browser) is stamped as the newest removal.
+    assert.deepEqual(received.op.remove.map((removal) => removal.id), ["gone"]);
+    assert.equal(received.op.remove[0].version, 1);
+  });
+});
+
+describe("changes that cross", () => {
+  const at = (version, versionNonce, extra = {}) => ({ ...rect("x"), version, versionNonce, ...extra });
+
+  it("settle on the same winner for everyone, whichever reaches the server first", async () => {
+    const { id, a, b } = await pair();
+    await a.op(id, upsert(at(1, 0)));
+    await eventually(() => b.of("board:op").length === 1, { message: "the shape reaching b" });
+
+    // Both change the shape from version 1 at the same moment; the lower nonce wins.
+    const [fromA, fromB] = await Promise.all([a.op(id, upsert(at(2, 5, { stroke: "#e03131" }))), b.op(id, upsert(at(2, 9, { x1: 500 })))]);
+    assert.equal(fromA.ok && fromB.ok, true);
+    await flushAllSessions();
+    const saved = (await Board.findById(id).lean()).elements;
+    assert.deepEqual(saved, [at(2, 5, { stroke: "#e03131" })]);
+
+    // b must have been sent a's change; a's own change needs nothing from b.
+    await eventually(() => b.of("board:op").some((message) => message.op.upsert[0]?.versionNonce === 5), { message: "a's change reaching b" });
+    assert.ok(!a.of("board:op").some((message) => message.op.upsert[0]?.versionNonce === 9), "b's losing change isn't passed on");
+  });
+
+  it("keep a removal over an older edit that arrives after it, and let a newer edit bring the element back", async () => {
+    const { id, a, b } = await pair();
+    await a.op(id, upsert(at(1, 0)));
+    assert.equal((await a.op(id, { upsert: [], remove: [{ id: "x", version: 2, versionNonce: 1 }] })).ok, true);
+    assert.equal((await b.op(id, upsert(at(2, 7, { x1: 300 })))).ok, true, "an edit made before seeing the removal");
+    await flushAllSessions();
+    assert.deepEqual((await Board.findById(id).lean()).elements, [], "the late, older edit doesn't bring it back");
+
+    assert.equal((await b.op(id, upsert(at(3, 4)))).ok, true, "a newer edit (an undo, say)");
+    await flushAllSessions();
+    assert.deepEqual((await Board.findById(id).lean()).elements, [at(3, 4)]);
+  });
+
+  it("still take changes from browsers running the older app, as the newest edit", async () => {
+    const { id, a } = await pair();
+    await a.op(id, upsert(at(5, 0)));
+    await a.op(id, upsert(rect("x")));
+    await flushAllSessions();
+    const [saved] = (await Board.findById(id).lean()).elements;
+    assert.equal(saved.version, 6);
   });
 });
 
@@ -301,7 +346,11 @@ describe("operation rules", () => {
 
   it("are rejected when there is nothing valid in them", () => {
     assert.equal(sanitizeOperation({ upsert: [{ id: "x" }], remove: [] }), null);
-    assert.deepEqual(sanitizeOperation({ upsert: [rect("ok")], remove: ["a"] }), { upsert: [rect("ok")], remove: ["a"] });
+    assert.deepEqual(sanitizeOperation({ upsert: [rect("ok")], remove: ["a"] }), { upsert: [rect("ok")], remove: [{ id: "a" }] });
+    assert.deepEqual(
+      sanitizeOperation({ upsert: [], remove: [{ id: "b", version: 3, versionNonce: 9, extra: 1 }, { id: "c", version: -1 }] }).remove,
+      [{ id: "b", version: 3, versionNonce: 9 }, { id: "c" }],
+    );
     assert.equal(sanitizeOperation({ upsert: "x", remove: 5 }), null);
   });
 });

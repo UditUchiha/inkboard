@@ -41,7 +41,7 @@ function measure(session) {
  */
 export function admit(session, op) {
   const updates = new Map(op.upsert.map((element) => [element.id, elementBytes(element)]));
-  const removals = new Set(op.remove.filter((id) => !updates.has(id)));
+  const removals = new Set(op.remove.map((removal) => removal.id).filter((id) => !updates.has(id)));
 
   let bytes = session.bytes;
   for (const [id, size] of updates) {
@@ -60,7 +60,9 @@ export function admit(session, op) {
 export function openSession(boardId, elements) {
   let session = sessions.get(boardId);
   if (!session) {
-    session = { boardId, elements, dirty: false, timer: null, lastVersionAt: null };
+    // Tombstones (removed id -> stamp of its removal, see operations.js) live as
+    // long as the board is open; that's when changes cross each other.
+    session = { boardId, elements, tombstones: new Map(), dirty: false, timer: null, lastVersionAt: null };
     measure(session);
     sessions.set(boardId, session);
     lastVersionTime(boardId)
@@ -85,13 +87,14 @@ function checkpoint(session) {
 
 export function updateSession(session, op) {
   checkpoint(session);
-  session.elements = applyOperation(session.elements, op);
+  session.elements = applyOperation(session.elements, op, session.tombstones);
   markDirty(session);
 }
 
 /** Replaces everything on an open board (restoring a version). */
 export function resetSession(session, elements) {
   session.elements = elements;
+  session.tombstones = new Map();
   measure(session);
   session.lastVersionAt = Date.now();
   markDirty(session);

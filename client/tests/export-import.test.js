@@ -128,17 +128,18 @@ describe("sending changes", () => {
   it("splits a big change into pieces under the size limit, in order", () => {
     const pending = new Map();
     for (let index = 0; index < 50; index += 1) pending.set(`e${index}`, rect(`e${index}`, index, 0, { note: "x".repeat(1000) }));
-    pending.set("gone", null);
+    pending.set("gone", { removal: { id: "gone", version: 2, versionNonce: 1 } });
     const operations = toOperations(pending, 10_000);
 
     assert.ok(operations.length > 1);
     for (const op of operations) assert.ok(JSON.stringify(op).length < 12_000, "each piece stays near the limit");
     assert.deepEqual(operations.flatMap((op) => op.upsert.map((element) => element.id)), [...pending.keys()].slice(0, 50));
-    assert.deepEqual(operations.at(-1).remove, ["gone"]);
+    assert.deepEqual(operations.at(-1).remove, [{ id: "gone", version: 2, versionNonce: 1 }]);
   });
 
   it("sends a small change in one go", () => {
-    const operations = toOperations(new Map([["a", rect("a")], ["b", null]]));
-    assert.deepEqual(operations, [{ upsert: [rect("a")], remove: ["b"] }]);
+    const removal = { id: "b", version: 1, versionNonce: 0 };
+    const operations = toOperations(new Map([["a", rect("a")], ["b", { removal }]]));
+    assert.deepEqual(operations, [{ upsert: [rect("a")], remove: [removal] }]);
   });
 });

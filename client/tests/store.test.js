@@ -72,7 +72,8 @@ describe("a board store", () => {
     store.commit({ undo: { remove: ["a"] }, redo: { upsert: [rect("a")] } });
     store.undo();
     assert.equal(sent.length, 2);
-    assert.deepEqual(sent[1], { remove: ["a"] });
+    assert.deepEqual(sent[1].upsert, []);
+    assert.deepEqual(sent[1].remove.map((removal) => [removal.id, removal.version]), [["a", 2]], "the undo is the element's second edit");
   });
 
   it("doesn't broadcast changes that came from collaborators, the first load or a reconnect", () => {

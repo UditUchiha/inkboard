@@ -1,21 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSocket } from "../../providers/SocketProvider";
-import { applyOperation, toOperations } from "./store";
+import { applyOperation, toOperation, toOperations } from "./store";
 
 const FLUSH_INTERVAL_MS = 40;
 const CURSOR_INTERVAL_MS = 50;
 const VIEWPORT_INTERVAL_MS = 120;
 const ACK_TIMEOUT_MS = 10_000;
-
-function toOperation(pending) {
-  const op = { upsert: [], remove: [] };
-  for (const [id, element] of pending) {
-    if (element) op.upsert.push(element);
-    else op.remove.push(id);
-  }
-  return op;
-}
 
 /**
  * Connects a board store to the server: joins the board's room, streams local
@@ -56,7 +47,7 @@ export function useBoardSync(boardId, store) {
     for (const op of operations) {
       const seq = ++sequence.current;
       for (const element of op.upsert) lastSent.current.set(element.id, seq);
-      for (const id of op.remove) lastSent.current.set(id, seq);
+      for (const removal of op.remove) lastSent.current.set(removal.id, seq);
 
       setInflight((count) => count + 1);
       socket.timeout(ACK_TIMEOUT_MS).emit("board:op", { boardId, op }, (error, response) => {
@@ -76,8 +67,10 @@ export function useBoardSync(boardId, store) {
             pending.current.set(element.id, element);
           }
         }
-        for (const id of op.remove) {
-          if (lastSent.current.get(id) === seq && !pending.current.has(id)) pending.current.set(id, null);
+        for (const removal of op.remove) {
+          if (lastSent.current.get(removal.id) === seq && !pending.current.has(removal.id)) {
+            pending.current.set(removal.id, { removal });
+          }
         }
         if (joined.current) flushTimer.current ??= setTimeout(flush, FLUSH_INTERVAL_MS * 10);
       });
@@ -87,7 +80,7 @@ export function useBoardSync(boardId, store) {
   useEffect(() => {
     store.setBroadcaster((op) => {
       for (const element of op.upsert ?? []) pending.current.set(element.id, element);
-      for (const id of op.remove ?? []) pending.current.set(id, null);
+      for (const removal of op.remove ?? []) pending.current.set(removal.id, { removal });
       flushTimer.current ??= setTimeout(flush, FLUSH_INTERVAL_MS);
     });
     return () => store.setBroadcaster(() => {});

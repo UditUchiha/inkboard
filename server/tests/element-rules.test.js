@@ -52,6 +52,15 @@ describe("element rules", () => {
     for (const element of broken) assert.equal(cleanElement(element), null, JSON.stringify(element));
   });
 
+  it("keeps which edit an element is, and drops a version that isn't one", () => {
+    assert.deepEqual(cleanElement({ ...rect("r"), version: 7, versionNonce: 12345 }), { ...rect("r"), version: 7, versionNonce: 12345 });
+    for (const bad of [{ version: -1 }, { version: 1.5 }, { version: "3" }, { versionNonce: 2 ** 31 }, { versionNonce: -2 }]) {
+      const cleaned = cleanElement({ ...rect("r"), ...bad });
+      assert.ok(!("version" in bad) || !("version" in cleaned), JSON.stringify(bad));
+      assert.ok(!("versionNonce" in bad) || !("versionNonce" in cleaned), JSON.stringify(bad));
+    }
+  });
+
   it("drops fields the app doesn't use", () => {
     // Parsed, as it would arrive: "__proto__" becomes an ordinary field here.
     const sneaky = JSON.parse(JSON.stringify({ ...rect("r"), onclick: "alert(1)", nested: { a: 1 } }).replace("{", '{"__proto__":{"polluted":true},'));
@@ -100,12 +109,13 @@ describe("element rules on a live board", () => {
     await editor.join(boardId);
     await watcher.join(boardId);
 
-    assert.equal((await editor.op(boardId, upsert({ ...rect("r"), extra: "x".repeat(1000) }))).ok, true);
+    const sent = { ...rect("r"), version: 1, versionNonce: 5 };
+    assert.equal((await editor.op(boardId, upsert({ ...sent, extra: "x".repeat(1000) }))).ok, true);
     await eventually(() => watcher.of("board:op").length > 0, { message: "the change reaching the other screen" });
-    assert.deepEqual(watcher.of("board:op")[0].op.upsert, [rect("r")]);
+    assert.deepEqual(watcher.of("board:op")[0].op.upsert, [sent]);
 
     assert.equal((await editor.op(boardId, upsert({ ...rect("bad"), x1: Number.NaN }))).ok, false);
     const reopened = await (await app.connect(owner)).join(boardId);
-    assert.deepEqual(reopened.board.elements, [rect("r")]);
+    assert.deepEqual(reopened.board.elements, [sent]);
   });
 });

@@ -107,5 +107,10 @@ export function cleanElement(element) {
   if (TURNABLE_TYPES.has(clean.type) && typeof element.angle === "number" && Number.isFinite(element.angle)) {
     clean.angle = element.angle;
   }
+  // Which edit of the element this is (see operations.js).
+  if (Number.isSafeInteger(element.version) && element.version >= 0) clean.version = element.version;
+  if (Number.isInteger(element.versionNonce) && element.versionNonce >= 0 && element.versionNonce < 2 ** 31) {
+    clean.versionNonce = element.versionNonce;
+  }
   return clean;
 }
