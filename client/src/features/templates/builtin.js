@@ -62,20 +62,29 @@ const text = (x1, y1, value, { fontSize = 28, stroke = INK, font = "hand" } = {}
   font,
 });
 
+const frame = (x1, y1, x2, y2, name) => ({ id: newId(), type: "frame", x1, y1, x2, y2, name });
+
+const note = (x, y, value, fill) => ({
+  id: newId(),
+  type: "sticky",
+  x1: x,
+  y1: y,
+  x2: x + 200,
+  y2: y + 200,
+  text: value,
+  fill,
+  font: "hand",
+});
+
+// Columns are frames, so moving one moves its notes along.
 const kanban = () => {
-  const columns = [
-    ["To do", "#a5d8ff"],
-    ["Doing", "#ffec99"],
-    ["Done", "#b2f2bb"],
-  ];
+  const columns = ["To do", "Doing", "Done"];
   const elements = [text(40, 20, "Project board", { fontSize: 44 })];
-  columns.forEach(([title, fill], index) => {
+  columns.forEach((title, index) => {
     const x = 40 + index * 300;
-    elements.push(box(x, 100, x + 270, 560, { stroke: GREY, strokeWidth: 1 }));
-    elements.push(box(x, 100, x + 270, 150, { fill }));
-    elements.push(text(x + 16, 108, title, { fontSize: 30 }));
+    elements.push(frame(x, 120, x + 270, 640, title));
   });
-  elements.push(box(60, 176, 250, 246, { fill: "#ffffff" }), text(76, 190, "First task", { fontSize: 24 }));
+  elements.push(note(75, 150, "First task", "#ffec99"), note(375, 150, "Drag notes across", "#a5d8ff"));
   return elements;
 };
 
@@ -101,16 +110,14 @@ const flowchart = () => [
 
 const retrospective = () => {
   const columns = [
-    ["Went well", "#b2f2bb"],
-    ["Could be better", "#ffec99"],
-    ["Actions", "#a5d8ff"],
+    ["Went well", "#b2f2bb", "Shipped on time"],
+    ["Could be better", "#ffec99", "Too many meetings"],
+    ["Actions", "#a5d8ff", "Try a no-meeting day"],
   ];
   const elements = [text(40, 20, "Retrospective", { fontSize: 44 })];
-  columns.forEach(([title, fill], index) => {
+  columns.forEach(([title, fill, example], index) => {
     const x = 40 + index * 300;
-    elements.push(box(x, 100, x + 270, 520, { stroke: GREY, strokeWidth: 1 }));
-    elements.push(box(x, 100, x + 270, 154, { fill }));
-    elements.push(text(x + 16, 110, title, { fontSize: 30 }));
+    elements.push(frame(x, 120, x + 270, 600, title), note(x + 35, 150, example, fill));
   });
   return elements;
 };
