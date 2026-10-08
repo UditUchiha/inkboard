@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSocket } from "../../providers/SocketProvider";
-import { applyOperation } from "./store";
+import { applyOperation, toOperations } from "./store";
 
 const FLUSH_INTERVAL_MS = 40;
 const CURSOR_INTERVAL_MS = 50;
@@ -51,35 +51,37 @@ export function useBoardSync(boardId, store) {
     flushTimer.current = null;
     if (!socket || !joined.current || pending.current.size === 0) return;
 
-    const op = toOperation(pending.current);
+    const operations = toOperations(pending.current);
     pending.current.clear();
-    const seq = ++sequence.current;
-    for (const element of op.upsert) lastSent.current.set(element.id, seq);
-    for (const id of op.remove) lastSent.current.set(id, seq);
+    for (const op of operations) {
+      const seq = ++sequence.current;
+      for (const element of op.upsert) lastSent.current.set(element.id, seq);
+      for (const id of op.remove) lastSent.current.set(id, seq);
 
-    setInflight((count) => count + 1);
-    socket.timeout(ACK_TIMEOUT_MS).emit("board:op", { boardId, op }, (error, response) => {
-      setInflight((count) => count - 1);
-      if (!error && response?.ok) return;
-      if (response?.readOnly) return; // Access was lowered; retrying would never succeed.
-      if (response?.tooLarge) {
-        // Retrying can't help. Put this screen back to what everyone else has, so it
-        // doesn't keep a drawing that was never saved.
-        toast.error("That change was too big to save, so it was undone. The board may be full: delete something or start a new board.");
-        resync.current();
-        return;
-      }
-      // Not confirmed: queue it again unless a newer change already superseded it.
-      for (const element of op.upsert) {
-        if (lastSent.current.get(element.id) === seq && !pending.current.has(element.id)) {
-          pending.current.set(element.id, element);
+      setInflight((count) => count + 1);
+      socket.timeout(ACK_TIMEOUT_MS).emit("board:op", { boardId, op }, (error, response) => {
+        setInflight((count) => count - 1);
+        if (!error && response?.ok) return;
+        if (response?.readOnly) return; // Access was lowered; retrying would never succeed.
+        if (response?.tooLarge) {
+          // Retrying can't help. Put this screen back to what everyone else has, so it
+          // doesn't keep a drawing that was never saved.
+          toast.error("That change was too big to save, so it was undone. The board may be full: delete something or start a new board.");
+          resync.current();
+          return;
         }
-      }
-      for (const id of op.remove) {
-        if (lastSent.current.get(id) === seq && !pending.current.has(id)) pending.current.set(id, null);
-      }
-      if (joined.current) flushTimer.current ??= setTimeout(flush, FLUSH_INTERVAL_MS * 10);
-    });
+        // Not confirmed: queue it again unless a newer change already superseded it.
+        for (const element of op.upsert) {
+          if (lastSent.current.get(element.id) === seq && !pending.current.has(element.id)) {
+            pending.current.set(element.id, element);
+          }
+        }
+        for (const id of op.remove) {
+          if (lastSent.current.get(id) === seq && !pending.current.has(id)) pending.current.set(id, null);
+        }
+        if (joined.current) flushTimer.current ??= setTimeout(flush, FLUSH_INTERVAL_MS * 10);
+      });
+    }
   }, [socket, boardId]);
 
   useEffect(() => {

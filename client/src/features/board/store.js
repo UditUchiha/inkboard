@@ -115,3 +115,29 @@ export function createBoardStore() {
 export function useBoardSnapshot(store) {
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
+
+// The server drops the connection on any message over 3 MB, and a dropped
+// change is sent again on reconnect, so a big one (undoing "clear board",
+// importing a file) would never get through. Changes are sent in pieces of
+// about this size instead, in order.
+export const MAX_OPERATION_BYTES = 1_000_000;
+
+/** `pending` (id -> element, or null for removed) as operations of at most about `maxBytes` each. */
+export function toOperations(pending, maxBytes = MAX_OPERATION_BYTES) {
+  const operations = [];
+  let op = { upsert: [], remove: [] };
+  let bytes = 0;
+  for (const [id, element] of pending) {
+    const size = element ? JSON.stringify(element).length : id.length + 3;
+    if (bytes > 0 && bytes + size > maxBytes) {
+      operations.push(op);
+      op = { upsert: [], remove: [] };
+      bytes = 0;
+    }
+    if (element) op.upsert.push(element);
+    else op.remove.push(id);
+    bytes += size;
+  }
+  if (bytes > 0) operations.push(op);
+  return operations;
+}
