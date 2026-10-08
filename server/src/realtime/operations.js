@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { groupsOf, isStamped, stampOf, withStamps } from "@inkboard/shared/board-merge";
+import { groupsOf, isNonce, isStamped, isVersion, stampOf, withStamps } from "@inkboard/shared/board-merge";
 import { inStackOrder, keyAbove, topKey } from "@inkboard/shared/board-order";
 import mongoose from "mongoose";
 import { cleanElement, isValidId } from "./element-rules.js";
@@ -25,14 +25,12 @@ export const MAX_BOARD_BYTES = 12_000_000;
 
 export const elementBytes = (element) => mongoose.mongo.BSON.calculateObjectSize({ element });
 
-const isStamp = (version, nonce) =>
-  Number.isSafeInteger(version) && version >= 0 && Number.isInteger(nonce) && nonce >= 0 && nonce < 2 ** 31;
-
 // A removal is { id, version, versionNonce }; older browsers send just the id.
+// One whose stamp isn't valid (past MAX_VERSION, say) is stamped as the newest edit.
 function cleanRemoval(entry) {
   if (isValidId(entry)) return { id: entry };
   if (!entry || typeof entry !== "object" || !isValidId(entry.id)) return null;
-  return isStamp(entry.version, entry.versionNonce)
+  return isVersion(entry.version) && isNonce(entry.versionNonce)
     ? { id: entry.id, version: entry.version, versionNonce: entry.versionNonce }
     : { id: entry.id };
 }

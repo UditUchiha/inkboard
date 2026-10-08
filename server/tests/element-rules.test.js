@@ -69,7 +69,7 @@ describe("element rules", () => {
 
   it("keeps which edit an element is, and drops a version that isn't one", () => {
     assert.deepEqual(cleanElement({ ...rect("r"), version: 7, versionNonce: 12345 }), { ...rect("r"), version: 7, versionNonce: 12345 });
-    for (const bad of [{ version: -1 }, { version: 1.5 }, { version: "3" }, { versionNonce: 2 ** 31 }, { versionNonce: -2 }]) {
+    for (const bad of [{ version: -1 }, { version: 1.5 }, { version: "3" }, { version: 2 ** 53 - 1 }, { versionNonce: 2 ** 31 }, { versionNonce: -2 }]) {
       const cleaned = cleanElement({ ...rect("r"), ...bad });
       assert.ok(!("version" in bad) || !("version" in cleaned), JSON.stringify(bad));
       assert.ok(!("versionNonce" in bad) || !("versionNonce" in cleaned), JSON.stringify(bad));

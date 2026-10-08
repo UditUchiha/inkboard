@@ -151,6 +151,26 @@ describe("applying operations", () => {
     const board = applyOperation([], { upsert: [rect("a", { version: 1 }), rect("b", { version: 1, index: "a1" })] }, new Map(), { limit: 1 });
     assert.deepEqual(board.map((element) => element.id), ["a"]);
   });
+
+  it("pass on a change to a removed element with its removal, so a screen that never saw the removal keeps it hidden", () => {
+    const tombstones = new Map();
+    let board = applyOperation([], { upsert: [everyGroup(rect("a"), at(1))] }, tombstones);
+    board = applyOperation(board, { remove: [{ id: "a", ...at(3) }] }, tombstones);
+    const effect = effectOf(planOperation(board, { upsert: [everyGroup(rect("a", { x1: 7 }), at(2))] }, tombstones));
+    assert.deepEqual(effect.upsert.map((element) => element.x1), [7], "the change is passed on");
+    assert.deepEqual(effect.remove, [{ id: "a", ...at(3) }], "with the removal");
+    assert.deepEqual(applyOperation([], effect, new Map()), [], "a screen that opened the board after the removal");
+  });
+
+  it("keeps an element removed when it's left out at the limit on its way back", () => {
+    const tombstones = new Map();
+    let board = applyOperation([], { upsert: [everyGroup(rect("a"), at(1))] }, tombstones);
+    board = applyOperation(board, { remove: [{ id: "a", ...at(2) }] }, tombstones);
+    board = applyOperation(board, { upsert: [everyGroup(rect("b", { index: "a1" }), at(1))] }, tombstones);
+    board = applyOperation(board, { upsert: [everyGroup(rect("a"), at(3))] }, tombstones, { limit: 1 });
+    assert.deepEqual(board.map((element) => element.id), ["b"]);
+    assert.equal(tombstones.get("a")?.version, 2, "its tombstone still stops older changes");
+  });
 });
 
 // The property that matters: whatever order the same changes arrive in,

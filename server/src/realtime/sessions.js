@@ -38,10 +38,13 @@ function measure(session) {
 /**
  * Decides whether a change can be accepted. Returns null when it fits, or why it
  * doesn't: "element" (one element is too big) or "board" (the board would be too
- * big). Changes that make a board smaller are always accepted. When it fits, the
+ * big). Changes that make a board smaller are always accepted. `buried` are
+ * changes to removed elements: they don't add to the board, but each must fit
+ * as an element, since it's passed on and could come back. When it fits, the
  * board's size tracking is updated, so call updateSession with the same change next.
  */
-export function admit(session, op) {
+export function admit(session, op, buried = []) {
+  if (buried.some((element) => elementBytes(element) > MAX_ELEMENT_BYTES)) return "element";
   const updates = new Map(op.upsert.map((element) => [element.id, elementBytes(element)]));
   const removals = new Set(op.remove.map((removal) => removal.id).filter((id) => !updates.has(id)));
 
@@ -107,6 +110,11 @@ function removedList(session) {
     const { version, versionNonce } = session.tombstones.get(id);
     return { id, version, versionNonce, at };
   });
+}
+
+/** The stamps of a board's tombstones, for a browser opening it: [{ id, version, versionNonce }]. */
+export function removedStamps(tombstones) {
+  return [...tombstones].map(([id, { version, versionNonce }]) => ({ id, version, versionNonce }));
 }
 
 function forget(session, id) {
@@ -200,6 +208,12 @@ function bury(session, graves) {
   }
 }
 
+// After a restore: tombstones the restore cleared are forgotten, and new ones dated now.
+function dateRestored(removedAt, before, tombstones, now) {
+  for (const id of removedAt.keys()) if (!tombstones.has(id)) removedAt.delete(id);
+  for (const id of tombstones.keys()) if (!before.has(id)) removedAt.set(id, now);
+}
+
 /**
  * Puts `snapshot` (an earlier version) back on an open board, stamped as the
  * newest edit (see restoreOver). Returns the board's elements as restored.
@@ -210,8 +224,7 @@ export function resetSession(session, snapshot) {
   const { elements, tombstones } = restoreOver(session.elements, session.tombstones, snapshot);
   session.elements = elements;
   session.tombstones = tombstones;
-  for (const id of session.removedAt.keys()) if (!tombstones.has(id)) session.removedAt.delete(id);
-  for (const id of tombstones.keys()) if (!before.has(id)) session.removedAt.set(id, now);
+  dateRestored(session.removedAt, before, tombstones, now);
   session.buried = new Map();
   session.buriedBytes = 0;
   bury(session, [...tombstones].filter(([id]) => !before.has(id)));
@@ -219,6 +232,20 @@ export function resetSession(session, snapshot) {
   session.lastVersionAt = now;
   markDirty(session);
   return elements;
+}
+
+/**
+ * Puts `snapshot` back on a board nobody has open (`board` as saved, with
+ * `removed`). Returns what to save: { elements, removed }, within the same
+ * limits as an open board's.
+ */
+export function restoreSaved(board, snapshot) {
+  const elements = board?.elements ?? [];
+  const { tombstones: before, removedAt } = readRemoved(board?.removed, elements);
+  const { elements: restored, tombstones } = restoreOver(elements, before, snapshot);
+  dateRestored(removedAt, new Set(before.keys()), tombstones, Date.now());
+  const removed = removedList({ tombstones, removedAt, buried: new Map(), buriedBytes: 0 });
+  return { elements: restored, removed };
 }
 
 function markDirty(session) {

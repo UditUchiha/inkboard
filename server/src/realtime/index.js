@@ -14,7 +14,7 @@ import {
 } from "../services/boards.js";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.js";
 import { effectOf, planOperation } from "@inkboard/shared/board-merge";
-import { prepareOperation, restoreOver, sanitizeOperation, SYNC_FORMAT } from "./operations.js";
+import { prepareOperation, sanitizeOperation, SYNC_FORMAT } from "./operations.js";
 import {
   closeSession,
   discardSession,
@@ -22,8 +22,9 @@ import {
   getSession,
   admit,
   openSession,
-  readRemoved,
+  removedStamps,
   resetSession,
+  restoreSaved,
   updateSession,
 } from "./sessions.js";
 
@@ -115,7 +116,7 @@ function handleConnection(socket) {
       await leaveBoard(socket);
 
       // The first person to open the board brings in what was removed from it lately, too.
-      const removed = getSession(boardId) ? [] : ((await Board.findById(boardId).select("+removed").lean())?.removed ?? []);
+      const removed = getSession(boardId) ? [] : ((await Board.findById(boardId).select("removed").lean())?.removed ?? []);
       const session = openSession(boardId, board.elements, removed);
       socket.join(boardId);
       socket.data.boardId = boardId;
@@ -124,7 +125,9 @@ function handleConnection(socket) {
       socket.data.legacy = payload?.sync !== SYNC_FORMAT;
       if (userId) recordOpen(userId, boardId);
 
-      reply({ ok: true, board: serializeBoard(board, userId, session.elements) });
+      // With the stamps of what was removed lately, so a change to one of those
+      // that's still on its way can't bring it back on this screen.
+      reply({ ok: true, board: serializeBoard(board, userId, session.elements), removed: removedStamps(session.tombstones) });
       await broadcastPresence(boardId);
     } catch (error) {
       if (!error.status) console.error(error);
@@ -150,7 +153,9 @@ function handleConnection(socket) {
     // What actually changes: edits that newer ones already replaced are left out.
     // Others are sent each element as the server now has it, merged.
     const effect = effectOf(plan);
-    if (admit(session, { upsert: [...plan.shown.values()], remove: effect.remove })) return reply({ ok: false, tooLarge: true });
+    if (admit(session, { upsert: [...plan.shown.values()], remove: effect.remove }, [...plan.buried.values()])) {
+      return reply({ ok: false, tooLarge: true });
+    }
 
     const dropped = new Set(updateSession(session, plan));
     if (dropped.size > 0) effect.upsert = effect.upsert.filter((element) => !dropped.has(element.id));
@@ -302,30 +307,19 @@ export async function syncAccess(board) {
 export async function replaceElements(boardId, snapshot, actor) {
   const session = getSession(boardId);
   let elements;
+  let removed;
   if (session) {
     elements = resetSession(session, snapshot);
+    removed = removedStamps(session.tombstones);
   } else {
     const board = await Board.findById(boardId).select("+removed").lean();
-    const current = openSessionless(board);
-    const restored = restoreOver(current.elements, current.tombstones, snapshot);
-    elements = restored.elements;
-    const at = Date.now();
-    const removed = [...restored.tombstones].map(([id, { version, versionNonce }]) => ({
-      id,
-      version,
-      versionNonce,
-      at: current.removedAt.get(id) ?? at,
-    }));
-    await Board.updateOne({ _id: boardId }, { $set: { elements, removed } });
+    const saved = restoreSaved(board, snapshot);
+    elements = saved.elements;
+    removed = saved.removed.map(({ id, version, versionNonce }) => ({ id, version, versionNonce }));
+    await Board.updateOne({ _id: boardId }, { $set: { elements, removed: saved.removed } });
   }
-  io?.to(boardId).emit("board:reset", { elements, by: actor?.name ?? null });
+  io?.to(boardId).emit("board:reset", { elements, removed, by: actor?.name ?? null });
   return elements;
-}
-
-// A closed board's elements and tombstones, as a session would hold them.
-function openSessionless(board) {
-  const elements = board?.elements ?? [];
-  return { elements, ...readRemoved(board?.removed, elements) };
 }
 
 /** Comments are only shown to signed-in people. */

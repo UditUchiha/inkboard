@@ -1,5 +1,16 @@
 import { useSyncExternalStore } from "react";
-import { applyOperation, copyGroup, FIELD_GROUPS, groupsOf, groupStamps, stampOf, withStamps } from "@inkboard/shared/board-merge";
+import {
+  applyOperation,
+  commitPlan,
+  copyGroup,
+  FIELD_GROUPS,
+  groupsOf,
+  groupStamps,
+  isStamped,
+  planOperation,
+  stampOf,
+  withStamps,
+} from "@inkboard/shared/board-merge";
 import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/board-order";
 
 // Every change to a board is an operation: { upsert: Element[], remove: Removal[] }.
@@ -38,12 +49,27 @@ export function toOperation(pending) {
 const MAX_HISTORY = 200;
 const MERGE_WINDOW_MS = 1000;
 
+// Removed elements' last data is kept (see board-merge.js), up to about this
+// much of it as JSON. Past it the oldest keep only their stamp, as on the server.
+const MAX_BURIED_CHARS = 4_000_000;
+
+/** Tombstones from the stamps the server sends with a board: [{ id, version, versionNonce }]. */
+function tombstonesFrom(removed) {
+  const tombstones = new Map();
+  for (const entry of Array.isArray(removed) ? removed : []) {
+    if (typeof entry?.id === "string" && isStamped(entry)) tombstones.set(entry.id, stampOf(entry));
+  }
+  return tombstones;
+}
+
 // Holds a board's elements plus a local undo history. History entries store
 // the inverse operation for just the elements a person changed, so undoing
 // never wipes out what collaborators drew in the meantime.
 export function createBoardStore() {
   let elements = [];
   let tombstones = new Map(); // removed element id -> { version, versionNonce, element }
+  let buried = new Map(); // removed element id -> size of the data its tombstone keeps, oldest first
+  let buriedChars = 0;
   let undoStack = [];
   let redoStack = [];
   let snapshot = { elements, canUndo: false, canRedo: false };
@@ -105,10 +131,39 @@ export function createBoardStore() {
     return stamped.upsert.length > 0 || stamped.remove.length > 0 ? stamped : null;
   }
 
+  // Takes in an operation (see board-merge.js), keeping the data tombstones hold within MAX_BURIED_CHARS.
+  function take(op) {
+    const plan = planOperation(elements, op, tombstones);
+    elements = commitPlan(plan, tombstones).elements;
+    for (const [id, tombstone] of plan.graves) {
+      buriedChars -= buried.get(id) ?? 0;
+      buried.delete(id);
+      if (tombstone?.element) {
+        const size = JSON.stringify(tombstone.element).length;
+        buried.set(id, size);
+        buriedChars += size;
+      }
+    }
+    for (const [id, size] of buried) {
+      if (buriedChars <= MAX_BURIED_CHARS) break;
+      const { element: _data, ...stamp } = tombstones.get(id);
+      tombstones.set(id, stamp);
+      buried.delete(id);
+      buriedChars -= size;
+    }
+  }
+
+  // The server's copy is the reference: its tombstones (stamps) replace ours.
+  function startRemoved(removed) {
+    tombstones = tombstonesFrom(removed);
+    buried = new Map();
+    buriedChars = 0;
+  }
+
   function apply(op, { base } = {}) {
     const stamped = stamp(op, base);
     if (!stamped) return;
-    elements = applyOperation(elements, stamped, tombstones);
+    take(stamped);
     publish();
     broadcast(stamped);
   }
@@ -139,26 +194,31 @@ export function createBoardStore() {
       broadcast = fn;
     },
 
-    /** Replace everything and forget history (first load). */
-    load(next) {
+    /**
+     * Replace everything and forget history (first load). `removed` are the
+     * stamps of what was removed from the board lately, as the server sends them.
+     */
+    load(next, removed = []) {
       elements = inStackOrder(next);
-      tombstones = new Map();
+      startRemoved(removed);
       undoStack = [];
       redoStack = [];
       publish();
     },
     /**
-     * Reconnected: the board as the server has it, with `unsent` (changes made
-     * here that it hasn't confirmed) on top. History is kept.
+     * Reconnected: the board as the server has it (with `removed`, as for
+     * load), with `unsent` (changes made here that it hasn't confirmed) on top.
+     * History is kept.
      */
-    rejoin(next, unsent = { upsert: [], remove: [] }) {
-      tombstones = new Map();
-      elements = applyOperation(inStackOrder(next), unsent, tombstones);
+    rejoin(next, unsent = { upsert: [], remove: [] }, removed = []) {
+      elements = inStackOrder(next);
+      startRemoved(removed);
+      take(unsent);
       publish();
     },
     /** Apply a collaborator's change. */
     applyRemote(op) {
-      elements = applyOperation(elements, op, tombstones);
+      take(op);
       publish();
     },
     /**

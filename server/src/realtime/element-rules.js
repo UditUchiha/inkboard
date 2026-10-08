@@ -1,4 +1,4 @@
-import { cleanStamps, groupStamps, withStamps } from "@inkboard/shared/board-merge";
+import { cleanStamps, groupStamps, isNonce, isVersion, withStamps } from "@inkboard/shared/board-merge";
 import { isOrderKey } from "@inkboard/shared/board-order";
 import { IMAGE_ID } from "../services/image-storage.js";
 
@@ -113,12 +113,11 @@ export function cleanElement(element) {
   if (isOrderKey(element.index)) clean.index = element.index;
   // Which edit of the element, and of each group of its properties, this is
   // (see shared/src/board-merge.js). Brought into shape: `version` is the newest
-  // stamp and `stamps` lists only older ones.
-  if (Number.isSafeInteger(element.version) && element.version >= 0) {
+  // stamp and `stamps` lists only older ones. One that isn't a version (past
+  // MAX_VERSION, say) is dropped, and the change is stamped as the newest edit.
+  if (isVersion(element.version)) {
     clean.version = element.version;
-    if (Number.isInteger(element.versionNonce) && element.versionNonce >= 0 && element.versionNonce < 2 ** 31) {
-      clean.versionNonce = element.versionNonce;
-    }
+    if (isNonce(element.versionNonce)) clean.versionNonce = element.versionNonce;
     const stamps = cleanStamps(element.stamps);
     if (stamps) clean.stamps = stamps;
     return withStamps(clean, groupStamps(clean));

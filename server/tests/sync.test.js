@@ -139,6 +139,24 @@ describe("changes that cross", () => {
     assert.deepEqual((await Board.findById(id).lean()).elements, [], "it stays removed");
   });
 
+  it("keep a late change to a removed element hidden on a screen that opened the board after the removal", async () => {
+    const { editor, id, a, b } = await pair({ sync: SYNC_FORMAT });
+    const start = at(1, 0);
+    await a.op(id, upsert(start));
+    await a.op(id, { upsert: [], remove: [{ id: "x", version: 3, versionNonce: 0 }] });
+    const late = await app.connect(editor);
+    const joined = await late.join(id, { sync: SYNC_FORMAT });
+    assert.deepEqual(joined.removed, [{ id: "x", version: 3, versionNonce: 0 }], "it's told what was removed");
+
+    const stale = edit(start, ["stroke"], { version: 2, versionNonce: 1 }, { stroke: "#2f9e44" });
+    assert.equal((await b.op(id, upsert(stale))).ok, true, "a color picked before the removal arrived");
+    await eventually(() => late.of("board:op").length === 1, { message: "the late color reaching the new screen" });
+    const { op } = late.last("board:op");
+    const tombstones = new Map(joined.removed.map(({ id: removedId, ...stamp }) => [removedId, stamp]));
+    assert.deepEqual(applyOperation(joined.board.elements, op, tombstones), [], "it stays hidden");
+    assert.deepEqual(applyOperation([], op, new Map()), [], "even on a screen that knows nothing of the removal");
+  });
+
   it("settle on the same winner for everyone, whichever reaches the server first", async () => {
     const { id, a, b } = await pair();
     await a.op(id, upsert(at(1, 0)));
@@ -247,6 +265,8 @@ describe("restoring a version", () => {
     const restored = await app.request(`/boards/${id}/versions/${saved.data.version.id}/restore`, { method: "POST", user: owner });
     assert.deepEqual(restored.data.elements.map((element) => element.id), ["kept"]);
     assert.ok(restored.data.elements[0].version >= RESTORE_LEAD, "stamped well ahead");
+    await eventually(() => a.of("board:reset").length === 1, { message: "the restore reaching the screen" });
+    assert.deepEqual(a.last("board:reset").removed.map((removal) => removal.id), ["added"], "with what it removed");
 
     // Edits from before the restore, still on their way.
     await a.op(id, upsert({ ...rect("kept", 999), index: "a0", version: 40, versionNonce: 0 }));
@@ -379,6 +399,17 @@ describe("size limits", () => {
     await settle();
     assert.equal(watcher.of("board:op").length, 0, "the whole operation was refused, including the small element");
     assert.equal((await Board.findById(id).lean()).elements.length, 0);
+  });
+
+  it("rejects an oversized change to a removed element, though it wouldn't be on the board", async () => {
+    const { id, guest, watcher } = await guestOnEditableLink();
+    await guest.op(id, upsert({ ...stroke("gone", 1_000), version: 1, versionNonce: 0 }));
+    await guest.op(id, { upsert: [], remove: [{ id: "gone", version: 5, versionNonce: 0 }] });
+    await eventually(() => watcher.of("board:op").length === 2, { message: "the stroke and its removal" });
+    const result = await guest.op(id, upsert({ ...stroke("gone", MAX_ELEMENT_BYTES + 50_000), version: 2, versionNonce: 0 }));
+    assert.deepEqual(result, { ok: false, tooLarge: true });
+    await settle();
+    assert.equal(watcher.of("board:op").length, 2, "nobody is sent it");
   });
 
   it("stops a board growing past what the database can store, and keeps saving what it has", async () => {
@@ -517,8 +548,11 @@ describe("operation rules", () => {
     assert.equal(sanitizeOperation({ upsert: [{ id: "x" }], remove: [] }), null);
     assert.deepEqual(sanitizeOperation({ upsert: [rect("ok")], remove: ["a"] }), { upsert: [rect("ok")], remove: [{ id: "a" }] });
     assert.deepEqual(
-      sanitizeOperation({ upsert: [], remove: [{ id: "b", version: 3, versionNonce: 9, extra: 1 }, { id: "c", version: -1 }] }).remove,
-      [{ id: "b", version: 3, versionNonce: 9 }, { id: "c" }],
+      sanitizeOperation({
+        upsert: [],
+        remove: [{ id: "b", version: 3, versionNonce: 9, extra: 1 }, { id: "c", version: -1 }, { id: "d", version: 2 ** 53 - 1, versionNonce: 0 }],
+      }).remove,
+      [{ id: "b", version: 3, versionNonce: 9 }, { id: "c" }, { id: "d" }],
     );
     assert.equal(sanitizeOperation({ upsert: "x", remove: 5 }), null);
   });

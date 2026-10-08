@@ -130,6 +130,39 @@ describe("a board store", () => {
     assert.deepEqual(ids(store), ["fresh"]);
   });
 
+  it("undoes a removal after a reconnect: the undo wins over the removal, and the element goes back where it was", () => {
+    const store = createBoardStore();
+    const sent = [];
+    store.setBroadcaster((op) => sent.push(op));
+    for (const id of ["a", "b", "c"]) store.commit({ undo: { remove: [id] }, redo: { upsert: [rect(id)] } });
+    const a = store.getElement("a");
+    store.commit({ undo: { upsert: [a] }, redo: { remove: ["a"] } });
+    const [removal] = sent.at(-1).remove;
+
+    // The server has the removal; the connection drops and comes back.
+    const server = store.getElements();
+    store.rejoin(server, undefined, [removal]);
+    store.undo();
+    const [back] = sent.at(-1).upsert;
+    assert.ok(back.version > removal.version, "stamped past the removal, so the server takes it too");
+    assert.deepEqual(ids(store), ["a", "b", "c"]);
+    const tombstones = new Map([["a", { version: removal.version, versionNonce: removal.versionNonce }]]);
+    assert.deepEqual(applyOperation(server, sent.at(-1), tombstones).map((element) => element.id), ["a", "b", "c"]);
+  });
+
+  it("keeps something removed while this screen was offline removed, even with an unsent change to it", () => {
+    const store = createBoardStore();
+    const sent = [];
+    store.setBroadcaster((op) => sent.push(op));
+    store.load([{ ...stamped(rect("x"), 1), index: "a0" }]);
+    const x = store.getElement("x");
+    store.commit({ undo: { upsert: [x] }, redo: { upsert: [{ ...x, stroke: "#ff0000" }] } });
+
+    // Meanwhile someone else removed it, after the version this change was made from.
+    store.rejoin([], sent.at(-1), [{ id: "x", version: 5, versionNonce: 0 }]);
+    assert.deepEqual(ids(store), []);
+  });
+
   it("notifies subscribers when something changes, and stops after unsubscribing", () => {
     const store = createBoardStore();
     let calls = 0;

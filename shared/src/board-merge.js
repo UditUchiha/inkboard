@@ -45,8 +45,13 @@ const ALWAYS = ["shape", "index"];
 const OPTIONAL = Object.keys(FIELD_GROUPS).filter((group) => !ALWAYS.includes(group));
 const META = new Set(["id", "version", "versionNonce", "stamps"]);
 
-const isVersion = (value) => Number.isSafeInteger(value) && value >= 0;
-const isNonce = (value) => Number.isInteger(value) && value >= 0 && value < 2 ** 31;
+// Far beyond any real board (each edit adds one), and far below where numbers
+// stop being exact. A version past it is refused, or one change could put an
+// element where no later version can follow it.
+export const MAX_VERSION = 2 ** 48;
+
+export const isVersion = (value) => Number.isSafeInteger(value) && value >= 0 && value <= MAX_VERSION;
+export const isNonce = (value) => Number.isInteger(value) && value >= 0 && value < 2 ** 31;
 
 /** The stamp of an element (its newest), or of a removal. Missing parts count as 0. */
 export const stampOf = (stamped) => ({
@@ -232,26 +237,33 @@ export function planOperation(elements, { upsert = [], remove = [] }, tombstones
 /**
  * What a plan changed, as an operation to pass on to everyone else. That
  * includes changes to removed elements: if one comes back later, everyone must
- * bring back the same thing.
+ * bring back the same thing. Each goes with its removal, so a screen that
+ * doesn't know about the removal (it opened the board since) keeps it hidden too.
  */
 export function effectOf(plan) {
+  const remove = new Map(plan.hidden);
+  for (const id of plan.buried.keys()) {
+    if (remove.has(id)) continue;
+    const { version, versionNonce } = plan.graves.get(id);
+    remove.set(id, { version, versionNonce });
+  }
   return {
     upsert: [...plan.shown.values(), ...plan.buried.values()],
-    remove: [...plan.hidden].map(([id, stamp]) => ({ id, ...stamp })),
+    remove: [...remove].map(([id, stamp]) => ({ id, ...stamp })),
   };
 }
 
 /**
  * Carries out a plan: updates `tombstones` and returns the board's new
  * elements, sorted. At most `limit` elements are kept: new ones past it are
- * dropped (and listed in `dropped`).
+ * dropped (and listed in `dropped`). One dropped on its way back from being
+ * removed stays removed, tombstone and all, and its entry leaves `plan.graves`.
  */
 export function commitPlan(plan, tombstones, { limit = Infinity } = {}) {
-  for (const [id, tombstone] of plan.graves) {
-    if (tombstone) tombstones.set(id, tombstone);
-    else tombstones.delete(id);
+  if (plan.shown.size === 0 && plan.hidden.size === 0) {
+    setGraves(plan.graves, tombstones);
+    return { elements: plan.elements, dropped: [] };
   }
-  if (plan.shown.size === 0 && plan.hidden.size === 0) return { elements: plan.elements, dropped: [] };
   const next = [];
   let reorder = false;
   for (const element of plan.elements) {
@@ -266,8 +278,17 @@ export function commitPlan(plan, tombstones, { limit = Infinity } = {}) {
     else next.push(plan.live.get(id));
     reorder = true;
   }
+  for (const id of dropped) plan.graves.delete(id);
+  setGraves(plan.graves, tombstones);
   if (reorder) next.sort(compareOrder);
   return { elements: next, dropped };
+}
+
+function setGraves(graves, tombstones) {
+  for (const [id, tombstone] of graves) {
+    if (tombstone) tombstones.set(id, tombstone);
+    else tombstones.delete(id);
+  }
 }
 
 /**

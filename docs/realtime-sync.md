@@ -8,7 +8,7 @@ The rules live in one place, [`shared/src/board-merge.js`](../shared/src/board-m
 
 A change is an operation: `{ upsert: Element[], remove: Removal[] }`.
 
-Each change carries a **stamp**: a `version` (one past the newest the person making it had seen) and a random `versionNonce`. Of two stamps, the higher version is newer; for the same version, the lower nonce. Every replica compares stamps the same way, so they all pick the same winner.
+Each change carries a **stamp**: a `version` (one past the newest the person making it had seen) and a random `versionNonce`. Of two stamps, the higher version is newer; for the same version, the lower nonce. Every replica compares stamps the same way, so they all pick the same winner. A version is at most `MAX_VERSION` (2^48); the server drops a bigger one and stamps the change itself, so no element can be put where later edits can't follow.
 
 ## Property groups
 
@@ -44,7 +44,7 @@ A removal `{ id, version, versionNonce }` hides an element if it's newer than ev
 - a change made before the removal and arriving after it doesn't bring the element back, but is remembered in the tombstone;
 - a newer change brings it back (an undo, or an edit by someone who hadn't seen the removal), merged with what the tombstone remembers.
 
-The server passes on every change it takes in, including changes to removed elements, so that whoever brings an element back brings back the same thing everywhere.
+The server passes on every change it takes in, including changes to removed elements, so that whoever brings an element back brings back the same thing everywhere. A change to a removed element goes out together with its removal, so a screen that doesn't know about the removal keeps the element hidden too.
 
 ## Stacking order
 
@@ -57,16 +57,18 @@ For each `board:op` the server ([`realtime/index.js`](../server/src/realtime/ind
 1. **cleans** the elements ([`element-rules.js`](../server/src/realtime/element-rules.js));
 2. **prepares** the operation (`prepareOperation`): gives new elements without a key a place on top, and handles browsers still running an older app, which say so by not sending `sync: 2` when they join. Their elements are taken whole at their version, and ones without a version are stamped as the newest edit;
 3. **plans** it with the shared rules, without changing anything (`planOperation`);
-4. **checks sizes** against what would actually change (`admit`);
+4. **checks sizes** against what would actually change (`admit`), including changes to removed elements, each of which must fit as an element;
 5. **commits** it and passes on what changed (`effectOf`): each element as the server now has it, merged.
 
-Removed elements' data is kept in memory while a board is open, up to 12 MB. Past that the oldest keep only their stamp. Stamps are also **saved with the board** (`removed`, hidden from ordinary queries), for 30 days and up to 2,000, so an edit from someone who was offline while everyone left can't bring back what was removed since.
+Removed elements' data is kept in memory while a board is open, up to 12 MB (a browser keeps up to about 4 MB of it). Past that the oldest keep only their stamp. An element that would come back on a board already at its element cap stays removed, tombstone and all. Stamps are also **saved with the board** (`removed`, hidden from ordinary queries), for 30 days and up to 2,000, so an edit from someone who was offline while everyone left can't bring back what was removed since.
 
 **Restoring a version** stamps the restored elements well ahead of everything else (`RESTORE_LEAD`), and removes what the version doesn't have with removals just as new. Changes still on their way from before the restore can't undo parts of it.
 
-## Reconnecting
+## Opening and reconnecting
 
-A browser that reconnects takes the board as the server has it, with its unsent changes merged on top (`store.rejoin`). It drops its own tombstones, because the server's copy is the reference. A change that fails to send is merged in again before being resent, which is harmless if it's already there.
+When a browser opens a board, the server sends the stamps of what was removed from it lately (`removed`), and the browser starts its tombstones from them (`store.load`). So an undo of a removal is stamped past the removal, and a change to a removed element still on its way can't bring it back on that screen. A restore sends them too (`board:reset`).
+
+A browser that reconnects takes the board as the server has it, with its unsent changes merged on top (`store.rejoin`). Its tombstones are replaced by the server's, because the server's copy is the reference: an unsent change to something removed meanwhile stays hidden, as it does on the server. A change that fails to send is merged in again before being resent, which is harmless if it's already there.
 
 ## Tests
 

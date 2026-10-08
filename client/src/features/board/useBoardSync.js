@@ -111,9 +111,9 @@ export function useBoardSync(boardId, store) {
         setRole(joinedRole);
         if (loaded.current) {
           // Reconnected: keep any edits made while offline on top of the server state.
-          store.rejoin(elements, toOperation(pending.current));
+          store.rejoin(elements, toOperation(pending.current), response.removed);
         } else {
-          store.load(elements);
+          store.load(elements, response.removed);
           loaded.current = true;
         }
         setMeta(boardMeta);
@@ -158,9 +158,9 @@ export function useBoardSync(boardId, store) {
     const onMeta = (next) => setMeta((current) => ({ ...current, ...next }));
     const onDeleted = () => setPhase({ name: "deleted" });
     // Someone restored an earlier version: everything on the board is replaced.
-    const onReset = ({ elements, by }) => {
+    const onReset = ({ elements, removed, by }) => {
       pending.current.clear();
-      store.load(elements);
+      store.load(elements, removed);
       toast(by ? `${by} restored an earlier version of this board` : "An earlier version of this board was restored");
     };
     const onViewport = (view) => {

@@ -294,8 +294,9 @@ export function BoardCanvas({
       }
       case "draw": {
         const next = g.element.type === "pen" ? extendStroke(g.element, event, vp) : resizeShape(g.element, world, event.shiftKey);
+        // Made from the step before, so a color someone picks mid-draw isn't painted over.
+        store.apply({ upsert: [next] }, { base: [g.element] });
         g.element = next;
-        store.apply({ upsert: [next] });
         return;
       }
       case "erase":
