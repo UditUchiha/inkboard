@@ -92,6 +92,7 @@ To use your own database instead, such as a free MongoDB Atlas cluster, copy `se
 | `npm test` | Runs the client and server tests (see below) |
 | `npm run build` | Builds the client into `client/dist` |
 | `npm start` | Runs the production server, which also serves the built client |
+| `npm run format` | Formats the code with Prettier (`npm run format:check` only checks) |
 
 ### Tests
 
@@ -99,9 +100,13 @@ To use your own database instead, such as a free MongoDB Atlas cluster, copy `se
 
 - **Server (`server/tests`)** starts the real app on a free port against a throwaway in-memory MongoDB, then drives it over REST and Socket.IO. It covers sign-up and login, who can open and edit a board (owner, invited editor, link viewer, link contributor, guest) including changes that apply live to people already on the board, the dashboard (link-opened boards, archive, stars, trash and its 30-day sweep), live sync and saving, size limits, image upload and the rules around it, version history, comments, notifications and templates. The first run downloads a MongoDB binary, which can take a minute.
 - **Client (`client/tests`)** covers the undo and redo store, the dashboard's section and sort rules, the resize and turn maths, and how pictures are sized and placed.
-- **Shared (`shared/tests`)** checks the merge rules, including that the same changes give the same board in whatever order they arrive. A server test plays three people editing with the real browser store and server rules, with messages delivered in random order, and expects every screen to match the server.
+- **Shared (`shared/tests`)** checks the stacking order and the merge rules, including that the same changes give the same board in whatever order they arrive. A server test plays three people editing with the real browser store and server rules, with messages delivered in random order, and expects every screen to match the server.
 
-GitHub Actions runs the tests and the build on every push and pull request (`.github/workflows/ci.yml`).
+GitHub Actions checks the formatting and runs the tests and the build on every push and pull request (`.github/workflows/ci.yml`).
+
+### Formatting
+
+Code, styles and config are formatted with Prettier (`.prettierrc.json`, 120 columns); Markdown is laid out by hand. Run `npm run format` before committing, or turn on format-on-save in your editor. The commit that first formatted everything is listed in `.git-blame-ignore-revs`; run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame` looks past it.
 
 ## Environment variables
 

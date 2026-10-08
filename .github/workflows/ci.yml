@@ -1,5 +1,6 @@
-# Runs the tests and the production build on every push and pull request, so a
-# change that breaks sharing, saving or the build is caught before it is merged.
+# Checks formatting, then runs the tests and the production build on every push
+# and pull request, so a change that breaks sharing, saving or the build is
+# caught before it is merged.
 name: CI
 
 on:
@@ -19,6 +20,9 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Formatting
+        run: npm run format:check
 
       # The server tests start a throwaway MongoDB. Cache its download between runs.
       - uses: actions/cache@v4
