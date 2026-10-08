@@ -1,0 +1,5 @@
+# Prettier also skips everything in .gitignore.
+package-lock.json
+
+# Prose is wrapped and tables are laid out by hand; Prettier would pad every table.
+*.md
