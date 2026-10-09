@@ -28,7 +28,7 @@ import { compareOrder } from "./board-order.js";
 // newer change (an undo, say) can, and merges with what was there.
 
 export const FIELD_GROUPS = {
-  // A connector's ends and the shapes they're attached to change together.
+  // A connector's ends and the shapes (and sides) they're attached to change together.
   shape: [
     "type",
     "seed",
@@ -39,6 +39,8 @@ export const FIELD_GROUPS = {
     "y2",
     "startId",
     "endId",
+    "startAnchor",
+    "endAnchor",
     "points",
     "pressure",
     "angle",
@@ -52,6 +54,8 @@ export const FIELD_GROUPS = {
   sketchy: ["sketchy"],
   font: ["font"],
   name: ["name"],
+  route: ["route"],
+  startHead: ["startHead"],
   index: ["index"],
 };
 // Every field an element can have belongs to exactly one group. A field that

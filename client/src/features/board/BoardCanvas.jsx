@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useElementSize } from "../../lib/useElementSize";
 import { useTheme } from "../../providers/ThemeProvider";
-import { attachEnd, connectTargetAt, drawnElement, isConnector, readyToMove, resolveConnectors } from "./connectors";
+import { attachEnd, connectionAt, drawnElement, isConnector, readyToMove, resolveConnectors } from "./connectors";
 import { ERASER_RADIUS, GRID_SIZE, HIT_TOLERANCE, MAX_ZOOM, MIN_ZOOM } from "./constants";
 import {
   createElement,
@@ -45,6 +45,13 @@ function gridStyle(viewport) {
   };
 }
 
+// What to show for connecting: the shape a connector end being drawn would
+// attach to (`outline`), and the shape whose connection dots to show (`dots`: { id, side }).
+const NO_HINT = { outline: null, dots: null };
+const sameHint = (a, b) =>
+  a.outline === b.outline && a.dots?.id === b.dots?.id && (a.dots?.side ?? null) === (b.dots?.side ?? null);
+const CONNECTOR_TOOLS = new Set(["select", "arrow", "line"]);
+
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
@@ -76,7 +83,7 @@ export function BoardCanvas({
   const [hovering, setHovering] = useState(false);
   const [handle, setHandle] = useState(null); // the resize or turn handle under the pointer, or being dragged
   const [turning, setTurning] = useState(false);
-  const [connectTarget, setConnectTarget] = useState(null); // the shape a connector end being drawn would attach to
+  const [hint, setHint] = useState(NO_HINT); // see NO_HINT
   const gesture = useRef(null);
   const pointers = useRef(new Map());
 
@@ -104,19 +111,52 @@ export function BoardCanvas({
       hiddenId: editingId,
       dark: theme === "dark",
       screenLabels: true,
-      connectTargetId: connectTarget,
+      connectTargetId: hint.outline,
+      dots: hint.dots,
     });
-  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme, connectTarget]);
+  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme, hint]);
+
+  const showHint = (next) => setHint((current) => (sameHint(current, next) ? current : next));
+
+  // Dots shown for a tool that's been put away would only get in the way.
+  useEffect(() => {
+    setHint(NO_HINT);
+  }, [tool]);
 
   // What's under a point, frame names included (they're sized on screen).
   const pick = (world, vp) =>
     elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom, { labelScale: 1 / vp.zoom });
 
-  // The shape a connector end at `world` would attach to (never `except`, the other end's), and show it.
+  // What a connector end at `world` would attach to (never `except`, the other end's): { target, side },
+  // see connectionAt.
+  const connectionUnder = (world, vp, except) =>
+    connectionAt(store.getElements(), world, { zoom: vp.zoom, tolerance: HIT_TOLERANCE / vp.zoom, except });
+
+  // The same, shown while a connector end is drawn or dragged.
   function connectAt(world, vp, except) {
-    const target = connectTargetAt(store.getElements(), world, HIT_TOLERANCE / vp.zoom, { except });
-    setConnectTarget(target?.id ?? null);
-    return target;
+    const found = connectionUnder(world, vp, except);
+    const id = found.target?.id ?? null;
+    showHint({ outline: id, dots: id && { id, side: found.side } });
+    return found;
+  }
+
+  // Connection dots on the shape under the pointer, for the tools that make
+  // connectors. The selected shape has its own handles there instead.
+  function hoverDots(world, vp) {
+    const { tool: activeTool, selectedId: selection } = latest.current;
+    const found = CONNECTOR_TOOLS.has(activeTool) ? connectionUnder(world, vp) : null;
+    const id = found?.target?.id;
+    if (!id || (activeTool === "select" && id === selection)) showHint(NO_HINT);
+    else showHint({ outline: null, dots: { id, side: found.side } });
+  }
+
+  // A connector drawn from `world`: attached to the shape there, and pinned to its side if it's on a dot.
+  function startConnector(type, world, vp, style, { select = false } = {}) {
+    const { target, side } = connectAt(world, vp);
+    const element = attachEnd(createElement(type, world, style), "start", target, side);
+    gesture.current = { kind: "draw", element, select };
+    onSelect(null);
+    store.apply({ upsert: [element] });
   }
 
   // The selected element as it's drawn (a connector's ends where its shapes are).
@@ -203,12 +243,13 @@ export function BoardCanvas({
     setPanning(false);
     if (!g) return;
 
-    setConnectTarget(null);
+    setHint(NO_HINT);
     if (g.kind === "draw") {
       if (cancelled || isDegenerate(g.element)) store.apply({ remove: [g.element.id] });
       else {
         store.record({ undo: { remove: [g.element.id] }, redo: { upsert: [g.element] } });
         if (g.element.type === "frame") onFrameDrawn?.(g.element.id);
+        if (g.select) onSelect(g.element.id);
       }
     } else if (g.kind === "erase" && g.erased.size > 0) {
       const released = [...g.released.keys()].filter((id) => !g.erased.has(id));
@@ -290,6 +331,12 @@ export function BoardCanvas({
           setTurning(grabbed === "rotate");
           return;
         }
+        // Dragging from a shape's connection dot draws an arrow out of that side.
+        const { target, side } = connectionUnder(world, vp);
+        if (side && target.id !== latest.current.selectedId) {
+          startConnector("arrow", world, vp, activeStyle, { select: true });
+          return;
+        }
         const hit = pick(world, vp);
         onSelect(hit?.id ?? null);
         if (hit) {
@@ -323,11 +370,14 @@ export function BoardCanvas({
         else onEditText({ element: createNote(world, activeStyle), isNew: true });
         return;
       }
+      case "arrow":
+      case "line":
+        startConnector(activeTool, world, vp, activeStyle);
+        return;
       default: {
         const pressure = event.pointerType === "pen" ? event.pressure : undefined;
-        let element = createElement(activeTool, world, activeStyle, pressure);
+        const element = createElement(activeTool, world, activeStyle, pressure);
         if (element.type === "frame") element.name = nextFrameName(store.getElements());
-        if (isConnector(element)) element = attachEnd(element, "start", connectAt(world, vp));
         gesture.current = { kind: "draw", element };
         onSelect(null);
         store.apply({ upsert: [element] });
@@ -344,13 +394,16 @@ export function BoardCanvas({
 
     const g = gesture.current;
     if (!g) {
+      let overHandle = null;
       if (latest.current.tool === "select") {
         const selected = drawnSelected();
-        const overHandle = selected ? handleAt(selected, world, vp.zoom) : null;
+        overHandle = selected ? handleAt(selected, world, vp.zoom) : null;
         if (overHandle !== latest.current.handle) setHandle(overHandle);
         const over = !overHandle && Boolean(pick(world, vp));
         if (over !== latest.current.hovering) setHovering(over);
       }
+      if (overHandle) showHint(NO_HINT);
+      else hoverDots(world, vp);
       return;
     }
 
@@ -377,7 +430,10 @@ export function BoardCanvas({
       case "draw": {
         let next =
           g.element.type === "pen" ? extendStroke(g.element, event, vp) : resizeShape(g.element, world, event.shiftKey);
-        if (isConnector(next)) next = attachEnd(next, "end", connectAt(world, vp, next.startId));
+        if (isConnector(next)) {
+          const { target, side } = connectAt(world, vp, next.startId);
+          next = attachEnd(next, "end", target, side);
+        }
         // Made from the step before, so a color someone picks mid-draw isn't painted over.
         store.apply({ upsert: [next] }, { base: [g.element] });
         g.element = next;
@@ -402,7 +458,8 @@ export function BoardCanvas({
         // A connector's end attaches to whatever it's dropped on, and lets go elsewhere.
         if (g.handle === "start" || g.handle === "end") {
           const other = g.handle === "start" ? next.endId : next.startId;
-          next = attachEnd(next, g.handle, connectAt(world, vp, other));
+          const { target, side } = connectAt(world, vp, other);
+          next = attachEnd(next, g.handle, target, side);
         }
         store.apply({ upsert: [next] }, { base: [g.current ?? g.original] });
         g.current = next;
@@ -428,6 +485,8 @@ export function BoardCanvas({
     const world = toWorld(vp, screen.x, screen.y);
     const hit = pick(world, vp);
     if (hit?.type === "text" || hit?.type === "sticky") onEditText({ element: hit, isNew: false });
+    // A line's or arrow's label is typed where it's drawn, halfway along.
+    else if (hit && isConnector(hit)) onEditText({ element: store.getElement(hit.id), isNew: false });
   }
 
   let cursor = "crosshair";
@@ -436,7 +495,8 @@ export function BoardCanvas({
   else if (tool === "select" && handle) {
     const selected = selectedId ? store.getElement(selectedId) : null;
     cursor = turning ? "grabbing" : cursorForHandle(handle, selected?.angle ?? 0);
-  } else if (tool === "select") cursor = hovering ? "move" : "default";
+  } else if (tool === "select" && hint.dots?.side) cursor = "crosshair";
+  else if (tool === "select") cursor = hovering ? "move" : "default";
   else if (tool === "text") cursor = "text";
   else if (tool === "comment") cursor = "copy";
   else if (tool === "eraser") cursor = ERASER_CURSOR;
@@ -451,7 +511,10 @@ export function BoardCanvas({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        onPointerLeave={() => onCursorMove(null)}
+        onPointerLeave={() => {
+          onCursorMove(null);
+          if (!gesture.current) setHint(NO_HINT);
+        }}
         onMouseDown={(event) => event.preventDefault()}
         onDoubleClick={handleDoubleClick}
         aria-label="Drawing canvas"

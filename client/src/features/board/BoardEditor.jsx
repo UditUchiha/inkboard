@@ -44,7 +44,7 @@ import { BoardCanvas } from "./BoardCanvas";
 import { CommentsLayer } from "./CommentsLayer";
 import { BoardFileError, isBoardFile, parseBoardFile, placeElements } from "./boardFile";
 import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, NUMBERED_TOOLS, TOOLS } from "./constants";
-import { copyGroup, moveGroup } from "./connectors";
+import { copyGroup, drawnElement, isConnector, moveGroup } from "./connectors";
 import { createImage, getSceneBounds, isFrame, stackKey, withContents } from "./elements";
 import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
 import { fitViewport, toWorld, zoomAround } from "./geometry";
@@ -57,7 +57,8 @@ import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { useBoardSnapshot } from "./store";
-import { NoteEditor, TextEditor } from "./TextEditor";
+import { connectorPath, pathMiddle } from "./routes";
+import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
 import { useFollow } from "./useFollow";
 import { useThreads } from "./useThreads";
@@ -550,7 +551,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
       i: () => canAddImages && fileInput.current?.click(),
       enter: () => {
         const element = selectedId && store.getElement(selectedId);
-        if (element?.type === "text" || element?.type === "sticky") setEditing({ element, isNew: false });
+        const editable = element?.type === "text" || element?.type === "sticky" || (element && isConnector(element));
+        if (editable) setEditing({ element, isNew: false });
       },
       "?": () => setDialog("shortcuts"),
       "!": fitToScreen, // Shift + 1
@@ -603,8 +605,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
     const { element, isNew } = editing;
     setEditing(null);
     const value = text.trimEnd();
-    // An empty sticky note is still a note; empty text is nothing.
-    const keepEmpty = element.type === "sticky";
+    // An empty sticky note is still a note, and an arrow without a label still an arrow; empty text is nothing.
+    const keepEmpty = element.type === "sticky" || isConnector(element);
     if (isNew) {
       if (!value.trim() && !keepEmpty) return;
       const created = { ...element, text: value };
@@ -612,7 +614,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
       return;
     }
     const current = store.getElement(element.id) ?? element;
-    if (value === current.text) return;
+    if (value === (current.text ?? "")) return;
     if (!value.trim() && !keepEmpty) {
       store.commit({ undo: { upsert: [current] }, redo: { remove: [current.id] } });
     } else {
@@ -731,7 +733,15 @@ export function BoardEditor({ store, sync, user, local = null }) {
       )}
 
       {editing &&
-        (editing.element.type === "sticky" ? (
+        (isConnector(editing.element) ? (
+          <LabelEditor
+            key={editing.element.id}
+            element={editing.element}
+            middle={pathMiddle(connectorPath(drawnElement(elements, editing.element.id) ?? editing.element))}
+            viewport={viewport}
+            onCommit={commitText}
+          />
+        ) : editing.element.type === "sticky" ? (
           <NoteEditor key={editing.element.id} element={editing.element} viewport={viewport} onCommit={commitText} />
         ) : (
           <TextEditor key={editing.element.id} element={editing.element} viewport={viewport} onCommit={commitText} />

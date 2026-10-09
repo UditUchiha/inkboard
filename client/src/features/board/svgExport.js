@@ -7,9 +7,9 @@ import {
   LINE_HEIGHT,
   NOTE_TEXT_COLOR,
 } from "./constants";
-import { resolveConnectors } from "./connectors";
-import { canRotate, frameLabel, getLocalBounds, getSceneBounds, inDrawOrder, isFrame } from "./elements";
-import { normalizeRect, rectCenter } from "./geometry";
+import { isConnector, resolveConnectors } from "./connectors";
+import { canRotate, connectorLabel, frameLabel, getBounds, getLocalBounds, inDrawOrder, isFrame } from "./elements";
+import { expandRect, normalizeRect, rectCenter, unionRects } from "./geometry";
 import { noteLayout } from "./notes";
 import { penOutline, shapePaths } from "./renderer";
 
@@ -96,7 +96,40 @@ function pictureSvg(element, images) {
   return `<image ${box} preserveAspectRatio="none" href="${xml(href)}"/>`;
 }
 
-function elementSvg(element, { images, baselines }) {
+const shapeSvg = (element) =>
+  shapePaths(element)
+    .map(
+      (path) =>
+        `<path d="${path.d}" stroke="${xml(path.stroke)}" stroke-width="${num(path.strokeWidth)}" fill="${xml(path.fill ?? "none")}"/>`,
+    )
+    .join("");
+
+// A line or arrow broken around its label (clipped to everything but the
+// label's box, named `clipId`), and the label, as the canvas draws them.
+function connectorSvg(element, baselines, clipId) {
+  const label = connectorLabel(element);
+  if (!label) return shapeSvg(element);
+  const around = expandRect(getBounds(element), 8);
+  const rect = ({ x, y, width, height }) => `M${num(x)} ${num(y)}h${num(width)}v${num(height)}h${num(-width)}Z`;
+  const font = fontKey(element.font);
+  const lineHeight = label.fontSize * LINE_HEIGHT;
+  const top = label.y + (label.height - label.lines.length * lineHeight) / 2 + (lineHeight - label.fontSize) / 2;
+  const baseline = (baselines[font] ?? FALLBACK_BASELINE) * label.fontSize;
+  const centerX = label.x + label.width / 2;
+  const lines = label.lines
+    .map(
+      (line, index) =>
+        `<tspan x="${num(centerX)}" y="${num(top + baseline + index * lineHeight)}">${xml(line)}</tspan>`,
+    )
+    .join("");
+  return [
+    `<clipPath id="${clipId}"><path clip-rule="evenodd" d="${rect(around)}${rect(label)}"/></clipPath>`,
+    `<g clip-path="url(#${clipId})">${shapeSvg(element)}</g>`,
+    `<text font-family="${xml(FONTS[font].family)}" font-size="${num(label.fontSize)}" fill="${xml(element.stroke)}" text-anchor="middle" xml:space="preserve">${lines}</text>`,
+  ].join("");
+}
+
+function elementSvg(element, { images, baselines, clipId }) {
   switch (element.type) {
     case "pen":
       return `<path d="${penOutline(element)}" fill="${xml(element.stroke)}"/>`;
@@ -108,13 +141,11 @@ function elementSvg(element, { images, baselines }) {
       return noteSvg(element, baselines);
     case "frame":
       return frameSvg(element);
+    case "line":
+    case "arrow":
+      return connectorSvg(element, baselines, clipId);
     default:
-      return shapePaths(element)
-        .map(
-          (path) =>
-            `<path d="${path.d}" stroke="${xml(path.stroke)}" stroke-width="${num(path.strokeWidth)}" fill="${xml(path.fill ?? "none")}"/>`,
-        )
-        .join("");
+      return shapeSvg(element);
   }
 }
 
@@ -125,7 +156,7 @@ function elementSvg(element, { images, baselines }) {
  */
 export function buildSvg(board, { images = new Map(), fontFaces = "", baselines = {}, background = "#ffffff" } = {}) {
   const elements = resolveConnectors(board);
-  const bounds = getSceneBounds(elements);
+  const bounds = unionRects(elements.map(getBounds));
   if (!bounds) return null;
   const x = bounds.x - SVG_PADDING;
   const y = bounds.y - SVG_PADDING;
@@ -133,7 +164,9 @@ export function buildSvg(board, { images = new Map(), fontFaces = "", baselines 
   const height = bounds.height + SVG_PADDING * 2;
 
   const body = [
-    ...inDrawOrder(elements).map((element) => turned(element, elementSvg(element, { images, baselines }))),
+    ...inDrawOrder(elements).map((element, position) =>
+      turned(element, elementSvg(element, { images, baselines, clipId: `label-gap-${position}` })),
+    ),
     // Frame names go on top, as on the canvas.
     ...elements.filter(isFrame).map((frame) => frameNameSvg(frame, baselines)),
   ].join("\n");
@@ -153,7 +186,8 @@ export function buildSvg(board, { images = new Map(), fontFaces = "", baselines 
 export function fontsUsed(elements) {
   const fonts = new Set();
   for (const element of elements) {
-    if ((element.type === "text" || element.type === "sticky") && element.text) fonts.add(fontKey(element.font));
+    const written = element.type === "text" || element.type === "sticky" || isConnector(element);
+    if (written && element.text) fonts.add(fontKey(element.font));
     if (isFrame(element)) fonts.add("sans");
   }
   return fonts;

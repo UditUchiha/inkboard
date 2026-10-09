@@ -6,6 +6,7 @@ import {
   FONTS,
   NOTE_COLORS,
   PEN_SIZES,
+  ROUTE_OPTIONS,
   STROKE_COLORS,
   STROKE_WIDTHS,
   STYLE_CONTROLS,
@@ -200,6 +201,29 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
         </Section>
       )}
 
+      {controls.includes("route") && (
+        <Section label="Path">
+          <Segmented
+            options={ROUTE_OPTIONS}
+            value={values.route ?? "straight"}
+            onChange={(value) => onChange("route", value)}
+          />
+        </Section>
+      )}
+
+      {controls.includes("startHead") && (
+        <Section label="Arrowheads">
+          <Segmented
+            options={[
+              { name: "End", value: false },
+              { name: "Both ends", value: true },
+            ]}
+            value={Boolean(values.startHead)}
+            onChange={(value) => onChange("startHead", value)}
+          />
+        </Section>
+      )}
+
       {controls.includes("sketchy") && (
         <Section label="Edges">
           <Segmented
@@ -213,8 +237,8 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
         </Section>
       )}
 
-      {controls.includes("font") && (
-        <Section label="Font">
+      {(controls.includes("font") || (controls.includes("labelFont") && values.text)) && (
+        <Section label={controls.includes("labelFont") ? "Label font" : "Font"}>
           <Segmented
             options={Object.entries(FONTS).map(([value, font]) => ({ name: font.name, value }))}
             value={values.font}

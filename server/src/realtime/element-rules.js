@@ -22,6 +22,8 @@ const CONNECTOR_TYPES = new Set(["line", "arrow"]);
 const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
 const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "image", "pen", "text", "sticky"]);
 const FONTS = new Set(["hand", "sans", "code"]);
+const SIDES = new Set(["top", "right", "bottom", "left"]);
+const ROUTES = new Set(["straight", "curved", "elbow"]);
 const COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 const DEFAULTS = {
@@ -59,12 +61,23 @@ function cleanPoints(points) {
 const corner = (element) => isCoordinate(element.x1) && isCoordinate(element.y1);
 const box = (element) => corner(element) && isCoordinate(element.x2) && isCoordinate(element.y2);
 
-// A connector's attachments: ids of other elements. One that's missing later is ignored when drawing.
-function attachments(element) {
+// What a line or arrow has beyond its shape (see client/src/features/board/connectors.js and routes.js):
+// the elements its ends are attached to (one that's missing later is ignored when drawing), and the
+// side of each it's pinned to; its route; an arrowhead at the start; a label and the label's font.
+function connectorFields(element) {
   const kept = {};
-  for (const key of ["startId", "endId"]) {
-    if (isValidId(element[key]) && element[key] !== element.id) kept[key] = element[key];
+  for (const [key, side] of [
+    ["startId", "startAnchor"],
+    ["endId", "endAnchor"],
+  ]) {
+    if (!isValidId(element[key]) || element[key] === element.id) continue;
+    kept[key] = element[key];
+    if (SIDES.has(element[side])) kept[side] = element[side];
   }
+  if (ROUTES.has(element.route)) kept.route = element.route;
+  if (element.type === "arrow" && typeof element.startHead === "boolean") kept.startHead = element.startHead;
+  if (typeof element.text === "string") kept.text = element.text.slice(0, MAX_TEXT_LENGTH);
+  if (FONTS.has(element.font)) kept.font = element.font;
   return kept;
 }
 
@@ -137,8 +150,7 @@ function cleanByType(element) {
       fill: FILLABLE_TYPES.has(type) ? color(element.fill, null) : null,
       strokeWidth: inRange(element.strokeWidth, RANGES.strokeWidth, DEFAULTS.strokeWidth),
       sketchy: element.sketchy !== false,
-      // The shapes a connector's ends are attached to (see client/src/features/board/connectors.js).
-      ...(CONNECTOR_TYPES.has(type) ? attachments(element) : {}),
+      ...(CONNECTOR_TYPES.has(type) ? connectorFields(element) : {}),
     };
   }
   return null;

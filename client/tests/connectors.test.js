@@ -3,17 +3,36 @@ import { describe, it } from "node:test";
 import { FIELD_GROUPS } from "@inkboard/shared/board-merge";
 import {
   CONNECT_GAP,
+  DOT_GAP,
   attachEnd,
   connectTargetAt,
+  connectionAt,
+  connectionDots,
   copyGroup,
+  facingSide,
   moveGroup,
   outlinePoint,
   readyToMove,
   releaseFrom,
   resolveConnectors,
 } from "../src/features/board/connectors.js";
-import { elementAt, frameContents, getSceneBounds } from "../src/features/board/elements.js";
+import {
+  connectorLabel,
+  createElement,
+  elementAt,
+  frameContents,
+  getLocalBounds,
+  getSceneBounds,
+  hitTest,
+} from "../src/features/board/elements.js";
+import { ELBOW_GAP, connectorPath, pathMiddle } from "../src/features/board/routes.js";
 import { createBoardStore } from "../src/features/board/store.js";
+
+// Text is measured with a canvas, which Node doesn't have: a stand-in measures 10 units a character.
+const measuringDocument = {
+  createElement: () => ({ getContext: () => ({ measureText: (value) => ({ width: value.length * 10 }) }) }),
+};
+globalThis.document ??= measuringDocument;
 
 const shape = (id, x1, y1, x2, y2, type = "rectangle", extra = {}) => ({
   id,
@@ -126,9 +145,7 @@ describe("attaching ends", () => {
   it("prefer a shape to the label sitting on it, and take text where there's no shape", () => {
     // Text is measured with a canvas; a stand-in measures 10 units a character.
     const realDocument = globalThis.document;
-    globalThis.document = {
-      createElement: () => ({ getContext: () => ({ measureText: (value) => ({ width: value.length * 10 }) }) }),
-    };
+    globalThis.document = measuringDocument;
     try {
       const label = (id, x) => ({
         id,
@@ -250,5 +267,155 @@ describe("moving, copying and removing with connectors", () => {
       assert.ok(drawn.y2 > 250, "the arrow's end went down with the box");
       assert.equal(store.getElement("link").y2, 10, "the stored arrow didn't change");
     }
+  });
+});
+
+// Each segment of a polyline, as [dx, dy].
+const segments = (points) => points.slice(1).map((point, i) => [point.x - points[i].x, point.y - points[i].y]);
+
+describe("connection dots and pinned ends", () => {
+  it("pin an end to the middle of a side, turned with its shape", () => {
+    const pinned = [
+      shape("a", 0, 0, 100, 100),
+      shape("b", 300, 0, 400, 100),
+      arrow("link", "a", "b", { startAnchor: "bottom", endAnchor: "top" }),
+    ];
+    const drawn = byId(resolveConnectors(pinned), "link");
+    near(drawn.x1, 50);
+    near(drawn.y1, 100 + EDGE);
+    near(drawn.x2, 350);
+    near(drawn.y2, -EDGE);
+    // A quarter turn clockwise brings the top round to the right.
+    pinned[1] = shape("b", 300, 0, 400, 100, "rectangle", { angle: Math.PI / 2 });
+    const turned = byId(resolveConnectors([...pinned]), "link");
+    near(turned.x2, 400 + EDGE);
+    near(turned.y2, 50);
+  });
+
+  it("find the dot under the pointer just outside a shape, and otherwise the shape itself", () => {
+    const elements = [shape("a", 0, 0, 100, 100)];
+    const dots = connectionDots(elements[0], 1);
+    near(dots.right.x, 100 + DOT_GAP + 1, "outside the outline and its stroke");
+    near(connectionDots(elements[0], 2).right.x, 100 + DOT_GAP / 2 + 1, "the same distance on screen when zoomed in");
+    const at = (x, y) => connectionAt(elements, { x, y }, { zoom: 1, tolerance: 6 });
+    assert.deepEqual(at(dots.right.x, 53), { target: elements[0], side: "right" });
+    assert.deepEqual(at(50, 50), { target: elements[0], side: null }, "on the shape: floating");
+    assert.deepEqual(at(50, dots.bottom.y + 2), { target: elements[0], side: "bottom" });
+    assert.deepEqual(at(300, 300), { target: null, side: null });
+    assert.deepEqual(
+      connectionAt(elements, dots.top, { zoom: 1, tolerance: 6, except: "a" }),
+      { target: null, side: null },
+      "not the shape the other end is on",
+    );
+  });
+
+  it("sets and clears the pinned side with the end, and lets go of both together", () => {
+    const pinned = attachEnd(arrow("x", null, null), "end", { id: "b" }, "left");
+    assert.equal(pinned.endAnchor, "left");
+    assert.equal("endAnchor" in attachEnd(pinned, "end", { id: "c" }), false, "dropped on a shape: floating");
+    const loose = attachEnd(pinned, "end", null);
+    assert.equal("endId" in loose || "endAnchor" in loose, false);
+    const [change] = releaseFrom([shape("b", 300, 0, 400, 100), pinned], new Set(["b"]));
+    assert.equal("endAnchor" in change.after, false);
+  });
+
+  it("face the other end when a curved or elbow connector floats on its shapes", () => {
+    const a = shape("a", 0, 0, 100, 100);
+    assert.equal(facingSide(a, { x: 500, y: 60 }), "right");
+    assert.equal(facingSide(a, { x: 50, y: -400 }), "top");
+    const elements = [a, shape("b", 300, 200, 400, 300), arrow("link", "a", "b", { route: "elbow" })];
+    const drawn = byId(resolveConnectors(elements), "link");
+    near(drawn.x1, 100 + EDGE);
+    near(drawn.y1, 50);
+    near(drawn.x2, 300 - EDGE);
+    near(drawn.y2, 250);
+  });
+});
+
+describe("connector paths", () => {
+  const boxes = (b, extra) => [shape("a", 0, 0, 100, 100), b, arrow("link", "a", "b", extra)];
+  const pathOf = (elements) => connectorPath(byId(resolveConnectors(elements), "link"));
+
+  it("are one segment when straight", () => {
+    assert.equal(connectorPath(arrow("x", null, null)).points.length, 2);
+  });
+
+  it("run elbows at right angles, out of one side and into the other", () => {
+    const { points, curved } = pathOf(boxes(shape("b", 300, 200, 400, 300), { route: "elbow" }));
+    assert.equal(curved, false);
+    assert.equal(points.length, 4, "across, down the middle, and across again");
+    for (const [dx, dy] of segments(points)) assert.ok(Math.abs(dx) < 1e-6 || Math.abs(dy) < 1e-6);
+    const steps = segments(points);
+    assert.ok(steps[0][0] > 0, "leaves to the right");
+    assert.ok(steps.at(-1)[0] > 0, "arrives moving right, into the left side");
+  });
+
+  it("go round rather than back through a shape", () => {
+    // Out of a's right side and into b's left side, with b behind a.
+    const { points } = pathOf(
+      boxes(shape("b", -300, 200, -200, 300), { route: "elbow", startAnchor: "right", endAnchor: "left" }),
+    );
+    const steps = segments(points);
+    for (let i = 1; i < steps.length; i += 1) {
+      const [[ax, ay], [bx, by]] = [steps[i - 1], steps[i]];
+      assert.ok(ax * bx + ay * by >= -1e-6, "never turns straight back");
+    }
+    assert.ok(steps[0][0] >= ELBOW_GAP - 1e-6, "runs out of the side before turning");
+    assert.ok(steps.at(-1)[0] >= ELBOW_GAP - 1e-6, "and straight into the other");
+  });
+
+  it("curve out of each end's side and into the other's", () => {
+    const { points, curved } = pathOf(boxes(shape("b", 300, 200, 400, 300), { route: "curved" }));
+    assert.equal(curved, true);
+    const [start, out, into, end] = points;
+    near(out.y, start.y, "leaves straight out to the right");
+    assert.ok(out.x > start.x);
+    near(into.y, end.y, "arrives straight in from the left");
+    assert.ok(into.x < end.x);
+  });
+
+  it("aim free elbow ends along whichever way is further", () => {
+    const free = { ...arrow("x", null, null, { route: "elbow" }), x2: 200, y2: 100 };
+    const { points } = connectorPath(free);
+    assert.deepEqual(
+      points.map(({ x, y }) => [x, y]),
+      [
+        [0, 0],
+        [200, 0],
+        [200, 100],
+      ],
+    );
+    assert.deepEqual(pathMiddle(connectorPath(free)), { x: 150, y: 0 });
+  });
+
+  it("are what new lines and arrows take from the style, with arrowheads at one end or both", () => {
+    const style = { stroke: "#000", strokeWidth: 2, sketchy: false, route: "curved", startHead: true, font: "sans" };
+    const made = createElement("arrow", { x: 0, y: 0 }, style);
+    assert.equal(made.route, "curved");
+    assert.equal(made.startHead, true);
+    assert.equal(made.font, "sans");
+    assert.equal("startHead" in createElement("line", { x: 0, y: 0 }, style), false, "lines have no heads");
+    for (const field of ["route", "startHead"]) assert.deepEqual(FIELD_GROUPS[field], [field]);
+    for (const field of ["startAnchor", "endAnchor"]) assert.ok(FIELD_GROUPS.shape.includes(field));
+  });
+});
+
+describe("connector labels", () => {
+  const labelled = { ...arrow("x", null, null), x2: 200, y2: 0, text: "Go", font: "hand" };
+
+  it("sit halfway along, in a box the line leaves a gap around", () => {
+    const label = connectorLabel(labelled);
+    // 2 characters at 10 units each, a line at 20 × 1.25, with 4 to spare all round.
+    assert.deepEqual(
+      { x: label.x, y: label.y, width: label.width, height: label.height },
+      { x: 86, y: -16.5, width: 28, height: 33 },
+    );
+    assert.equal(connectorLabel({ ...labelled, text: "" }), null);
+  });
+
+  it("are part of the connector, for picking and its bounds", () => {
+    assert.ok(hitTest(labelled, 100, 14, 1), "on the label, off the line");
+    assert.equal(hitTest({ ...labelled, text: "" }, 100, 14, 1), false);
+    assert.ok(getLocalBounds(labelled).y <= -16.5);
   });
 });

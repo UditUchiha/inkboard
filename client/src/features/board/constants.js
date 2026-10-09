@@ -86,6 +86,16 @@ export const FONTS = {
 
 export const LINE_HEIGHT = 1.25;
 
+// Labels typed on lines and arrows, in board units.
+export const LABEL_FONT_SIZE = 20;
+export const LABEL_PADDING = 4; // the gap the line leaves around its label
+
+export const ROUTE_OPTIONS = [
+  { name: "Straight", value: "straight" },
+  { name: "Curved", value: "curved" },
+  { name: "Elbow", value: "elbow" },
+];
+
 export const DEFAULT_STYLE = {
   stroke: STROKE_COLORS[0].value,
   fill: null,
@@ -95,13 +105,15 @@ export const DEFAULT_STYLE = {
   fontSize: 32,
   font: "hand",
   noteFill: NOTE_COLORS[0].value,
+  route: "straight",
+  startHead: false,
 };
 
 // Which style controls each element type exposes.
 export const STYLE_CONTROLS = {
   pen: ["stroke", "penSize"],
-  line: ["stroke", "strokeWidth", "sketchy"],
-  arrow: ["stroke", "strokeWidth", "sketchy"],
+  line: ["stroke", "strokeWidth", "route", "sketchy", "labelFont"],
+  arrow: ["stroke", "strokeWidth", "route", "startHead", "sketchy", "labelFont"],
   rectangle: ["stroke", "fill", "strokeWidth", "sketchy"],
   ellipse: ["stroke", "fill", "strokeWidth", "sketchy"],
   text: ["stroke", "font", "fontSize"],

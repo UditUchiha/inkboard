@@ -16,14 +16,14 @@ An element's fields are split into groups that change independently:
 
 | Group | Fields |
 |---|---|
-| `shape` | `type`, `seed`, `imageId`, `x1`, `y1`, `x2`, `y2`, `startId`, `endId`, `points`, `pressure`, `angle`, `fontSize` |
+| `shape` | `type`, `seed`, `imageId`, `x1`, `y1`, `x2`, `y2`, `startId`, `endId`, `startAnchor`, `endAnchor`, `points`, `pressure`, `angle`, `fontSize` |
 | `text` | `text` |
-| `stroke`, `fill`, `strokeWidth`, `penSize`, `sketchy`, `font`, `name` | one field each |
+| `stroke`, `fill`, `strokeWidth`, `penSize`, `sketchy`, `font`, `name`, `route`, `startHead` | one field each |
 | `index` | `index` (its place in the stack) |
 
-Each group carries its own stamp, and when two copies of an element meet, each group is taken from whichever copy has it newer. So a move and a recolor made at the same time are both kept. The fields of one group always travel together: a move never mixes one person's corners with another's (a text's `fontSize` is in `shape` because resizing text changes it, and a connector's `startId` / `endId` because its ends and what they're attached to change together).
+Each group carries its own stamp, and when two copies of an element meet, each group is taken from whichever copy has it newer. So a move and a recolor made at the same time are both kept. The fields of one group always travel together: a move never mixes one person's corners with another's (a text's `fontSize` is in `shape` because resizing text changes it, and a connector's `startId` / `endId` / `startAnchor` / `endAnchor` because its ends and what (and which side) they're attached to change together). A connector's label is its `text`, in the `text` group like any other.
 
-**Connectors.** A line or arrow attached to shapes names them in `startId` / `endId`; where an attached end is drawn is worked out on each screen from where its shape is now ([`connectors.js`](../client/src/features/board/connectors.js)). Moving a shape therefore changes only the shape, never its arrows, so a move and someone else's edit to the arrow can't conflict. The stored `x`/`y` of an attached end is a fallback for when its shape is gone, so any change made in the browser that removes a shape (deleting, erasing, emptying a text, an undo or redo) also lets go of its connectors where they're drawn, in the same change. The store does this for every removal, and adds the attached connectors to the undo step so undoing attaches them again.
+**Connectors.** A line or arrow attached to shapes names them in `startId` / `endId`, and an end pinned to one of a shape's sides names the side in `startAnchor` / `endAnchor`; where an attached end is drawn, and the path between the ends (its `route`: straight, curved or elbow, [`routes.js`](../client/src/features/board/routes.js)), is worked out on each screen from where its shape is now ([`connectors.js`](../client/src/features/board/connectors.js)). Moving a shape therefore changes only the shape, never its arrows, so a move and someone else's edit to the arrow can't conflict. The stored `x`/`y` of an attached end is a fallback for when its shape is gone, so any change made in the browser that removes a shape (deleting, erasing, emptying a text, an undo or redo) also lets go of its connectors where they're drawn, in the same change. The store does this for every removal, and adds the attached connectors to the undo step so undoing attaches them again.
 
 An element stores its newest stamp as `version` / `versionNonce`, and lists only the groups whose stamp is older in `stamps`, e.g. `stamps: { stroke: [3, 81920], index: [1, 5] }`. A freshly created element has no `stamps`.
 

@@ -125,6 +125,41 @@ describe("element rules", () => {
     assert.equal("startId" in cleanElement({ ...rect("r"), startId: "a" }), false, "only lines and arrows connect");
   });
 
+  it("keeps a connector's pinned sides, route, arrowheads and label, and drops what isn't one", () => {
+    const full = {
+      ...line(),
+      type: "arrow",
+      startId: "a",
+      startAnchor: "right",
+      endId: "b",
+      endAnchor: "top",
+      route: "elbow",
+      startHead: true,
+      text: "Yes",
+      font: "sans",
+    };
+    assert.deepEqual(cleanElement(full), full);
+    const odd = cleanElement({
+      ...line(),
+      startAnchor: "right", // pinned to nothing
+      endId: "b",
+      endAnchor: "middle",
+      route: "wiggly",
+      startHead: true, // a line has no heads
+      text: 7,
+      font: "comic",
+    });
+    for (const key of ["startAnchor", "endAnchor", "route", "startHead", "text", "font"]) {
+      assert.equal(key in odd, false, key);
+    }
+    assert.equal(cleanElement({ ...line(), text: "x".repeat(MAX_TEXT_LENGTH + 5) }).text.length, MAX_TEXT_LENGTH);
+    assert.equal(
+      "route" in cleanElement({ ...rect("r"), route: "curved" }),
+      false,
+      "only lines and arrows have routes",
+    );
+  });
+
   it("keeps a place in the stack, and drops one that isn't a stacking key", () => {
     assert.equal(cleanElement({ ...rect("r"), index: "a0" }).index, "a0");
     for (const bad of ["", "a", "a0 ", "!x", 7, "a".repeat(200)]) {

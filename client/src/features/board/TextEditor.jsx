@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FONTS, LINE_HEIGHT, NOTE_TEXT_COLOR } from "./constants";
+import { FONTS, LABEL_FONT_SIZE, LINE_HEIGHT, NOTE_TEXT_COLOR } from "./constants";
 import { fontFor, measureText } from "./elements";
 import { normalizeRect, toScreen } from "./geometry";
 import { noteLayout } from "./notes";
@@ -133,5 +133,70 @@ export function NoteEditor({ element, viewport, onCommit }) {
         }}
       />
     </div>
+  );
+}
+
+/**
+ * Edits a line's or arrow's label in place, centred on `middle` (halfway along
+ * the connector, in board units), as the canvas will draw it.
+ */
+export function LabelEditor({ element, middle, viewport, onCommit }) {
+  const ref = useRef(null);
+  const committed = useRef(false);
+  const [value, setValue] = useState(element.text ?? "");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const textarea = ref.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.select();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const commit = () => {
+    if (committed.current) return;
+    committed.current = true;
+    onCommit(value);
+  };
+
+  const { zoom } = viewport;
+  const style = { fontSize: LABEL_FONT_SIZE, font: element.font };
+  const { width, height } = measureText(style, value || " ");
+  const center = toScreen(viewport, middle.x, middle.y);
+  const boxWidth = (width + LABEL_FONT_SIZE) * zoom;
+  const boxHeight = height * zoom;
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        // Enter finishes a label; Shift + Enter starts a new line in it.
+        if (event.key === "Escape" || (event.key === "Enter" && !event.shiftKey)) {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+      wrap="off"
+      spellCheck={false}
+      aria-label="Label"
+      placeholder="Label"
+      className="canvas-ink absolute z-10 m-0 resize-none overflow-hidden border-0 bg-transparent p-0 text-center whitespace-pre outline-none"
+      style={{
+        left: center.x - boxWidth / 2,
+        top: center.y - boxHeight / 2,
+        width: boxWidth,
+        height: boxHeight,
+        font: fontFor(style, zoom),
+        lineHeight: LINE_HEIGHT,
+        color: element.stroke,
+        caretColor: element.stroke,
+      }}
+    />
   );
 }

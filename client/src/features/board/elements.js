@@ -1,6 +1,15 @@
 import { keyToMove } from "@inkboard/shared/board-order";
 import { resolveConnectors } from "./connectors";
-import { FILLABLE_TYPES, FONTS, FRAME_LABEL_GAP, FRAME_LABEL_SIZE, LINE_HEIGHT, NOTE_SIZE } from "./constants";
+import {
+  FILLABLE_TYPES,
+  FONTS,
+  FRAME_LABEL_GAP,
+  FRAME_LABEL_SIZE,
+  LABEL_FONT_SIZE,
+  LABEL_PADDING,
+  LINE_HEIGHT,
+  NOTE_SIZE,
+} from "./constants";
 import {
   arrowHeadPoints,
   distanceToSegment,
@@ -13,11 +22,14 @@ import {
   rotatedRectBounds,
   unionRects,
 } from "./geometry";
+import { approachTo, connectorPath, pathLength, pathMiddle, pathPolyline } from "./routes";
 
 // Elements are plain, immutable, JSON-serialisable objects. Any change makes a
 // new object, which lets the renderer cache expensive work per element.
 //
 //   shapes: { id, type, seed, x1, y1, x2, y2, stroke, fill, strokeWidth, sketchy }
+//   lines and arrows also: { route, font, text?, startId?, endId?, startAnchor?, endAnchor? },
+//   and arrows { startHead } (an arrowhead at the start too). See connectors.js and routes.js.
 //   pen:    { id, type, points: [[x, y, pressure]], pressure, stroke, penSize }
 //   text:   { id, type, x1, y1, text, stroke, fontSize, font }
 //   image:  { id, type, imageId, x1, y1, x2, y2 }   (imageId names a file stored on the server)
@@ -36,6 +48,7 @@ import {
 const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "image", "pen", "text", "sticky"]);
 export const canRotate = (element) => TURNABLE_TYPES.has(element.type);
 export const isFrame = (element) => element.type === "frame";
+const isConnector = (element) => element.type === "line" || element.type === "arrow";
 
 export const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const newSeed = () => Math.floor(Math.random() * 2 ** 31) + 1;
@@ -56,7 +69,7 @@ export function createElement(type, { x, y }, style, pressure) {
     return { id, type, x1: x, y1: y, text: "", stroke: style.stroke, fontSize: style.fontSize, font: style.font };
   }
   if (type === "frame") return { id, type, x1: x, y1: y, x2: x, y2: y, name: "" };
-  return {
+  const shape = {
     id,
     type,
     seed: newSeed(),
@@ -69,6 +82,12 @@ export function createElement(type, { x, y }, style, pressure) {
     strokeWidth: style.strokeWidth,
     sketchy: style.sketchy,
   };
+  if (!isConnector(shape)) return shape;
+  // A label typed on it later is written in the font of the moment.
+  shape.route = style.route ?? "straight";
+  shape.font = style.font ?? "hand";
+  if (type === "arrow") shape.startHead = Boolean(style.startHead);
+  return shape;
 }
 
 /** A picture placed with its top left corner at (x, y). */
@@ -167,7 +186,47 @@ function measureFrameLabel(frame, scale) {
 }
 
 export const arrowHeadLength = (element) =>
-  Math.min(14 + element.strokeWidth * 3, Math.hypot(element.x2 - element.x1, element.y2 - element.y1) * 0.45);
+  Math.min(14 + element.strokeWidth * 3, pathLength(connectorPath(element).points) * 0.45);
+
+/** An arrow's heads, each as the three points of its barbs and tip: the end's, then the start's if it has one. */
+export function arrowHeads(element) {
+  if (element.type !== "arrow") return [];
+  const path = connectorPath(element);
+  const length = arrowHeadLength(element);
+  const head = (tip, from) => {
+    const [a, b] = arrowHeadPoints(from.x, from.y, tip.x, tip.y, length);
+    return [a, [tip.x, tip.y], b];
+  };
+  const heads = [head(path.points.at(-1), approachTo(path, "end"))];
+  if (element.startHead) heads.push(head(path.points[0], approachTo(path, "start")));
+  return heads;
+}
+
+let connectorLabels = new WeakMap();
+
+/**
+ * A line's or arrow's label, centred halfway along it: { lines, font,
+ * fontSize, x, y, width, height } (the box is the text's, padding included),
+ * or null when it has none.
+ */
+export function connectorLabel(element) {
+  if (!isConnector(element) || !element.text) return null;
+  let label = connectorLabels.get(element);
+  if (!label) {
+    const style = { fontSize: LABEL_FONT_SIZE, font: element.font };
+    const { width, height, lines } = measureText(style, element.text);
+    const middle = pathMiddle(connectorPath(element));
+    const box = expandRect({ x: middle.x - width / 2, y: middle.y - height / 2, width, height }, LABEL_PADDING);
+    label = { lines, font: fontFor(style), fontSize: LABEL_FONT_SIZE, ...box };
+    connectorLabels.set(element, label);
+  }
+  return label;
+}
+
+/** Forget measured connector labels, once web fonts have loaded and text measures differently. */
+export function forgetConnectorLabels() {
+  connectorLabels = new WeakMap();
+}
 
 const boundsCache = new WeakMap();
 const turnedBoundsCache = new WeakMap();
@@ -191,13 +250,21 @@ export function getLocalBounds(element) {
       bounds = { x: element.x1, y: element.y1, width, height };
       break;
     }
+    case "line":
     case "arrow": {
-      const heads = arrowHeadPoints(element.x1, element.y1, element.x2, element.y2, arrowHeadLength(element));
-      const xs = [element.x1, element.x2, heads[0][0], heads[1][0]];
-      const ys = [element.y1, element.y2, heads[0][1], heads[1][1]];
+      // A curve stays within the box of its control points.
+      const points = [
+        ...connectorPath(element).points.map((point) => [point.x, point.y]),
+        ...arrowHeads(element).flat(),
+      ];
+      const xs = points.map((point) => point[0]);
+      const ys = points.map((point) => point[1]);
       const x = Math.min(...xs);
       const y = Math.min(...ys);
-      bounds = expandRect({ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }, element.strokeWidth);
+      const pad = element.type === "arrow" ? element.strokeWidth : element.strokeWidth / 2 + (element.sketchy ? 3 : 0);
+      bounds = expandRect({ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }, pad);
+      const label = connectorLabel(element);
+      if (label) bounds = unionRects([bounds, label]);
       break;
     }
     case "image":
@@ -271,14 +338,14 @@ export function hitTest(element, pointX, pointY, tolerance) {
 
   switch (element.type) {
     case "line":
-      return (
-        distanceToSegment(x, y, element.x1, element.y1, element.x2, element.y2) <= tolerance + element.strokeWidth / 2
-      );
     case "arrow": {
       const reach = tolerance + element.strokeWidth / 2;
-      if (distanceToSegment(x, y, element.x1, element.y1, element.x2, element.y2) <= reach) return true;
-      const heads = arrowHeadPoints(element.x1, element.y1, element.x2, element.y2, arrowHeadLength(element));
-      return heads.some(([hx, hy]) => distanceToSegment(x, y, hx, hy, element.x2, element.y2) <= reach);
+      const label = connectorLabel(element);
+      if (label && rectContains(expandRect(label, tolerance), x, y)) return true;
+      const near = (points) =>
+        points.some((point, i) => i > 0 && distanceToSegment(x, y, ...points[i - 1], ...point) <= reach);
+      const along = pathPolyline(connectorPath(element)).map((point) => [point.x, point.y]);
+      return near(along) || arrowHeads(element).some(near);
     }
     case "rectangle": {
       const rect = normalizeRect(element.x1, element.y1, element.x2, element.y2);

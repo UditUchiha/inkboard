@@ -103,6 +103,31 @@ describe("SVG export", () => {
     assert.match(buildSvg([picture]), /stroke-dasharray/);
   });
 
+  it("draws a connector's route, broken around its label, and the label", () => {
+    const arrow = {
+      id: "a",
+      type: "arrow",
+      seed: 3,
+      x1: 0,
+      y1: 0,
+      x2: 200,
+      y2: 100,
+      stroke: "#1971c2",
+      fill: null,
+      strokeWidth: 2.5,
+      sketchy: false,
+      route: "elbow",
+      text: "Yes & no",
+      font: "code",
+    };
+    const svg = buildSvg([arrow]);
+    assert.match(svg, /<clipPath id="label-gap-0"><path clip-rule="evenodd" d="M[^"]+ZM[^"]+Z"\/><\/clipPath>/);
+    assert.match(svg, /<g clip-path="url\(#label-gap-0\)"><path /);
+    assert.match(svg, /text-anchor="middle"[^>]*><tspan x="150"[^>]*>Yes &amp; no<\/tspan>/);
+    assert.deepEqual([...fontsUsed([arrow])], ["code"]);
+    assert.deepEqual([...fontsUsed([{ ...arrow, text: "" }])], [], "no label, no font");
+  });
+
   it("embeds only the fonts the text uses", () => {
     const svg = buildSvg([text], { fontFaces: "@font-face { font-family: X; }" });
     assert.match(svg, /<defs><style>@font-face \{ font-family: X; \}<\/style><\/defs>/);
