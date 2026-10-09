@@ -1,5 +1,6 @@
 import getStroke from "perfect-freehand";
 import rough from "roughjs";
+import { resolveConnectors } from "./connectors";
 import { FRAME_BORDER, FRAME_FILL, FRAME_LABEL_COLOR, LINE_HEIGHT, NOTE_TEXT_COLOR } from "./constants";
 import {
   arrowHeadLength,
@@ -7,6 +8,7 @@ import {
   fontFor,
   frameLabel,
   getBounds,
+  getFrame,
   getLocalBounds,
   inDrawOrder,
   isFrame,
@@ -303,6 +305,23 @@ function drawSelection(ctx, element, zoom) {
   ctx.restore();
 }
 
+// The shape a connector end will attach to, while one is being drawn or dragged.
+function drawConnectTarget(ctx, element, zoom) {
+  const { cx, cy, width, height, angle } = getFrame(element);
+  const pad = 4 / zoom + (element.strokeWidth ?? 0) / 2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  ctx.strokeStyle = ink(SELECTION_COLOR);
+  ctx.globalAlpha = 0.7;
+  ctx.lineWidth = 2.5 / zoom;
+  ctx.beginPath();
+  if (element.type === "ellipse") ctx.ellipse(0, 0, width / 2 + pad, height / 2 + pad, 0, 0, Math.PI * 2);
+  else ctx.rect(-width / 2 - pad, -height / 2 - pad, width + pad * 2, height + pad * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function isVisible(element, view) {
   const b = getBounds(element);
   return (
@@ -312,8 +331,9 @@ function isVisible(element, view) {
 
 /**
  * Draws `elements` onto `canvas`. Pass `dark` to draw them as dark mode shows
- * them (pictures keep their own colors), `smallImages` for thumbnails, and
- * `screenLabels` to keep frame names the same size on screen at any zoom.
+ * them (pictures keep their own colors), `smallImages` for thumbnails,
+ * `screenLabels` to keep frame names the same size on screen at any zoom, and
+ * `connectTargetId` to outline the shape a connector end is about to attach to.
  */
 export function renderScene(
   canvas,
@@ -327,6 +347,7 @@ export function renderScene(
     dark = false,
     smallImages = false,
     screenLabels = false,
+    connectTargetId = null,
   },
 ) {
   ink = dark ? darkInk : sameInk;
@@ -352,14 +373,17 @@ export function renderScene(
 
   const roughCanvas = rough.canvas(canvas);
   let selected = null;
+  let target = null;
   const frames = [];
-  for (const element of inDrawOrder(elements)) {
+  for (const element of inDrawOrder(resolveConnectors(elements))) {
+    if (element.id === connectTargetId) target = element;
     if (element.id === selectedId) selected = element;
     if (element.id === hiddenId || !isVisible(element, view)) continue;
     drawElement(ctx, roughCanvas, element);
     if (isFrame(element)) frames.push(element);
   }
   for (const frame of frames) drawFrameName(ctx, frame);
+  if (target) drawConnectTarget(ctx, target, viewport.zoom);
   if (selected && selected.id !== hiddenId) drawSelection(ctx, selected, viewport.zoom);
 }
 

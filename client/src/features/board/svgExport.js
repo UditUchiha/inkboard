@@ -7,6 +7,7 @@ import {
   LINE_HEIGHT,
   NOTE_TEXT_COLOR,
 } from "./constants";
+import { resolveConnectors } from "./connectors";
 import { canRotate, frameLabel, getLocalBounds, getSceneBounds, inDrawOrder, isFrame } from "./elements";
 import { normalizeRect, rectCenter } from "./geometry";
 import { noteLayout } from "./notes";
@@ -116,10 +117,8 @@ function elementSvg(element, { images, baselines }) {
  * `images` maps image ids to data URLs, `fontFaces` is CSS (@font-face rules)
  * to embed, and `baselines` gives each font's baseline as a share of its size.
  */
-export function buildSvg(
-  elements,
-  { images = new Map(), fontFaces = "", baselines = {}, background = "#ffffff" } = {},
-) {
+export function buildSvg(board, { images = new Map(), fontFaces = "", baselines = {}, background = "#ffffff" } = {}) {
+  const elements = resolveConnectors(board);
   const bounds = getSceneBounds(elements);
   if (!bounds) return null;
   const x = bounds.x - SVG_PADDING;

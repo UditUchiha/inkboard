@@ -1,4 +1,5 @@
-import { getSceneBounds, newId, translate } from "./elements";
+import { copyGroup } from "./connectors";
+import { getSceneBounds } from "./elements";
 
 // A board saved as a file (.inkboard.json): its elements, plus the pictures on
 // it as data URLs so the file stands on its own. Importing adds the elements to
@@ -65,5 +66,6 @@ export function placeElements(elements, center) {
   const bounds = getSceneBounds(elements);
   const dx = bounds ? center.x - (bounds.x + bounds.width / 2) : 0;
   const dy = bounds ? center.y - (bounds.y + bounds.height / 2) : 0;
-  return elements.map((element) => ({ ...translate(element, dx, dy), id: newId() }));
+  // Connectors stay attached to the copies of their shapes.
+  return copyGroup(elements, elements, dx, dy, { sameLook: true });
 }

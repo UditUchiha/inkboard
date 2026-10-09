@@ -44,7 +44,8 @@ import { BoardCanvas } from "./BoardCanvas";
 import { CommentsLayer } from "./CommentsLayer";
 import { BoardFileError, isBoardFile, parseBoardFile, placeElements } from "./boardFile";
 import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, NUMBERED_TOOLS, TOOLS } from "./constants";
-import { createImage, duplicate, getSceneBounds, isFrame, stackKey, translate, withContents } from "./elements";
+import { copyGroup, moveGroup, releaseFrom } from "./connectors";
+import { createImage, getSceneBounds, isFrame, stackKey, withContents } from "./elements";
 import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
 import { fitViewport, toWorld, zoomAround } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
@@ -290,7 +291,13 @@ export function BoardEditor({ store, sync, user, local = null }) {
   const deleteSelected = useCallback(() => {
     const group = selectedGroup();
     if (group.length === 0) return;
-    store.commit({ undo: { upsert: group }, redo: { remove: group.map((element) => element.id) } });
+    const ids = new Set(group.map((element) => element.id));
+    // Connectors attached to what's deleted stay where they're drawn.
+    const released = releaseFrom(store.getElements(), ids);
+    store.commit({
+      undo: { upsert: [...group, ...released.map(({ before }) => before)] },
+      redo: { remove: [...ids], upsert: released.map(({ after }) => after) },
+    });
     setSelectedId(null);
     if (group.length > 1) {
       const count = group.length - 1;
@@ -305,7 +312,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
     if (group.length === 0) return;
     // A frame's copy goes beside it, so the two don't overlap and claim each other's contents.
     const [dx, dy] = isFrame(group[0]) ? [Math.abs(group[0].x2 - group[0].x1) + FRAME_COPY_GAP, 0] : [16, 16];
-    const copies = group.map((element) => duplicate(element, dx, dy));
+    const copies = copyGroup(store.getElements(), group, dx, dy);
     store.commit({ undo: { remove: copies.map((copy) => copy.id) }, redo: { upsert: copies } });
     setSelectedId(copies[0].id);
   }, [selectedGroup, store]);
@@ -335,7 +342,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
       const group = selectedGroup();
       if (group.length === 0) return;
       store.commit(
-        { undo: { upsert: group }, redo: { upsert: group.map((element) => translate(element, dx, dy)) } },
+        { undo: { upsert: group }, redo: { upsert: moveGroup(store.getElements(), group, dx, dy) } },
         { mergeKey: `nudge:${group[0].id}` },
       );
     },

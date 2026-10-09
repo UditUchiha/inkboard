@@ -18,6 +18,7 @@ export const MAX_TEXT_LENGTH = 20_000;
 export const MAX_FRAME_NAME_LENGTH = 200;
 
 const SHAPE_TYPES = new Set(["line", "arrow", "rectangle", "ellipse"]);
+const CONNECTOR_TYPES = new Set(["line", "arrow"]);
 const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
 const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "image", "pen", "text", "sticky"]);
 const FONTS = new Set(["hand", "sans", "code"]);
@@ -57,6 +58,15 @@ function cleanPoints(points) {
 
 const corner = (element) => isCoordinate(element.x1) && isCoordinate(element.y1);
 const box = (element) => corner(element) && isCoordinate(element.x2) && isCoordinate(element.y2);
+
+// A connector's attachments: ids of other elements. One that's missing later is ignored when drawing.
+function attachments(element) {
+  const kept = {};
+  for (const key of ["startId", "endId"]) {
+    if (isValidId(element[key]) && element[key] !== element.id) kept[key] = element[key];
+  }
+  return kept;
+}
 
 function cleanByType(element) {
   const { id, type } = element;
@@ -127,6 +137,8 @@ function cleanByType(element) {
       fill: FILLABLE_TYPES.has(type) ? color(element.fill, null) : null,
       strokeWidth: inRange(element.strokeWidth, RANGES.strokeWidth, DEFAULTS.strokeWidth),
       sketchy: element.sketchy !== false,
+      // The shapes a connector's ends are attached to (see client/src/features/board/connectors.js).
+      ...(CONNECTOR_TYPES.has(type) ? attachments(element) : {}),
     };
   }
   return null;

@@ -17,6 +17,7 @@ A real-time collaborative whiteboard. Sketch with hand-drawn shapes, invite peop
 - **Boards dashboard**: live thumbnails, search, filters for owned and shared boards, rename and delete.
 - **Works offline briefly**: edits made while disconnected are queued and synced after reconnecting.
 - **Light and dark themes**: dark mode turns the graph paper into a blueprint.
+- **Connectors**: draw an arrow or line from one shape, note, picture or text to another and it stays attached, following them as they move, resize or turn, on everyone's screen. Drag an end onto another shape to reconnect it, or off to let go.
 - **Sticky notes and frames**: notes (<kbd>S</kbd>) in six colors, whose writing wraps and shrinks to fit. Frames (<kbd>F</kbd>) are named white pages that hold whatever lies inside them: moving, copying or deleting a frame does the same to its contents. The Kanban and Retrospective templates are built from them.
 - **Images**: add pictures with the toolbar button (or <kbd>I</kbd>), by pasting, or by dropping files onto the board. They are shrunk in the browser, stored in MongoDB (GridFS), and resize and turn like any shape. Accounts, invited editors and guests with an edit link can add them; see [docs/image-storage.md](docs/image-storage.md) for limits and how to move storage to Cloudflare R2 or Cloudinary.
 - **Keyboard shortcuts** for every tool and action (press <kbd>?</kbd> on a board), export to PNG or SVG, and board files (`.inkboard.json`, pictures included) to export and import again.

@@ -1,4 +1,5 @@
 import { keyToMove } from "@inkboard/shared/board-order";
+import { resolveConnectors } from "./connectors";
 import { FILLABLE_TYPES, FONTS, FRAME_LABEL_GAP, FRAME_LABEL_SIZE, LINE_HEIGHT, NOTE_SIZE } from "./constants";
 import {
   arrowHeadPoints,
@@ -229,7 +230,7 @@ export function getFrame(element) {
 }
 
 export function getSceneBounds(elements) {
-  return unionRects(elements.map(getBounds));
+  return unionRects(resolveConnectors(elements).map(getBounds));
 }
 
 export function hitTest(element, pointX, pointY, tolerance) {
@@ -311,11 +312,12 @@ export function inDrawOrder(elements) {
 const labelBox = (label) => ({ x: label.x, y: label.bottom - label.height, width: label.width, height: label.height });
 
 /**
- * The element under a point: a frame's name, then whatever is drawn on top,
- * then the innermost frame the point is inside. Pass `labelScale` (see
- * frameLabel) to find frames by their names.
+ * The element under a point, as it's drawn (see connectors.js): a frame's
+ * name, then whatever is drawn on top, then the innermost frame the point is
+ * inside. Pass `labelScale` (see frameLabel) to find frames by their names.
  */
-export function elementAt(elements, x, y, tolerance, { labelScale } = {}) {
+export function elementAt(board, x, y, tolerance, { labelScale } = {}) {
+  const elements = resolveConnectors(board);
   const frames = elements.filter(isFrame);
   if (labelScale) {
     for (let i = frames.length - 1; i >= 0; i -= 1) {
@@ -362,11 +364,13 @@ export function frameContents(elements, frame) {
   const frames = elements.filter(isFrame);
   if (frames.length === 0) return [];
   const bodies = new Map(frames.map((each, position) => [each.id, { box: footprint(each), position }]));
+  // Where connectors are drawn decides which frame they're in.
+  const drawn = new Map(resolveConnectors(elements).map((element) => [element.id, element]));
   const area = (box) => box.width * box.height;
   const centre = (box) => rectCenter(box);
 
   function ownerOf(element) {
-    const box = footprint(element);
+    const box = footprint(drawn.get(element.id) ?? element);
     const self = bodies.get(element.id);
     let owner = null;
     let best = null;
@@ -425,8 +429,9 @@ export function translate(element, dx, dy) {
  * Frames are drawn beneath everything else, so they only move among frames,
  * and everything else among everything but frames.
  */
-export function stackKey(elements, element, where) {
-  const bounds = getBounds(element);
+export function stackKey(board, element, where) {
+  const elements = resolveConnectors(board);
+  const bounds = getBounds(elements.find((other) => other.id === element.id) ?? element);
   const peers = elements.filter((other) => isFrame(other) === isFrame(element));
   return keyToMove(peers, element.id, where, (other) => rectsOverlap(bounds, getBounds(other)));
 }

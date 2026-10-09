@@ -1,6 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useElementSize } from "../../lib/useElementSize";
 import { useTheme } from "../../providers/ThemeProvider";
+import {
+  attachEnd,
+  connectTargetAt,
+  drawnElement,
+  isConnector,
+  readyToMove,
+  releaseFrom,
+  resolveConnectors,
+} from "./connectors";
 import { ERASER_RADIUS, GRID_SIZE, HIT_TOLERANCE, MAX_ZOOM, MIN_ZOOM } from "./constants";
 import {
   createElement,
@@ -75,6 +84,7 @@ export function BoardCanvas({
   const [hovering, setHovering] = useState(false);
   const [handle, setHandle] = useState(null); // the resize or turn handle under the pointer, or being dragged
   const [turning, setTurning] = useState(false);
+  const [connectTarget, setConnectTarget] = useState(null); // the shape a connector end being drawn would attach to
   const gesture = useRef(null);
   const pointers = useRef(new Map());
 
@@ -102,12 +112,26 @@ export function BoardCanvas({
       hiddenId: editingId,
       dark: theme === "dark",
       screenLabels: true,
+      connectTargetId: connectTarget,
     });
-  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme]);
+  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme, connectTarget]);
 
   // What's under a point, frame names included (they're sized on screen).
   const pick = (world, vp) =>
     elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom, { labelScale: 1 / vp.zoom });
+
+  // The shape a connector end at `world` would attach to (never `except`, the other end's), and show it.
+  function connectAt(world, vp, except) {
+    const target = connectTargetAt(store.getElements(), world, HIT_TOLERANCE / vp.zoom, { except });
+    setConnectTarget(target?.id ?? null);
+    return target;
+  }
+
+  // The selected element as it's drawn (a connector's ends where its shapes are).
+  const drawnSelected = () => {
+    const id = latest.current.selectedId;
+    return id ? drawnElement(store.getElements(), id) : null;
+  };
 
   const screenPoint = (event) => {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -162,19 +186,23 @@ export function BoardCanvas({
     // Sample along the path so fast strokes don't skip over thin lines.
     const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / radius));
     const hits = new Map();
-    for (const element of store.getElements()) {
+    for (const element of resolveConnectors(store.getElements())) {
       for (let i = 0; i <= steps; i += 1) {
         const x = from.x + ((to.x - from.x) * i) / steps;
         const y = from.y + ((to.y - from.y) * i) / steps;
         if (hitTest(element, x, y, radius)) {
-          hits.set(element.id, element);
+          // As it was before this stroke, if the stroke has already let it go of a shape.
+          hits.set(element.id, g.released.get(element.id) ?? store.getElement(element.id));
           break;
         }
       }
     }
     if (hits.size === 0) return;
     for (const [id, element] of hits) g.erased.set(id, element);
-    store.apply({ remove: [...hits.keys()] });
+    // Connectors attached to what's erased stay where they're drawn.
+    const released = releaseFrom(store.getElements(), new Set(hits.keys()));
+    for (const { before } of released) if (!g.released.has(before.id)) g.released.set(before.id, before);
+    store.apply({ remove: [...hits.keys()], upsert: released.map(({ after }) => after) });
   }
 
   // Finishes the current gesture and records it in the undo history.
@@ -184,6 +212,7 @@ export function BoardCanvas({
     setPanning(false);
     if (!g) return;
 
+    setConnectTarget(null);
     if (g.kind === "draw") {
       if (cancelled || isDegenerate(g.element)) store.apply({ remove: [g.element.id] });
       else {
@@ -191,7 +220,14 @@ export function BoardCanvas({
         if (g.element.type === "frame") onFrameDrawn?.(g.element.id);
       }
     } else if (g.kind === "erase" && g.erased.size > 0) {
-      store.record({ undo: { upsert: [...g.erased.values()] }, redo: { remove: [...g.erased.keys()] } });
+      const released = [...g.released.keys()].filter((id) => !g.erased.has(id));
+      store.record({
+        undo: { upsert: [...g.erased.values(), ...released.map((id) => g.released.get(id))] },
+        redo: {
+          remove: [...g.erased.keys()],
+          upsert: released.map((id) => store.getElement(id)).filter(Boolean),
+        },
+      });
     } else if (g.kind === "move" && g.current) {
       if (cancelled) store.apply({ upsert: g.originals }, { base: g.current });
       else store.record({ undo: { upsert: g.originals }, redo: { upsert: g.current } });
@@ -249,7 +285,7 @@ export function BoardCanvas({
     switch (activeTool) {
       case "select": {
         // A handle on the selected element takes priority over whatever is underneath it.
-        const selected = latest.current.selectedId ? store.getElement(latest.current.selectedId) : null;
+        const selected = drawnSelected();
         const grabbed = selected ? handleAt(selected, world, vp.zoom) : null;
         if (grabbed) {
           const pad = getSelectionBox(selected, vp.zoom).pad ?? 0;
@@ -257,7 +293,8 @@ export function BoardCanvas({
             kind: "transform",
             handle: grabbed,
             start: world,
-            original: selected,
+            original: store.getElement(selected.id), // as stored, for undo
+            from: selected, // as drawn, to work from
             pad,
             current: null,
           };
@@ -267,13 +304,20 @@ export function BoardCanvas({
         }
         const hit = pick(world, vp);
         onSelect(hit?.id ?? null);
-        // A frame takes what's inside it along.
-        if (hit) gesture.current = { kind: "move", start: world, originals: withContents(store.getElements(), hit) };
-        else startPan(screen);
+        if (hit) {
+          // A frame takes what's inside it along. Connectors let go of shapes left behind.
+          const originals = withContents(store.getElements(), store.getElement(hit.id));
+          gesture.current = {
+            kind: "move",
+            start: world,
+            originals,
+            ready: readyToMove(store.getElements(), originals),
+          };
+        } else startPan(screen);
         return;
       }
       case "eraser":
-        gesture.current = { kind: "erase", erased: new Map(), last: world };
+        gesture.current = { kind: "erase", erased: new Map(), released: new Map(), last: world };
         eraseAlong(world, world);
         return;
       case "comment":
@@ -293,8 +337,9 @@ export function BoardCanvas({
       }
       default: {
         const pressure = event.pointerType === "pen" ? event.pressure : undefined;
-        const element = createElement(activeTool, world, activeStyle, pressure);
+        let element = createElement(activeTool, world, activeStyle, pressure);
         if (element.type === "frame") element.name = nextFrameName(store.getElements());
+        if (isConnector(element)) element = attachEnd(element, "start", connectAt(world, vp));
         gesture.current = { kind: "draw", element };
         onSelect(null);
         store.apply({ upsert: [element] });
@@ -312,7 +357,7 @@ export function BoardCanvas({
     const g = gesture.current;
     if (!g) {
       if (latest.current.tool === "select") {
-        const selected = latest.current.selectedId ? store.getElement(latest.current.selectedId) : null;
+        const selected = drawnSelected();
         const overHandle = selected ? handleAt(selected, world, vp.zoom) : null;
         if (overHandle !== latest.current.handle) setHandle(overHandle);
         const over = !overHandle && Boolean(pick(world, vp));
@@ -342,8 +387,9 @@ export function BoardCanvas({
         return;
       }
       case "draw": {
-        const next =
+        let next =
           g.element.type === "pen" ? extendStroke(g.element, event, vp) : resizeShape(g.element, world, event.shiftKey);
+        if (isConnector(next)) next = attachEnd(next, "end", connectAt(world, vp, next.startId));
         // Made from the step before, so a color someone picks mid-draw isn't painted over.
         store.apply({ upsert: [next] }, { base: [g.element] });
         g.element = next;
@@ -354,17 +400,22 @@ export function BoardCanvas({
         g.last = world;
         return;
       case "move": {
-        const moved = g.originals.map((element) => translate(element, world.x - g.start.x, world.y - g.start.y));
+        const moved = g.ready.map((element) => translate(element, world.x - g.start.x, world.y - g.start.y));
         // Each step is made from the one before, so only what the drag changes is sent.
         store.apply({ upsert: moved }, { base: g.current ?? g.originals });
         g.current = moved;
         return;
       }
       case "transform": {
-        const next =
+        let next =
           g.handle === "rotate"
-            ? rotateElement(g.original, g.start, world, { snap: event.shiftKey })
-            : resizeElement(g.original, g.handle, world, { keepAspect: event.shiftKey, pad: g.pad });
+            ? rotateElement(g.from, g.start, world, { snap: event.shiftKey })
+            : resizeElement(g.from, g.handle, world, { keepAspect: event.shiftKey, pad: g.pad });
+        // A connector's end attaches to whatever it's dropped on, and lets go elsewhere.
+        if (g.handle === "start" || g.handle === "end") {
+          const other = g.handle === "start" ? next.endId : next.startId;
+          next = attachEnd(next, g.handle, connectAt(world, vp, other));
+        }
         store.apply({ upsert: [next] }, { base: [g.current ?? g.original] });
         g.current = next;
         return;

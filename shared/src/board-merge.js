@@ -28,7 +28,22 @@ import { compareOrder } from "./board-order.js";
 // newer change (an undo, say) can, and merges with what was there.
 
 export const FIELD_GROUPS = {
-  shape: ["type", "seed", "imageId", "x1", "y1", "x2", "y2", "points", "pressure", "angle", "fontSize"],
+  // A connector's ends and the shapes they're attached to change together.
+  shape: [
+    "type",
+    "seed",
+    "imageId",
+    "x1",
+    "y1",
+    "x2",
+    "y2",
+    "startId",
+    "endId",
+    "points",
+    "pressure",
+    "angle",
+    "fontSize",
+  ],
   text: ["text"],
   stroke: ["stroke"],
   fill: ["fill"],

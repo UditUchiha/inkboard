@@ -16,12 +16,14 @@ An element's fields are split into groups that change independently:
 
 | Group | Fields |
 |---|---|
-| `shape` | `type`, `seed`, `imageId`, `x1`, `y1`, `x2`, `y2`, `points`, `pressure`, `angle`, `fontSize` |
+| `shape` | `type`, `seed`, `imageId`, `x1`, `y1`, `x2`, `y2`, `startId`, `endId`, `points`, `pressure`, `angle`, `fontSize` |
 | `text` | `text` |
-| `stroke`, `fill`, `strokeWidth`, `penSize`, `sketchy`, `font` | one field each |
+| `stroke`, `fill`, `strokeWidth`, `penSize`, `sketchy`, `font`, `name` | one field each |
 | `index` | `index` (its place in the stack) |
 
-Each group carries its own stamp, and when two copies of an element meet, each group is taken from whichever copy has it newer. So a move and a recolor made at the same time are both kept. The fields of one group always travel together: a move never mixes one person's corners with another's (a text's `fontSize` is in `shape` because resizing text changes it).
+Each group carries its own stamp, and when two copies of an element meet, each group is taken from whichever copy has it newer. So a move and a recolor made at the same time are both kept. The fields of one group always travel together: a move never mixes one person's corners with another's (a text's `fontSize` is in `shape` because resizing text changes it, and a connector's `startId` / `endId` because its ends and what they're attached to change together).
+
+**Connectors.** A line or arrow attached to shapes names them in `startId` / `endId`; where an attached end is drawn is worked out on each screen from where its shape is now ([`connectors.js`](../client/src/features/board/connectors.js)). Moving a shape therefore changes only the shape, never its arrows, so a move and someone else's edit to the arrow can't conflict. The stored `x`/`y` of an attached end is a fallback for when its shape is gone; whoever deletes a shape also lets go of its connectors where they're drawn, in the same change.
 
 An element stores its newest stamp as `version` / `versionNonce`, and lists only the groups whose stamp is older in `stamps`, e.g. `stamps: { stroke: [3, 81920], index: [1, 5] }`. A freshly created element has no `stamps`.
 

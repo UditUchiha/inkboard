@@ -115,6 +115,16 @@ describe("element rules", () => {
     for (const element of broken) assert.equal(cleanElement(element), null, JSON.stringify(element));
   });
 
+  it("keeps the shapes a connector is attached to, and drops attachments that can't be", () => {
+    const attached = { ...line(), type: "arrow", startId: "a", endId: "b" };
+    assert.deepEqual(cleanElement(attached), attached);
+    const cleaned = cleanElement({ ...line(), startId: 42, endId: "l" });
+    assert.equal("startId" in cleaned, false, "not an id");
+    assert.equal("endId" in cleaned, false, "itself");
+    assert.equal("startId" in cleanElement({ ...line(), startId: "x".repeat(65) }), false);
+    assert.equal("startId" in cleanElement({ ...rect("r"), startId: "a" }), false, "only lines and arrows connect");
+  });
+
   it("keeps a place in the stack, and drops one that isn't a stacking key", () => {
     assert.equal(cleanElement({ ...rect("r"), index: "a0" }).index, "a0");
     for (const bad of ["", "a", "a0 ", "!x", 7, "a".repeat(200)]) {
