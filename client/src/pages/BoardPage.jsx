@@ -5,6 +5,7 @@ import { ButtonLink } from "../components/Button";
 import { FullPageLoader, FullPageMessage } from "../components/RouteGuards";
 import { APP_NAME } from "../config";
 import { BoardEditor } from "../features/board/BoardEditor";
+import { releaseFrom } from "../features/board/connectors";
 import { createBoardStore } from "../features/board/store";
 import { useBoardSync } from "../features/board/useBoardSync";
 import { useAuth } from "../providers/AuthProvider";
@@ -17,7 +18,7 @@ export default function BoardPage() {
   const location = useLocation();
   const { user } = useAuth(); // null for guests viewing a shared link
   const exit = user ? backToBoards : goHome;
-  const store = useMemo(() => createBoardStore(), [boardId]);
+  const store = useMemo(() => createBoardStore({ release: releaseFrom }), [boardId]);
   const sync = useBoardSync(boardId, store);
 
   useEffect(() => {

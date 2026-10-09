@@ -12,7 +12,6 @@ import {
   withStamps,
 } from "@inkboard/shared/board-merge";
 import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/board-order";
-import { releaseFrom } from "./connectors";
 
 // Every change to a board is an operation: { upsert: Element[], remove: Removal[] }.
 // The rules for taking one in, the same in the browser and on the server, are
@@ -67,7 +66,13 @@ function tombstonesFrom(removed) {
 // Holds a board's elements plus a local undo history. History entries store
 // the inverse operation for just the elements a person changed, so undoing
 // never wipes out what collaborators drew in the meantime.
-export function createBoardStore() {
+//
+// `release(elements, ids)` says what else a change made here that removes
+// `ids` must change: the editor passes connectors.js's releaseFrom, so
+// connectors let go of shapes that go (see withReleases). It's handed in
+// rather than imported so the store stays free of drawing code, and runs
+// as it is in Node (the server's tests play it against the server's rules).
+export function createBoardStore({ release = () => [] } = {}) {
   let elements = [];
   let tombstones = new Map(); // removed element id -> { version, versionNonce, element }
   let buried = new Map(); // removed element id -> size of the data its tombstone keeps, oldest first
@@ -170,7 +175,7 @@ export function createBoardStore() {
     const removing = new Set((op.remove ?? []).map((entry) => removalOf(entry).id));
     if (removing.size === 0) return { op, released: [] };
     const changing = new Set((op.upsert ?? []).map((element) => element.id));
-    const released = releaseFrom(elements, removing).filter(({ before }) => !changing.has(before.id));
+    const released = release(elements, removing).filter(({ before }) => !changing.has(before.id));
     if (released.length === 0) return { op, released };
     return { op: { ...op, upsert: [...(op.upsert ?? []), ...released.map(({ after }) => after)] }, released };
   }

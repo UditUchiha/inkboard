@@ -199,7 +199,7 @@ describe("moving, copying and removing with connectors", () => {
   });
 
   it("lets go of connectors whenever a change here removes their shape, and attaches them again on undo", () => {
-    const store = createBoardStore();
+    const store = createBoardStore({ release: releaseFrom });
     const sent = [];
     store.setBroadcaster((op) => sent.push(op));
     const start = board();
@@ -222,7 +222,7 @@ describe("moving, copying and removing with connectors", () => {
   });
 
   it("lets go of connectors when undoing brings their shape's removal, and attaches them again on redo", () => {
-    const store = createBoardStore();
+    const store = createBoardStore({ release: releaseFrom });
     const [a, b, link] = board();
     store.commit({ undo: { remove: ["a", "link"] }, redo: { upsert: [a, link] } });
     store.commit({ undo: { remove: ["b"] }, redo: { upsert: [b] } });

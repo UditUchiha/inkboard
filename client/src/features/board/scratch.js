@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getGuest } from "../../lib/guest";
+import { releaseFrom } from "./connectors";
 import { createBoardStore } from "./store";
 
 // A guest's board lives in this browser only (localStorage), so anyone can start
@@ -48,7 +49,7 @@ const NO_CURSORS = {};
  * from, and saved to, localStorage, and a stand-in for the live-sync object.
  */
 export function useScratchBoard() {
-  const store = useMemo(() => createBoardStore(), []);
+  const store = useMemo(() => createBoardStore({ release: releaseFrom }), []);
   const [title, setTitle] = useState(() => readScratch().title);
   const titleRef = useRef(title);
 
