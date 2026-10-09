@@ -88,25 +88,34 @@ const kanban = () => {
   return elements;
 };
 
-const flowchart = () => [
-  text(40, 20, "Flowchart", { fontSize: 44 }),
-  oval(240, 100, 440, 170, { fill: "#b2f2bb" }),
-  text(300, 118, "Start", { fontSize: 28 }),
-  arrow(340, 172, 340, 232),
-  box(240, 234, 440, 314, { fill: "#a5d8ff" }),
-  text(282, 258, "Do a step", { fontSize: 28 }),
-  arrow(340, 316, 340, 376),
-  box(280, 378, 400, 478, { fill: "#ffec99" }),
-  text(310, 410, "Done?", { fontSize: 28 }),
-  arrow(402, 428, 520, 428),
-  text(430, 392, "yes", { fontSize: 22, stroke: GREY }),
-  oval(522, 394, 682, 462, { fill: "#d0bfff" }),
-  text(568, 408, "End", { fontSize: 28 }),
-  arrow(278, 428, 150, 428),
-  text(200, 392, "no", { fontSize: 22, stroke: GREY }),
-  line(150, 428, 150, 274),
-  arrow(150, 274, 238, 274),
-];
+// Attaches an arrow's ends to shapes, so they stay connected when the shapes move.
+const connect = (element, from, to) => ({ ...element, startId: from.id, endId: to.id });
+
+const flowchart = () => {
+  const start = oval(240, 100, 440, 170, { fill: "#b2f2bb" });
+  const step = box(240, 234, 440, 314, { fill: "#a5d8ff" });
+  const decision = box(280, 378, 400, 478, { fill: "#ffec99" });
+  const end = oval(522, 394, 682, 462, { fill: "#d0bfff" });
+  return [
+    text(40, 20, "Flowchart", { fontSize: 44 }),
+    start,
+    text(300, 118, "Start", { fontSize: 28 }),
+    connect(arrow(340, 172, 340, 232), start, step),
+    step,
+    text(282, 258, "Do a step", { fontSize: 28 }),
+    connect(arrow(340, 316, 340, 376), step, decision),
+    decision,
+    text(310, 410, "Done?", { fontSize: 28 }),
+    connect(arrow(402, 428, 520, 428), decision, end),
+    text(430, 392, "yes", { fontSize: 22, stroke: GREY }),
+    end,
+    text(568, 408, "End", { fontSize: 28 }),
+    arrow(278, 428, 150, 428),
+    text(200, 392, "no", { fontSize: 22, stroke: GREY }),
+    line(150, 428, 150, 274),
+    arrow(150, 274, 238, 274),
+  ];
+};
 
 const retrospective = () => {
   const columns = [
@@ -154,8 +163,9 @@ const brainstorm = () => {
   for (const [dx, dy] of spokes) {
     const bx = cx + dx * 250;
     const by = cy + dy * 170;
-    elements.push(arrow(cx + dx * 80, cy + dy * 38, bx - dx * 70, by - dy * 30));
-    elements.push(oval(bx - 80, by - 34, bx + 80, by + 34, { fill: "#a5d8ff" }));
+    const idea = oval(bx - 80, by - 34, bx + 80, by + 34, { fill: "#a5d8ff" });
+    elements.push(connect(arrow(cx + dx * 80, cy + dy * 38, bx - dx * 70, by - dy * 30), elements[0], idea));
+    elements.push(idea);
     elements.push(text(bx - 36, by - 14, "Idea", { fontSize: 26 }));
   }
   return elements;
