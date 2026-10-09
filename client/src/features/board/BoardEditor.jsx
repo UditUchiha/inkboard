@@ -66,6 +66,9 @@ import { VersionHistory } from "./VersionHistory";
 const isTypingTarget = (target) =>
   target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
+const isPressable = (target) =>
+  target instanceof HTMLElement && Boolean(target.closest("button, a[href], summary, [role='button']"));
+
 const FRAME_COPY_GAP = 80;
 
 const ARROW_KEYS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
@@ -341,9 +344,12 @@ export function BoardEditor({ store, sync, user, local = null }) {
     (dx, dy) => {
       const group = selectedGroup();
       if (group.length === 0) return;
+      // Nudges in a row are one undo step while they move the same things. A
+      // frame nudged over something takes it along from then on, and that's a
+      // new step: the first one's undo doesn't know where it was.
       store.commit(
         { undo: { upsert: group }, redo: { upsert: moveGroup(store.getElements(), group, dx, dy) } },
-        { mergeKey: `nudge:${group[0].id}` },
+        { mergeKey: `nudge:${group.map((element) => element.id).join(",")}` },
       );
     },
     [selectedGroup, store],
@@ -572,6 +578,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
       }
 
       if (plain[key]) {
+        // Enter on a focused button presses the button, and only that.
+        if (key === "enter" && isPressable(event.target)) return;
         if (key === " ") event.preventDefault();
         plain[key]();
       } else if (ARROW_KEYS[event.key] && selectedId && !readOnly) {

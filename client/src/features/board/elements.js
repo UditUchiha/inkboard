@@ -114,12 +114,38 @@ export function measureText(element, text = element.text) {
   return { width, height: lines.length * element.fontSize * LINE_HEIGHT, lines };
 }
 
+let labels = new WeakMap(); // frame -> { scale, label }, see frameLabel
+
 /**
  * A frame's name as drawn above its top left corner, cut short to the frame's
  * width: { text, font, x, bottom, width, height }. `scale` is board units per
  * pixel of label: 1 / zoom in the editor, so names stay readable at any zoom.
+ *
+ * Shortening a name takes a measurement per letter, and the editor asks on
+ * every frame drawn and every mouse move, so each frame keeps its last label.
  */
 export function frameLabel(frame, scale = 1) {
+  const known = labels.get(frame);
+  if (known?.scale === scale) return known.label;
+  const label = measureFrameLabel(frame, scale);
+  labels.set(frame, { scale, label });
+  return label;
+}
+
+/** Forget measured frame names, once web fonts have loaded and text measures differently. */
+export function forgetFrameLabels() {
+  labels = new WeakMap();
+}
+
+/** Where a frame's label (see frameLabel) covers: { x, y, width, height }. */
+export const frameLabelBox = (label) => ({
+  x: label.x,
+  y: label.bottom - label.height,
+  width: label.width,
+  height: label.height,
+});
+
+function measureFrameLabel(frame, scale) {
   const body = normalizeRect(frame.x1, frame.y1, frame.x2, frame.y2);
   const font = `500 ${FRAME_LABEL_SIZE * scale}px ${FONTS.sans.family}`;
   measureContext ??= document.createElement("canvas").getContext("2d");
@@ -309,8 +335,6 @@ export function inDrawOrder(elements) {
   return ordered;
 }
 
-const labelBox = (label) => ({ x: label.x, y: label.bottom - label.height, width: label.width, height: label.height });
-
 /**
  * The element under a point, as it's drawn (see connectors.js): a frame's
  * name, then whatever is drawn on top, then the innermost frame the point is
@@ -321,7 +345,7 @@ export function elementAt(board, x, y, tolerance, { labelScale } = {}) {
   const frames = elements.filter(isFrame);
   if (labelScale) {
     for (let i = frames.length - 1; i >= 0; i -= 1) {
-      if (rectContains(expandRect(labelBox(frameLabel(frames[i], labelScale)), tolerance), x, y)) return frames[i];
+      if (rectContains(expandRect(frameLabelBox(frameLabel(frames[i], labelScale)), tolerance), x, y)) return frames[i];
     }
   }
   const ordered = inDrawOrder(elements);

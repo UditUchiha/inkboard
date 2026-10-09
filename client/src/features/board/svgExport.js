@@ -60,14 +60,20 @@ function noteSvg(element, baselines) {
   const top = layout.top + (layout.lineHeight - layout.fontSize) / 2;
   const baseline = (baselines[font] ?? FALLBACK_BASELINE) * layout.fontSize;
   const lines = layout.lines
+    .slice(0, layout.shown)
     .map(
       (line, index) =>
         `<tspan x="${num(layout.centerX)}" y="${num(top + baseline + index * layout.lineHeight)}">${xml(line)}</tspan>`,
     )
     .join("");
+  const box = `x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}"`;
+  // Only the lines that fit are written (see layoutNote), in a viewport the size
+  // of the note, so on a note too small for even one they stop at its edge, as on the canvas.
   return [
-    `<rect x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}" fill="${xml(element.fill)}"/>`,
+    `<rect ${box} fill="${xml(element.fill)}"/>`,
+    `<svg ${box} viewBox="${num(x)} ${num(y)} ${num(width)} ${num(height)}" overflow="hidden">`,
     `<text font-family="${xml(FONTS[font].family)}" font-size="${num(layout.fontSize)}" fill="${NOTE_TEXT_COLOR}" text-anchor="middle" xml:space="preserve">${lines}</text>`,
+    `</svg>`,
   ].join("");
 }
 

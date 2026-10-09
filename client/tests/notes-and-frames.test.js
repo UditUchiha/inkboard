@@ -13,7 +13,7 @@ import {
   translate,
   withContents,
 } from "../src/features/board/elements.js";
-import { layoutNote, MIN_NOTE_FONT_SIZE, wrapLines } from "../src/features/board/notes.js";
+import { layoutNote, MIN_NOTE_FONT_SIZE, NOTE_PADDING, wrapLines } from "../src/features/board/notes.js";
 
 // Every character is half the font size wide, so tests can work out where lines break.
 const measure = (text, fontSize) => text.length * fontSize * 0.5;
@@ -48,6 +48,13 @@ describe("sticky note text", () => {
     assert.deepEqual(wrapLines("", 10, byWidth(1)), [""]);
   });
 
+  it("keeps spaces as the editor shows them", () => {
+    assert.deepEqual(wrapLines("  indented", 20, byWidth(1)), ["  indented"], "at the start of a paragraph");
+    assert.deepEqual(wrapLines("a  b", 20, byWidth(1)), ["a  b"], "between words");
+    assert.deepEqual(wrapLines("abcd   efg", 4, byWidth(1)), ["abcd", "efg"], "hanging where a line breaks");
+    assert.deepEqual(wrapLines(" ", 20, byWidth(1)), [" "]);
+  });
+
   it("starts large on an empty or short note, and shrinks as the text grows", () => {
     const short = layoutNote(note("Hi"), measure);
     const long = layoutNote(note("A much longer thought that needs several lines to fit on the note"), measure);
@@ -73,6 +80,17 @@ describe("sticky note text", () => {
   it("stops shrinking at the smallest size, however much there is to say", () => {
     const layout = layoutNote(note("word ".repeat(2000)), measure);
     assert.equal(layout.fontSize, MIN_NOTE_FONT_SIZE);
+  });
+
+  it("starts writing that doesn't fit at the top of the note, so its beginning shows", () => {
+    const layout = layoutNote(note("word ".repeat(2000)), measure);
+    const pad = 200 * NOTE_PADDING;
+    assert.ok(Math.abs(layout.top - (-100 + pad)) < 1e-9, "the top of the note, inside its padding");
+    assert.ok(layout.shown < layout.lines.length, "not every line is shown");
+    assert.ok(layout.shown * layout.lineHeight <= layout.height, "the lines shown fit");
+    assert.ok((layout.shown + 1) * layout.lineHeight > layout.height, "as many as fit are shown");
+    const short = layoutNote(note("Hi"), measure);
+    assert.equal(short.shown, short.lines.length, "text that fits is all shown");
   });
 });
 

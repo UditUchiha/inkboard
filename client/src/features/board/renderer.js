@@ -6,14 +6,16 @@ import {
   arrowHeadLength,
   canRotate,
   fontFor,
+  forgetFrameLabels,
   frameLabel,
+  frameLabelBox,
   getBounds,
   getFrame,
   getLocalBounds,
   inDrawOrder,
   isFrame,
 } from "./elements";
-import { arrowHeadPoints, expandRect, normalizeRect, rectCenter } from "./geometry";
+import { arrowHeadPoints, expandRect, normalizeRect, rectCenter, rectsOverlap } from "./geometry";
 import { getImage } from "./images";
 import { darkInk } from "./ink";
 import { forgetNoteMeasurements, noteLayout } from "./notes";
@@ -180,12 +182,17 @@ function drawNote(ctx, element) {
 
   const layout = noteLayout(element);
   ctx.save();
+  // Only the lines that fit are drawn (see layoutNote); on a note too small for
+  // even one, it's cut off at the note's edge.
+  ctx.beginPath();
+  ctx.rect(x, y, width, height);
+  ctx.clip();
   ctx.font = fontFor({ fontSize: layout.fontSize, font: element.font });
   ctx.fillStyle = ink(NOTE_TEXT_COLOR);
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   const offset = (layout.lineHeight - layout.fontSize) / 2;
-  layout.lines.forEach((line, index) => {
+  layout.lines.slice(0, layout.shown).forEach((line, index) => {
     ctx.fillText(line, layout.centerX, layout.top + offset + index * layout.lineHeight);
   });
   ctx.restore();
@@ -203,8 +210,10 @@ function drawFrame(ctx, element) {
 }
 
 // Names go above everything, so a drawing reaching over a frame's top edge can't hide one.
-function drawFrameName(ctx, element) {
+// A name is seen on its own: zoomed out, it reaches well above the frame.
+function drawFrameName(ctx, element, view) {
   const label = frameLabel(element, labelScale);
+  if (!rectsOverlap(frameLabelBox(label), view)) return;
   ctx.save();
   ctx.font = label.font;
   ctx.fillStyle = ink(FRAME_LABEL_COLOR);
@@ -378,11 +387,11 @@ export function renderScene(
   for (const element of inDrawOrder(resolveConnectors(elements))) {
     if (element.id === connectTargetId) target = element;
     if (element.id === selectedId) selected = element;
-    if (element.id === hiddenId || !isVisible(element, view)) continue;
-    drawElement(ctx, roughCanvas, element);
+    if (element.id === hiddenId) continue;
     if (isFrame(element)) frames.push(element);
+    if (isVisible(element, view)) drawElement(ctx, roughCanvas, element);
   }
-  for (const frame of frames) drawFrameName(ctx, frame);
+  for (const frame of frames) drawFrameName(ctx, frame, view);
   if (target) drawConnectTarget(ctx, target, viewport.zoom);
   if (selected && selected.id !== hiddenId) drawSelection(ctx, selected, viewport.zoom);
 }
@@ -397,6 +406,9 @@ export function loadCanvasFonts() {
     ),
   )
     .catch(() => {})
-    .then(forgetNoteMeasurements);
+    .then(() => {
+      forgetNoteMeasurements();
+      forgetFrameLabels();
+    });
   return fontsPromise;
 }

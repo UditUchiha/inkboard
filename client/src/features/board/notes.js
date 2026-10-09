@@ -14,19 +14,22 @@ const SHRINK = 0.9;
 /**
  * `text` broken into lines no wider than `maxWidth`, measured by `measure(line)`.
  * Lines break between words; a word too long for a line of its own is broken
- * between letters. Line breaks in the text are kept.
+ * between letters. Line breaks in the text are kept, and spaces too, as the
+ * editor shows them: at the start of a paragraph they're kept, and where a line
+ * breaks they hang off the end of it, unseen.
  */
 export function wrapLines(text, maxWidth, measure) {
   const lines = [];
   for (const paragraph of text.split("\n")) {
-    let line = "";
+    let line = null; // null until the line has something on it, even a space
     for (const word of paragraph.split(" ")) {
-      const candidate = line ? `${line} ${word}` : word;
+      const candidate = line === null ? word : `${line} ${word}`;
       if (measure(candidate) <= maxWidth) {
         line = candidate;
         continue;
       }
-      if (line) lines.push(line);
+      if (word === "") continue; // a space where the line breaks
+      if (line !== null) lines.push(line);
       line = word;
       while (line.length > 1 && measure(line) > maxWidth) {
         let fits = 1;
@@ -35,15 +38,18 @@ export function wrapLines(text, maxWidth, measure) {
         line = line.slice(fits);
       }
     }
-    lines.push(line);
+    lines.push(line ?? "");
   }
   return lines;
 }
 
 /**
- * Where a note's text goes: `{ fontSize, lines, lineHeight, centerX, top, width, height }`,
+ * Where a note's text goes: `{ fontSize, lines, shown, lineHeight, centerX, top, width, height }`,
  * with `top` the top of the first line. `measure(text, fontSize, font)` gives
  * the width of `text` at that size.
+ *
+ * Text that doesn't fit even at the smallest size starts at the top of the
+ * note, and only the first `shown` lines, those that fit, are drawn.
  */
 export function layoutNote(element, measure) {
   const box = normalizeRect(element.x1, element.y1, element.x2, element.y2);
@@ -53,10 +59,11 @@ export function layoutNote(element, measure) {
 
   let fontSize = Math.max(MIN_NOTE_FONT_SIZE, Math.round(Math.min(box.width, box.height) / 7));
   let lines;
+  let fits;
   for (;;) {
     const size = fontSize;
     lines = wrapLines(element.text, width, (line) => measure(line, size, element.font));
-    const fits = lines.length * fontSize * LINE_HEIGHT <= height;
+    fits = lines.length * fontSize * LINE_HEIGHT <= height;
     if (fits || fontSize <= MIN_NOTE_FONT_SIZE) break;
     fontSize = Math.max(MIN_NOTE_FONT_SIZE, Math.floor(fontSize * SHRINK));
   }
@@ -64,9 +71,10 @@ export function layoutNote(element, measure) {
   return {
     fontSize,
     lines,
+    shown: fits ? lines.length : Math.max(1, Math.floor(height / lineHeight)),
     lineHeight,
     centerX: box.x + box.width / 2,
-    top: box.y + box.height / 2 - (lines.length * lineHeight) / 2,
+    top: fits ? box.y + box.height / 2 - (lines.length * lineHeight) / 2 : box.y + (box.height - height) / 2,
     width,
     height,
   };
