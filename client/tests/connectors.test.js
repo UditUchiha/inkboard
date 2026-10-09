@@ -143,6 +143,9 @@ describe("attaching ends", () => {
       const elements = [shape("a", 0, 0, 100, 100), label("on-shape", 10), label("alone", 500)];
       assert.equal(connectTargetAt(elements, { x: 15, y: 15 }, 2).id, "a");
       assert.equal(connectTargetAt(elements, { x: 505, y: 15 }, 2).id, "alone");
+      // An arrow from "a" let go over a's own label doesn't attach to the label.
+      assert.equal(connectTargetAt(elements, { x: 15, y: 15 }, 2, { except: "a" }), null);
+      assert.equal(connectTargetAt(elements, { x: 505, y: 15 }, 2, { except: "a" }).id, "alone");
     } finally {
       globalThis.document = realDocument;
     }
@@ -193,6 +196,45 @@ describe("moving, copying and removing with connectors", () => {
     assert.equal(change.after.startId, "a", "still attached at the other end");
     near(change.after.x2, 300 - EDGE);
     assert.deepEqual(releaseFrom(elements, new Set(["link", "a"])), [], "nothing to let go when it goes too");
+  });
+
+  it("lets go of connectors whenever a change here removes their shape, and attaches them again on undo", () => {
+    const store = createBoardStore();
+    const sent = [];
+    store.setBroadcaster((op) => sent.push(op));
+    const start = board();
+    store.commit({ undo: { remove: start.map((element) => element.id) }, redo: { upsert: start } });
+    // Removed the way emptying a text does: a plain removal.
+    store.commit({ undo: { upsert: [store.getElement("b")] }, redo: { remove: ["b"] } });
+    const loose = store.getElement("link");
+    assert.equal("endId" in loose, false);
+    near(loose.x2, 300 - EDGE, "left where it was drawn");
+    assert.ok(
+      sent.at(-1).upsert.some((element) => element.id === "link"),
+      "sent in the same change",
+    );
+    store.undo();
+    assert.equal(store.getElement("link").endId, "b");
+    store.redo();
+    assert.equal("endId" in store.getElement("link"), false);
+    store.undo();
+    assert.equal(store.getElement("link").endId, "b");
+  });
+
+  it("lets go of connectors when undoing brings their shape's removal, and attaches them again on redo", () => {
+    const store = createBoardStore();
+    const [a, b, link] = board();
+    store.commit({ undo: { remove: ["a", "link"] }, redo: { upsert: [a, link] } });
+    store.commit({ undo: { remove: ["b"] }, redo: { upsert: [b] } });
+    for (let round = 0; round < 2; round += 1) {
+      store.undo();
+      const loose = store.getElement("link");
+      assert.equal("endId" in loose, false);
+      assert.equal(loose.startId, "a");
+      near(loose.x2, 300 - EDGE);
+      store.redo();
+      assert.equal(store.getElement("link").endId, "b", "attached again");
+    }
   });
 
   it("follow a shape moved by someone else, on both screens, without either touching the arrow", () => {

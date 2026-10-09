@@ -44,7 +44,7 @@ import { BoardCanvas } from "./BoardCanvas";
 import { CommentsLayer } from "./CommentsLayer";
 import { BoardFileError, isBoardFile, parseBoardFile, placeElements } from "./boardFile";
 import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, NUMBERED_TOOLS, TOOLS } from "./constants";
-import { copyGroup, moveGroup, releaseFrom } from "./connectors";
+import { copyGroup, moveGroup } from "./connectors";
 import { createImage, getSceneBounds, isFrame, stackKey, withContents } from "./elements";
 import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
 import { fitViewport, toWorld, zoomAround } from "./geometry";
@@ -294,13 +294,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
   const deleteSelected = useCallback(() => {
     const group = selectedGroup();
     if (group.length === 0) return;
-    const ids = new Set(group.map((element) => element.id));
-    // Connectors attached to what's deleted stay where they're drawn.
-    const released = releaseFrom(store.getElements(), ids);
-    store.commit({
-      undo: { upsert: [...group, ...released.map(({ before }) => before)] },
-      redo: { remove: [...ids], upsert: released.map(({ after }) => after) },
-    });
+    // Connectors attached to what's deleted stay where they're drawn (the store lets go of them).
+    store.commit({ undo: { upsert: group }, redo: { remove: group.map((element) => element.id) } });
     setSelectedId(null);
     if (group.length > 1) {
       const count = group.length - 1;

@@ -12,6 +12,7 @@ import {
   withStamps,
 } from "@inkboard/shared/board-merge";
 import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/board-order";
+import { releaseFrom } from "./connectors";
 
 // Every change to a board is an operation: { upsert: Element[], remove: Removal[] }.
 // The rules for taking one in, the same in the browser and on the server, are
@@ -161,12 +162,41 @@ export function createBoardStore() {
     buriedChars = 0;
   }
 
+  // A change made here that removes shapes also lets go of the connectors
+  // attached to them, where they're drawn (see connectors.js), unless it
+  // changes those connectors itself. Otherwise they'd jump back to where they
+  // were first drawn. Returns `op` with them, and them: [{ before, after }].
+  function withReleases(op) {
+    const removing = new Set((op.remove ?? []).map((entry) => removalOf(entry).id));
+    if (removing.size === 0) return { op, released: [] };
+    const changing = new Set((op.upsert ?? []).map((element) => element.id));
+    const released = releaseFrom(elements, removing).filter(({ before }) => !changing.has(before.id));
+    if (released.length === 0) return { op, released };
+    return { op: { ...op, upsert: [...(op.upsert ?? []), ...released.map(({ after }) => after)] }, released };
+  }
+
+  // Returns the connectors it let go of (see withReleases).
   function apply(op, { base } = {}) {
-    const stamped = stamp(op, base);
-    if (!stamped) return;
-    take(stamped);
-    publish();
-    broadcast(stamped);
+    const { op: full, released } = withReleases(op);
+    const stamped = stamp(full, base);
+    if (stamped) {
+      take(stamped);
+      publish();
+      broadcast(stamped);
+    }
+    return released;
+  }
+
+  // `entry` with the connectors its `step` ("undo" or "redo") let go of put
+  // back in the other step, so going back attaches them again. The step itself
+  // works them out afresh each time, from where they're drawn then.
+  function attachingBack(entry, step, released) {
+    if (released.length === 0) return entry;
+    const other = step === "undo" ? "redo" : "undo";
+    const ids = new Set(released.map(({ before }) => before.id));
+    const kept = (entry[other]?.upsert ?? []).filter((element) => !ids.has(element.id)); // from a step before
+    const upsert = [...kept, ...released.map(({ before }) => before)];
+    return { ...entry, [other]: { ...entry[other], upsert } };
   }
 
   function record(entry, { mergeKey } = {}) {
@@ -225,15 +255,16 @@ export function createBoardStore() {
     /**
      * A live, in-progress change (e.g. mid-stroke): shared, but not in history.
      * Pass `{ base }` when the change wasn't made from the elements as they are
-     * now (see stamp).
+     * now (see stamp). Returns the connectors it let go of, as they were and
+     * are now ([{ before, after }]), for the history entry that's recorded.
      */
     apply,
     /** Add a finished change to history (its redo state is already applied). */
     record,
     /** Apply a change and add it to history in one step. */
     commit(entry, options) {
-      apply(entry.redo, { base: entry.undo?.upsert });
-      record(entry, options);
+      const released = apply(entry.redo, { base: entry.undo?.upsert });
+      record(attachingBack(entry, "redo", released), options);
     },
     // Undo and redo only change what the step changed: undoing a move puts the
     // shape back, but keeps a color someone else picked since.
@@ -241,13 +272,16 @@ export function createBoardStore() {
       const entry = undoStack.pop();
       if (!entry) return;
       redoStack.push(entry);
-      apply(entry.undo, { base: entry.redo?.upsert });
+      const released = apply(entry.undo, { base: entry.redo?.upsert });
+      redoStack[redoStack.length - 1] = attachingBack(entry, "undo", released);
     },
     redo() {
       const entry = redoStack.pop();
       if (!entry) return;
-      undoStack.push({ ...entry, mergeKey: undefined });
-      apply(entry.redo, { base: entry.undo?.upsert });
+      const again = { ...entry, mergeKey: undefined };
+      undoStack.push(again);
+      const released = apply(entry.redo, { base: entry.undo?.upsert });
+      undoStack[undoStack.length - 1] = attachingBack(again, "redo", released);
     },
   };
 }

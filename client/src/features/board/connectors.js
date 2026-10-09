@@ -97,17 +97,19 @@ function covers(target, point, tolerance) {
 
 /**
  * The topmost shape a connector end at `point` would attach to, other than
- * `except`. Shapes come before text: a label sitting on a shape is part of it,
- * so text is only attached to when there's no shape there.
+ * `except` (the other end's). Shapes come before text: a label sitting on a
+ * shape is part of it, so text is only attached to when there's no shape
+ * there, and never when it sits on `except`.
  */
 export function connectTargetAt(elements, point, tolerance, { except } = {}) {
   const ordered = inDrawOrder(resolveConnectors(elements));
+  const excluded = except ? ordered.find((element) => element.id === except) : null;
   let text = null;
   for (let i = ordered.length - 1; i >= 0; i -= 1) {
     const element = ordered[i];
     if (element.id === except || !canConnectTo(element) || !covers(element, point, tolerance)) continue;
     if (element.type !== "text") return element;
-    text ??= element;
+    if (!text && !(excluded && covers(excluded, middleOf(element), 0))) text = element;
   }
   return text;
 }

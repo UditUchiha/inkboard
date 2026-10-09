@@ -1,15 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useElementSize } from "../../lib/useElementSize";
 import { useTheme } from "../../providers/ThemeProvider";
-import {
-  attachEnd,
-  connectTargetAt,
-  drawnElement,
-  isConnector,
-  readyToMove,
-  releaseFrom,
-  resolveConnectors,
-} from "./connectors";
+import { attachEnd, connectTargetAt, drawnElement, isConnector, readyToMove, resolveConnectors } from "./connectors";
 import { ERASER_RADIUS, GRID_SIZE, HIT_TOLERANCE, MAX_ZOOM, MIN_ZOOM } from "./constants";
 import {
   createElement,
@@ -199,10 +191,9 @@ export function BoardCanvas({
     }
     if (hits.size === 0) return;
     for (const [id, element] of hits) g.erased.set(id, element);
-    // Connectors attached to what's erased stay where they're drawn.
-    const released = releaseFrom(store.getElements(), new Set(hits.keys()));
+    // Connectors attached to what's erased stay where they're drawn (the store lets go of them).
+    const released = store.apply({ remove: [...hits.keys()] });
     for (const { before } of released) if (!g.released.has(before.id)) g.released.set(before.id, before);
-    store.apply({ remove: [...hits.keys()], upsert: released.map(({ after }) => after) });
   }
 
   // Finishes the current gesture and records it in the undo history.
@@ -223,10 +214,7 @@ export function BoardCanvas({
       const released = [...g.released.keys()].filter((id) => !g.erased.has(id));
       store.record({
         undo: { upsert: [...g.erased.values(), ...released.map((id) => g.released.get(id))] },
-        redo: {
-          remove: [...g.erased.keys()],
-          upsert: released.map((id) => store.getElement(id)).filter(Boolean),
-        },
+        redo: { remove: [...g.erased.keys()] },
       });
     } else if (g.kind === "move" && g.current) {
       if (cancelled) store.apply({ upsert: g.originals }, { base: g.current });
