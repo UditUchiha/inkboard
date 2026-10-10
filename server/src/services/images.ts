@@ -1,3 +1,4 @@
+import type { Element } from "@inkboard/shared/types";
 import { IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, IMAGE_SMALL_MAX_BYTES, IMAGE_SMALL_MAX_SIDE } from "@inkboard/shared/limits";
 import mongoose from "mongoose";
 import { keyedQueue } from "../lib/keyed-queue.ts";
@@ -5,8 +6,10 @@ import { Board } from "../models/board.model.ts";
 import { User } from "../models/user.model.ts";
 import { Version } from "../models/version.model.ts";
 import { getSession } from "../realtime/sessions.js";
-import { emailConfigured } from "./email.js";
-import { deleteImages, imageBytes, listImages, putImage } from "./image-storage.js";
+import { emailConfigured } from "./email.ts";
+import type { ObjectIdLike } from "./boards.ts";
+import { deleteImages, imageBytes, listImages, putImage } from "./image-storage.ts";
+import type { ImageContent, ImageFilter } from "./image-storage.ts";
 
 // Rules for uploaded images. The browser shrinks pictures before sending them
 // (to about 2000 px on the long side), so the size limit is a backstop for
@@ -42,14 +45,24 @@ export const IMAGE_LIMITS = {
 
 const SWEEP_INTERVAL_MS = 6 * 3600 * 1000;
 
-const startsWith = (buffer, bytes, offset = 0) => bytes.every((byte, index) => buffer[offset + index] === byte);
+/** The kinds of image a file can really be (see detectImageType). */
+export type ImageMime = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+
+/** How many pixels wide and high an image is. */
+export interface ImageSize {
+  width: number;
+  height: number;
+}
+
+const startsWith = (buffer: Buffer, bytes: number[], offset = 0) =>
+  bytes.every((byte, index) => buffer[offset + index] === byte);
 
 /**
  * What kind of image a file really is, judged by its first bytes rather than by
  * what the sender claims. Returns a MIME type, or null for anything else.
  * SVG is left out on purpose: it can carry scripts.
  */
-export function detectImageType(buffer) {
+export function detectImageType(buffer: unknown): ImageMime | null {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) return null;
   if (startsWith(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
   if (startsWith(buffer, [0xff, 0xd8, 0xff])) return "image/jpeg";
@@ -62,7 +75,7 @@ export function detectImageType(buffer) {
 
 // A JPEG is a run of segments; the one that starts a frame (SOF0 to SOF15, except the three that
 // aren't frames) says how big the picture is.
-function jpegSize(buffer) {
+function jpegSize(buffer: Buffer): ImageSize | null {
   let at = 2;
   while (at + 4 <= buffer.length) {
     if (buffer[at] !== 0xff) return null;
@@ -81,7 +94,7 @@ function jpegSize(buffer) {
 }
 
 // A WebP starts with one chunk that says how big the picture is, in one of three layouts.
-function webpSize(buffer) {
+function webpSize(buffer: Buffer): ImageSize | null {
   const kind = buffer.toString("latin1", 12, 16);
   if (kind === "VP8X" && buffer.length >= 30) {
     return { width: 1 + buffer.readUIntLE(24, 3), height: 1 + buffer.readUIntLE(27, 3) };
@@ -102,7 +115,7 @@ function webpSize(buffer) {
  * How many pixels wide and high an image says it is, read from its header (so without
  * decoding it), or null if the header doesn't say. `mime` is what detectImageType returned.
  */
-export function imageSize(buffer, mime) {
+export function imageSize(buffer: Buffer, mime: string): ImageSize | null {
   if (mime === "image/png" && buffer.length >= 24) {
     return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
   }
@@ -115,7 +128,7 @@ export function imageSize(buffer, mime) {
 }
 
 // Why an image's size rules it out (a sentence for whoever uploaded it), or null if it's fine.
-function sizeProblem(buffer, mime, side) {
+function sizeProblem(buffer: Buffer, mime: string, side: number) {
   const size = imageSize(buffer, mime);
   if (!size || size.width === 0 || size.height === 0) return "That picture couldn't be read.";
   if (size.width > side || size.height > side) {
@@ -131,11 +144,12 @@ function sizeProblem(buffer, mime, side) {
 const uploading = keyedQueue();
 
 // Uploads of the last minute for each account (or board, for guests) and each network address, to slow down floods.
-const recentUploads = new Map();
-function uploadingTooFast(key, limit) {
+const recentUploads = new Map<string, number[]>();
+function uploadingTooFast(key: string, limit: number) {
   const now = Date.now();
   if (recentUploads.size > 1000) {
-    for (const [other, times] of recentUploads) if (now - times.at(-1) >= 60_000) recentUploads.delete(other);
+    // Each list was made with the upload that created it, so none is empty.
+    for (const [other, times] of recentUploads) if (now - times.at(-1)! >= 60_000) recentUploads.delete(other);
   }
   const recent = (recentUploads.get(key) ?? []).filter((at) => now - at < 60_000);
   recent.push(now);
@@ -148,14 +162,22 @@ export const forgetRecentUploads = () => recentUploads.clear();
 
 // Says so (at most once an hour) when the app's image space is getting close to full, so someone can act before it is.
 let lastFullnessWarning = 0;
-function warnIfNearlyFull(total) {
+function warnIfNearlyFull(total: number) {
   if (total < IMAGE_LIMITS.total * 0.8 || Date.now() - lastFullnessWarning < 60 * 60 * 1000) return;
   lastFullnessWarning = Date.now();
   console.warn(`Image storage is ${Math.round((total / IMAGE_LIMITS.total) * 100)}% full.`);
 }
 
-// Which limit, if any, `bytes` more would break: "board", "owner" or "total".
-async function limitBroken(boardId, ownerBoards, ownerLimit, bytes) {
+/** The space limits an upload can break: a board's own, its owner's, or the whole app's. */
+export type ImageLimit = "board" | "owner" | "total";
+
+// Which limit, if any, `bytes` more would break.
+async function limitBroken(
+  boardId: ObjectIdLike,
+  ownerBoards: string[],
+  ownerLimit: number,
+  bytes: number,
+): Promise<ImageLimit | null> {
   if ((await imageBytes({ boards: [boardId] })) + bytes > IMAGE_LIMITS.board) return "board";
   if ((await imageBytes({ boards: ownerBoards })) + bytes > ownerLimit) return "owner";
   const total = await imageBytes();
@@ -169,20 +191,32 @@ async function limitBroken(boardId, ownerBoards, ownerLimit, bytes) {
 // upload that ran out of room doesn't wait for it (a sweep can take a while and would hold up
 // everyone uploading to that owner's boards); trying again a moment later finds the room it made.
 // Sweeps of one scope run one after another.
-const lastSweep = new Map();
+const lastSweep = new Map<string, number>();
 const sweeping = keyedQueue();
-const running = new Set();
-function sweepSoon(scope, filter) {
+const running = new Set<Promise<unknown>>();
+function sweepSoon(scope: string, filter: ImageFilter) {
   if (Date.now() - (lastSweep.get(scope) ?? 0) < IMAGE_LIMITS.sweepEveryMs) return;
   lastSweep.set(scope, Date.now());
-  const sweep = sweeping(scope, () => sweepUnusedImages(filter))
-    .catch((error) => console.error(`Image cleanup failed: ${error.message}`))
+  const sweep: Promise<unknown> = sweeping(scope, () => sweepUnusedImages(filter))
+    .catch((error: Error) => console.error(`Image cleanup failed: ${error.message}`))
     .finally(() => running.delete(sweep));
   running.add(sweep);
 }
 
 /** Resolves once the sweeps uploads have started are done (for tests). */
 export const sweepsSettled = () => Promise.all([...running]);
+
+/** What storeImage is asked to store, and where the upload came from. */
+export interface StoreImage extends ImageContent {
+  boardId: ObjectIdLike;
+  uploadedBy?: ObjectIdLike | null;
+  small?: ImageContent | null;
+  address?: string;
+}
+
+/** What storeImage resolves with: the new image's id, or why there isn't one. */
+export type StoreResult =
+  { id: string } | { full: ImageLimit; unverified?: true } | { missing: true } | { refused: string };
 
 /**
  * Stores an image (with its small copy `{ buffer, mime }`, if any) for a board if there is room. Resolves with `{ id }`, with
@@ -193,7 +227,14 @@ export const sweepsSettled = () => Promise.all([...running]);
  * images nothing shows any more starts in the background, so removing pictures frees space for the next try.
  * `address` is where the upload came from.
  */
-export async function storeImage({ boardId, buffer, mime, uploadedBy, small, address }) {
+export async function storeImage({
+  boardId,
+  buffer,
+  mime,
+  uploadedBy,
+  small,
+  address,
+}: StoreImage): Promise<StoreResult> {
   const tooFast =
     (address && uploadingTooFast(`address:${address}`, IMAGE_LIMITS.uploadsPerMinutePerAddress)) ||
     uploadingTooFast(uploadedBy ? `user:${uploadedBy}` : `board:${boardId}`, IMAGE_LIMITS.uploadsPerMinute);
@@ -223,9 +264,13 @@ export async function storeImage({ boardId, buffer, mime, uploadedBy, small, add
   });
 }
 
-const imageIdsIn = async (Model, match) =>
+// What imageIdsIn needs of a model (boards and versions are both searched): to aggregate over its documents.
+const imageIdsIn = async (
+  Model: Pick<mongoose.Model<unknown>, "aggregate">,
+  match: Record<string, mongoose.Types.ObjectId>,
+) =>
   (
-    await Model.aggregate([
+    await Model.aggregate<{ _id: string }>([
       { $match: match },
       { $unwind: "$elements" },
       { $match: { "elements.type": "image" } },
@@ -235,10 +280,10 @@ const imageIdsIn = async (Model, match) =>
 
 // The images a board still shows: on the board itself (as people see it right
 // now, if it's open) or in any of its saved versions, which can be restored.
-async function imagesShownBy(boardId) {
+async function imagesShownBy(boardId: string | undefined) {
   if (!mongoose.isValidObjectId(boardId)) return new Set();
   const _id = new mongoose.Types.ObjectId(String(boardId));
-  const live = getSession(String(boardId))?.elements;
+  const live: Element[] | undefined = getSession(String(boardId))?.elements;
   const onBoard = live
     ? live.filter((element) => element.type === "image").map((element) => element.imageId)
     : await imageIdsIn(Board, { _id });
@@ -253,12 +298,12 @@ async function imagesShownBy(boardId) {
 export async function sweepUnusedImages({
   boards,
   uploadedBefore = new Date(Date.now() - IMAGE_LIMITS.keepUnusedForMs),
-} = {}) {
-  const byBoard = new Map();
+}: ImageFilter = {}) {
+  const byBoard = new Map<string | undefined, string[]>();
   for (const image of await listImages({ boards, uploadedBefore })) {
     byBoard.set(image.board, [...(byBoard.get(image.board) ?? []), image.id]);
   }
-  const unused = [];
+  const unused: string[] = [];
   for (const [boardId, ids] of byBoard) {
     const shown = await imagesShownBy(boardId);
     unused.push(...ids.filter((id) => !shown.has(id)));
@@ -271,7 +316,7 @@ export function startImageSweeper() {
   const sweep = () =>
     sweepUnusedImages()
       .then((count) => count > 0 && console.log(`Deleted ${count} image(s) no board shows any more.`))
-      .catch((error) => console.error(`Image cleanup failed: ${error.message}`));
+      .catch((error: Error) => console.error(`Image cleanup failed: ${error.message}`));
   sweep();
   return setInterval(sweep, SWEEP_INTERVAL_MS).unref();
 }

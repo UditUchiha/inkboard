@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
 import { Board } from "../models/board.model.ts";
 import { Notification } from "../models/notification.model.ts";
-import { PERSON_FIELDS, roleOf } from "../services/boards.js";
-import { serializeNotification } from "../services/notifications.js";
+import { PERSON_FIELDS, roleOf } from "../services/boards.ts";
+import { serializeNotification } from "../services/notifications.ts";
 
 const PAGE_SIZE = 30;
 

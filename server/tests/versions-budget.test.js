@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { Board } from "../src/models/board.model.ts";
 import { Version } from "../src/models/version.model.ts";
-import { destroyBoard } from "../src/services/boards.js";
-import { recordVersion, VERSION_LIMITS } from "../src/services/versions.js";
+import { destroyBoard } from "../src/services/boards.ts";
+import { recordVersion, VERSION_LIMITS } from "../src/services/versions.ts";
 import { startServer } from "./helpers.js";
 
 let app;

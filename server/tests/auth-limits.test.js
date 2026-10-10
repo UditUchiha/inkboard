@@ -5,7 +5,7 @@ import { startServer } from "./helpers.js";
 const { env } = await import("../src/config/env.ts");
 const { signToken } = await import("../src/lib/tokens.ts");
 const { User } = await import("../src/models/user.model.ts");
-const { outbox } = await import("../src/services/email.js");
+const { outbox } = await import("../src/services/email.ts");
 
 // Each kind of request has its own allowance (M9). Everything here comes from one address, as a
 // school or an office would, so what's being checked is that one kind doesn't use up another's.

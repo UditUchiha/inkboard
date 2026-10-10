@@ -4,7 +4,7 @@ import { withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
 import mongoose from "mongoose";
 import { Board } from "../models/board.model.ts";
-import { lastVersionTime, recordVersion } from "../services/versions.js";
+import { lastVersionTime, recordVersion } from "../services/versions.ts";
 import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.js";
 
 // Boards that are open in at least one browser live in memory, so every
@@ -106,7 +106,7 @@ export function admit(session, op, buried = [], room = Infinity) {
 }
 
 // Removed elements are remembered with their last data while the board is open
-// (see shared/src/board-merge.js), up to this much. Past it the oldest keep only
+// (see shared/src/board-merge.ts), up to this much. Past it the oldest keep only
 // their stamp, which still stops older changes bringing them back.
 const MAX_BURIED_BYTES = MAX_BOARD_BYTES;
 
@@ -337,7 +337,7 @@ async function save(session) {
             elements: session.elements,
             removed: removedList(session),
             // What the board takes of its owner's space, measured as boards are (drawingBytes in
-            // services/boards.js), which adds up a little differently from session.bytes.
+            // services/boards.ts), which adds up a little differently from session.bytes.
             bytes: mongoose.mongo.BSON.calculateObjectSize({ elements: session.elements }),
             updatedAt: new Date(),
           },

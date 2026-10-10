@@ -4,10 +4,10 @@ import mongoose from "mongoose";
 import { eventually, startServer } from "./helpers.js";
 
 const { env } = await import("../src/config/env.ts");
-const { outbox } = await import("../src/services/email.js");
+const { outbox } = await import("../src/services/email.ts");
 const { EmailToken } = await import("../src/models/email-token.model.ts");
 const { User } = await import("../src/models/user.model.ts");
-const { sendVerificationEmail, verifyAccountsMadeByProviders } = await import("../src/services/account-emails.js");
+const { sendVerificationEmail, verifyAccountsMadeByProviders } = await import("../src/services/account-emails.ts");
 
 // Email is off unless it's set up; these tests turn it on (tests never really send).
 const emailSettings = { ...env.email };

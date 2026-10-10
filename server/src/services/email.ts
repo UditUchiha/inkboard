@@ -9,8 +9,19 @@ import { env } from "../config/env.ts";
 const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 const OUTBOX_SIZE = 50;
 
+/** What an email says, whoever it's to. */
+export interface SentEmail {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/** What an email is for: it decides which share of the daily limit it may use (see takeDailySlot). */
+export type EmailPurpose = "verify-email" | "reset-password";
+
 /** Emails "sent" by tests, or while no email service is configured, newest last. */
-export const outbox = [];
+export const outbox: SentEmail[] = [];
 
 let budgetDay = "";
 let sentToday = 0;
@@ -28,7 +39,7 @@ export function emailsSentToday() {
 // allowance is kept for them: a flood of sign-ups (each sends a verification email) can't use it up.
 export const RESERVED_FOR_RESETS = 0.4;
 
-function takeDailySlot(purpose) {
+function takeDailySlot(purpose: EmailPurpose) {
   const today = new Date().toISOString().slice(0, 10);
   if (today !== budgetDay) {
     budgetDay = today;
@@ -48,7 +59,7 @@ export const emailConfigured = () => Boolean(env.email.brevoApiKey && env.email.
  * Sends one email. Throws if the email service refuses it, or the daily limit is used up. `purpose` is
  * "reset-password" for a password reset, which may use the share of the limit kept for those.
  */
-export async function sendEmail({ to, subject, text, html, purpose }) {
+export async function sendEmail({ to, subject, text, html, purpose }: SentEmail & { purpose: EmailPurpose }) {
   if (!takeDailySlot(purpose))
     throw new Error(`The daily limit of ${env.email.dailyLimit} emails is used up; "${subject}" wasn't sent.`);
   if (!emailConfigured() || process.env.NODE_ENV === "test") {
@@ -65,7 +76,8 @@ export async function sendEmail({ to, subject, text, html, purpose }) {
 
   const response = await fetch(BREVO_URL, {
     method: "POST",
-    headers: { "api-key": env.email.brevoApiKey, "content-type": "application/json", accept: "application/json" },
+    // emailConfigured() above has checked that the key is set, which the type can't follow.
+    headers: { "api-key": env.email.brevoApiKey!, "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
       sender: { name: env.email.fromName, email: env.email.from },
       to: [{ email: to }],

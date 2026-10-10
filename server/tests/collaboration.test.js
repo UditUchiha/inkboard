@@ -8,8 +8,8 @@ import { Template } from "../src/models/template.model.ts";
 import { Thread } from "../src/models/thread.model.ts";
 import { Version } from "../src/models/version.model.ts";
 import { elementBytes, MAX_ELEMENT_BYTES } from "../src/realtime/operations.js";
-import { BOARD_LIMITS } from "../src/services/boards.js";
-import { pruneVersions, recordVersion, VERSION_LIMITS } from "../src/services/versions.js";
+import { BOARD_LIMITS } from "../src/services/boards.ts";
+import { pruneVersions, recordVersion, VERSION_LIMITS } from "../src/services/versions.ts";
 import { eventually, rect, roundTrip, startServer, upsert } from "./helpers.js";
 
 let app;

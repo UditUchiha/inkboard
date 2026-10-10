@@ -1,8 +1,38 @@
+import type { Element } from "@inkboard/shared/types";
 import mongoose from "mongoose";
+import type { Types } from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
 import { keyedQueue } from "../lib/keyed-queue.ts";
 import { Board } from "../models/board.model.ts";
 import { Version } from "../models/version.model.ts";
+import type { ObjectIdLike } from "./boards.ts";
+
+/** What a version is for: "auto" ones are taken while people draw, "named" ones are saved on purpose, and "restore" ones keep the state from before a restore. */
+export type VersionKind = "auto" | "named" | "restore";
+
+/** What recordVersion is told about a version besides its elements. */
+export interface VersionOptions {
+  kind?: VersionKind;
+  label?: string | null;
+  author?: ObjectIdLike | null;
+}
+
+// What the history's budget needs of a version: how big it is and what kind. `_id` is INCOMING for the one being added.
+interface Entry {
+  _id: Types.ObjectId | string;
+  kind: VersionKind;
+  bytes: number;
+}
+
+// What makeRoom says when the history can't be made to fit: a saved version is one too many (`named`, with
+// how many are kept), or the saved versions leave no room (`alone` when the new one is the only one).
+type Refused = { full: true; named: true; count: number } | { full: true; alone: boolean };
+
+// What makeRoom says otherwise: which versions to delete, and `full` if even that isn't enough.
+interface Fits {
+  doomed: Set<string>;
+  full: boolean;
+}
 
 // Every version is a full copy of the board (up to 12 MB), and the free
 // database holds 512 MB for everything, so each board's history has a budget.
@@ -22,12 +52,12 @@ export const VERSION_LIMITS = {
   named: 50,
   // All of a board's versions together, as MongoDB stores them. The history is
   // never left bigger than this. Only the saved (named) versions count towards their
-  // owner's space (see ownerBytes in services/boards.js); the automatic ones are bounded
+  // owner's space (see ownerBytes in services/boards.ts); the automatic ones are bounded
   // by this alone, per board.
   bytes: 30_000_000,
 };
 
-const sizeOf = (elements) => mongoose.mongo.BSON.calculateObjectSize({ elements });
+const sizeOf = (elements: Element[]) => mongoose.mongo.BSON.calculateObjectSize({ elements });
 
 // Writing a version looks at the whole history, decides what goes to make room, and then
 // writes; for one board at a time, so autosaves, restores and saves arriving together can't
@@ -36,7 +66,7 @@ const writing = keyedQueue();
 
 // Versions saved before sizes were recorded are measured once, by the database, the same way new
 // ones are. `only` limits it to one kind.
-async function measureOldVersions(boards, only = {}) {
+async function measureOldVersions(boards: ObjectIdLike[], only: { kind?: VersionKind } = {}) {
   await Version.updateMany(
     { board: { $in: boards }, bytes: null, ...only },
     [{ $set: { bytes: { $bsonSize: { elements: "$elements" } } } }],
@@ -45,17 +75,17 @@ async function measureOldVersions(boards, only = {}) {
 }
 
 // Newest first, without the drawings.
-const historyOf = (boardId) =>
-  Version.find({ board: boardId }).sort({ createdAt: -1, _id: -1 }).select("kind bytes").lean();
+const historyOf = (boardId: ObjectIdLike) =>
+  Version.find({ board: boardId }).sort({ createdAt: -1, _id: -1 }).select("kind bytes").lean<Entry[]>();
 
 // Sorts a history (newest first) into the automatic and before-restore versions that are over
 // their counts (`doomed`), those that go first when the history is over budget (`removable`,
 // newest first), and the few that go last (`kept`, newest first): the newest few autosaves and
 // the newest before-restore one. Saved (named) versions are in none of these.
-function sortHistory(versions) {
-  const doomed = new Set();
-  const removable = [];
-  const kept = [];
+function sortHistory(versions: Entry[]) {
+  const doomed = new Set<string>();
+  const removable: Entry[] = [];
+  const kept: Entry[] = [];
   const counts = { auto: 0, restore: 0 };
   for (const version of versions) {
     if (version.kind === "named") continue;
@@ -68,7 +98,7 @@ function sortHistory(versions) {
   return { doomed, removable, kept };
 }
 
-const totalBytes = (versions) => versions.reduce((sum, version) => sum + version.bytes, 0);
+const totalBytes = (versions: Entry[]) => versions.reduce((sum, version) => sum + version.bytes, 0);
 
 const INCOMING = "incoming";
 
@@ -82,7 +112,7 @@ const INCOMING = "incoming";
  * a new saved version is refused only when the saved versions leave no room for it, never because
  * of autosaves, which people can't delete themselves.
  */
-function makeRoom(history, incoming) {
+function makeRoom(history: Entry[], incoming: Pick<Entry, "kind" | "bytes"> | null): Refused | Fits {
   const versions = incoming ? [{ ...incoming, _id: INCOMING }, ...history] : history;
   const { doomed, removable, kept } = sortHistory(versions);
   const named = versions.filter((version) => version.kind === "named");
@@ -110,7 +140,11 @@ function makeRoom(history, incoming) {
  * automatic history gives way. A board that is being erased, or is gone, gets no new versions
  * (see removeVersions).
  */
-export function recordVersion(boardId, elements, { kind = "auto", label = null, author = null } = {}) {
+export function recordVersion(
+  boardId: ObjectIdLike,
+  elements: Element[],
+  { kind = "auto", label = null, author = null }: VersionOptions = {},
+) {
   const bytes = sizeOf(elements);
   return writing(String(boardId), async () => {
     // Checked inside the queue: erasing the board waits behind writes already running, and one that
@@ -141,7 +175,7 @@ export function recordVersion(boardId, elements, { kind = "auto", label = null, 
   });
 }
 
-function fullMessage(kind, room) {
+function fullMessage(kind: VersionKind, room: { full: boolean; named?: boolean; count?: number; alone?: boolean }) {
   if (room.named) {
     return `This board already has ${room.count} saved versions, the most it can keep. Delete one to save another.`;
   }
@@ -156,15 +190,16 @@ function fullMessage(kind, room) {
  * Deletes every version of a board, after any write to its history that is already running, so
  * one in flight can't land after the delete and be left behind with no board.
  */
-export function removeVersions(boardId) {
+export function removeVersions(boardId: ObjectIdLike) {
   return writing(String(boardId), () => Version.deleteMany({ board: boardId }));
 }
 
 /** Brings the board's history within its counts and budget, as each new version does. */
-export function pruneVersions(boardId) {
+export function pruneVersions(boardId: ObjectIdLike) {
   return writing(String(boardId), async () => {
     await measureOldVersions([boardId]);
-    const { doomed } = makeRoom(await historyOf(boardId), null);
+    // Only a version being added can be refused, and none is.
+    const { doomed } = makeRoom(await historyOf(boardId), null) as Fits;
     if (doomed.size > 0) await Version.deleteMany({ _id: { $in: [...doomed] } });
   });
 }
@@ -175,17 +210,17 @@ export function pruneVersions(boardId) {
  * would let ordinary use fill an owner's space for good. They're bounded without it: each board
  * keeps at most VERSION_LIMITS.bytes of history, and an owner has at most BOARD_LIMITS.perOwner boards.
  */
-export async function savedVersionBytes(boardIds) {
+export async function savedVersionBytes(boardIds: Types.ObjectId[]) {
   if (boardIds.length === 0) return 0;
   await measureOldVersions(boardIds, { kind: "named" });
-  const [total] = await Version.aggregate([
+  const [total] = await Version.aggregate<{ bytes: number }>([
     { $match: { board: { $in: boardIds }, kind: "named" } },
     { $group: { _id: null, bytes: { $sum: "$bytes" } } },
   ]);
   return total?.bytes ?? 0;
 }
 
-export async function lastVersionTime(boardId) {
+export async function lastVersionTime(boardId: ObjectIdLike) {
   const latest = await Version.findOne({ board: boardId }).sort({ createdAt: -1 }).select("createdAt");
   return latest?.createdAt.getTime() ?? 0;
 }

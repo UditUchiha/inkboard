@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MAX_PREVIEW_ELEMENTS, previewElements, simplifyPoints } from "../src/services/previews.js";
+import { MAX_PREVIEW_ELEMENTS, previewElements, simplifyPoints } from "../src/services/previews.ts";
 
 const stroke = (id, points, extra = {}) => ({
   id,

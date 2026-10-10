@@ -16,7 +16,7 @@ const versionSchema = new mongoose.Schema(
     author: { type: ObjectId, ref: "User", default: null },
     elements: { type: [Mixed], default: [] },
     elementCount: { type: Number, default: 0 },
-    // Size of the copy as MongoDB stores it, for the history's budget (see services/versions.js).
+    // Size of the copy as MongoDB stores it, for the history's budget (see services/versions.ts).
     // Null for versions saved before sizes were recorded, until they're measured.
     bytes: { type: Number, default: null },
   },

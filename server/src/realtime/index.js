@@ -12,8 +12,8 @@ import {
   roomLeft,
   serializeBoard,
   serializeMeta,
-} from "../services/boards.js";
-import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.js";
+} from "../services/boards.ts";
+import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts";
 import { effectOf, planOperation } from "@inkboard/shared/board-merge";
 import {
   holdPiece,
@@ -115,7 +115,7 @@ function expireGroup(socket) {
 }
 
 // A change that would grow a board by more than its owner has space left for (BOARD_LIMITS in
-// services/boards.js) is refused; changes that don't grow it are always taken. Adding up what an
+// services/boards.ts) is refused; changes that don't grow it are always taken. Adding up what an
 // owner keeps reads all their boards, versions and templates, so it's done at most this often for each
 // owner (not each open board: one owner with several boards open shares one figure), and growth taken
 // in meanwhile is counted off what was left.

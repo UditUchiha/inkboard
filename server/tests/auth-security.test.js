@@ -16,8 +16,8 @@ const { OAUTH_LINK, OAUTH_LOGIN, OAUTH_STATE, SESSION, signPurposeToken, signTok
   await import("../src/lib/tokens.ts");
 const { EmailToken } = await import("../src/models/email-token.model.ts");
 const { User } = await import("../src/models/user.model.ts");
-const { RESERVED_FOR_RESETS, emailsSentToday, outbox } = await import("../src/services/email.js");
-const { sendPasswordResetEmail, sendVerificationEmail } = await import("../src/services/account-emails.js");
+const { RESERVED_FOR_RESETS, emailsSentToday, outbox } = await import("../src/services/email.ts");
+const { sendPasswordResetEmail, sendVerificationEmail } = await import("../src/services/account-emails.ts");
 
 // Email and social sign-in are off unless set up; these tests turn them on (nothing is really sent).
 const original = { email: { ...env.email }, oauth: { ...env.oauth }, appUrl: env.appUrl, apiUrl: env.apiUrl };

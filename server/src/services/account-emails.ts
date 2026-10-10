@@ -1,18 +1,27 @@
 import { createHash, randomBytes } from "node:crypto";
 import mongoose from "mongoose";
+import type { Types } from "mongoose";
 import { EmailToken } from "../models/email-token.model.ts";
 import { User } from "../models/user.model.ts";
-import { sendEmail } from "./email.js";
+import type { UserDoc } from "../models/user.model.ts";
+import { sendEmail } from "./email.ts";
+import type { EmailPurpose } from "./email.ts";
 
 // Emails about someone's account: a link to verify their address, and a link
 // to reset their password. Each link holds a random secret that works once.
 
 const HOUR_MS = 3600 * 1000;
-export const LINK_LIFETIME_MS = { "verify-email": 72 * HOUR_MS, "reset-password": HOUR_MS };
+export const LINK_LIFETIME_MS: Record<EmailPurpose, number> = {
+  "verify-email": 72 * HOUR_MS,
+  "reset-password": HOUR_MS,
+};
 // A new link isn't sent sooner than this after the last, so the address can't be flooded.
 export const RESEND_AFTER_MS = 60 * 1000;
 
-const hashOf = (secret) => createHash("sha256").update(secret).digest("hex");
+// Who a link email is for.
+type Recipient = Pick<UserDoc, "_id" | "name" | "email">;
+
+const hashOf = (secret: string) => createHash("sha256").update(secret).digest("hex");
 
 /**
  * Creates a new link for `user` and `purpose` and sends it with `send(secret)`; once it's sent, earlier
@@ -20,7 +29,7 @@ const hashOf = (secret) => createHash("sha256").update(secret).digest("hex");
  * trying again isn't held up by a link that never arrived. Resolves false, sending nothing, if one was
  * made less than RESEND_AFTER_MS ago.
  */
-async function sendLink(user, purpose, send) {
+async function sendLink(user: Recipient, purpose: EmailPurpose, send: (secret: string) => Promise<void>) {
   const recent = await EmailToken.exists({
     user: user._id,
     purpose,
@@ -48,9 +57,13 @@ async function sendLink(user, purpose, send) {
  * Uses up a link's secret. Resolves with the user id it was for, or null if it's unknown, used or expired.
  * With `userId`, only a link for that account is used up: one for another account is left working.
  */
-export async function redeemSecret(secret, purpose, userId) {
+export async function redeemSecret(secret: unknown, purpose: EmailPurpose, userId?: string) {
   if (typeof secret !== "string" || secret.length < 20 || secret.length > 100) return null;
-  const filter = { hash: hashOf(secret), purpose, expiresAt: { $gt: new Date() } };
+  const filter: { hash: string; purpose: EmailPurpose; expiresAt: { $gt: Date }; user?: string } = {
+    hash: hashOf(secret),
+    purpose,
+    expiresAt: { $gt: new Date() },
+  };
   if (userId !== undefined) {
     if (!mongoose.isValidObjectId(userId)) return null;
     filter.user = userId;
@@ -60,12 +73,21 @@ export async function redeemSecret(secret, purpose, userId) {
 }
 
 /** Forgets every outstanding link of one kind for a user (a password was just reset, say). */
-export const forgetSecrets = (userId, purpose) => EmailToken.deleteMany({ user: userId, purpose });
+export const forgetSecrets = (userId: Types.ObjectId | string, purpose: EmailPurpose) =>
+  EmailToken.deleteMany({ user: userId, purpose });
 
-const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
+const escapeHtml = (value: unknown) => String(value).replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
+
+interface LinkEmail {
+  greeting: string;
+  lines: string[];
+  button: string;
+  link: string;
+  footer: string;
+}
 
 // A plain email with one button, and the same in text for clients that don't show HTML.
-function linkEmail({ greeting, lines, button, link, footer }) {
+function linkEmail({ greeting, lines, button, link, footer }: LinkEmail) {
   const text = [greeting, "", ...lines, "", `${button}: ${link}`, "", footer].join("\n");
   const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:15px;line-height:1.5;color:#16213a;max-width:480px">
 <p>${escapeHtml(greeting)}</p>
@@ -81,7 +103,7 @@ ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join("\n")}
  * Emails `user` a link that verifies their address. `appUrl` is where the app
  * is served. Resolves false (sending nothing) if one went out under a minute ago.
  */
-export function sendVerificationEmail(user, appUrl) {
+export function sendVerificationEmail(user: Recipient, appUrl: string) {
   return sendLink(user, "verify-email", (secret) =>
     sendEmail({
       to: user.email,
@@ -104,7 +126,7 @@ export function sendVerificationEmail(user, appUrl) {
 }
 
 /** Emails `user` a link to choose a new password. Resolves false if one went out under a minute ago. */
-export function sendPasswordResetEmail(user, appUrl) {
+export function sendPasswordResetEmail(user: Recipient, appUrl: string) {
   return sendLink(user, "reset-password", (secret) =>
     sendEmail({
       to: user.email,
@@ -135,7 +157,7 @@ const PROVIDER_ACCOUNTS_MIGRATION = "verify-accounts-made-by-providers";
  * Resolves with how many accounts it changed.
  */
 export async function verifyAccountsMadeByProviders() {
-  const migrations = mongoose.connection.collection("migrations");
+  const migrations = mongoose.connection.collection<{ _id: string; ranAt?: Date }>("migrations");
   if (await migrations.findOne({ _id: PROVIDER_ACCOUNTS_MIGRATION })) return 0;
   const { modifiedCount } = await User.updateMany(
     { emailVerified: { $exists: false }, password: { $exists: false } },

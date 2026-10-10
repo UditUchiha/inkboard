@@ -1,4 +1,6 @@
+import type { Element } from "@inkboard/shared/types";
 import mongoose from "mongoose";
+import type { Types } from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
 import { keyedQueue } from "../lib/keyed-queue.ts";
 import { BoardState } from "../models/board-state.model.ts";
@@ -6,9 +8,64 @@ import { Board } from "../models/board.model.ts";
 import { Notification } from "../models/notification.model.ts";
 import { Template } from "../models/template.model.ts";
 import { Thread } from "../models/thread.model.ts";
+import type { UserDoc } from "../models/user.model.ts";
 import { getSession } from "../realtime/sessions.js";
-import { deleteBoardImages } from "./image-storage.js";
-import { removeVersions, savedVersionBytes } from "./versions.js";
+import { deleteBoardImages } from "./image-storage.ts";
+import { removeVersions, savedVersionBytes } from "./versions.ts";
+
+/** A board as Mongoose returns it from the database. */
+export type BoardDoc = InstanceType<typeof Board>;
+
+/** An id as a string or as the ObjectId it's stored as, which is how ids arrive from requests and from documents. */
+export type ObjectIdLike = string | Types.ObjectId;
+
+/** Something that points at a document: the document itself (once populated), its ObjectId, or its id as text. */
+export type Ref = { _id?: unknown; toString(): string } | null | undefined;
+
+/** What a person can do on a board (see roleOf). */
+export type Role = "owner" | "editor" | "contributor" | "viewer";
+
+/** Who made a board, who is invited to it and how the link opens it: all that roleOf and isMember read. */
+interface Access {
+  owner: Ref;
+  collaborators: readonly Ref[];
+  linkAccess: string;
+}
+
+/** A person as other people see them: what PERSON_FIELDS selects. */
+export type Person = Pick<UserDoc, "_id" | "name" | "color" | "avatarUrl">;
+
+/** A person a board lists as its owner or a collaborator, who is populated with MEMBER_FIELDS. */
+type Member = Person & Pick<UserDoc, "email">;
+
+/** What serializeMeta reads of a board whose owner and collaborators are populated (see populateMembers). */
+interface BoardMeta extends Access {
+  id: string;
+  title: string;
+  owner: Member;
+  collaborators: (Member | null)[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** What serializeBoard reads of a board: the above, and who starred it. */
+interface BoardView extends BoardMeta {
+  starredBy: readonly Ref[];
+  elements: Element[];
+}
+
+/** What a person has done with a board (see BoardState), as far as the dashboard shows it. */
+type Filing = Pick<InstanceType<typeof BoardState>, "lastOpenedAt" | "archived">;
+
+/** What the limits of BOARD_LIMITS have to say about a write (see withRoom). */
+export interface RoomNeeded {
+  /** Whether the write adds a board. */
+  board?: boolean;
+  /** How much space the write adds. */
+  bytes?: number;
+  /** The reason to give when the space runs out. */
+  full?: string;
+}
 
 export const PERSON_FIELDS = "name color avatarUrl";
 const MEMBER_FIELDS = `${PERSON_FIELDS} email`;
@@ -18,11 +75,11 @@ export const populateMembers = [
   { path: "collaborators", select: MEMBER_FIELDS },
 ];
 
-export const idOf = (ref) => String(ref?._id ?? ref);
+export const idOf = (ref: Ref) => String(ref?._id ?? ref);
 
-export const isOwner = (board, userId) => idOf(board.owner) === String(userId);
+export const isOwner = (board: Pick<Access, "owner">, userId: unknown) => idOf(board.owner) === String(userId);
 
-export const isMember = (board, userId) =>
+export const isMember = (board: Pick<Access, "owner" | "collaborators">, userId: unknown) =>
   isOwner(board, userId) || board.collaborators.some((member) => idOf(member) === String(userId));
 
 /**
@@ -32,7 +89,7 @@ export const isMember = (board, userId) =>
  * those apply to anyone with the link, signed in or not. Null means no access.
  * `userId` is null for guests.
  */
-export function roleOf(board, userId) {
+export function roleOf(board: Access, userId: unknown): Role | null {
   if (userId && isOwner(board, userId)) return "owner";
   if (userId && isMember(board, userId)) return "editor";
   if (board.linkAccess === "edit") return "contributor";
@@ -40,18 +97,21 @@ export function roleOf(board, userId) {
   return null;
 }
 
-export const isMemberRole = (role) => role === "owner" || role === "editor";
+export const isMemberRole = (role: Role | null) => role === "owner" || role === "editor";
 
-export const canEdit = (role) => isMemberRole(role) || role === "contributor";
+export const canEdit = (role: Role | null) => isMemberRole(role) || role === "contributor";
 
 // A drawing can be megabytes, and most requests only need to know who can open the board,
 // so its elements come only when asked for (`elements: true`, or see currentElements).
-async function loadBoard(boardId, { elements = false } = {}) {
+async function loadBoard(boardId: ObjectIdLike, { elements = false }: { elements?: boolean } = {}) {
   if (!mongoose.isValidObjectId(boardId)) {
     throw new HttpError(404, "This board doesn't exist.");
   }
   const query = Board.findOne({ _id: boardId, deletedAt: null });
-  const board = await (elements ? query : query.select("-elements")).populate(populateMembers);
+  const board = await (elements ? query : query.select("-elements")).populate<{
+    owner: Member;
+    collaborators: Member[];
+  }>(populateMembers);
   if (!board) {
     throw new HttpError(404, "This board doesn't exist or has been deleted.");
   }
@@ -59,7 +119,7 @@ async function loadBoard(boardId, { elements = false } = {}) {
 }
 
 /** For changing a board: only the owner and invited collaborators get through. */
-export async function findBoardForMember(boardId, userId, options) {
+export async function findBoardForMember(boardId: ObjectIdLike, userId: unknown, options?: { elements?: boolean }) {
   const board = await loadBoard(boardId, options);
   if (!isMember(board, userId)) {
     throw new HttpError(403, "You don't have access to this board. Ask its owner to invite you.");
@@ -68,7 +128,7 @@ export async function findBoardForMember(boardId, userId, options) {
 }
 
 /** For opening a board: members, plus anyone when the owner shares the link. */
-export async function findBoardForViewing(boardId, userId, options) {
+export async function findBoardForViewing(boardId: ObjectIdLike, userId: unknown, options?: { elements?: boolean }) {
   const board = await loadBoard(boardId, options);
   if (!roleOf(board, userId)) {
     throw userId
@@ -89,13 +149,13 @@ export async function findBoardForViewing(boardId, userId, options) {
 export const BOARD_LIMITS = { perOwner: 200, ownerBytes: 100_000_000 };
 
 /** How much space a drawing takes as MongoDB stores it, the way boards, versions and templates are measured. */
-export const drawingBytes = (elements) => mongoose.mongo.BSON.calculateObjectSize({ elements });
+export const drawingBytes = (elements: Element[]) => mongoose.mongo.BSON.calculateObjectSize({ elements });
 
-const asObjectId = (id) => new mongoose.Types.ObjectId(String(id));
+const asObjectId = (id: ObjectIdLike) => new mongoose.Types.ObjectId(String(id));
 
 // Boards and templates saved before their size was recorded are measured once, by the database,
 // the way new ones are measured.
-async function measureUnsized(owner) {
+async function measureUnsized(owner: Types.ObjectId) {
   const measure = [{ $set: { bytes: { $bsonSize: { elements: "$elements" } } } }];
   const options = { updatePipeline: true, timestamps: false };
   await Promise.all([
@@ -110,21 +170,24 @@ async function measureUnsized(owner) {
  * (see BOARD_LIMITS). Read from the sizes stored with each, so it doesn't read the
  * drawings themselves.
  */
-export async function ownerBytes(ownerId) {
+export async function ownerBytes(ownerId: ObjectIdLike) {
   const owner = asObjectId(ownerId);
   await measureUnsized(owner);
   const [[boards], [templates]] = await Promise.all([
-    Board.aggregate([
+    Board.aggregate<{ bytes: number; ids: Types.ObjectId[] }>([
       { $match: { owner } },
       { $group: { _id: null, bytes: { $sum: "$bytes" }, ids: { $push: "$_id" } } },
     ]),
-    Template.aggregate([{ $match: { owner } }, { $group: { _id: null, bytes: { $sum: "$bytes" } } }]),
+    Template.aggregate<{ bytes: number }>([
+      { $match: { owner } },
+      { $group: { _id: null, bytes: { $sum: "$bytes" } } },
+    ]),
   ]);
   return (boards?.bytes ?? 0) + (templates?.bytes ?? 0) + (await savedVersionBytes(boards?.ids ?? []));
 }
 
 /** Bytes `ownerId` can still add before what they keep is full (negative when it's over). */
-export async function roomLeft(ownerId) {
+export async function roomLeft(ownerId: ObjectIdLike) {
   return BOARD_LIMITS.ownerBytes - (await ownerBytes(ownerId));
 }
 
@@ -141,7 +204,11 @@ const forOwner = keyedQueue();
  * with `full` as the reason when space runs out. A blank board is tiny, so `bytes: 0` skips
  * adding up the space.
  */
-export function withRoom(ownerId, { board = false, bytes = 0, full = SPACE_USED_UP }, write) {
+export function withRoom<Result>(
+  ownerId: ObjectIdLike,
+  { board = false, bytes = 0, full = SPACE_USED_UP }: RoomNeeded,
+  write: () => Result | PromiseLike<Result>,
+) {
   return forOwner(String(ownerId), async () => {
     if (board && (await Board.countDocuments({ owner: ownerId })) >= BOARD_LIMITS.perOwner) {
       throw new HttpError(
@@ -158,8 +225,8 @@ export function withRoom(ownerId, { board = false, bytes = 0, full = SPACE_USED_
  * A board's drawing as people see it right now: the open session's, or else the saved one.
  * (`board` itself is loaded without its elements.)
  */
-export async function currentElements(boardId) {
-  const live = getSession(String(boardId))?.elements;
+export async function currentElements(boardId: ObjectIdLike) {
+  const live: Element[] | undefined = getSession(String(boardId))?.elements;
   if (live) return live;
   const saved = await Board.findById(boardId).select("elements").lean();
   return saved?.elements ?? [];
@@ -176,7 +243,7 @@ export async function currentElements(boardId) {
  * the board itself last, so a failure part-way leaves a marked board, not versions and
  * comments nobody can reach, and the next trash sweep (or another try) finishes it.
  */
-export async function destroyBoard(boardId, { trashedBefore } = {}) {
+export async function destroyBoard(boardId: ObjectIdLike, { trashedBefore }: { trashedBefore?: Date } = {}) {
   const trashed = { deletedAt: trashedBefore ? { $ne: null, $lt: trashedBefore } : { $ne: null } };
   const claimed = await Board.updateOne(
     { _id: boardId, $or: [trashed, { purgingAt: { $ne: null } }] },
@@ -194,22 +261,23 @@ export async function destroyBoard(boardId, { trashedBefore } = {}) {
   return (await Board.deleteOne({ _id: boardId, purgingAt: { $ne: null } })).deletedCount > 0;
 }
 
-export const serializePerson = (user) => ({
+export const serializePerson = (user: Person) => ({
   id: idOf(user),
   name: user.name,
   color: user.color ?? null,
   avatarUrl: user.avatarUrl ?? null,
 });
 
-const serializeMember = (user) => ({ ...serializePerson(user), email: user.email });
+const serializeMember = (user: Member) => ({ ...serializePerson(user), email: user.email });
 
 // People who aren't members never see anyone's email address or the invite list.
-export function serializeMeta(board, { redact = false } = {}) {
+export function serializeMeta(board: BoardMeta, { redact = false }: { redact?: boolean } = {}) {
   return {
     id: board.id,
     title: board.title,
     owner: redact ? serializePerson(board.owner) : serializeMember(board.owner),
-    collaborators: redact ? [] : board.collaborators.filter(Boolean).map(serializeMember),
+    // filter(Boolean) drops the collaborators whose account is gone (they populate as null), which the type can't see.
+    collaborators: redact ? [] : (board.collaborators.filter(Boolean) as Member[]).map(serializeMember),
     linkAccess: board.linkAccess,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
@@ -217,7 +285,12 @@ export function serializeMeta(board, { redact = false } = {}) {
 }
 
 // Pass `state` (a BoardState or null) to include this person's own filing, as the dashboard does.
-export function serializeBoard(board, userId, elements = board.elements, state = undefined) {
+export function serializeBoard(
+  board: BoardView,
+  userId: unknown,
+  elements: Element[] = board.elements,
+  state: Filing | null | undefined = undefined,
+) {
   const role = roleOf(board, userId);
   const filing =
     state === undefined ? {} : { lastOpenedAt: state?.lastOpenedAt ?? null, archived: state?.archived ?? false };
@@ -234,7 +307,7 @@ export function serializeBoard(board, userId, elements = board.elements, state =
  * A board as the dashboard lists it: without its elements, and without a preview to draw either.
  * Previews are fetched a page of cards at a time (see listPreviews and previews.js).
  */
-export function serializeListed(board, userId, state = undefined) {
+export function serializeListed(board: BoardView, userId: unknown, state: Filing | null | undefined = undefined) {
   const { elements: _elements, ...listed } = serializeBoard(board, userId, [], state);
   return listed;
 }
@@ -243,7 +316,7 @@ export function serializeListed(board, userId, state = undefined) {
  * Remembers that this person opened the board. For a board shared by link this is
  * what puts it on their dashboard. Best effort: failing to record never blocks opening.
  */
-export async function recordOpen(userId, boardId) {
+export async function recordOpen(userId: ObjectIdLike, boardId: ObjectIdLike) {
   try {
     await BoardState.updateOne(
       { user: userId, board: boardId },
@@ -252,6 +325,7 @@ export async function recordOpen(userId, boardId) {
     );
   } catch (error) {
     // Two tabs opening the same board at once can race on the unique index; the other one wins.
-    if (error.code !== 11000) console.error("Couldn't record a board visit:", error);
+    // Whatever was thrown, a failed write carries the server's error code.
+    if ((error as { code?: unknown }).code !== 11000) console.error("Couldn't record a board visit:", error);
   }
 }
