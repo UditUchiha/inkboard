@@ -21,7 +21,9 @@ export function setUnauthorizedHandler(handler) {
 async function request(path, { method = "GET", body } = {}) {
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  // The login this request is made with: if it's refused, only that login is over, not one made since.
+  const sentWith = authToken;
+  if (sentWith) headers.Authorization = `Bearer ${sentWith}`;
 
   let response;
   try {
@@ -37,7 +39,9 @@ async function request(path, { method = "GET", body } = {}) {
   const data = response.status === 204 ? null : await response.json().catch(() => null);
 
   if (!response.ok) {
-    if (response.status === 401 && authToken) onUnauthorized();
+    // A late answer to a request made before the person logged in again must not log the new login out
+    // (another tab may have changed it, or a password change just replaced it).
+    if (response.status === 401 && sentWith && sentWith === authToken) onUnauthorized();
     throw new ApiError(response.status, data?.error ?? "Something went wrong. Try again.");
   }
   return data;
@@ -54,11 +58,21 @@ export const api = {
   forgotPassword: (email) => request("/auth/forgot-password", { method: "POST", body: { email } }),
   resetPassword: (input) => request("/auth/reset-password", { method: "POST", body: input }),
   listProviders: () => request("/auth/providers"),
-  // Returns a URL that starts connecting the provider to the signed-in account.
+  // Returns { url, bind }: the URL starts connecting the provider to the signed-in account, and `bind`
+  // is kept in the tab to hand back with what comes back (confirmProviderLink).
   linkProvider: (provider) => request(`/auth/oauth/${provider}/link`, { method: "POST" }),
+  // `input` is { connect, bind }: the note the provider's sign-in came back with, and the tab's `bind`.
+  confirmProviderLink: (provider, input) =>
+    request(`/auth/oauth/${provider}/link/confirm`, { method: "POST", body: input }),
+  // `input` is { code, bind }: the sign-in code from the OAuth redirect, and the `bind` this tab kept when it
+  // started signing in. Returns { token, user }.
+  exchangeOAuthCode: (input) => request("/auth/oauth/exchange", { method: "POST", body: input }),
+  logoutEverywhere: () => request("/auth/logout-everywhere", { method: "POST" }),
   disconnectProvider: (provider) => request(`/auth/oauth/${provider}`, { method: "DELETE" }),
 
   listBoards: () => request("/boards"),
+  // Previews (a light copy of each drawing, to draw cards from) of up to 24 boards, as { previews: { [id]: elements } }.
+  boardPreviews: (ids) => request(`/boards/previews?ids=${ids.join(",")}`),
   // `input` is a title, or { title, elements } / { title, templateId }.
   createBoard: (input = {}) =>
     request("/boards", { method: "POST", body: typeof input === "string" ? { title: input } : input }),
@@ -96,6 +110,7 @@ export const api = {
     request(`/boards/${id}/threads/${threadId}`, { method: "PATCH", body: changes }),
   deleteThread: (id, threadId) => request(`/boards/${id}/threads/${threadId}`, { method: "DELETE" }),
 
-  listNotifications: () => request("/notifications"),
+  // The newest page, or with `before` (the id of the oldest one shown) the page after it.
+  listNotifications: (before) => request(`/notifications${before ? `?before=${encodeURIComponent(before)}` : ""}`),
   markNotificationsRead: (ids) => request("/notifications/read", { method: "POST", body: ids ? { ids } : {} }),
 };
