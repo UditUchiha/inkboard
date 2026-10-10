@@ -1,28 +1,42 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { api } from "../lib/api";
+import type { NotificationItem } from "../lib/api";
 import { mergeNotifications, unreadIds, withNewestPage } from "../lib/notifications";
 import { useAuth } from "./AuthProvider";
 import { useSocket } from "./SocketProvider";
 
-const NotificationsContext = createContext(null);
+/** What `useNotifications()` gives: the loaded notifications and what can be done with them. */
+export type NotificationsValue = {
+  items: NotificationItem[];
+  unread: number;
+  more: boolean;
+  loadingMore: boolean;
+  markAllRead: () => void;
+  loadMore: () => void;
+};
 
-export const notificationLink = (notification) =>
+const NotificationsContext = createContext<NotificationsValue | null>(null);
+
+export const notificationLink = (notification: Pick<NotificationItem, "board" | "thread">) =>
   `/board/${notification.board.id}${notification.thread ? `?thread=${notification.thread}` : ""}`;
 
-export function describeNotification({ type, actor, board }) {
+export function describeNotification({ type, actor, board }: Pick<NotificationItem, "type" | "actor" | "board">) {
   if (type === "mention") return `${actor.name} mentioned you on “${board.title}”`;
   if (type === "reply") return `${actor.name} replied to a comment on “${board.title}”`;
   return `${actor.name} invited you to “${board.title}”`;
 }
 
 /** Mentions, replies and invites for the signed-in person, live over the socket. */
-export function NotificationsProvider({ children }) {
+type NotificationsProviderProps = { children: ReactNode };
+
+export function NotificationsProvider({ children }: NotificationsProviderProps) {
   const { status } = useAuth();
   const socket = useSocket();
   const navigate = useNavigate();
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState<NotificationItem[]>([]);
   const [more, setMore] = useState(false); // whether the server has older ones than those listed
   const [loadingMore, setLoadingMore] = useState(false);
   const signedIn = status === "authenticated";
@@ -32,7 +46,7 @@ export function NotificationsProvider({ children }) {
   const generation = useRef(0);
   // Where the next older page starts, as the server says: past every row it looked at, shown or not, so a page
   // whose notifications were all left out (their senders gone) can't send "Show older" round in a circle.
-  const cursor = useRef(null);
+  const cursor = useRef<string | null>(null);
   const unread = useMemo(() => unreadIds(items).length, [items]);
 
   // The next 30 older ones, from where the last page ended (or the oldest one listed, from a server without `next`).
@@ -93,9 +107,12 @@ export function NotificationsProvider({ children }) {
     };
   }, [signedIn, socket, loadMore]);
 
+  // The cleanup below returns what `socket.off` returns (the socket, for chaining). React ignores that, but its types
+  // want a cleanup that returns nothing, and the arrow can't change without changing the code.
+  // @ts-expect-error
   useEffect(() => {
     if (!socket || !signedIn) return undefined;
-    const onNotification = (notification) => {
+    const onNotification = (notification: NotificationItem) => {
       setItems((list) => mergeNotifications(list, [notification]));
       toast(describeNotification(notification), {
         description: notification.excerpt ?? undefined,
@@ -113,7 +130,7 @@ export function NotificationsProvider({ children }) {
     api.markNotificationsRead(ids).catch(() => {});
   }, []);
 
-  const value = useMemo(
+  const value = useMemo<NotificationsValue>(
     () => ({ items, unread, more, loadingMore, markAllRead, loadMore }),
     [items, unread, more, loadingMore, markAllRead, loadMore],
   );

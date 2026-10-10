@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from "react";
 
-const listeners = new Set();
-let timer = null;
+const listeners = new Set<() => void>();
+let timer: ReturnType<typeof setInterval> | null = null;
 let minute = Math.floor(Date.now() / 60_000);
 
-function subscribe(listener) {
+function subscribe(listener: () => void) {
   listeners.add(listener);
   // One shared clock for every "5 minutes ago" on the page, running only while something shows one.
   timer ??= setInterval(() => {
@@ -14,7 +14,7 @@ function subscribe(listener) {
   return () => {
     listeners.delete(listener);
     if (listeners.size === 0) {
-      clearInterval(timer);
+      clearInterval(timer!); // set when the first listener came
       timer = null;
     }
   };

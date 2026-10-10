@@ -4,9 +4,11 @@
 // a redirect someone made elsewhere (login CSRF: "open this link and you're signed in as me") finds no
 // `bind` here and signs nobody in.
 
+import type { Session } from "./api";
+
 const BIND_KEY = "inkboard.signin";
 
-function base64url(bytes) {
+function base64url(bytes: Uint8Array) {
   return btoa(String.fromCharCode(...bytes))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
@@ -14,7 +16,7 @@ function base64url(bytes) {
 }
 
 /** The value the server gets in place of `bind`: its SHA-256, base64url. */
-export async function hashBind(bind) {
+export async function hashBind(bind: string) {
   return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bind))));
 }
 
@@ -53,14 +55,27 @@ export function forgetSignInBind() {
  * - { outcome: "incomplete" }, when there's no code, or no `bind` in this tab (so the sign-in wasn't
  *   started here: nobody is logged in), or the server refused them.
  */
-export async function completeSignIn({ code, bind = readSignInBind(), exchange, forget = forgetSignInBind }) {
+type SignInResult = { outcome: "signed-in"; session: Session } | { outcome: "offline" } | { outcome: "incomplete" };
+
+export async function completeSignIn({
+  code,
+  bind = readSignInBind(),
+  exchange,
+  forget = forgetSignInBind,
+}: {
+  code?: string | null;
+  bind?: string | null;
+  exchange: (input: { code: string; bind: string }) => Promise<Session>;
+  forget?: () => void;
+}): Promise<SignInResult> {
   if (!code || !bind) return { outcome: "incomplete" };
   try {
     const session = await exchange({ code, bind });
     forget();
     return { outcome: "signed-in", session };
   } catch (error) {
-    if (error?.status === 0) return { outcome: "offline" };
+    // `exchange` is api.exchangeOAuthCode, which rejects with an ApiError (it has a `status`).
+    if ((error as { status?: unknown } | null)?.status === 0) return { outcome: "offline" };
     forget();
     return { outcome: "incomplete" };
   }

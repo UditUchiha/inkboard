@@ -6,7 +6,8 @@ import { PEOPLE_COLORS, readableColor } from "./format";
  * other colour stays exactly as it is: `readableColor` also darkens a light custom colour for display, but
  * that is a value nobody chose, and saving it (even with only the name changed) would replace theirs.
  */
-export function formColor(color) {
+export function formColor(color: string | null | undefined) {
   const shown = readableColor(color);
-  return shown !== color && PEOPLE_COLORS.includes(shown) ? shown : color;
+  // `readableColor` only ever changes a string, so a shown color that differs from `color` is one.
+  return shown !== color && PEOPLE_COLORS.includes(shown!) ? shown : color;
 }

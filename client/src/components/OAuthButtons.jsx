@@ -70,7 +70,7 @@ export function OAuthButtons({ next, className }) {
   const providers = useOAuthProviders();
   if (providers.length === 0) return null;
 
-  // Makes the tab's `bind` first (see lib/signIn.js), so what comes back can only sign in this tab.
+  // Makes the tab's `bind` first (see lib/signIn.ts), so what comes back can only sign in this tab.
   async function start(provider) {
     const bind = await startSignIn();
     if (!bind) {

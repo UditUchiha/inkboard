@@ -6,8 +6,8 @@ import { focusAfterClose } from "../src/features/board/popoverFocus.js";
 import { titleToSave } from "../src/features/board/titleEdit.js";
 import { DEFAULT_SORT, isSort, isView } from "../src/features/dashboard/sections.js";
 import { readStored } from "../src/features/dashboard/useStoredState.js";
-import { colorFor, initials, PEOPLE_COLORS, personColor, timeAgo } from "../src/lib/format.js";
-import { mergeNotifications, unreadIds } from "../src/lib/notifications.js";
+import { colorFor, initials, PEOPLE_COLORS, personColor, timeAgo } from "../src/lib/format.ts";
+import { mergeNotifications, unreadIds } from "../src/lib/notifications.ts";
 
 const storage = (entries) => ({
   getItem: (key) => (key in entries ? entries[key] : null),

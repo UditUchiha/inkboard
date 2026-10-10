@@ -334,7 +334,7 @@ export default function SettingsPage() {
   }, []);
 
   // Coming back from connecting Google or GitHub that failed: the address holds an error code, never text
-  // to show (see lib/signInErrors.js).
+  // to show (see lib/signInErrors.ts).
   useEffect(() => {
     const error = params.get("error");
     if (!error) return;

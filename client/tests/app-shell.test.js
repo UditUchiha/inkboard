@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { isView } from "../src/features/dashboard/sections.js";
 import { fillPreviews } from "../src/features/dashboard/useBoards.js";
 import { readStored, writeStored } from "../src/features/dashboard/useStoredState.js";
-import { isChunkLoadError, reloadOnce, resetReloadOnce, withReload } from "../src/lib/chunkReload.js";
-import { contrastWithWhite, PEOPLE_COLORS, personColor, readableColor } from "../src/lib/format.js";
-import { mergeNotifications, withNewestPage } from "../src/lib/notifications.js";
+import { isChunkLoadError, reloadOnce, resetReloadOnce, withReload } from "../src/lib/chunkReload.ts";
+import { contrastWithWhite, PEOPLE_COLORS, personColor, readableColor } from "../src/lib/format.ts";
+import { mergeNotifications, withNewestPage } from "../src/lib/notifications.ts";
 
 describe("saved choices with site data blocked", () => {
   let original;

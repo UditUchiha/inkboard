@@ -11,7 +11,7 @@ import { useAuth } from "../providers/AuthProvider";
 /**
  * Google and GitHub sign-in end here, with a short-lived code in the URL fragment (never a login). The
  * code is traded, together with the `bind` this tab kept when it started signing in, for the login
- * (see lib/signIn.js). A redirect that wasn't started in this tab has no `bind` to go with it, so
+ * (see lib/signIn.ts). A redirect that wasn't started in this tab has no `bind` to go with it, so
  * following someone else's link can't sign this browser in to their account. The fragment is cleared
  * from history, and the person continues to where they were headed.
  */

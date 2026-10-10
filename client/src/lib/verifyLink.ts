@@ -2,6 +2,11 @@
 // someone logged in to it (see verifyEmail on the server), so the page has to say who is logged in and
 // give a way out when that's the wrong account.
 
+import type { AccountUser } from "./api";
+import type { AuthStatus } from "../providers/AuthProvider";
+
+export type VerifyView = "loading" | "offline" | "login" | "switch" | "confirm";
+
 /**
  * `status` is the auth status, `user` the signed-in account (or null), and `linkEmail` the address
  * the link says it was sent to (the `email` in its address: only a hint for what's shown, since a
@@ -12,7 +17,15 @@
  * - "switch": the account logged in isn't the one the link was sent to;
  * - "confirm": ready to verify the logged-in account.
  */
-export function verifyView({ status, user, linkEmail }) {
+export function verifyView({
+  status,
+  user,
+  linkEmail,
+}: {
+  status: AuthStatus;
+  user: Pick<AccountUser, "email"> | null;
+  linkEmail?: string | null;
+}): VerifyView {
   if (status === "loading") return "loading";
   if (status === "offline") return "offline";
   if (status !== "authenticated" || !user) return "login";
