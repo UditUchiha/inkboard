@@ -1,8 +1,11 @@
-import { clientUrlFor } from "../lib/app-url.js";
+import { emailLinkUrlFor } from "../lib/app-url.js";
+import { MAX_EMAIL_LENGTH, isEmailAddress } from "../lib/email-address.js";
 import { HttpError } from "../lib/http-error.js";
+import { spendPasswordTime, waitOutSlowestCheck } from "../lib/passwords.js";
 import { signToken } from "../lib/tokens.js";
-import { User } from "../models/user.model.js";
-import { refreshUser } from "../realtime/index.js";
+import { assertRecentLogin } from "../middleware/auth.js";
+import { OAUTH_PROVIDERS, User } from "../models/user.model.js";
+import { disconnectUser, refreshUser } from "../realtime/index.js";
 import {
   forgetSecrets,
   redeemSecret,
@@ -11,7 +14,6 @@ import {
 } from "../services/account-emails.js";
 import { emailConfigured } from "../services/email.js";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const ACCOUNT_FIELDS = "+password +googleId +githubId";
 
@@ -31,11 +33,34 @@ function readName(value) {
   return name;
 }
 
+const MAX_PASSWORD_LENGTH = 128;
+
 function checkNewPassword(password) {
   if (password.length < 8) throw new HttpError(400, "Use at least 8 characters for your password.");
-  if (Buffer.byteLength(password) > 72) {
-    throw new HttpError(400, "Use 72 characters or fewer for your password.");
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    throw new HttpError(400, `Use ${MAX_PASSWORD_LENGTH} characters or fewer for your password.`);
   }
+}
+
+// Mail is sent after the answer, so that how long a request takes doesn't depend on the mail service
+// (or, for password resets, on whether the address has an account). Failures are logged, not shown.
+function sendInBackground(sending, what) {
+  sending.catch((error) => console.error(`Couldn't send ${what}: ${error.message}`));
+}
+
+// Disconnects Google and GitHub from the account. Returns whether there was anything to disconnect.
+function releaseProviders(user) {
+  const linked = OAUTH_PROVIDERS.filter((provider) => user[`${provider}Id`]);
+  for (const provider of linked) user[`${provider}Id`] = undefined;
+  return linked.length > 0;
+}
+
+// Logs the account out everywhere: every token made so far stops working and open sockets are closed.
+// The caller hands the person a new token if they should stay logged in.
+async function endAllSessions(user) {
+  user.revokeSessions();
+  await user.save();
+  disconnectUser(user.id);
 }
 
 async function findAccount(userId) {
@@ -48,22 +73,21 @@ export async function register(req, res) {
   const name = readName(req.body?.name);
   const { email, password } = readCredentials(req.body);
 
-  if (!EMAIL_PATTERN.test(email)) throw new HttpError(400, "Enter a valid email address.");
+  if (!isEmailAddress(email)) throw new HttpError(400, "Enter a valid email address.");
   checkNewPassword(password);
 
-  if (await User.exists({ email })) {
-    throw new HttpError(409, "An account with this email already exists. Log in instead.");
-  }
+  const exists = () => new HttpError(409, "An account with this email already exists. Log in instead.");
+  if (await User.exists({ email })) throw exists();
 
-  const user = await User.create({ name, email, password });
-  // The account works straight away; the address is verified when they click the link.
-  if (emailConfigured()) {
-    try {
-      await sendVerificationEmail(user, clientUrlFor(req));
-    } catch (error) {
-      console.error(`Couldn't send the verification email: ${error.message}`);
-    }
+  let user;
+  try {
+    user = await User.create({ name, email, password });
+  } catch (error) {
+    if (error?.code === 11000) throw exists(); // someone signed up with it a moment ago
+    throw error;
   }
+  // The account works straight away; the address is verified when they click the link.
+  if (emailConfigured()) sendInBackground(sendVerificationEmail(user, emailLinkUrlFor(req)), "the verification email");
   res.status(201).json({ token: signToken(user), user: user.toAccount() });
 }
 
@@ -71,13 +95,18 @@ export async function login(req, res) {
   const { email, password } = readCredentials(req.body);
   if (!email || !password) throw new HttpError(400, "Enter your email and password.");
 
-  const user = await User.findOne({ email }).select(ACCOUNT_FIELDS);
-  if (user && !user.password) {
-    const via = user.googleId ? "Google" : "GitHub";
-    throw new HttpError(401, `This account signs in with ${via}. Use the ${via} button below.`);
-  }
-  if (!user || !(await user.verifyPassword(password))) {
-    throw new HttpError(401, "That email and password don't match an account.");
+  const startedAt = performance.now();
+  const user = email.length <= MAX_EMAIL_LENGTH ? await User.findOne({ email }).select(ACCOUNT_FIELDS) : null;
+  // Every outcome takes about as long and says the same, so neither can show whether an address has an account.
+  let ok = false;
+  if (user?.password) ok = await user.verifyPassword(password);
+  else await spendPasswordTime(password);
+  if (!ok) {
+    await waitOutSlowestCheck(startedAt);
+    throw new HttpError(
+      401,
+      "That email and password don't match an account. If you signed up with Google or GitHub, use its button.",
+    );
   }
 
   res.json({ token: signToken(user), user: user.toAccount() });
@@ -103,20 +132,27 @@ export async function updateProfile(req, res) {
   res.json({ user: user.toAccount() });
 }
 
-/** Changes the password, or sets a first one on an account made with Google or GitHub. */
+/**
+ * Changes the password, or sets a first one on an account made with Google or GitHub (which takes a
+ * recent login, as there's no old password to prove who is asking). Every other login ends; the
+ * response carries a new token for this one.
+ */
 export async function changePassword(req, res) {
   const user = await findAccount(req.userId);
   const current = String(req.body?.currentPassword ?? "");
   const next = String(req.body?.newPassword ?? "");
 
-  if (user.password && !(await user.verifyPassword(current))) {
-    throw new HttpError(400, "Your current password isn't right.");
+  if (user.password) {
+    if (!(await user.verifyPassword(current))) throw new HttpError(400, "Your current password isn't right.");
+  } else {
+    assertRecentLogin(req);
   }
   checkNewPassword(next);
 
   user.password = next;
-  await user.save();
-  res.json({ user: user.toAccount() });
+  await endAllSessions(user);
+  await forgetSecrets(user._id, "reset-password");
+  res.json({ token: signToken(user), user: user.toAccount() });
 }
 
 // Verification and password reset need email, which may not be set up yet.
@@ -124,16 +160,35 @@ function requireEmail() {
   if (!emailConfigured()) throw new HttpError(503, "Emails aren't set up on this server yet, so this isn't available.");
 }
 
-/** Verifies an address from the link emailed to it. Works without being logged in. */
+/**
+ * Verifies an address from the link emailed to it, for the account the person is logged in to (C5).
+ * The link proves who holds the inbox, and the login proves they hold the account's password, so
+ * verifying ties the two together. Without the login, someone who signed up with another person's
+ * address could have the owner's click verify it for them: they'd get the owner's invites, and could
+ * then connect their own Google or GitHub, which a later password reset by the owner would keep.
+ * Nobody else needs logging out here: every login to an unverified account comes from its password
+ * (providers can't be connected before verifying), which the person verifying has just shown they hold.
+ */
 export async function verifyEmail(req, res) {
-  const userId = await redeemSecret(req.body?.token, "verify-email");
-  const user = userId && (await User.findById(userId));
-  if (!user) throw new HttpError(400, "This link has expired or was already used. Log in and ask for a new one.");
+  const userId = await redeemSecret(req.body?.token, "verify-email", req.userId);
+  const user = userId && (await User.findById(userId).select(ACCOUNT_FIELDS));
+  if (!user) {
+    throw new HttpError(
+      400,
+      "This link has expired, was already used, or is for a different account. Log in to the account it was sent for, or ask for a new link.",
+    );
+  }
   if (!user.emailVerified) {
     user.emailVerified = true;
     await user.save();
   }
-  res.json({ email: user.email });
+  res.json({ email: user.email, user: user.toAccount() });
+}
+
+/** Logs the account out on every device, this one included (a lost phone, a shared computer). */
+export async function logoutEverywhere(req, res) {
+  await endAllSessions(await findAccount(req.userId));
+  res.status(204).end();
 }
 
 /** Sends the verification link again, to the logged-in person. */
@@ -143,7 +198,7 @@ export async function resendVerification(req, res) {
   if (user.emailVerified) throw new HttpError(400, "Your email is already verified.");
   let sent;
   try {
-    sent = await sendVerificationEmail(user, clientUrlFor(req));
+    sent = await sendVerificationEmail(user, emailLinkUrlFor(req));
   } catch (error) {
     console.error(`Couldn't send the verification email: ${error.message}`);
     throw new HttpError(502, "The email couldn't be sent. Try again in a few minutes.");
@@ -160,21 +215,19 @@ export async function resendVerification(req, res) {
 export async function forgotPassword(req, res) {
   requireEmail();
   const { email } = readCredentials(req.body);
-  if (!EMAIL_PATTERN.test(email)) throw new HttpError(400, "Enter a valid email address.");
+  if (!isEmailAddress(email)) throw new HttpError(400, "Enter a valid email address.");
   const user = await User.findOne({ email });
-  if (user) {
-    try {
-      await sendPasswordResetEmail(user, clientUrlFor(req));
-    } catch (error) {
-      console.error(`Couldn't send a password reset email: ${error.message}`);
-    }
-  }
+  if (user) sendInBackground(sendPasswordResetEmail(user, emailLinkUrlFor(req)), "a password reset email");
   res.json({ sent: true });
 }
 
 /**
  * Sets a new password from a reset link, and logs the person in. Following the
- * link proves the address is theirs, so it also counts as verifying it.
+ * link proves the address is theirs, so it also counts as verifying it. Every
+ * earlier login ends, and so do providers linked before the address was verified
+ * (whoever signed up with the address first could have connected their own).
+ * Providers connected after verifying stay: verifying takes a login, so the
+ * account's password was already the inbox owner's when they were connected.
  */
 export async function resetPassword(req, res) {
   const password = String(req.body?.password ?? "");
@@ -184,8 +237,9 @@ export async function resetPassword(req, res) {
   if (!user) throw new HttpError(400, "This link has expired or was already used. Ask for a new one.");
 
   user.password = password;
+  if (!user.emailVerified) releaseProviders(user);
   user.emailVerified = true;
-  await user.save();
+  await endAllSessions(user);
   await forgetSecrets(user._id, "reset-password");
   res.json({ token: signToken(user), user: user.toAccount() });
 }

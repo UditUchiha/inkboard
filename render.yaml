@@ -21,3 +21,9 @@ services:
       # Your MongoDB Atlas connection string. Render asks for it on first deploy.
       - key: MONGODB_URI
         sync: false
+      # Where people open the app, e.g. https://inkboard.example.com: links in emails and sign-in
+      # redirects point there. Leave it empty to use the address each request arrives on for sign-in, and
+      # this service's own address (onrender.com, which Render passes to the server) in emails; set it
+      # once you add a custom domain.
+      - key: APP_URL
+        sync: false

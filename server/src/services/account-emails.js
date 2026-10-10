@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import mongoose from "mongoose";
 import { EmailToken } from "../models/email-token.model.js";
 import { User } from "../models/user.model.js";
 import { sendEmail } from "./email.js";
@@ -14,31 +15,47 @@ export const RESEND_AFTER_MS = 60 * 1000;
 const hashOf = (secret) => createHash("sha256").update(secret).digest("hex");
 
 /**
- * A new link secret for `user` and `purpose`, replacing any earlier one, or
- * null if one was sent less than RESEND_AFTER_MS ago.
+ * Creates a new link for `user` and `purpose` and sends it with `send(secret)`; once it's sent, earlier
+ * links stop working. If sending fails, the new link is dropped and the earlier one keeps working, so
+ * trying again isn't held up by a link that never arrived. Resolves false, sending nothing, if one was
+ * made less than RESEND_AFTER_MS ago.
  */
-async function issueSecret(user, purpose) {
+async function sendLink(user, purpose, send) {
   const recent = await EmailToken.exists({
     user: user._id,
     purpose,
     createdAt: { $gt: new Date(Date.now() - RESEND_AFTER_MS) },
   });
-  if (recent) return null;
-  await EmailToken.deleteMany({ user: user._id, purpose });
+  if (recent) return false;
   const secret = randomBytes(32).toString("base64url");
-  await EmailToken.create({
+  const token = await EmailToken.create({
     user: user._id,
     purpose,
     hash: hashOf(secret),
     expiresAt: new Date(Date.now() + LINK_LIFETIME_MS[purpose]),
   });
-  return secret;
+  try {
+    await send(secret);
+  } catch (error) {
+    await EmailToken.deleteOne({ _id: token._id });
+    throw error;
+  }
+  await EmailToken.deleteMany({ user: user._id, purpose, _id: { $ne: token._id } });
+  return true;
 }
 
-/** Uses up a link's secret. Resolves with the user id it was for, or null if it's unknown, used or expired. */
-export async function redeemSecret(secret, purpose) {
+/**
+ * Uses up a link's secret. Resolves with the user id it was for, or null if it's unknown, used or expired.
+ * With `userId`, only a link for that account is used up: one for another account is left working.
+ */
+export async function redeemSecret(secret, purpose, userId) {
   if (typeof secret !== "string" || secret.length < 20 || secret.length > 100) return null;
-  const token = await EmailToken.findOneAndDelete({ hash: hashOf(secret), purpose, expiresAt: { $gt: new Date() } });
+  const filter = { hash: hashOf(secret), purpose, expiresAt: { $gt: new Date() } };
+  if (userId !== undefined) {
+    if (!mongoose.isValidObjectId(userId)) return null;
+    filter.user = userId;
+  }
+  const token = await EmailToken.findOneAndDelete(filter);
   return token ? token.user : null;
 }
 
@@ -64,58 +81,66 @@ ${lines.map((line) => `<p>${escapeHtml(line)}</p>`).join("\n")}
  * Emails `user` a link that verifies their address. `appUrl` is where the app
  * is served. Resolves false (sending nothing) if one went out under a minute ago.
  */
-export async function sendVerificationEmail(user, appUrl) {
-  const secret = await issueSecret(user, "verify-email");
-  if (!secret) return false;
-  const link = `${appUrl}/verify-email?token=${secret}`;
-  await sendEmail({
-    to: user.email,
-    subject: "Verify your email for Inkboard",
-    ...linkEmail({
-      greeting: `Hi ${user.name},`,
-      lines: [
-        "Please confirm that this is your email address. Once it's verified, people can invite you to their boards by email.",
-        "The link works for 3 days.",
-      ],
-      button: "Verify my email",
-      link,
-      footer: "If you didn't create an Inkboard account, you can ignore this email.",
+export function sendVerificationEmail(user, appUrl) {
+  return sendLink(user, "verify-email", (secret) =>
+    sendEmail({
+      to: user.email,
+      purpose: "verify-email",
+      subject: "Verify your email for Inkboard",
+      ...linkEmail({
+        greeting: `Hi ${user.name},`,
+        lines: [
+          "Please confirm that this is your email address. Once it's verified, people can invite you to their boards by email.",
+          "You'll be asked to log in to your Inkboard account, then to confirm.",
+          "The link works for 3 days.",
+        ],
+        button: "Verify my email",
+        // `email` only lets the page tell when the wrong account is logged in; the server checks the link.
+        link: `${appUrl}/verify-email?token=${secret}&email=${encodeURIComponent(user.email)}`,
+        footer: "If you didn't create an Inkboard account, you can ignore this email.",
+      }),
     }),
-  });
-  return true;
+  );
 }
 
 /** Emails `user` a link to choose a new password. Resolves false if one went out under a minute ago. */
-export async function sendPasswordResetEmail(user, appUrl) {
-  const secret = await issueSecret(user, "reset-password");
-  if (!secret) return false;
-  const link = `${appUrl}/reset-password?token=${secret}`;
-  await sendEmail({
-    to: user.email,
-    subject: "Reset your Inkboard password",
-    ...linkEmail({
-      greeting: `Hi ${user.name},`,
-      lines: [
-        "Someone asked to reset the password for your Inkboard account. If it was you, choose a new one below.",
-        "The link works for 1 hour, once.",
-      ],
-      button: "Choose a new password",
-      link,
-      footer: "If you didn't ask for this, you can ignore this email: your password stays the same.",
+export function sendPasswordResetEmail(user, appUrl) {
+  return sendLink(user, "reset-password", (secret) =>
+    sendEmail({
+      to: user.email,
+      purpose: "reset-password",
+      subject: "Reset your Inkboard password",
+      ...linkEmail({
+        greeting: `Hi ${user.name},`,
+        lines: [
+          "Someone asked to reset the password for your Inkboard account. If it was you, choose a new one below.",
+          "The link works for 1 hour, once.",
+        ],
+        button: "Choose a new password",
+        link: `${appUrl}/reset-password?token=${secret}`,
+        footer: "If you didn't ask for this, you can ignore this email: your password stays the same.",
+      }),
     }),
-  });
-  return true;
+  );
 }
+
+const PROVIDER_ACCOUNTS_MIGRATION = "verify-accounts-made-by-providers";
 
 /**
  * Accounts from before emails were verified: those without a password were made
- * through Google or GitHub, which only give us verified addresses. Runs at start-up;
- * accounts with a password stay unverified until their owner clicks a link.
+ * through Google or GitHub, which only give us verified addresses. Called at start-up,
+ * but only does anything once: it leaves a record in the `migrations` collection, so later
+ * starts skip the scan of every account. Every account made since has the field.
+ * Accounts with a password stay unverified until their owner clicks a link.
+ * Resolves with how many accounts it changed.
  */
 export async function verifyAccountsMadeByProviders() {
+  const migrations = mongoose.connection.collection("migrations");
+  if (await migrations.findOne({ _id: PROVIDER_ACCOUNTS_MIGRATION })) return 0;
   const { modifiedCount } = await User.updateMany(
     { emailVerified: { $exists: false }, password: { $exists: false } },
     { $set: { emailVerified: true } },
   );
+  await migrations.updateOne({ _id: PROVIDER_ACCOUNTS_MIGRATION }, { $set: { ranAt: new Date() } }, { upsert: true });
   return modifiedCount;
 }

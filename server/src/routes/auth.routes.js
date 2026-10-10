@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { rateLimit } from "express-rate-limit";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import {
   changePassword,
   forgotPassword,
   login,
+  logoutEverywhere,
   me,
   register,
   resendVerification,
@@ -12,38 +13,90 @@ import {
   verifyEmail,
 } from "../controllers/auth.controller.js";
 import {
+  confirmLink,
   createLinkTicket,
   disconnectProvider,
+  exchangeLoginCode,
   finishOAuth,
   listProviders,
   startOAuth,
 } from "../controllers/oauth.controller.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireRecentLogin } from "../middleware/auth.js";
+import { limitPerUser } from "../middleware/user-limit.js";
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 30,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
-  message: { error: "Too many attempts. Wait a few minutes and try again." },
-});
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const tooMany = { error: "Too many attempts. Wait a few minutes and try again." };
+
+// Each kind of request has its own allowance, so that, say, a school where everyone signs in from one
+// address doesn't use up the sign-ups of the next class. Limits count per address, and the ones that
+// guess at or flood a particular account also count per email address (with the address too, for logins).
+const perAddress = ({ windowMs = 15 * MINUTE, limit, failedOnly = false }) =>
+  rateLimit({
+    windowMs,
+    limit,
+    skipSuccessfulRequests: failedOnly,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: tooMany,
+  });
+
+// `andAddress` counts each email per network address instead of across all of them.
+const perEmail = ({ windowMs = 15 * MINUTE, limit, failedOnly = false, andAddress = false }) =>
+  rateLimit({
+    windowMs,
+    limit,
+    skipSuccessfulRequests: failedOnly,
+    keyGenerator: (req) => {
+      const email = String(req.body?.email ?? "")
+        .trim()
+        .toLowerCase()
+        .slice(0, 254);
+      if (!email) return ipKeyGenerator(req.ip);
+      return andAddress ? `email:${email}|${ipKeyGenerator(req.ip)}` : `email:${email}`;
+    },
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: tooMany,
+  });
+
+// Logins that worked don't count, so only wrong guesses use the allowance up. Guesses at one account
+// count per network address, so whoever makes them only locks themselves out of it: a limit on the
+// account alone would let anyone, from anywhere, keep its owner from logging in (M9). Guesses spread
+// over many addresses are held back by each address's own allowance and the cost of every check.
+const loginLimits = [
+  perAddress({ limit: 30, failedOnly: true }),
+  perEmail({ limit: 10, failedOnly: true, andAddress: true }),
+];
+const registerLimit = perAddress({ windowMs: HOUR, limit: 20 });
+// Each reset request sends an email, which costs quota (see EMAIL_DAILY_LIMIT) and bothers whoever owns the address.
+const forgotLimits = [perAddress({ limit: 20 }), perEmail({ windowMs: HOUR, limit: 3 })];
+const linkLimit = perAddress({ limit: 30 });
+const passwordLimit = limitPerUser({ windowMs: 15 * MINUTE, limit: 10, message: tooMany.error });
+const resendLimit = limitPerUser({ windowMs: 15 * MINUTE, limit: 5, message: tooMany.error });
+const logoutLimit = limitPerUser({ windowMs: 15 * MINUTE, limit: 10, message: tooMany.error });
+const connectLimit = limitPerUser({ windowMs: 15 * MINUTE, limit: 10, message: tooMany.error });
+const oauthStartLimit = perAddress({ limit: 60 });
 
 const router = Router();
 
-router.post("/register", authLimiter, register);
-router.post("/login", authLimiter, login);
+router.post("/register", registerLimit, register);
+router.post("/login", ...loginLimits, login);
 router.get("/me", requireAuth, me);
 router.patch("/me", requireAuth, updateProfile);
-router.post("/password", authLimiter, requireAuth, changePassword);
-router.post("/verify-email", authLimiter, verifyEmail);
-router.post("/verify-email/resend", authLimiter, requireAuth, resendVerification);
-router.post("/forgot-password", authLimiter, forgotPassword);
-router.post("/reset-password", authLimiter, resetPassword);
+router.post("/password", requireAuth, passwordLimit, changePassword);
+router.post("/logout-everywhere", requireAuth, logoutLimit, logoutEverywhere);
+router.post("/verify-email", requireAuth, linkLimit, verifyEmail);
+router.post("/verify-email/resend", requireAuth, resendLimit, resendVerification);
+router.post("/forgot-password", ...forgotLimits, forgotPassword);
+router.post("/reset-password", linkLimit, resetPassword);
 
 router.get("/providers", listProviders);
-router.get("/oauth/:provider", authLimiter, startOAuth);
+router.get("/oauth/:provider", oauthStartLimit, startOAuth);
 router.get("/oauth/:provider/callback", finishOAuth);
-router.post("/oauth/:provider/link", requireAuth, createLinkTicket);
+router.post("/oauth/exchange", oauthStartLimit, exchangeLoginCode);
+router.post("/oauth/:provider/link", requireAuth, requireRecentLogin, connectLimit, createLinkTicket);
+router.post("/oauth/:provider/link/confirm", requireAuth, connectLimit, confirmLink);
 router.delete("/oauth/:provider", requireAuth, disconnectProvider);
 
 export default router;

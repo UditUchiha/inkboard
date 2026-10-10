@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { startServer } from "./helpers.js";
+import { eventually, startServer } from "./helpers.js";
 
 const { env } = await import("../src/config/env.js");
 const { outbox } = await import("../src/services/email.js");
@@ -34,6 +34,10 @@ function lastEmailTo(to) {
   );
 }
 
+// Mail goes out after the response (so how long a request takes doesn't depend on the mail service), so wait for it.
+const emailTo = (to, subject) =>
+  eventually(() => lastEmailTo(to)?.subject.match(subject) && lastEmailTo(to), { message: `an email to ${to}` });
+
 // The auth routes allow 30 tries per 15 minutes from one address, so accounts are
 // made directly and only the routes under test are called.
 async function account(name = "Ana", { password, verified = false } = {}) {
@@ -49,20 +53,25 @@ describe("forgetting a password", () => {
     const before = outbox.length;
     const unknown = await post("/auth/forgot-password", { email: "nobody-here@example.test" });
     assert.equal(unknown.status, 200);
-    assert.equal(outbox.length, before, "nothing is sent to an address without an account");
 
     const known = await post("/auth/forgot-password", { email: user.email.toUpperCase() });
     assert.deepEqual(known.data, unknown.data, "the answer doesn't reveal who has an account");
-    const email = lastEmailTo(user.email);
+    const email = await emailTo(user.email, /Reset your/);
     assert.match(email.subject, /Reset your Inkboard password/);
     assert.match(email.link, /\/reset-password\?token=/);
+    // The request for the unknown address came first, and sending is quick to start, so its email would be here by now.
+    assert.deepEqual(
+      outbox.slice(before).map((sent) => sent.to),
+      [user.email],
+      "nothing is sent to an address without an account",
+    );
     assert.equal((await post("/auth/forgot-password", { email: "not an email" })).status, 400);
   });
 
   it("sets a new password from the link, logs in, and verifies the address", async () => {
     const user = await account("Cy", { password: "the-old-password" });
     await post("/auth/forgot-password", { email: user.email });
-    const { token } = lastEmailTo(user.email);
+    const { token } = await emailTo(user.email, /Reset your/);
 
     const tooShort = await post("/auth/reset-password", { token, password: "short" });
     assert.equal(tooShort.status, 400);
@@ -87,7 +96,7 @@ describe("forgetting a password", () => {
     const user = await User.create({ name: "Dee", email, googleId: "g-123", emailVerified: true });
     await post("/auth/forgot-password", { email });
     const reset = await post("/auth/reset-password", {
-      token: lastEmailTo(email).token,
+      token: (await emailTo(email, /Reset your/)).token,
       password: "now-with-a-password",
     });
     assert.equal(reset.status, 200);
@@ -103,10 +112,12 @@ describe("forgetting a password", () => {
         headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
         body: JSON.stringify({ email: user.email }),
       });
-      return lastEmailTo(user.email).link;
+      return (await emailTo(user.email, /Reset your/)).link;
     };
-    const client = env.clientOrigins[0] ?? "http://localhost:5173";
-    if (env.clientOrigins.includes(client)) assert.ok((await ask(client)).startsWith(`${client}/reset-password?`));
+    // helpers.js blanks CLIENT_ORIGIN, so the default local client address is the allowed one.
+    const client = "http://localhost:5173";
+    assert.deepEqual(env.clientOrigins, [client]);
+    assert.ok((await ask(client)).startsWith(`${client}/reset-password?`));
     assert.ok(
       (await ask("https://evil.example")).startsWith(`${app.url}/reset-password?`),
       "an unknown origin is ignored",
@@ -117,8 +128,14 @@ describe("forgetting a password", () => {
   it("doesn't flood an inbox: a second request within a minute sends nothing", async () => {
     const user = await account();
     await post("/auth/forgot-password", { email: user.email });
+    await emailTo(user.email, /Reset your/);
     const count = outbox.filter((sent) => sent.to === user.email).length;
     assert.equal((await post("/auth/forgot-password", { email: user.email })).status, 200);
+    // Emails are sent after the answer, with nothing to wait on. Someone else's request, made after, is sent after
+    // a longer chain of work than the refusal takes, so by the time its email is here the refusal would have sent one.
+    const other = await account("Fay");
+    await post("/auth/forgot-password", { email: other.email });
+    await emailTo(other.email, /Reset your/);
     assert.equal(outbox.filter((sent) => sent.to === user.email).length, count);
   });
 });
