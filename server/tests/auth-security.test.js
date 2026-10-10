@@ -212,6 +212,13 @@ describe("ending sessions (M1)", () => {
     assert.equal((await post("/auth/oauth/google/link", {}, tokenFor(user))).status, 200);
     assert.equal((await post("/auth/password", { newPassword: "a-first-password" }, tokenFor(user))).status, 200);
   });
+
+  it("a request with no login time doesn't count as a recent login", async () => {
+    // As if the recent-login check were mounted on a route without requireAuth before it.
+    const { assertRecentLogin } = await import("../src/middleware/auth.ts");
+    assert.throws(() => assertRecentLogin({}), { status: 403 });
+    assert.doesNotThrow(() => assertRecentLogin({ loginIssuedAt: Math.floor(Date.now() / 1000) }));
+  });
 });
 
 describe("a provider linked before the address was verified (C5)", () => {
