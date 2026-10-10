@@ -11,8 +11,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # The same version as .nvmrc. It must be 22.18 or later, which runs the shared .ts files as they are.
       - key: NODE_VERSION
-        value: "22"
+        value: "22.22"
       # The local development database isn't used in production; skip its download.
       - key: MONGOMS_DISABLE_POSTINSTALL
         value: "1"
