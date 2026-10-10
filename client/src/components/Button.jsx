@@ -6,7 +6,7 @@ const VARIANTS = {
   primary: "bg-ink text-on-ink hover:bg-ink-soft",
   secondary: "border border-rule bg-surface text-ink hover:bg-surface-2",
   ghost: "text-ink hover:bg-ink/6",
-  danger: "bg-danger text-white hover:brightness-110",
+  danger: "bg-danger-solid text-white hover:bg-danger-solid-hover",
 };
 
 const SIZES = {
