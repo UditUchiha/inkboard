@@ -56,6 +56,7 @@ Account features:
 
 | Layer | Tools |
 | --- | --- |
+| Language | TypeScript, checked by `tsc` only: Node runs the server's `.ts` files by stripping their types, and Vite does the same for the browser, so nothing is compiled |
 | Client | React 19, React Router, Vite, Tailwind CSS 4, Rough.js, perfect-freehand, Socket.IO client |
 | Server | Node.js, Express 5, Socket.IO, Mongoose, JSON Web Tokens, scrypt password hashing |
 | Database | MongoDB (MongoDB Atlas in production) |
@@ -74,7 +75,7 @@ Undo history stores the inverse operation for only the elements you changed, and
 
 ## Getting started
 
-You need [Node.js](https://nodejs.org) 22.22 or newer (`.nvmrc` pins 22.22 for nvm and fnm; react-router 8 needs it).
+You need [Node.js](https://nodejs.org) 22.22 or newer (`.nvmrc` pins 22.22 for nvm and fnm). react-router 8 needs it, and the server's TypeScript runs as it is on Node 22.18 and later.
 
 ```bash
 npm install
@@ -97,6 +98,7 @@ The Vite dev server proxies `/api` and the WebSocket to the API at `http://local
 | `npm test` | Runs the client, server and shared tests (see below) |
 | `npm run coverage` | Runs the same tests and prints a line, branch and function coverage table for each package |
 | `npm run lint` | Checks the code with ESLint (unused and undefined names, React hooks rules) |
+| `npm run typecheck` | Checks the types of the client, server and shared code with `tsc` (see below) |
 | `npm run build` | Builds the client into `client/dist` |
 | `npm start` | Runs the production server, which also serves the built client. Set `NODE_ENV=production`, `MONGODB_URI` and `JWT_SECRET` first (see the environment variables below); only `npm run dev` supplies development defaults |
 | `npm run format` | Formats the code with Prettier (`npm run format:check` only checks) |
@@ -111,11 +113,19 @@ The Vite dev server proxies `/api` and the WebSocket to the API at `http://local
 
 Tests that check something did *not* happen (nobody else received a refused change, say) don't sleep: they make one more round trip on the same socket, which the server answers after everything it sent before, then look.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: formatting, lint, a dependency audit, the tests with coverage, and the production build. It caches the MongoDB binary and cancels a run that a newer push replaces. Dependabot (`.github/dependabot.yml`) opens weekly pull requests for npm packages and pinned Actions.
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: formatting, lint, the type check, a dependency audit, the tests with coverage, and the production build. It caches the MongoDB binary and cancels a run that a newer push replaces. Dependabot (`.github/dependabot.yml`) opens weekly pull requests for npm packages and pinned Actions.
 
 ### Linting
 
 `npm run lint` runs ESLint (`eslint.config.mjs`): its recommended rules, which catch unused and undefined names, plus the React hooks rules for `client/src`. It is not a style guide; Prettier owns formatting.
+
+### Types
+
+The code in `client/src`, `server/src` and `shared/src` is TypeScript; the tests and the dev scripts are JavaScript. `npm run typecheck` runs `tsc` in each package against its `tsconfig.json`, which all start from `tsconfig.base.json` (strict). Nothing is compiled: Node strips a `.ts` file's types as it loads it, and Vite does the same for the browser, so the server starts straight from `server/src/index.ts`. That is why only syntax that can simply be erased is allowed (`erasableSyntaxOnly`): no enums, namespaces or constructor parameter properties, and type-only imports are written `import type`.
+
+- The element types live in `shared/src/types.ts` (`@inkboard/shared/types`), and the browser and the server both use them.
+- What comes from outside (request bodies, socket messages, stored files) is typed `unknown` until the existing checks narrow it.
+- TypeScript is pinned to 6.0 while `typescript-eslint` doesn't support 7 yet.
 
 ### Formatting
 
@@ -201,7 +211,7 @@ client/                 React app (client/tests: node:test, no browser)
   src/pages/            Landing, auth, dashboard, settings and board pages
   src/providers/        Auth, theme, socket and notification context
 shared/                 Rules the browser and server share: merging changes, stacking order,
-                        element validation, size limits
+                        element validation, size limits, and the element types
 server/                 Express + Socket.IO API
   src/config/           Environment variables and the database connection
   src/controllers/      REST handlers: auth, OAuth, boards, comments, versions, templates
@@ -212,6 +222,7 @@ server/                 Express + Socket.IO API
   scripts/              Local development database and environment
 render.yaml             One-click deploy configuration
 eslint.config.mjs       Lint rules (`npm run lint`)
+tsconfig.base.json      TypeScript settings every package's tsconfig.json starts from (`npm run typecheck`)
 .nvmrc                  Node version for nvm and fnm
 .github/                CI, the keep-alive cron for the free hosting plan, Dependabot
 ```
