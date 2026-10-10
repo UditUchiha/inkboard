@@ -12,6 +12,7 @@ import { APP_NAME } from "../config";
 import { BoardCard } from "../features/dashboard/BoardCard";
 import { BoardTable } from "../features/dashboard/BoardTable";
 import { DashboardNav } from "../features/dashboard/DashboardNav";
+import type { BoardActions } from "../features/dashboard/BoardParts";
 import { RenameDialog } from "../features/dashboard/RenameDialog";
 import {
   compareBoards,
@@ -22,10 +23,12 @@ import {
   SECTIONS,
   SORT_KEYS,
 } from "../features/dashboard/sections";
+import type { BoardSummary, SectionId, Sort, SortKey, View } from "../features/dashboard/sections";
 import { useBoards } from "../features/dashboard/useBoards";
 import { useStoredState } from "../features/dashboard/useStoredState";
 import { NewBoardDialog } from "../features/templates/NewBoardDialog";
 import { api } from "../lib/api";
+import type { ApiError, CreateBoardInput } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 
 // How many boards are drawn at first, and added by each "Show more": every card downloads a preview
@@ -34,7 +37,21 @@ const PAGE_SIZE = 48;
 
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-x-6 gap-y-8";
 
-const quoted = (boards) => (boards.length === 1 ? `“${boards[0].title}”` : `${boards.length} boards`);
+// What the dialog that asks before leaving, deleting for good or emptying the trash is about.
+type Confirm = { kind: "leave" | "purge" | "empty"; boards: BoardSummary[] };
+
+type ViewToggleProps = { view: View; onChange: (view: View) => void };
+
+type SortMenuProps = { sort: Sort; onChange: (sort: Sort) => void };
+
+type BulkBarProps = {
+  section: (typeof SECTIONS)[number];
+  picked: BoardSummary[];
+  actions: BoardActions & { starAll: (boards: BoardSummary[]) => void };
+  onClear: () => void;
+};
+
+const quoted = (boards: BoardSummary[]) => (boards.length === 1 ? `“${boards[0].title}”` : `${boards.length} boards`);
 
 function TileSkeleton() {
   return (
@@ -46,13 +63,15 @@ function TileSkeleton() {
   );
 }
 
-function ViewToggle({ view, onChange }) {
+function ViewToggle({ view, onChange }: ViewToggleProps) {
   return (
     <div role="group" aria-label="Layout" className="flex gap-1 rounded-lg bg-ink/5 p-1">
-      {[
-        ["grid", "Grid view", LayoutGrid],
-        ["list", "List view", List],
-      ].map(([id, label, Icon]) => (
+      {(
+        [
+          ["grid", "Grid view", LayoutGrid],
+          ["list", "List view", List],
+        ] as const
+      ).map(([id, label, Icon]) => (
         <button
           key={id}
           type="button"
@@ -72,8 +91,8 @@ function ViewToggle({ view, onChange }) {
   );
 }
 
-function SortMenu({ sort, onChange }) {
-  const tick = (on) => (on ? <Check className="size-4" /> : null);
+function SortMenu({ sort, onChange }: SortMenuProps) {
+  const tick = (on: boolean) => (on ? <Check className="size-4" /> : null);
   return (
     <Menu
       trigger={(props) => (
@@ -84,15 +103,22 @@ function SortMenu({ sort, onChange }) {
     >
       <MenuLabel>Sort by</MenuLabel>
       {Object.entries(SORT_KEYS).map(([key, { label, defaultDir }]) => (
-        <MenuItem key={key} hint={tick(sort.key === key)} onSelect={() => onChange({ key, dir: defaultDir })}>
+        // Object.entries gives the keys as plain strings; they are SORT_KEYS' own.
+        <MenuItem
+          key={key}
+          hint={tick(sort.key === key)}
+          onSelect={() => onChange({ key: key as SortKey, dir: defaultDir })}
+        >
           {label}
         </MenuItem>
       ))}
       <MenuLabel>Order</MenuLabel>
-      {[
-        ["asc", sort.key === "title" ? "A to Z" : "Oldest first"],
-        ["desc", sort.key === "title" ? "Z to A" : "Newest first"],
-      ].map(([dir, label]) => (
+      {(
+        [
+          ["asc", sort.key === "title" ? "A to Z" : "Oldest first"],
+          ["desc", sort.key === "title" ? "Z to A" : "Newest first"],
+        ] as const
+      ).map(([dir, label]) => (
         <MenuItem key={dir} hint={tick(sort.dir === dir)} onSelect={() => onChange({ ...sort, dir })}>
           {label}
         </MenuItem>
@@ -101,7 +127,7 @@ function SortMenu({ sort, onChange }) {
   );
 }
 
-function BulkBar({ section, picked, actions, onClear }) {
+function BulkBar({ section, picked, actions, onClear }: BulkBarProps) {
   const owned = picked.every((board) => board.role === "owner");
   const members = picked.every(isMember);
   const allStarred = picked.every((board) => board.starred);
@@ -166,18 +192,22 @@ export default function DashboardPage() {
   const section = SECTIONS.find((item) => item.id === params.get("show")) ?? SECTIONS[0];
   const inTrash = section.id === "trash";
 
-  const { boards, trash, loadError, patch, drop, refresh, loadPreviews } = useBoards();
+  // useBoards types the trash as possibly undefined, but it starts as a list and only ever becomes another list.
+  const { boards, trash, loadError, patch, drop, refresh, loadPreviews } = useBoards() as Omit<
+    ReturnType<typeof useBoards>,
+    "trash"
+  > & { trash: BoardSummary[] };
   const [limit, setLimit] = useState(PAGE_SIZE);
-  const [view, setView] = useStoredState("inkboard.dashboard.view", "grid", isView);
+  const [view, setView] = useStoredState<View>("inkboard.dashboard.view", "grid", isView);
   const [sort, setSort] = useStoredState("inkboard.dashboard.sort", DEFAULT_SORT, isSort);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState(() => new Set());
+  const [selected, setSelected] = useState(() => new Set<string>());
   const [creating, setCreating] = useState(false);
   const [choosing, setChoosing] = useState(false); // the "how should the new board start?" dialog
-  const [renaming, setRenaming] = useState(null);
-  const [confirm, setConfirm] = useState(null); // { kind: "leave" | "purge" | "empty", boards }
+  const [renaming, setRenaming] = useState<BoardSummary | null>(null);
+  const [confirm, setConfirm] = useState<Confirm | null>(null); // { kind: "leave" | "purge" | "empty", boards }
   const [busy, setBusy] = useState(false);
-  const searchRef = useRef(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.title = `${section.label} · ${APP_NAME}`;
@@ -185,7 +215,7 @@ export default function DashboardPage() {
 
   // "/" jumps to search, as on most sites with a lot of things to find.
   useEffect(() => {
-    const onKeyDown = (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
       if (
         event.target instanceof HTMLElement &&
@@ -205,12 +235,13 @@ export default function DashboardPage() {
 
   const counts = useMemo(
     () =>
+      // There is an entry for every section.
       Object.fromEntries(
         SECTIONS.map((item) => [
           item.id,
           item.id === "trash" ? trash.length : (boards ?? []).filter(item.matches).length,
         ]),
-      ),
+      ) as Record<SectionId, number>,
     [boards, trash],
   );
 
@@ -234,10 +265,10 @@ export default function DashboardPage() {
   // Every change shows up at once; if the server refuses it, it's put back and the person is told.
   const actions = {
     rename: setRenaming,
-    askLeave: (board) => setConfirm({ kind: "leave", boards: [board] }),
-    askPurge: (list) => setConfirm({ kind: "purge", boards: list }),
+    askLeave: (board: BoardSummary) => setConfirm({ kind: "leave", boards: [board] }),
+    askPurge: (list: BoardSummary[]) => setConfirm({ kind: "purge", boards: list }),
 
-    async copyLink(board) {
+    async copyLink(board: BoardSummary) {
       try {
         await navigator.clipboard.writeText(`${window.location.origin}/board/${board.id}`);
         toast.success("Link copied");
@@ -246,18 +277,19 @@ export default function DashboardPage() {
       }
     },
 
-    async toggleStar(board) {
+    async toggleStar(board: BoardSummary) {
       const starred = !board.starred;
       patch([board.id], { starred });
       try {
         await api.starBoard(board.id, starred);
       } catch (error) {
         patch([board.id], { starred: !starred });
-        toast.error(error.message);
+        // api calls reject with an ApiError.
+        toast.error((error as ApiError).message);
       }
     },
 
-    async starAll(list) {
+    async starAll(list: BoardSummary[]) {
       const starred = !list.every((board) => board.starred);
       patch(
         list.map((board) => board.id),
@@ -271,8 +303,8 @@ export default function DashboardPage() {
       if (results.some((result) => result.status === "rejected")) toast.error("Some boards couldn't be updated.");
     },
 
-    async archive(list, archived) {
-      const before = list.map((board) => [board.id, board.archived]);
+    async archive(list: BoardSummary[], archived: boolean) {
+      const before = list.map((board): [string, boolean | undefined] => [board.id, board.archived]);
       patch(
         list.map((board) => board.id),
         { archived },
@@ -284,7 +316,8 @@ export default function DashboardPage() {
         );
       } catch (error) {
         before.forEach(([id, was]) => patch([id], { archived: was }));
-        toast.error(error.message);
+        // api calls reject with an ApiError.
+        toast.error((error as ApiError).message);
         return;
       }
       setSelected(new Set());
@@ -293,7 +326,7 @@ export default function DashboardPage() {
       });
     },
 
-    async trash(list) {
+    async trash(list: BoardSummary[]) {
       const results = await Promise.allSettled(list.map((board) => api.deleteBoard(board.id)));
       const done = list.filter((_, index) => results[index].status === "fulfilled");
       if (done.length < list.length) toast.error("Some boards couldn't be moved to the trash.");
@@ -306,7 +339,7 @@ export default function DashboardPage() {
       });
     },
 
-    async restore(list, quiet = false) {
+    async restore(list: BoardSummary[], quiet = false) {
       const results = await Promise.allSettled(list.map((board) => api.restoreBoard(board.id)));
       if (results.some((result) => result.status === "rejected")) toast.error("Some boards couldn't be restored.");
       setSelected(new Set());
@@ -314,31 +347,35 @@ export default function DashboardPage() {
       if (!quiet) toast.success(`Restored ${quoted(list)}`);
     },
 
-    async forget(board) {
+    async forget(board: BoardSummary) {
       try {
         await api.forgetBoard(board.id);
         drop([board.id]);
         toast(`Removed “${board.title}” from your list`, { description: "Open its link again to bring it back." });
       } catch (error) {
-        toast.error(error.message);
+        // api calls reject with an ApiError.
+        toast.error((error as ApiError).message);
       }
     },
   };
 
   // `input` says how to start: {} for blank, { title, elements } or { templateId }.
-  async function createBoard(input = {}) {
+  async function createBoard(input: CreateBoardInput = {}) {
     setCreating(true);
     try {
-      const { board } = await api.createBoard(input);
+      // createBoard doesn't say what it answers with yet; the page reads the new board's id.
+      const { board } = (await api.createBoard(input)) as { board: { id: string } };
       navigate(`/board/${board.id}`);
     } catch (error) {
-      toast.error(error.message);
+      // api calls reject with an ApiError.
+      toast.error((error as ApiError).message);
       setCreating(false);
     }
   }
 
   async function confirmAction() {
-    const { kind, boards: targets } = confirm;
+    // The dialog that calls this is only open while there is something to confirm.
+    const { kind, boards: targets } = confirm!;
     setBusy(true);
     try {
       if (kind === "leave") {
@@ -358,7 +395,8 @@ export default function DashboardPage() {
       }
       setConfirm(null);
     } catch (error) {
-      toast.error(error.message);
+      // api calls reject with an ApiError.
+      toast.error((error as ApiError).message);
     } finally {
       setBusy(false);
     }
@@ -385,7 +423,8 @@ export default function DashboardPage() {
     },
   }[confirm?.kind ?? "leave"];
 
-  const firstName = user.name.split(" ")[0];
+  // This page is only reached through RequireAuth, so there is a logged in account.
+  const firstName = user!.name.split(" ")[0];
   const loading = !boards && !loadError;
 
   return (

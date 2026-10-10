@@ -11,7 +11,8 @@ import "./index.css";
 // the reload was just tried, shows the error page).
 window.addEventListener("vite:preloadError", () => reloadOnce());
 
-createRoot(document.getElementById("root")).render(
+// index.html always has the #root element this mounts into.
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary fallback={PageCrashed}>
       <App />
