@@ -5,7 +5,7 @@ import { HttpError } from "../lib/http-error.ts";
 import { Notification } from "../models/notification.model.ts";
 import { Thread } from "../models/thread.model.ts";
 import { User } from "../models/user.model.ts";
-import { emitToSignedIn } from "../realtime/index.js";
+import { emitToSignedIn } from "../realtime/index.ts";
 import {
   canEdit,
   findBoardForViewing,

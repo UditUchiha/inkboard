@@ -13,6 +13,7 @@ import {
 import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/board-order";
 import { cleanElement, isValidId, withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT } from "@inkboard/shared/limits";
+import type { Element, FieldGroup, MaybeStamped, Removal, Stamp, Tombstones } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 
 // Boards change through operations: { upsert: Element[], remove: Removal[] },
@@ -21,6 +22,27 @@ import mongoose from "mongoose";
 
 // Shared with the browser (shared/src/limits.ts); re-exported for the rest of the server.
 export { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT };
+
+/**
+ * An operation as a browser sends it, before anything in it is checked: either list may be missing or
+ * not a list, and what's in them may be anything (see sanitizeOperation).
+ */
+export interface RawOperation {
+  upsert?: unknown;
+  remove?: unknown;
+}
+
+/** An operation that has been through sanitizeOperation or prepareOperation: both lists are there, and clean. */
+export interface FullOperation {
+  upsert: Element[];
+  remove: Removal[];
+}
+
+/** An operation as it may be taken in, with what the sender should hear about it (see sanitizeOperation). */
+export interface SanitizedOperation extends FullOperation {
+  changed: Element[];
+  refused: string[];
+}
 
 // MongoDB refuses documents over 16 MB, and a board is one document. Without
 // limits, one huge element (or enough of them) makes every later save fail and
@@ -31,11 +53,11 @@ export { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT };
 export const MAX_ELEMENT_BYTES = 500_000;
 export const MAX_BOARD_BYTES = 12_000_000;
 
-export const elementBytes = (element) => mongoose.mongo.BSON.calculateObjectSize({ element });
+export const elementBytes = (element: Element) => mongoose.mongo.BSON.calculateObjectSize({ element });
 
 // A removal is { id, version, versionNonce }; older browsers send just the id.
 // One whose stamp isn't valid (past MAX_VERSION, say) is stamped as the newest edit.
-function cleanRemoval(entry) {
+function cleanRemoval(entry: string | (MaybeStamped & { id?: unknown }) | null | undefined): Removal | null {
   if (isValidId(entry)) return { id: entry };
   if (!entry || typeof entry !== "object" || !isValidId(entry.id)) return null;
   return isVersion(entry.version) && isNonce(entry.versionNonce)
@@ -44,7 +66,7 @@ function cleanRemoval(entry) {
 }
 
 /** Whether an operation names more elements, or removals, than a board can hold (either list alone). */
-export const isOversized = (op) =>
+export const isOversized = (op: RawOperation | null | undefined) =>
   (Array.isArray(op?.upsert) && op.upsert.length > MAX_ELEMENTS_PER_BOARD) ||
   (Array.isArray(op?.remove) && op.remove.length > MAX_ELEMENTS_PER_BOARD);
 
@@ -53,6 +75,41 @@ export const isOversized = (op) =>
 // whole or not at all: a piece that is refused takes the whole group with it.
 export const MAX_GROUP_PIECES = 40;
 export const MAX_GROUP_BYTES = 16_000_000;
+
+/** The label on a piece of a change sent in several: its group's id, its place in the group, and how many pieces there are. */
+export interface PieceGroup {
+  id: string;
+  index: number;
+  total: number;
+}
+
+/** What a connection has of a group so far: the pieces that came, joined in order, and their size in JSON. */
+export interface HeldGroup {
+  id: string;
+  total: number;
+  pieces: RawOperation[];
+  bytes: number;
+  expired?: undefined;
+}
+
+/** A group the server stopped waiting for (see holdPiece). The fields it doesn't have are listed so it can be read like a HeldGroup. */
+export interface ExpiredGroup {
+  id: string;
+  expired: true;
+  total?: undefined;
+  pieces?: undefined;
+  bytes?: undefined;
+}
+
+/** Why a piece of a group was refused. */
+export type GroupError = "invalid" | "tooLarge" | "expired";
+
+/** What holdPiece decides: what to hold now, and the joined change once the last piece is in, or why the group was dropped. */
+export interface PieceResult {
+  held: HeldGroup | null;
+  op?: RawOperation;
+  error?: GroupError;
+}
 
 /**
  * `held` (what this connection has of a group so far, or null) with the piece
@@ -63,7 +120,11 @@ export const MAX_GROUP_BYTES = 16_000_000;
  * `held` may also be `{ id, expired: true }`: a group the server stopped waiting
  * for, whose later pieces are refused as "expired" (the sender sends it all again).
  */
-export function holdPiece(held, group, op) {
+export function holdPiece(
+  held: HeldGroup | ExpiredGroup | null | undefined,
+  group: PieceGroup | null | undefined,
+  op: RawOperation | null | undefined,
+): PieceResult {
   const valid =
     group &&
     typeof group.id === "string" &&
@@ -90,7 +151,8 @@ export function holdPiece(held, group, op) {
   if (bytes > MAX_GROUP_BYTES) return { held: null, error: "tooLarge" };
   const pieces = [...state.pieces, op];
   if (pieces.length < group.total) return { held: { ...state, pieces, bytes } };
-  const listed = (name) => pieces.flatMap((piece) => (Array.isArray(piece[name]) ? piece[name] : []));
+  const listed = (name: "upsert" | "remove") =>
+    pieces.flatMap((piece): unknown[] => (Array.isArray(piece[name]) ? piece[name] : []));
   return { held: null, op: { upsert: listed("upsert"), remove: listed("remove") } };
 }
 
@@ -100,12 +162,13 @@ export function holdPiece(held, group, op) {
  * `changed`, elements as they'll be stored when that isn't how they were sent,
  * and `refused`, the ids of elements that can't be stored at all.
  */
-export function sanitizeOperation(op) {
+export function sanitizeOperation(op: RawOperation | null | undefined): SanitizedOperation | null {
   if (!op || typeof op !== "object") return null;
-  const upsert = [];
-  const changed = [];
-  const refused = [];
-  for (const raw of Array.isArray(op.upsert) ? op.upsert : []) {
+  const upsert: Element[] = [];
+  const changed: Element[] = [];
+  const refused: string[] = [];
+  // What each upsert is isn't known yet: the loop below looks at its id, and cleanElement at the rest.
+  for (const raw of (Array.isArray(op.upsert) ? op.upsert : []) as ({ id?: unknown } | null | undefined)[]) {
     const element = cleanElement(raw);
     if (!element) {
       if (isValidId(raw?.id)) refused.push(raw.id);
@@ -114,7 +177,8 @@ export function sanitizeOperation(op) {
     upsert.push(element);
     if (!isDeepStrictEqual(raw, element)) changed.push(element);
   }
-  const remove = Array.isArray(op.remove) ? op.remove.map(cleanRemoval).filter(Boolean) : [];
+  // filter(Boolean) drops the removals that weren't valid (they come back null), which the type can't see.
+  const remove = (Array.isArray(op.remove) ? op.remove.map(cleanRemoval).filter(Boolean) : []) as Removal[];
   if (upsert.length === 0 && remove.length === 0) return null;
   return { upsert, remove, changed, refused };
 }
@@ -124,10 +188,10 @@ export function sanitizeOperation(op) {
  * cleaned. Elements too big to store are left out, and so is everything past
  * what a board can hold (in count and in bytes).
  */
-export function sanitizeElements(list) {
+export function sanitizeElements(list: unknown): Element[] {
   if (!Array.isArray(list)) return [];
-  const seen = new Set();
-  const elements = [];
+  const seen = new Set<string>();
+  const elements: Element[] = [];
   let bytes = 0;
   for (const raw of list) {
     const element = cleanElement(raw);
@@ -153,35 +217,47 @@ export function sanitizeElements(list) {
  * replaced by one for the newest edit, or an element could be forged out of
  * reach of every later change. `index` is the board's elements by id, if kept.
  */
-export function prepareOperation(elements, op, tombstones, { legacy = false, index = null } = {}) {
+export function prepareOperation(
+  elements: Element[],
+  op: FullOperation,
+  tombstones: Tombstones,
+  { legacy = false, index = null }: { legacy?: boolean; index?: Map<string, Element> | null } = {},
+): FullOperation {
   const ids = new Set([...op.upsert.map((element) => element.id), ...op.remove.map((removal) => removal.id)]);
-  const live = new Map();
+  const live = new Map<string, Element>();
   if (index) {
-    for (const id of ids) if (index.has(id)) live.set(id, index.get(id));
+    // `has` has just said it is there.
+    for (const id of ids) if (index.has(id)) live.set(id, index.get(id)!);
   } else {
     for (const element of elements) if (ids.has(element.id)) live.set(element.id, element);
   }
-  const newest = (id) => Math.max(stampOf(live.get(id)).version, stampOf(tombstones.get(id)).version);
-  const fresh = (id) => ({ version: Math.min(newest(id) + 1, MAX_VERSION), versionNonce: randomInt(2 ** 31) });
-  const believable = (change) => isStamped(change) && change.version <= newest(change.id) + MAX_VERSION_JUMP;
+  const newest = (id: string) => Math.max(stampOf(live.get(id)).version, stampOf(tombstones.get(id)).version);
+  const fresh = (id: string) => ({ version: Math.min(newest(id) + 1, MAX_VERSION), versionNonce: randomInt(2 ** 31) });
+  // isStamped has checked that the change has a version.
+  const believable = (change: Element | Removal) =>
+    isStamped(change) && change.version! <= newest(change.id) + MAX_VERSION_JUMP;
   let top = topKey(elements);
 
   const upsert = op.upsert.map((incoming) => {
     let element = incoming;
     if (legacy || !believable(element)) {
       const stamp = believable(element) ? stampOf(element) : fresh(element.id);
-      element = withStamps(element, Object.fromEntries(groupsOf(element).map((group) => [group, stamp])));
+      element = withStamps(
+        element,
+        Object.fromEntries(groupsOf(element).map((group): [FieldGroup, Stamp] => [group, stamp])),
+      );
     }
     if (element.index === undefined) {
       const known = live.get(element.id) ?? tombstones.get(element.id)?.element;
-      let position = known?.index;
+      let position: string | null | undefined = known?.index;
       if (position === undefined) {
         // Past the longest keys the board takes (only a forged key gets there), it shares the top's.
         const above = keyAbove(top);
         position = isOrderKey(above) ? above : top;
         top = position;
       }
-      element = { ...element, index: position };
+      // `top` is only null on an empty board, where keyAbove makes a valid key, so `position` is a key by now.
+      element = { ...element, index: position! };
     }
     return element;
   });
@@ -199,7 +275,11 @@ export function prepareOperation(elements, op, tombstones, { legacy = false, ind
  */
 export const RESTORE_LEAD = 1000;
 
-export function restoreOver(elements, tombstones, snapshot) {
+export function restoreOver(
+  elements: Element[],
+  tombstones: Tombstones,
+  snapshot: Element[],
+): { elements: Element[]; tombstones: Tombstones } {
   let newest = 0;
   for (const stamped of [...elements, ...tombstones.values(), ...snapshot])
     newest = Math.max(newest, stampOf(stamped).version);
@@ -210,7 +290,7 @@ export function restoreOver(elements, tombstones, snapshot) {
   const restored = inStackOrder(snapshot).map((saved) => {
     const now = stamp();
     const element = withDefaults(saved);
-    return withStamps(element, Object.fromEntries(groupsOf(element).map((group) => [group, now])));
+    return withStamps(element, Object.fromEntries(groupsOf(element).map((group): [FieldGroup, Stamp] => [group, now])));
   });
   const kept = new Set(restored.map((element) => element.id));
   const graves = new Map([...tombstones].filter(([id]) => !kept.has(id)));

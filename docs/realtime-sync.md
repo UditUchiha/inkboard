@@ -54,7 +54,7 @@ Each element has an `index`, a string key from [fractional indexing](https://obs
 
 ## The server
 
-For each `board:op` the server ([`realtime/index.js`](../server/src/realtime/index.js)) first checks the sender's rate (a burst of 100, then 40 a second; cursors and views have their own, lower limits), then:
+For each `board:op` the server ([`realtime/index.ts`](../server/src/realtime/index.ts)) first checks the sender's rate (a burst of 100, then 40 a second; cursors and views have their own, lower limits), then:
 
 1. **cleans** the elements ([`element-rules.ts`](../shared/src/element-rules.ts));
 2. **prepares** the operation (`prepareOperation`): gives new elements without a key a place on top, replaces a stamp that's more than a million versions ahead of what the board has for that element (a forged one would put the element out of reach of every later change) by one for the newest edit, and handles browsers still running an older app, which say so by not sending `sync: 2` when they join. Their elements are taken whole at their version, and ones without a version are stamped as the newest edit;

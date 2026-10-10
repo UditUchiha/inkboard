@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { commitPlan, effectOf, planOperation } from "@inkboard/shared/board-merge";
 import { createBoardStore } from "../../client/src/features/board/store.js";
-import { prepareOperation } from "../src/realtime/operations.js";
+import { prepareOperation } from "../src/realtime/operations.ts";
 import { rect } from "./helpers.js";
 
 // People edit the same elements at the same time, and their changes reach the

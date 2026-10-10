@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { createApp } from "./app.ts";
 import { connectDatabase } from "./config/db.ts";
 import { env } from "./config/env.ts";
-import { attachRealtime, closeRealtime } from "./realtime/index.js";
+import { attachRealtime, closeRealtime } from "./realtime/index.ts";
 import { verifyAccountsMadeByProviders } from "./services/account-emails.ts";
 import { emailConfigured } from "./services/email.ts";
 import { startImageSweeper } from "./services/images.ts";

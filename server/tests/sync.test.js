@@ -14,9 +14,9 @@ import {
   RESTORE_LEAD,
   sanitizeOperation,
   SYNC_FORMAT,
-} from "../src/realtime/operations.js";
-import { readRemoved, REMOVED_LIMITS } from "../src/realtime/sessions.js";
-import { flushAllSessions } from "../src/realtime/index.js";
+} from "../src/realtime/operations.ts";
+import { readRemoved, REMOVED_LIMITS } from "../src/realtime/sessions.ts";
+import { flushAllSessions } from "../src/realtime/index.ts";
 
 let app;
 before(async () => {

@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
 import { User } from "../models/user.model.ts";
 import { Version } from "../models/version.model.ts";
-import { replaceElements } from "../realtime/index.js";
+import { replaceElements } from "../realtime/index.ts";
 import {
   currentElements,
   drawingBytes,

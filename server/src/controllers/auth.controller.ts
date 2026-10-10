@@ -7,7 +7,7 @@ import { signToken } from "../lib/tokens.ts";
 import { assertRecentLogin } from "../middleware/auth.ts";
 import { OAUTH_PROVIDERS, User } from "../models/user.model.ts";
 import type { UserDoc } from "../models/user.model.ts";
-import { disconnectUser, refreshUser } from "../realtime/index.js";
+import { disconnectUser, refreshUser } from "../realtime/index.ts";
 import {
   forgetSecrets,
   redeemSecret,

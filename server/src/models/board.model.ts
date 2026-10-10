@@ -15,7 +15,7 @@ const boardSchema = new mongoose.Schema(
     linkAccess: { type: String, enum: LINK_ACCESS, default: "restricted" },
     elements: { type: [Mixed], default: [] },
     // Elements removed lately: { id, version, versionNonce, at }. Only needed
-    // when the board is opened for editing (see realtime/sessions.js).
+    // when the board is opened for editing (see realtime/sessions.ts).
     removed: { type: [Mixed], default: [], select: false },
     // People who starred the board on their dashboard.
     starredBy: [{ type: ObjectId, ref: "User", index: true }],

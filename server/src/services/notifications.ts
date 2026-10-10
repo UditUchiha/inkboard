@@ -1,6 +1,6 @@
 import type { Types } from "mongoose";
 import { Notification } from "../models/notification.model.ts";
-import { notifyUser } from "../realtime/index.js";
+import { notifyUser } from "../realtime/index.ts";
 import { idOf, serializePerson } from "./boards.ts";
 import type { BoardDoc, Person, Ref } from "./boards.ts";
 
