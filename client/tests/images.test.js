@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-const { createImage, duplicate, getBounds, hitTest, translate } = await import("../src/features/board/elements.js");
-const { getSelectionBox, resizeElement, rotateElement } = await import("../src/features/board/transform.js");
+const { createImage, duplicate, getBounds, hitTest, translate } = await import("../src/features/board/elements.ts");
+const { getSelectionBox, resizeElement, rotateElement } = await import("../src/features/board/transform.ts");
 const { fitWithin, isImageFile, placementSize } = await import("../src/features/board/images.js");
 
 const near = (actual, expected, message) =>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createCursorStore } from "../src/features/board/cursors.js";
+import { createCursorStore } from "../src/features/board/cursors.ts";
 import { createOutbox } from "../src/features/board/outbox.js";
 
 const rect = (id, version = 1) => ({ id, type: "rectangle", x1: 0, y1: 0, x2: 10, y2: 10, version, versionNonce: 1 });

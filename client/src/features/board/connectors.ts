@@ -1,6 +1,28 @@
+import type { ConnectorFields, Element as BoardElement, Side } from "@inkboard/shared/types";
 import { duplicate, elementAt, getBounds, getFrame, inDrawOrder, isFrame, newId, translate } from "./elements";
+import type { AnyElement, Connector } from "./elements";
 import { expandRect, rectContains, rotatePoint } from "./geometry";
+import type { Pair, Rect, TurnedRect, XY } from "./geometry";
 import { setEndDirections } from "./routes";
+
+/** An element a connector end can be attached to, and so one whose outline is worked out. */
+export type Connectable = AnyElement;
+
+/** A point on the side of a shape, and the unit vector that points out of the shape there. */
+export type SidePoint = XY & { dx: number; dy: number };
+
+/**
+ * What a connector end at a point would attach to: a shape and, if the point is on one of its dots, that
+ * side of it. Not on a dot, it is the shape there (floating), or nothing.
+ */
+export type Connection =
+  { target: Connectable; side: Side } | { target: Connectable; side: null } | { target: null; side: null };
+
+/** A connector, and what it looked like before and after being let go of the shapes that are going. */
+export type ConnectorChange = { before: Connector; after: Connector };
+
+// The box of a shape a connector is drawn round, with the shape's frame (what draws it turned).
+type DrawnBox = Rect & { turned: TurnedRect };
 
 // Lines and arrows can be connected to shapes: `startId` and `endId` name the
 // element each end is attached to. An attached end isn't kept where it's drawn:
@@ -16,7 +38,7 @@ import { setEndDirections } from "./routes";
 // outline; a curved or elbow one leaves from the middle of the side facing the
 // other end (see routes.js for the paths themselves).
 
-export const CONNECTABLE_TYPES = new Set(["rectangle", "ellipse", "sticky", "image", "text"]);
+export const CONNECTABLE_TYPES = new Set<BoardElement["type"]>(["rectangle", "ellipse", "sticky", "image", "text"]);
 export const CONNECT_GAP = 6; // between an attached end and its shape's outline
 
 // The connection dots shown around a shape, in screen pixels.
@@ -25,20 +47,22 @@ export const DOT_REACH = 10; // around a dot that counts as being on it
 export const DOT_CORE = 5; // around a dot's middle (about the dot drawn) that wins over an arrow running through it
 
 // Each side's way out of a shape, before it's turned.
-export const SIDES = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] };
+export const SIDES: Record<Side, Pair> = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] };
 
-export const isConnector = (element) => element.type === "line" || element.type === "arrow";
-export const canConnectTo = (element) => CONNECTABLE_TYPES.has(element.type);
-const isAttached = (element) => isConnector(element) && Boolean(element.startId || element.endId);
-const isRouted = (element) => element.route === "curved" || element.route === "elbow";
+export const isConnector = (element: BoardElement): element is Connector =>
+  element.type === "line" || element.type === "arrow";
+export const canConnectTo = (element: BoardElement) => CONNECTABLE_TYPES.has(element.type);
+const isAttached = (element: BoardElement): element is Connector =>
+  isConnector(element) && Boolean(element.startId || element.endId);
+const isRouted = (element: Connector) => element.route === "curved" || element.route === "elbow";
 
-const middleOf = (element) => {
+const middleOf = (element: BoardElement): XY => {
   const { cx, cy } = getFrame(element);
   return { x: cx, y: cy };
 };
 
 /** Where a line from `target`'s middle towards `toward` leaves its outline, plus the gap. */
-export function outlinePoint(target, toward) {
+export function outlinePoint(target: Connectable, toward: XY): XY {
   const { cx, cy, width, height, angle } = getFrame(target);
   const [tx, ty] = angle ? rotatePoint(toward.x, toward.y, cx, cy, -angle) : [toward.x, toward.y];
   const dx = tx - cx;
@@ -59,7 +83,11 @@ export function outlinePoint(target, toward) {
  * The middle of `side` of `target`, `gap` out from its outline, and the way
  * out of that side: { x, y, dx, dy }. The gap defaults to an attached end's.
  */
-export function sidePoint(target, side, gap = CONNECT_GAP + (target.strokeWidth ?? 0) / 2) {
+export function sidePoint(
+  target: Connectable,
+  side: Side,
+  gap = CONNECT_GAP + (target.strokeWidth ?? 0) / 2,
+): SidePoint {
   const { cx, cy, width, height, angle } = getFrame(target);
   const [nx, ny] = SIDES[side];
   const [x, y] = rotatePoint(cx + nx * (width / 2 + gap), cy + ny * (height / 2 + gap), cx, cy, angle);
@@ -68,7 +96,7 @@ export function sidePoint(target, side, gap = CONNECT_GAP + (target.strokeWidth 
 }
 
 /** The side of `target` that faces `point`. */
-export function facingSide(target, point) {
+export function facingSide(target: BoardElement, point: XY): Side {
   const { cx, cy, width, height, angle } = getFrame(target);
   const [x, y] = angle ? rotatePoint(point.x, point.y, cx, cy, -angle) : [point.x, point.y];
   const across = (x - cx) / Math.max(width / 2, 1);
@@ -78,33 +106,36 @@ export function facingSide(target, point) {
 }
 
 /** Where `target`'s connection dots are drawn at `zoom`: { side: { x, y } }. */
-export function connectionDots(target, zoom) {
+export function connectionDots(target: Connectable, zoom: number): Record<Side, SidePoint> {
   const gap = DOT_GAP / zoom + (target.strokeWidth ?? 0) / 2;
-  return Object.fromEntries(Object.keys(SIDES).map((side) => [side, sidePoint(target, side, gap)]));
+  // The casts: Object.keys and Object.fromEntries only know strings, and the keys of SIDES are its sides.
+  return Object.fromEntries(
+    (Object.keys(SIDES) as Side[]).map((side): [Side, SidePoint] => [side, sidePoint(target, side, gap)]),
+  ) as Record<Side, SidePoint>;
 }
 
 /** The side whose connection dot is under `point` at `zoom`, if any. */
-export function dotAt(target, point, zoom) {
+export function dotAt(target: Connectable, point: XY, zoom: number): Side | null {
   const reach = DOT_REACH / zoom;
-  let nearest = null;
+  let nearest: Side | null = null;
   let best = reach;
   for (const [side, dot] of Object.entries(connectionDots(target, zoom))) {
     const distance = Math.hypot(point.x - dot.x, point.y - dot.y);
     if (distance <= best) {
-      nearest = side;
+      nearest = side as Side; // Object.entries only knows strings, and the keys of the dots are sides
       best = distance;
     }
   }
   return nearest;
 }
 
-const unit = (dx, dy) => {
+const unit = (dx: number, dy: number): XY | null => {
   const length = Math.hypot(dx, dy);
   return length < 1e-9 ? null : { x: dx / length, y: dy / length };
 };
 
 // Where an end floating on `target` is drawn, and the way out of it, aiming at `toward`.
-function floatingEnd(connector, target, toward) {
+function floatingEnd(connector: Connector, target: Connectable, toward: XY): SidePoint {
   if (isRouted(connector)) return sidePoint(target, facingSide(target, toward));
   const point = outlinePoint(target, toward);
   const middle = middleOf(target);
@@ -112,25 +143,33 @@ function floatingEnd(connector, target, toward) {
   return { ...point, dx: out.x, dy: out.y };
 }
 
-let drawnCopies = new WeakMap(); // connector -> its last drawn copy and its ends' directions and boxes: { drawn, directions, boxes }
+let drawnCopies = new WeakMap<
+  Connector,
+  { drawn: Connector; directions: Directions; boxes: { start: DrawnBox | null; end: DrawnBox | null } }
+>(); // connector -> its last drawn copy and its ends' directions and boxes: { drawn, directions, boxes }
 
-function drawConnector(connector, from, to) {
+type Directions = { start: XY | null; end: XY | null };
+
+function drawConnector(connector: Connector, from: Connectable | null, to: Connectable | null): Connector {
   if (!from && !to) return connector;
   // Pinned ends first: where floating ends aim depends on them.
-  const pinned = (target, side) => (target && SIDES[side] ? sidePoint(target, side) : null);
+  // The non-null assertions: an end with no anchor, or one that is no side, finds nothing in SIDES, and then has no pin.
+  const pinned = (target: Connectable | null, side: Side | undefined) =>
+    target && SIDES[side!] ? sidePoint(target, side!) : null;
   const startPin = pinned(from, connector.startAnchor);
   const endPin = pinned(to, connector.endAnchor);
-  const aim = (pin, target, x, y) => pin ?? (target ? middleOf(target) : { x, y });
+  const aim = (pin: SidePoint | null, target: Connectable | null, x: number, y: number): XY =>
+    pin ?? (target ? middleOf(target) : { x, y });
   const start = startPin ?? (from && floatingEnd(connector, from, aim(endPin, to, connector.x2, connector.y2)));
   const end = endPin ?? (to && floatingEnd(connector, to, aim(startPin, from, connector.x1, connector.y1)));
   const [x1, y1] = start ? [start.x, start.y] : [connector.x1, connector.y1];
   const [x2, y2] = end ? [end.x, end.y] : [connector.x2, connector.y2];
-  const directions = {
+  const directions: Directions = {
     start: start ? { x: start.dx, y: start.dy } : null,
     end: end ? { x: end.dx, y: end.dy } : null,
   };
   // The shapes' boxes, which an elbow goes round, and for a turned shape the shape itself (see routes.js).
-  const boxOf = (target) => target && { ...getBounds(target), turned: getFrame(target) };
+  const boxOf = (target: Connectable | null) => target && { ...getBounds(target), turned: getFrame(target) };
   const boxes = { start: boxOf(from), end: boxOf(to) };
   // The same object while nothing moves, so what's drawn from it stays cached.
   const last = drawnCopies.get(connector);
@@ -153,8 +192,8 @@ function drawConnector(connector, from, to) {
   return drawn;
 }
 
-const sameDirection = (a, b) => (!a && !b) || Boolean(a && b && a.x === b.x && a.y === b.y);
-const sameBox = (a, b) =>
+const sameDirection = (a: XY | null, b: XY | null) => (!a && !b) || Boolean(a && b && a.x === b.x && a.y === b.y);
+const sameBox = (a: DrawnBox | null, b: DrawnBox | null) =>
   (!a && !b) ||
   Boolean(
     a &&
@@ -168,7 +207,7 @@ const sameBox = (a, b) =>
     a.turned.height === b.turned.height,
   );
 
-let resolvedBoards = new WeakMap();
+let resolvedBoards = new WeakMap<BoardElement[], BoardElement[]>();
 
 /** Forget where connector ends were drawn, once web fonts have loaded and the text they're attached to measures differently. */
 export function forgetResolvedConnectors() {
@@ -180,14 +219,14 @@ export function forgetResolvedConnectors() {
  * `elements` as they're drawn: attached connector ends moved to their shapes.
  * The same array when nothing is attached; otherwise aligned with `elements`.
  */
-export function resolveConnectors(elements) {
+export function resolveConnectors(elements: BoardElement[]): BoardElement[] {
   let resolved = resolvedBoards.get(elements);
   if (resolved) return resolved;
   if (!elements.some(isAttached)) {
     resolved = elements;
   } else {
     const byId = new Map(elements.map((element) => [element.id, element]));
-    const target = (id) => {
+    const target = (id: string | undefined) => {
       const found = id ? byId.get(id) : null;
       return found && canConnectTo(found) ? found : null;
     };
@@ -200,10 +239,11 @@ export function resolveConnectors(elements) {
 }
 
 /** The element with `id` as it's drawn. */
-export const drawnElement = (elements, id) => resolveConnectors(elements).find((element) => element.id === id);
+export const drawnElement = (elements: BoardElement[], id: string): BoardElement | undefined =>
+  resolveConnectors(elements).find((element) => element.id === id);
 
 /** Whether `point` is on or inside `target`, give or take `tolerance`. */
-function covers(target, point, tolerance) {
+function covers(target: Connectable, point: XY, tolerance: number): boolean {
   // Most elements are nowhere near: their (cached) bounds rule them out without measuring anything.
   if (!rectContains(expandRect(getBounds(target), tolerance), point.x, point.y)) return false;
   const { cx, cy, width, height, angle } = getFrame(target);
@@ -220,10 +260,15 @@ function covers(target, point, tolerance) {
  * shape is part of it, so text is only attached to when there's no shape
  * there, and never when it sits on `except`.
  */
-export function connectTargetAt(elements, point, tolerance, { except } = {}) {
+export function connectTargetAt(
+  elements: BoardElement[],
+  point: XY,
+  tolerance: number,
+  { except }: { except?: string } = {},
+): Connectable | null {
   const ordered = inDrawOrder(resolveConnectors(elements));
   const excluded = except ? ordered.find((element) => element.id === except) : null;
-  let text = null;
+  let text: Connectable | null = null;
   for (let i = ordered.length - 1; i >= 0; i -= 1) {
     const element = ordered[i];
     if (element.id === except || !canConnectTo(element) || !covers(element, point, tolerance)) continue;
@@ -239,20 +284,33 @@ export function connectTargetAt(elements, point, tolerance, { except } = {}) {
  * sit just outside it, that shape and side; otherwise the shape there (see
  * connectTargetAt), floating; or nothing.
  */
-export function connectionAt(elements, point, { zoom, tolerance, except }) {
+export function connectionAt(
+  elements: BoardElement[],
+  point: XY,
+  { zoom, tolerance, except }: { zoom: number; tolerance: number; except?: string },
+): Connection {
   const reach = (DOT_GAP + DOT_REACH) / zoom + tolerance;
   const near = connectTargetAt(elements, point, reach, { except });
   const side = near ? dotAt(near, point, zoom) : null;
-  if (side) return { target: near, side };
+  // The non-null assertion: there is a side only if there was a shape for it to be on.
+  if (side) return { target: near!, side };
   return { target: connectTargetAt(elements, point, tolerance, { except }), side: null };
 }
 
 // What is picked at `point`: the element there, frame names included (they're sized on screen).
-const hitAt = (elements, point, zoom, tolerance) =>
+const hitAt = (elements: BoardElement[], point: XY, zoom: number, tolerance: number): BoardElement | null =>
   elementAt(elements, point.x, point.y, tolerance, { labelScale: 1 / zoom });
 
+// How far a point is looked at, and what is already known about it (see dotGrab).
+type Lookup = { zoom: number; tolerance: number };
+
 // Whether a press at `point` on `found`'s dot goes to the dot, not to something else drawn there (see dotGrab).
-function dotIsFree(elements, point, found, { zoom, tolerance, hit = hitAt(elements, point, zoom, tolerance) }) {
+function dotIsFree(
+  elements: BoardElement[],
+  point: XY,
+  found: { target: Connectable; side: Side },
+  { zoom, tolerance, hit = hitAt(elements, point, zoom, tolerance) }: Lookup & { hit?: BoardElement | null },
+) {
   if (hit && isConnector(hit)) {
     // An arrow pinned to this side runs out through its dot: only a press right on the dot starts another,
     // and one anywhere else along the arrow is a press on the arrow, so a short arrow can still be selected.
@@ -272,7 +330,11 @@ function dotIsFree(elements, point, found, { zoom, tolerance, hit = hitAt(elemen
  * A caller that has already looked up `found` (connectionAt) and `hit` (what's picked at `point`, with the
  * same `zoom` and `tolerance`; null for nothing) at this point can pass them, to not scan the board again.
  */
-export function dotGrab(elements, point, { zoom, tolerance, ...known }) {
+export function dotGrab(
+  elements: BoardElement[],
+  point: XY,
+  { zoom, tolerance, ...known }: Lookup & { found?: Connection; hit?: BoardElement | null },
+): { target: Connectable; side: Side } | null {
   const found = known.found ?? connectionAt(elements, point, { zoom, tolerance });
   if (!found.side) return null;
   return dotIsFree(elements, point, found, { zoom, tolerance, ...known }) ? found : null;
@@ -285,7 +347,11 @@ export function dotGrab(elements, point, { zoom, tolerance, ...known }) {
  * (see dotGrab) isn't shown as the one under the pointer: whatever is picked there is shown instead.
  * `found` and `hit` can be passed as for dotGrab.
  */
-export function dotHover(elements, point, { zoom, tolerance, ...known }) {
+export function dotHover(
+  elements: BoardElement[],
+  point: XY,
+  { zoom, tolerance, ...known }: Lookup & { found?: Connection; hit?: BoardElement | null },
+): { target: Connectable; side: Side | null } | null {
   const found = known.found ?? connectionAt(elements, point, { zoom, tolerance });
   if (!found.target) return null;
   if (!found.side) return found;
@@ -300,7 +366,13 @@ export function dotHover(elements, point, { zoom, tolerance, ...known }) {
  * line's or arrow's end: one pinned to a side sits just inside that side's dot, close enough for the two to
  * overlap, so the nearer of them does. Another arrow can then be drawn from the dot, and the end still dragged.
  */
-export function dotBeatsHandle(selected, handle, grab, point, zoom) {
+export function dotBeatsHandle(
+  selected: BoardElement,
+  handle: string | null,
+  grab: { target: Connectable; side: Side } | null,
+  point: XY,
+  zoom: number,
+): boolean {
   if (!grab) return false;
   if (!handle) return true;
   if (!isConnector(selected) || (handle !== "start" && handle !== "end")) return false;
@@ -313,9 +385,15 @@ export function dotBeatsHandle(selected, handle, grab, point, zoom) {
  * A connector with one end ("start" or "end") attached to `target`, pinned to
  * its `side` if one's given, or let go when `target` is null.
  */
-export function attachEnd(connector, end, target, side = null) {
-  const [idKey, sideKey] = end === "start" ? ["startId", "startAnchor"] : ["endId", "endAnchor"];
-  const next = { ...connector };
+export function attachEnd(
+  connector: Connector,
+  end: "start" | "end",
+  target: Connectable | null,
+  side: Side | null = null,
+): Connector {
+  const [idKey, sideKey]: ["startId", "startAnchor"] | ["endId", "endAnchor"] =
+    end === "start" ? ["startId", "startAnchor"] : ["endId", "endAnchor"];
+  const next: Connector = { ...connector };
   if (target) next[idKey] = target.id;
   else delete next[idKey];
   if (target && side) next[sideKey] = side;
@@ -325,7 +403,7 @@ export function attachEnd(connector, end, target, side = null) {
 
 // A connector let go of its ends attached to shapes `isGone` says are going,
 // left where those ends are drawn now.
-function letGoOf(connector, drawn, isGone) {
+function letGoOf(connector: Connector, drawn: Connector, isGone: (id: string) => boolean): Connector {
   let next = connector;
   if (connector.startId && isGone(connector.startId)) {
     next = { ...next, x1: drawn.x1, y1: drawn.y1 };
@@ -344,12 +422,13 @@ function letGoOf(connector, drawn, isGone) {
  * Connectors on the board attached to elements being removed (`ids`), let go
  * where they're drawn, so they don't jump when their shape goes: [{ before, after }].
  */
-export function releaseFrom(elements, ids) {
+export function releaseFrom(elements: BoardElement[], ids: Set<string>): ConnectorChange[] {
   const resolved = resolveConnectors(elements);
-  const changes = [];
+  const changes: ConnectorChange[] = [];
   elements.forEach((element, position) => {
     if (!isAttached(element) || ids.has(element.id)) return;
-    const after = letGoOf(element, resolved[position], (id) => ids.has(id));
+    // The cast: a connector is drawn as a connector.
+    const after = letGoOf(element, resolved[position] as Connector, (id) => ids.has(id));
     if (after !== element) changes.push({ before: element, after });
   });
   return changes;
@@ -361,18 +440,19 @@ export function releaseFrom(elements, ids) {
  * where they're drawn. Ends kept attached are brought up to where they're
  * drawn too, so the fallback stays close.
  */
-export function readyToMove(elements, group) {
+export function readyToMove(elements: BoardElement[], group: BoardElement[]): BoardElement[] {
   const inGroup = new Set(group.map((element) => element.id));
-  const drawn = new Map(resolveConnectors(elements).map((element) => [element.id, element]));
+  const drawn = new Map<string, BoardElement>(resolveConnectors(elements).map((element) => [element.id, element]));
   return group.map((element) => {
     if (!isAttached(element)) return element;
-    const now = drawn.get(element.id) ?? element;
+    // The cast: a connector is drawn as a connector.
+    const now = (drawn.get(element.id) ?? element) as Connector;
     return { ...letGoOf(element, now, (id) => !inGroup.has(id)), x1: now.x1, y1: now.y1, x2: now.x2, y2: now.y2 };
   });
 }
 
 /** `group` moved by (dx, dy): connectors attached outside it let go (see readyToMove). */
-export const moveGroup = (elements, group, dx, dy) =>
+export const moveGroup = (elements: BoardElement[], group: BoardElement[], dx: number, dy: number): BoardElement[] =>
   readyToMove(elements, group).map((element) => translate(element, dx, dy));
 
 /**
@@ -380,13 +460,20 @@ export const moveGroup = (elements, group, dx, dy) =>
  * Connectors attached within the group are attached to the copies; the rest
  * let go. Hand-drawn shapes get a new wobble unless `sameLook` is set.
  */
-export function copyGroup(elements, group, dx, dy, { sameLook = false } = {}) {
+export function copyGroup(
+  elements: BoardElement[],
+  group: BoardElement[],
+  dx: number,
+  dy: number,
+  { sameLook = false }: { sameLook?: boolean } = {},
+): BoardElement[] {
   const ready = readyToMove(elements, group);
   const copies = ready.map((element) =>
     sameLook ? { ...translate(element, dx, dy), id: newId() } : duplicate(element, dx, dy),
   );
   const ids = new Map(ready.map((element, position) => [element.id, copies[position].id]));
-  for (const copy of copies) {
+  // The cast: only a connector has these fields, and what has none is left as it is.
+  for (const copy of copies as ConnectorFields[]) {
     if (copy.startId) copy.startId = ids.get(copy.startId);
     if (copy.endId) copy.endId = ids.get(copy.endId);
   }

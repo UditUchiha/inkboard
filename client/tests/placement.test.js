@@ -6,10 +6,10 @@ globalThis.document ??= {
   createElement: () => ({ getContext: () => ({ font: "", measureText: (text) => ({ width: text.length * 10 }) }) }),
 };
 
-const { copyOffset } = await import("../src/features/board/placement.js");
-const { copyGroup } = await import("../src/features/board/connectors.js");
-const { getSceneBounds } = await import("../src/features/board/elements.js");
-const { rectsOverlap } = await import("../src/features/board/geometry.js");
+const { copyOffset } = await import("../src/features/board/placement.ts");
+const { copyGroup } = await import("../src/features/board/connectors.ts");
+const { getSceneBounds } = await import("../src/features/board/elements.ts");
+const { rectsOverlap } = await import("../src/features/board/geometry.ts");
 
 const frame = (id, x1, y1, x2, y2) => ({ id, type: "frame", x1, y1, x2, y2, name: "" });
 
@@ -56,7 +56,7 @@ describe("where a copy of a frame goes", () => {
 
 describe("bringing an element into view", () => {
   it("leaves the view alone when any of the element is showing, and centres it otherwise", async () => {
-    const { viewToReveal } = await import("../src/features/board/placement.js");
+    const { viewToReveal } = await import("../src/features/board/placement.ts");
     const viewport = { x: 0, y: 0, zoom: 2 };
     const size = { width: 800, height: 600 }; // shows 400 x 300 units from the origin
     assert.equal(viewToReveal(viewport, size, { x: 390, y: 10, width: 100, height: 50 }), viewport);

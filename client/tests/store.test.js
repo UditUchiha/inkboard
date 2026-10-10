@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { FIELD_GROUPS, MAX_VERSION } from "@inkboard/shared/board-merge";
-import { createElement, createImage, createNote, duplicate, stackKey } from "../src/features/board/elements.js";
+import { createElement, createImage, createNote, duplicate, stackKey } from "../src/features/board/elements.ts";
 import { applyOperation, createBoardStore } from "../src/features/board/store.js";
 
 const rect = (id, x = 0) => ({

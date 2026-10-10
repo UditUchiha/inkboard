@@ -11,7 +11,7 @@ import {
 } from "@inkboard/shared/element-rules";
 import { eventually, rect, startServer, upsert } from "./helpers.js";
 
-// What the client creates (see client/src/features/board/elements.js).
+// What the client creates (see client/src/features/board/elements.ts).
 const pen = (overrides = {}) => ({
   id: "p",
   type: "pen",

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createDrawingCache, movedBy } from "../src/features/board/drawCache.js";
+import { createDrawingCache, movedBy } from "../src/features/board/drawCache.ts";
 import { shapePaths } from "../src/features/board/renderer.js";
-import { resolveConnectors } from "../src/features/board/connectors.js";
-import { translate } from "../src/features/board/elements.js";
+import { resolveConnectors } from "../src/features/board/connectors.ts";
+import { translate } from "../src/features/board/elements.ts";
 
 const rect = (id, x = 0, y = 0, extra = {}) => ({
   id,

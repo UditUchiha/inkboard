@@ -6,7 +6,7 @@
  * a field that was merely clicked into, or typed back to what it was, still shows an old name, and
  * saving that would undo a rename someone else made in the meantime.
  */
-export function titleToSave(text, { current, base }) {
+export function titleToSave(text: string, { current, base }: { current: string; base: string | null }): string | null {
   const next = text.trim();
   return base !== null && next && next !== base.trim() && next !== current ? next : null;
 }

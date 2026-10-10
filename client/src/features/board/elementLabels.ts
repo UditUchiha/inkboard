@@ -1,6 +1,9 @@
+import type { ElementType } from "@inkboard/shared/types";
+import type { AnyElement } from "./elements";
+
 // Names for board elements that a screen reader or a keyboard-driven list can show.
 
-const TYPE_NAMES = {
+const TYPE_NAMES: Record<ElementType, string> = {
   pen: "Drawing",
   line: "Line",
   arrow: "Arrow",
@@ -15,7 +18,7 @@ const TYPE_NAMES = {
 const MAX_TEXT = 60;
 
 /** "Sticky note: Buy milk", "Rectangle", "Frame: Sprint 4". */
-export function describeElement(element) {
+export function describeElement(element: AnyElement): string {
   const name = TYPE_NAMES[element.type] ?? "Element";
   const raw = element.type === "frame" ? element.name : element.text;
   const text = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
