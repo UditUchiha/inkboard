@@ -107,9 +107,6 @@ export function NotificationsProvider({ children }: NotificationsProviderProps) 
     };
   }, [signedIn, socket, loadMore]);
 
-  // The cleanup below returns what `socket.off` returns (the socket, for chaining). React ignores that, but its types
-  // want a cleanup that returns nothing, and the arrow can't change without changing the code.
-  // @ts-expect-error
   useEffect(() => {
     if (!socket || !signedIn) return undefined;
     const onNotification = (notification: NotificationItem) => {
@@ -120,7 +117,9 @@ export function NotificationsProvider({ children }: NotificationsProviderProps) 
       });
     };
     socket.on("notification", onNotification);
-    return () => socket.off("notification", onNotification);
+    return () => {
+      socket.off("notification", onNotification);
+    };
   }, [socket, signedIn, navigate]);
 
   const markAllRead = useCallback(() => {
