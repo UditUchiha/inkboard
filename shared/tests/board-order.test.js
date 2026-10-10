@@ -89,6 +89,15 @@ describe("moving an element in the stack", () => {
     assert.ok(Math.max(...elements.map((element) => element.index.length)) < 20);
   });
 
+  it("refuses keys whose whole number can't be stepped past, which would only lengthen every later key", () => {
+    assert.equal(isOrderKey("z" + "z".repeat(26)), false);
+    assert.equal(isOrderKey("A" + "0".repeat(26)), false);
+    assert.equal(isOrderKey("n" + "0".repeat(14)), false);
+    assert.equal(isOrderKey("m" + "z".repeat(13)), true);
+    assert.equal(isOrderKey("a0"), true);
+    assert.equal(isOrderKey("Zz"), true);
+  });
+
   it("refuses a key longer than the server keeps", () => {
     const long = "a" + "V".repeat(100);
     assert.equal(isOrderKey(long), false);

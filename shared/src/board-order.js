@@ -10,10 +10,17 @@ import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 
 const MAX_KEY_LENGTH = 100;
 const KEY_CHARACTERS = /^[0-9A-Za-z]+$/;
+// A key starts with a letter saying how long its whole-number part is ("a" for 1
+// digit, "b" for 2, up to "z" for 26, and "Z" down to "A" for keys below "a0").
+// Keys that make real boards never get past "c", but one made up with the longest
+// possible number can't be stepped past, only lengthened, until keys are too long
+// to take. So whole numbers of more than 13 digits are refused (starting past "m", or before "N").
+const KEY_START = /^[N-Za-m]/;
 
 /** Whether `key` is a stacking key this module made (or could have). */
 export function isOrderKey(key) {
   if (typeof key !== "string" || key.length > MAX_KEY_LENGTH || !KEY_CHARACTERS.test(key)) return false;
+  if (!KEY_START.test(key)) return false;
   try {
     generateKeyBetween(key, null);
     return true;
