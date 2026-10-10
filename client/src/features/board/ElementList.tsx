@@ -1,3 +1,4 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import clsx from "clsx";
 import { ListTree } from "lucide-react";
 import { useState } from "react";
@@ -6,11 +7,18 @@ import { describeElement } from "./elementLabels";
 // Showing this many keeps the page light on a big board; the rest are reachable by selecting on the canvas.
 const MAX_LISTED = 200;
 
+/** What the element list takes: the board's elements, the one selected and what to do when one is picked. */
+export type ElementListProps = {
+  elements: BoardElement[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+};
+
 /**
  * The canvas can't be tabbed through, so this lists its elements as buttons: Tab to move between them,
  * Enter to select one (then arrow keys move it, Delete removes it). Hidden until it gets keyboard focus.
  */
-export function ElementList({ elements, selectedId, onSelect }) {
+export function ElementList({ elements, selectedId, onSelect }: ElementListProps) {
   const [open, setOpen] = useState(false);
   const listed = elements.slice(0, MAX_LISTED);
 

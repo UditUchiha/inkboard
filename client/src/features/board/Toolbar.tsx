@@ -14,10 +14,12 @@ import {
   StickyNote,
   Type,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Fragment } from "react";
 import { COMMENT_TOOL, NUMBERED_TOOLS, TOOLS } from "./constants";
+import type { ToolId } from "./constants";
 
-const ICONS = {
+const ICONS: Record<ToolId, LucideIcon> = {
   comment: MessageSquarePlus,
   select: MousePointer2,
   hand: Hand,
@@ -33,9 +35,19 @@ const ICONS = {
 };
 
 // Dividers separate navigation, drawing, notes and frames, and erasing.
-const GROUP_STARTS = new Set(["pen", "sticky", "eraser", "comment"]);
+const GROUP_STARTS = new Set<ToolId>(["pen", "sticky", "eraser", "comment"]);
 
-export function Toolbar({ tool, onToolChange, onAddImage, withComments = false, className }) {
+/** What the toolbar takes: the tool picked and what to do when another is. */
+export type ToolbarProps = {
+  tool: ToolId;
+  onToolChange: (tool: ToolId) => void;
+  // Left out where pictures can't be added, which hides the button.
+  onAddImage?: (() => void) | undefined;
+  withComments?: boolean;
+  className?: string;
+};
+
+export function Toolbar({ tool, onToolChange, onAddImage, withComments = false, className }: ToolbarProps) {
   const tools = withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS;
   return (
     <div

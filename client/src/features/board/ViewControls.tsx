@@ -1,5 +1,22 @@
 import { Maximize, Minus, Palette, Plus, Redo2, Undo2 } from "lucide-react";
 import { IconButton } from "../../components/Button";
+import type { BoardStore } from "./store";
+
+/** What the view controls take: the board's store (for undo and redo), the zoom and what each button does. */
+export type ViewControlsProps = {
+  store: BoardStore;
+  readOnly: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  zoom: number;
+  canFit: boolean;
+  onZoomBy: (factor: number) => void;
+  onResetZoom: () => void;
+  onFit: () => void;
+  showStyleButton: boolean;
+  styleOpen: boolean;
+  onToggleStyle: () => void;
+};
 
 /** Bottom left: undo and redo, zoom, and (on phones) the button that opens the style panel. */
 export function ViewControls({
@@ -15,7 +32,7 @@ export function ViewControls({
   showStyleButton,
   styleOpen,
   onToggleStyle,
-}) {
+}: ViewControlsProps) {
   return (
     <div className="absolute bottom-[4.25rem] left-3 flex items-center gap-2 md:bottom-3">
       {!readOnly && (

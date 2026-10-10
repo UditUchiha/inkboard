@@ -1,3 +1,4 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import {
   Check,
   Download,
@@ -15,11 +16,37 @@ import {
   Sun,
   Trash2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router";
 import { IconButton } from "../../components/Button";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../../components/Menu";
+import type { Person } from "../../lib/api";
 import { useTheme } from "../../providers/ThemeProvider";
+import type { ThemePreference } from "../../providers/ThemeProvider";
 import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
+
+/** Exports a board's elements under a name, resolving to false when there is nothing to export (see exportImage). */
+export type Exporter = (elements: BoardElement[], name: string) => Promise<boolean>;
+
+/** What the board menu takes: who is here, what they may do, and what each entry does. */
+export type BoardMenuProps = {
+  // Null for a guest.
+  user: Person | null;
+  // Set for a guest's scratch board, which lives in the browser.
+  local: object | null;
+  readOnly: boolean;
+  isMember: boolean;
+  commentsEnabled: boolean;
+  showComments: boolean;
+  isEmpty: boolean;
+  onExport: (exporter: Exporter) => void;
+  onImportFile: () => void;
+  onHistory: () => void;
+  onTemplate: () => void;
+  onToggleComments: () => void;
+  onShortcuts: () => void;
+  onClear: () => void;
+};
 
 /**
  * The "..." menu at the top right: export, import, history, templates, comments,
@@ -40,7 +67,7 @@ export function BoardMenu({
   onToggleComments,
   onShortcuts,
   onClear,
-}) {
+}: BoardMenuProps) {
   const navigate = useNavigate();
   const { preference, setPreference } = useTheme();
 
@@ -90,11 +117,13 @@ export function BoardMenu({
       </MenuItem>
       <MenuSeparator />
       <MenuLabel>Theme</MenuLabel>
-      {[
-        ["light", "Light", Sun],
-        ["dark", "Dark", Moon],
-        ["system", "Match system", Monitor],
-      ].map(([value, label, Icon]) => (
+      {(
+        [
+          ["light", "Light", Sun],
+          ["dark", "Dark", Moon],
+          ["system", "Match system", Monitor],
+        ] satisfies [ThemePreference, string, LucideIcon][]
+      ).map(([value, label, Icon]) => (
         <MenuItem
           key={value}
           icon={Icon}

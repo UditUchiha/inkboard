@@ -2,8 +2,11 @@ import { CloudCheck, Eye, LoaderCircle, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ButtonLink } from "../../components/Button";
 
+/** What the view-only notice takes: whether the person is signed in, and where logging in leads. */
+export type ViewOnlyNoticeProps = { signedIn: boolean; loginHref: string };
+
 /** Shown in place of the toolbar to people who can only look. */
-export function ViewOnlyNotice({ signedIn, loginHref }) {
+export function ViewOnlyNotice({ signedIn, loginHref }: ViewOnlyNoticeProps) {
   return (
     <div className="floating-panel flex h-12 items-center gap-3 rounded-xl pr-2 pl-4 text-sm">
       <Eye className="size-4 shrink-0 text-graphite" aria-hidden />
@@ -20,8 +23,19 @@ export function ViewOnlyNotice({ signedIn, loginHref }) {
   );
 }
 
+/** What the sync status takes: the connection, whether a save is under way and where the board lives. */
+export type SyncStatusProps = {
+  online: boolean;
+  saving: boolean;
+  readOnly: boolean;
+  // A guest's scratch board, kept in this browser.
+  local: boolean;
+  // Only a scratch board knows this: that the browser had no room to keep it.
+  unsaved?: boolean;
+};
+
 /** Whether the board is saved, saving or offline. */
-export function SyncStatus({ online, saving, readOnly, local, unsaved }) {
+export function SyncStatus({ online, saving, readOnly, local, unsaved }: SyncStatusProps) {
   let icon = <CloudCheck className="size-4 text-[#2f9e44]" aria-hidden />;
   let label = readOnly ? "Up to date" : "Saved";
   if (local && unsaved) {
