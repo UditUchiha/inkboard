@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
 // A small safety net, not a style guide (Prettier owns formatting): ESLint's recommended rules
 // to catch unused and undefined names, plus the React hooks rules, which find stale closures.
@@ -29,5 +30,21 @@ export default [
   {
     files: ["client/vite.config.js", "client/tests/**", "server/**", "shared/**"],
     languageOptions: { globals: globals.node },
+  },
+  // TypeScript files: the same rules, read with TypeScript's parser. tsc checks undefined names itself
+  // (and knows about types, which no-undef doesn't), and the TypeScript version of no-unused-vars
+  // understands type-only uses.
+  {
+    files: ["**/*.ts"],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: {
+      "no-undef": "off",
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrors: "none" },
+      ],
+    },
   },
 ];

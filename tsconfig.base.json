@@ -1,0 +1,20 @@
+{
+  // Settings every workspace's tsconfig.json starts from. TypeScript only checks here: Node runs the .ts
+  // files as they are (it strips the types, which is why only erasable syntax is allowed: no enums,
+  // namespaces or parameter properties), and Vite does the same in the browser build.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "types": []
+  }
+}

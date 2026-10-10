@@ -1,4 +1,4 @@
-# Checks formatting and lint, then runs the tests (with a coverage report) and the production
+# Checks formatting, lint and types, then runs the tests (with a coverage report) and the production
 # build on every pull request and every push to main, so a change that breaks sharing, saving or
 # the build is caught before it is merged.
 name: CI
@@ -42,6 +42,9 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
 
       # Only dependencies that ship to users; a dev-tool advisory shouldn't block a merge.
       - name: Audit
