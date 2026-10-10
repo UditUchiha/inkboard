@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
-import { TEMPLATE_LIMITS } from "../src/controllers/template.controller.js";
+import { TEMPLATE_LIMITS } from "../src/controllers/template.controller.ts";
 import { Board } from "../src/models/board.model.ts";
 import { Notification } from "../src/models/notification.model.ts";
 import { Template } from "../src/models/template.model.ts";

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { CookieOptions, Request, Response } from "express";
 import { env } from "../config/env.ts";
 import { apiUrlFor, clientUrlFor } from "../lib/app-url.ts";
 import { HttpError } from "../lib/http-error.ts";
@@ -11,7 +12,9 @@ import {
   signToken,
   verifyPurposeToken,
 } from "../lib/tokens.ts";
+import type { TokenClaims } from "../lib/tokens.ts";
 import { OAUTH_PROVIDERS, User } from "../models/user.model.ts";
+import type { OAuthProvider, UserDoc } from "../models/user.model.ts";
 import { refreshUser } from "../realtime/index.js";
 import { emailConfigured } from "../services/email.ts";
 
@@ -58,27 +61,111 @@ const BIND_HASH = /^[A-Za-z0-9_-]{43}$/;
 
 /** A sign-in that can't go ahead; `code` is what the app shows a message for (client/src/pages/AuthPages.jsx). */
 class SignInError extends Error {
-  constructor(code) {
+  // `declare` keeps this a type only: Node strips it, and the assignment below still creates the field.
+  declare code: string;
+
+  constructor(code: string) {
     super(code);
     this.code = code;
   }
 }
 
-const PROVIDERS = {
+/** The app's credentials with one provider. */
+type OAuthClient = NonNullable<(typeof env.oauth)[OAuthProvider]>;
+
+/** Who a provider says someone is. `email` is only ever one the provider has verified. */
+interface ProviderProfile {
+  id: string;
+  email?: string | null;
+  name?: string | null;
+  avatarUrl: string | null;
+}
+
+// What the providers answer with, as far as this file reads it.
+interface TokenResponse {
+  access_token?: string;
+  error_description?: string;
+}
+interface GoogleUserInfo {
+  sub: string;
+  email?: string;
+  email_verified?: boolean;
+  name?: string;
+  picture?: string;
+}
+interface GitHubUser {
+  id: number;
+  login: string;
+  name?: string | null;
+  avatar_url?: string | null;
+}
+interface GitHubEmail {
+  email: string;
+  primary?: boolean;
+  verified?: boolean;
+}
+
+interface ProviderConfig {
+  label: string;
+  authorizeUrl: string;
+  scope: string;
+  extraParams: Record<string, string>;
+  fetchProfile(code: string, redirectUri: string, client: OAuthClient): Promise<ProviderProfile>;
+}
+
+/** A provider that is set up on this server, with the app's credentials for it. */
+interface EnabledProvider extends ProviderConfig {
+  name: OAuthProvider;
+  client: OAuthClient;
+}
+
+// What each kind of signed note holds. Only this file signs tokens with these audiences, so what
+// `verifyPurposeToken` hands back is known to have these claims.
+interface LinkTicketClaims extends TokenClaims {
+  sub: string;
+  provider: string;
+  bind: string;
+}
+interface StateClaims extends TokenClaims {
+  nonce: string;
+  provider: string;
+  next: string;
+  // Who the connection is for; null when it's a sign-in.
+  linkUserId?: string | null;
+  bind: string;
+}
+interface ConnectClaims extends TokenClaims {
+  sub: string;
+  provider: string;
+  id: string;
+  avatarUrl: string | null;
+  bind: string;
+}
+interface LoginCodeClaims extends TokenClaims {
+  sub: string;
+  bind: string;
+  jti?: string;
+  exp: number;
+}
+
+const PROVIDERS: Record<OAuthProvider, ProviderConfig> = {
   google: {
     label: "Google",
     authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     scope: "openid email profile",
     extraParams: { prompt: "select_account" },
     async fetchProfile(code, redirectUri, client) {
-      const tokens = await postForm("https://oauth2.googleapis.com/token", {
+      const tokens = await postForm<TokenResponse>("https://oauth2.googleapis.com/token", {
         code,
         client_id: client.clientId,
         client_secret: client.clientSecret,
         redirect_uri: redirectUri,
         grant_type: "authorization_code",
       });
-      const info = await getJson("https://openidconnect.googleapis.com/v1/userinfo", tokens.access_token);
+      const info = await getJson<GoogleUserInfo>(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        tokens.access_token,
+      );
       return {
         id: info.sub,
         email: info.email_verified ? info.email : null,
@@ -93,7 +180,7 @@ const PROVIDERS = {
     scope: "read:user user:email",
     extraParams: {},
     async fetchProfile(code, redirectUri, client) {
-      const tokens = await postForm("https://github.com/login/oauth/access_token", {
+      const tokens = await postForm<TokenResponse>("https://github.com/login/oauth/access_token", {
         code,
         client_id: client.clientId,
         client_secret: client.clientSecret,
@@ -101,8 +188,8 @@ const PROVIDERS = {
       });
       if (!tokens.access_token) throw new Error(tokens.error_description ?? "No access token");
       const [profile, emails] = await Promise.all([
-        getJson("https://api.github.com/user", tokens.access_token),
-        getJson("https://api.github.com/user/emails", tokens.access_token),
+        getJson<GitHubUser>("https://api.github.com/user", tokens.access_token),
+        getJson<GitHubEmail[]>("https://api.github.com/user/emails", tokens.access_token),
       ]);
       const primary = emails.find((entry) => entry.primary && entry.verified) ?? emails.find((entry) => entry.verified);
       return {
@@ -115,7 +202,8 @@ const PROVIDERS = {
   },
 };
 
-async function postForm(url, fields) {
+// `Answer` is what the provider is expected to send back; nothing checks it.
+async function postForm<Answer>(url: string, fields: Record<string, string>) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -123,47 +211,49 @@ async function postForm(url, fields) {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`${url} responded ${response.status}`);
-  return response.json();
+  return response.json() as Promise<Answer>;
 }
 
-async function getJson(url, accessToken) {
+async function getJson<Answer>(url: string, accessToken: string | undefined) {
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "User-Agent": "Inkboard" },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   if (!response.ok) throw new Error(`${url} responded ${response.status}`);
-  return response.json();
+  return response.json() as Promise<Answer>;
 }
 
 const enabledProviders = () => OAUTH_PROVIDERS.filter((name) => env.oauth[name]);
 
-function providerFrom(req) {
-  const name = req.params.provider;
+function providerFrom(req: Request): EnabledProvider {
+  // From the URL, so it may be anything; the lookups below turn away what isn't a provider.
+  const name = req.params.provider as OAuthProvider;
   if (!PROVIDERS[name] || !env.oauth[name]) {
     throw new HttpError(404, "That sign-in method isn't available.");
   }
-  return { name, ...PROVIDERS[name], client: env.oauth[name] };
+  // `!env.oauth[name]` above throws when the client is missing, which the types can't follow through `name`.
+  return { name, ...PROVIDERS[name], client: env.oauth[name]! };
 }
 
 // The provider sends people back to the API. With trust proxy enabled in production, req.protocol is the public one.
-const callbackUrl = (req, provider) => `${apiUrlFor(req)}/api/auth/oauth/${provider}/callback`;
+const callbackUrl = (req: Request, provider: string) => `${apiUrlFor(req)}/api/auth/oauth/${provider}/callback`;
 
 // Only follow redirects to paths inside the app. Browsers read a backslash as a slash and drop tabs and
 // newlines, so "/\evil.example" or "/<tab>/evil.example" would leave the site: neither is allowed anywhere.
-const unsafeChar = (char) => char === "\\" || char <= "\u001f" || char === "\u007f";
-export const safeNext = (value) =>
+const unsafeChar = (char: string) => char === "\\" || char <= "\u001f" || char === "\u007f";
+export const safeNext = (value: unknown) =>
   typeof value === "string" && /^\/(?!\/)/.test(value) && ![...value].some(unsafeChar) ? value : "/boards";
 
-const hashOf = (value) => createHash("sha256").update(value).digest("base64url");
+const hashOf = (value: string) => createHash("sha256").update(value).digest("base64url");
 
 // Sign-in codes that have been exchanged, by id, until they would have expired anyway. A code is only
 // worth anything with its tab's `bind`, so this is a second lock: opening the same redirect twice
 // (a back button, a copied URL) can't sign in twice. It's kept in memory, like the email limits, so
 // with several server processes the short life and the `bind` are what limit a replay.
-const spentCodes = new Map();
+const spentCodes = new Map<string, number>();
 
 /** Marks a sign-in code as used. False if it was already (or has no id). */
-function spendLoginCode(id, expiresAt) {
+function spendLoginCode(id: string | undefined, expiresAt: number) {
   const now = Date.now() / 1000;
   // Codes all live as long as each other, so the oldest entries are the first to expire.
   for (const [spent, until] of spentCodes) {
@@ -175,7 +265,7 @@ function spendLoginCode(id, expiresAt) {
   return true;
 }
 
-function readCookie(req, name) {
+function readCookie(req: Request, name: string) {
   for (const part of (req.get("cookie") ?? "").split(";")) {
     const [key, ...rest] = part.trim().split("=");
     if (key === name) return decodeURIComponent(rest.join("="));
@@ -183,7 +273,7 @@ function readCookie(req, name) {
   return null;
 }
 
-const cookieOptions = () => ({
+const cookieOptions = (): CookieOptions => ({
   httpOnly: true,
   sameSite: "lax", // sent on the provider's top-level redirect back to us
   secure: env.isProduction,
@@ -192,16 +282,16 @@ const cookieOptions = () => ({
 
 // Connecting a provider before the address is verified could hand the account to whoever
 // signed up with it first. Without email set up there's no way to verify, so it's allowed.
-const mustVerifyFirst = (user) => emailConfigured() && !user.emailVerified;
+const mustVerifyFirst = (user: Pick<UserDoc, "emailVerified">) => emailConfigured() && !user.emailVerified;
 
-function failSignIn(req, res, code, to, provider, next) {
+function failSignIn(req: Request, res: Response, code: string, to: string, provider: string, next?: string) {
   const params = new URLSearchParams({ error: code, provider });
   // A failed sign-in keeps where the person was headed, for when they try again.
   if (next && next !== "/boards") params.set("next", next);
   res.redirect(`${clientUrlFor(req)}${to}?${params}`);
 }
 
-export function listProviders(req, res) {
+export function listProviders(req: Request, res: Response) {
   res.json({
     providers: enabledProviders().map((name) => ({ id: name, label: PROVIDERS[name].label })),
     // Whether email verification and password reset are on (see services/email.ts).
@@ -214,7 +304,7 @@ export function listProviders(req, res) {
  * connect a provider to their existing account, and the `bind` value the app keeps for
  * confirmLink. Only a hash of `bind` goes into the URLs.
  */
-export async function createLinkTicket(req, res) {
+export async function createLinkTicket(req: Request, res: Response) {
   const { name, label } = providerFrom(req);
   const user = await User.findById(req.userId);
   if (!user) throw new HttpError(401, "This account no longer exists.");
@@ -226,13 +316,13 @@ export async function createLinkTicket(req, res) {
   res.json({ url: `/api/auth/oauth/${name}?link=${encodeURIComponent(ticket)}`, bind });
 }
 
-export function startOAuth(req, res) {
+export function startOAuth(req: Request, res: Response) {
   const provider = providerFrom(req);
 
-  let link;
+  let link: { linkUserId: string | null | undefined; bind: string };
   if (req.query.link) {
     try {
-      const ticket = verifyPurposeToken(String(req.query.link), OAUTH_LINK);
+      const ticket = verifyPurposeToken(String(req.query.link), OAUTH_LINK) as LinkTicketClaims;
       if (ticket.provider !== provider.name) throw new Error("wrong ticket");
       link = { linkUserId: ticket.sub, bind: ticket.bind };
     } catch {
@@ -265,27 +355,28 @@ export function startOAuth(req, res) {
   res.redirect(`${provider.authorizeUrl}?${params}`);
 }
 
-export async function finishOAuth(req, res) {
+export async function finishOAuth(req: Request, res: Response) {
   const provider = providerFrom(req);
 
-  let state;
+  let state: StateClaims;
   try {
-    state = verifyPurposeToken(readCookie(req, STATE_COOKIE) ?? "", OAUTH_STATE);
+    state = verifyPurposeToken(readCookie(req, STATE_COOKIE) ?? "", OAUTH_STATE) as StateClaims;
   } catch {
     return failSignIn(req, res, "expired", "/login", provider.name);
   }
   res.clearCookie(STATE_COOKIE, cookieOptions());
 
   const returnTo = state.linkUserId ? "/settings" : "/login";
-  const fail = (code, to = "/login") => failSignIn(req, res, code, to, provider.name, state.next);
+  const fail = (code: string, to = "/login") => failSignIn(req, res, code, to, provider.name, state.next);
   if (state.provider !== provider.name || state.nonce !== req.query.state) return fail("unverified", returnTo);
   if (req.query.error || !req.query.code) return fail("cancelled", returnTo);
 
-  let profile;
+  let profile: ProviderProfile;
   try {
     profile = await provider.fetchProfile(String(req.query.code), callbackUrl(req, provider.name), provider.client);
   } catch (error) {
-    console.error(`${provider.label} sign-in failed:`, error.message);
+    // Anything can be thrown; the fetches throw Errors.
+    console.error(`${provider.label} sign-in failed:`, (error as Error).message);
     return fail("provider-failed", returnTo);
   }
 
@@ -315,10 +406,13 @@ export async function finishOAuth(req, res) {
  * Trades the sign-in code the OAuth flow came back with for a login token, once the app shows it's the
  * tab that started the sign-in (it holds the `bind` the code was made for). The code works once.
  */
-export async function exchangeLoginCode(req, res) {
-  let note;
+export async function exchangeLoginCode(
+  req: Request<{}, unknown, { code?: unknown; bind?: unknown } | undefined>,
+  res: Response,
+) {
+  let note: LoginCodeClaims;
   try {
-    note = verifyPurposeToken(String(req.body?.code ?? ""), OAUTH_LOGIN);
+    note = verifyPurposeToken(String(req.body?.code ?? ""), OAUTH_LOGIN) as LoginCodeClaims;
   } catch {
     throw new HttpError(400, "Sign-in took too long. Try again.");
   }
@@ -334,10 +428,15 @@ export async function exchangeLoginCode(req, res) {
 }
 
 // Another account got there first (a sign-up or connect that ran at the same moment).
-const isDuplicate = (error) => error?.code === 11000;
+// Anything can be thrown; a duplicate-key error from MongoDB carries a numeric code.
+const isDuplicate = (error: unknown) => (error as { code?: unknown } | null)?.code === 11000;
 
-async function connectProvider(userId, provider, profile) {
-  const field = `${provider.name}Id`;
+async function connectProvider(
+  userId: string | undefined,
+  provider: EnabledProvider,
+  profile: Pick<ProviderProfile, "id" | "avatarUrl">,
+) {
+  const field = `${provider.name}Id` as const;
   const owner = await User.findOne({ [field]: profile.id });
   if (owner && owner.id !== userId) throw new SignInError("already-linked");
   const user = await User.findById(userId).select("+password +googleId +githubId");
@@ -353,8 +452,8 @@ async function connectProvider(userId, provider, profile) {
   return user;
 }
 
-async function findOrCreateUser(provider, profile) {
-  const field = `${provider.name}Id`;
+async function findOrCreateUser(provider: EnabledProvider, profile: ProviderProfile) {
+  const field = `${provider.name}Id` as const;
   const existing = await User.findOne({ [field]: profile.id });
   if (existing) return existing;
 
@@ -383,7 +482,8 @@ async function findOrCreateUser(provider, profile) {
   }
 }
 
-const CONNECT_ERRORS = {
+// What connectProvider can fail with, as an HTTP status and message.
+const CONNECT_ERRORS: Record<string, (label: string) => [number, string]> = {
   "already-linked": (label) => [409, `That ${label} account is already connected to a different account.`],
   "verify-first": (label) => [403, `Verify your email address before connecting ${label}.`],
   "no-account": () => [401, "This account no longer exists."],
@@ -393,11 +493,14 @@ const CONNECT_ERRORS = {
  * Connects the provider account the OAuth flow came back with (the `connect` note), once the
  * app shows it's the same signed-in person, in the same tab, that asked to connect it.
  */
-export async function confirmLink(req, res) {
+export async function confirmLink(
+  req: Request<{ provider: string }, unknown, { connect?: unknown; bind?: unknown } | undefined>,
+  res: Response,
+) {
   const provider = providerFrom(req);
-  let note;
+  let note: ConnectClaims;
   try {
-    note = verifyPurposeToken(String(req.body?.connect ?? ""), OAUTH_CONNECT);
+    note = verifyPurposeToken(String(req.body?.connect ?? ""), OAUTH_CONNECT) as ConnectClaims;
   } catch {
     throw new HttpError(400, `Connecting ${provider.label} took too long. Try again.`);
   }
@@ -411,7 +514,7 @@ export async function confirmLink(req, res) {
     throw new HttpError(403, `This isn't the ${provider.label} connection you started here. Try again from Settings.`);
   }
 
-  let user;
+  let user: UserDoc;
   try {
     user = await connectProvider(req.userId, provider, { id: note.id, avatarUrl: note.avatarUrl });
   } catch (error) {
@@ -424,8 +527,9 @@ export async function confirmLink(req, res) {
 }
 
 /** Disconnects a provider, as long as the account keeps another way to sign in. */
-export async function disconnectProvider(req, res) {
-  const name = req.params.provider;
+export async function disconnectProvider(req: Request, res: Response) {
+  // From the URL, so it may be anything; the lookup below turns away what isn't a provider.
+  const name = req.params.provider as OAuthProvider;
   if (!PROVIDERS[name]) throw new HttpError(404, "That sign-in method isn't available.");
   const { label } = PROVIDERS[name];
 

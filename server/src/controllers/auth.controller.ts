@@ -1,3 +1,4 @@
+import type { Request, Response } from "express";
 import { emailLinkUrlFor } from "../lib/app-url.ts";
 import { MAX_EMAIL_LENGTH, isEmailAddress } from "../lib/email-address.ts";
 import { HttpError } from "../lib/http-error.ts";
@@ -5,6 +6,7 @@ import { spendPasswordTime, waitOutSlowestCheck } from "../lib/passwords.ts";
 import { signToken } from "../lib/tokens.ts";
 import { assertRecentLogin } from "../middleware/auth.ts";
 import { OAUTH_PROVIDERS, User } from "../models/user.model.ts";
+import type { UserDoc } from "../models/user.model.ts";
 import { disconnectUser, refreshUser } from "../realtime/index.js";
 import {
   forgetSecrets,
@@ -12,12 +14,23 @@ import {
   sendPasswordResetEmail,
   sendVerificationEmail,
 } from "../services/account-emails.ts";
+import type { ObjectIdLike } from "../services/boards.ts";
 import { emailConfigured } from "../services/email.ts";
 
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const ACCOUNT_FIELDS = "+password +googleId +githubId";
 
-function readCredentials(body) {
+// Request bodies come from anyone, so every field is unknown until a check narrows it. A body is missing
+// when nothing was sent.
+interface CredentialsBody {
+  email?: unknown;
+  password?: unknown;
+}
+
+/** A request with a body of type `Body`, and no route parameters. */
+type BodyRequest<Body> = Request<{}, unknown, Body | undefined>;
+
+function readCredentials(body: CredentialsBody | undefined) {
   return {
     email: String(body?.email ?? "")
       .trim()
@@ -26,7 +39,7 @@ function readCredentials(body) {
   };
 }
 
-function readName(value) {
+function readName(value: unknown) {
   const name = String(value ?? "").trim();
   if (!name) throw new HttpError(400, "Enter your name.");
   if (name.length > 60) throw new HttpError(400, "Use 60 characters or fewer for your name.");
@@ -35,7 +48,7 @@ function readName(value) {
 
 const MAX_PASSWORD_LENGTH = 128;
 
-function checkNewPassword(password) {
+function checkNewPassword(password: string) {
   if (password.length < 8) throw new HttpError(400, "Use at least 8 characters for your password.");
   if (password.length > MAX_PASSWORD_LENGTH) {
     throw new HttpError(400, `Use ${MAX_PASSWORD_LENGTH} characters or fewer for your password.`);
@@ -44,12 +57,13 @@ function checkNewPassword(password) {
 
 // Mail is sent after the answer, so that how long a request takes doesn't depend on the mail service
 // (or, for password resets, on whether the address has an account). Failures are logged, not shown.
-function sendInBackground(sending, what) {
-  sending.catch((error) => console.error(`Couldn't send ${what}: ${error.message}`));
+function sendInBackground(sending: Promise<unknown>, what: string) {
+  // Sending only fails with an Error (a rejected promise's reason is untyped, so this says what it is).
+  sending.catch((error: Error) => console.error(`Couldn't send ${what}: ${error.message}`));
 }
 
 // Disconnects Google and GitHub from the account. Returns whether there was anything to disconnect.
-function releaseProviders(user) {
+function releaseProviders(user: UserDoc) {
   const linked = OAUTH_PROVIDERS.filter((provider) => user[`${provider}Id`]);
   for (const provider of linked) user[`${provider}Id`] = undefined;
   return linked.length > 0;
@@ -57,19 +71,19 @@ function releaseProviders(user) {
 
 // Logs the account out everywhere: every token made so far stops working and open sockets are closed.
 // The caller hands the person a new token if they should stay logged in.
-async function endAllSessions(user) {
+async function endAllSessions(user: UserDoc) {
   user.revokeSessions();
   await user.save();
   disconnectUser(user.id);
 }
 
-async function findAccount(userId) {
+async function findAccount(userId: ObjectIdLike | undefined) {
   const user = await User.findById(userId).select(ACCOUNT_FIELDS);
   if (!user) throw new HttpError(401, "This account no longer exists.");
   return user;
 }
 
-export async function register(req, res) {
+export async function register(req: BodyRequest<CredentialsBody & { name?: unknown }>, res: Response) {
   const name = readName(req.body?.name);
   const { email, password } = readCredentials(req.body);
 
@@ -79,11 +93,12 @@ export async function register(req, res) {
   const exists = () => new HttpError(409, "An account with this email already exists. Log in instead.");
   if (await User.exists({ email })) throw exists();
 
-  let user;
+  let user: UserDoc;
   try {
     user = await User.create({ name, email, password });
   } catch (error) {
-    if (error?.code === 11000) throw exists(); // someone signed up with it a moment ago
+    // Anything can be thrown; a duplicate-key error from MongoDB carries a numeric code.
+    if ((error as { code?: unknown } | null)?.code === 11000) throw exists(); // someone signed up with it a moment ago
     throw error;
   }
   // The account works straight away; the address is verified when they click the link.
@@ -91,7 +106,7 @@ export async function register(req, res) {
   res.status(201).json({ token: signToken(user), user: user.toAccount() });
 }
 
-export async function login(req, res) {
+export async function login(req: BodyRequest<CredentialsBody>, res: Response) {
   const { email, password } = readCredentials(req.body);
   if (!email || !password) throw new HttpError(400, "Enter your email and password.");
 
@@ -109,15 +124,16 @@ export async function login(req, res) {
     );
   }
 
-  res.json({ token: signToken(user), user: user.toAccount() });
+  // `ok` is only true when `user` was found (and had a password).
+  res.json({ token: signToken(user!), user: user!.toAccount() });
 }
 
-export async function me(req, res) {
+export async function me(req: Request, res: Response) {
   const user = await findAccount(req.userId);
   res.json({ user: user.toAccount() });
 }
 
-export async function updateProfile(req, res) {
+export async function updateProfile(req: BodyRequest<{ name?: unknown; color?: unknown }>, res: Response) {
   const user = await findAccount(req.userId);
   if (req.body?.name !== undefined) user.name = readName(req.body.name);
   if (req.body?.color !== undefined) {
@@ -125,7 +141,8 @@ export async function updateProfile(req, res) {
     if (color !== null && !COLOR_PATTERN.test(String(color))) {
       throw new HttpError(400, "Choose one of the colors shown.");
     }
-    user.color = color;
+    // The pattern test goes through String(), which the types can't follow back to a string or null.
+    user.color = color as string | null;
   }
   await user.save();
   await refreshUser(user);
@@ -137,7 +154,10 @@ export async function updateProfile(req, res) {
  * recent login, as there's no old password to prove who is asking). Every other login ends; the
  * response carries a new token for this one.
  */
-export async function changePassword(req, res) {
+export async function changePassword(
+  req: BodyRequest<{ currentPassword?: unknown; newPassword?: unknown }>,
+  res: Response,
+) {
   const user = await findAccount(req.userId);
   const current = String(req.body?.currentPassword ?? "");
   const next = String(req.body?.newPassword ?? "");
@@ -169,7 +189,7 @@ function requireEmail() {
  * Nobody else needs logging out here: every login to an unverified account comes from its password
  * (providers can't be connected before verifying), which the person verifying has just shown they hold.
  */
-export async function verifyEmail(req, res) {
+export async function verifyEmail(req: BodyRequest<{ token?: unknown }>, res: Response) {
   const userId = await redeemSecret(req.body?.token, "verify-email", req.userId);
   const user = userId && (await User.findById(userId).select(ACCOUNT_FIELDS));
   if (!user) {
@@ -186,13 +206,13 @@ export async function verifyEmail(req, res) {
 }
 
 /** Logs the account out on every device, this one included (a lost phone, a shared computer). */
-export async function logoutEverywhere(req, res) {
+export async function logoutEverywhere(req: Request, res: Response) {
   await endAllSessions(await findAccount(req.userId));
   res.status(204).end();
 }
 
 /** Sends the verification link again, to the logged-in person. */
-export async function resendVerification(req, res) {
+export async function resendVerification(req: Request, res: Response) {
   requireEmail();
   const user = await findAccount(req.userId);
   if (user.emailVerified) throw new HttpError(400, "Your email is already verified.");
@@ -200,7 +220,8 @@ export async function resendVerification(req, res) {
   try {
     sent = await sendVerificationEmail(user, emailLinkUrlFor(req));
   } catch (error) {
-    console.error(`Couldn't send the verification email: ${error.message}`);
+    // Sending only fails with an Error.
+    console.error(`Couldn't send the verification email: ${(error as Error).message}`);
     throw new HttpError(502, "The email couldn't be sent. Try again in a few minutes.");
   }
   if (!sent)
@@ -212,7 +233,7 @@ export async function resendVerification(req, res) {
  * Emails a password-reset link, if an account uses the address. The answer is
  * the same either way, so this can't be used to find out who has an account.
  */
-export async function forgotPassword(req, res) {
+export async function forgotPassword(req: BodyRequest<CredentialsBody>, res: Response) {
   requireEmail();
   const { email } = readCredentials(req.body);
   if (!isEmailAddress(email)) throw new HttpError(400, "Enter a valid email address.");
@@ -229,7 +250,7 @@ export async function forgotPassword(req, res) {
  * Providers connected after verifying stay: verifying takes a login, so the
  * account's password was already the inbox owner's when they were connected.
  */
-export async function resetPassword(req, res) {
+export async function resetPassword(req: BodyRequest<{ password?: unknown; token?: unknown }>, res: Response) {
   const password = String(req.body?.password ?? "");
   checkNewPassword(password); // before using up the link, so a too-short password can be fixed and retried
   const userId = await redeemSecret(req.body?.token, "reset-password");

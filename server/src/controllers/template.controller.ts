@@ -1,3 +1,5 @@
+import type { Element, ConnectorFields } from "@inkboard/shared/types";
+import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
 import { Template } from "../models/template.model.ts";
@@ -5,13 +7,15 @@ import { sanitizeElements } from "../realtime/operations.js";
 import { currentElements, drawingBytes, findBoardForMember, withRoom } from "../services/boards.ts";
 import { previewElements } from "../services/previews.ts";
 
+type TemplateDoc = InstanceType<typeof Template>;
+
 // Templates outlive boards and the free database holds 512 MB for everyone, so each one is
 // kept small and each person keeps only so many. Tests lower these.
 export const TEMPLATE_LIMITS = { count: 30, bytes: 2_000_000 };
 
 // What the New board dialog needs: a light preview to draw, not the drawing. Starting a
 // board from a template is done by id (see createBoard), so the drawing never needs to be sent.
-const serializeTemplate = (template) => ({
+const serializeTemplate = (template: Pick<TemplateDoc, "id" | "title" | "elementCount" | "preview" | "createdAt">) => ({
   id: template.id,
   title: template.title,
   elementCount: template.elementCount,
@@ -20,7 +24,7 @@ const serializeTemplate = (template) => ({
 });
 
 // Templates saved before previews were stored get theirs now, once.
-async function fillMissingPreviews(templates) {
+async function fillMissingPreviews(templates: TemplateDoc[]) {
   const missing = templates.filter((template) => template.preview == null);
   if (missing.length === 0) return;
   const drawings = await Template.find({ _id: { $in: missing.map((template) => template._id) } })
@@ -43,7 +47,7 @@ async function fillMissingPreviews(templates) {
   );
 }
 
-export async function listTemplates(req, res) {
+export async function listTemplates(req: Request, res: Response) {
   const templates = await Template.find({ owner: req.userId })
     .sort({ createdAt: -1 })
     .select("title createdAt elementCount preview");
@@ -51,17 +55,23 @@ export async function listTemplates(req, res) {
   res.json({ templates: templates.map(serializeTemplate) });
 }
 
+// An element looked at for the fields a connector adds, which any of them may be missing.
+type Connecting = Element & ConnectorFields;
+
 // Images belong to the board they were added to and go when it does, so a template (which
 // outlives the board) can't carry them. Lines and arrows that were attached to one are
 // let go of it, rather than left pointing at something that isn't there.
-function withoutImages(elements) {
-  const images = new Set(elements.filter((element) => element.type === "image").map((element) => element.id));
+function withoutImages(elements: Element[]): Element[] {
+  const images = new Set<string | undefined>(
+    elements.filter((element) => element.type === "image").map((element) => element.id),
+  );
   return elements
     .filter((element) => element.type !== "image")
     .map((element) => {
-      const attached = ["start", "end"].filter((end) => images.has(element[`${end}Id`]));
+      // Only lines and arrows have these fields; the others have neither and are left as they are.
+      const attached = (["start", "end"] as const).filter((end) => images.has((element as Connecting)[`${end}Id`]));
       if (attached.length === 0) return element;
-      const released = { ...element };
+      const released = { ...element } as Connecting;
       for (const end of attached) {
         delete released[`${end}Id`];
         delete released[`${end}Anchor`];
@@ -71,7 +81,10 @@ function withoutImages(elements) {
 }
 
 /** Saves a copy of a board's current drawings as a template for new boards. */
-export async function createTemplate(req, res) {
+export async function createTemplate(
+  req: Request<{}, unknown, { boardId?: unknown; title?: unknown } | undefined>,
+  res: Response,
+) {
   const board = await findBoardForMember(String(req.body?.boardId ?? ""), req.userId);
   const given = req.body?.title ?? "";
   if (typeof given !== "string") throw new HttpError(400, "The name must be text.");
@@ -97,7 +110,8 @@ export async function createTemplate(req, res) {
 
   // A template counts towards its owner's space. Checks and writes for one person run one at a
   // time (see withRoom), so two saves sent together can't both pass the count either.
-  const template = await withRoom(req.userId, { bytes }, async () => {
+  // `requireAuth` has set `userId` by now, which the types can't know.
+  const template = await withRoom(req.userId!, { bytes }, async () => {
     if ((await Template.countDocuments({ owner: req.userId })) >= TEMPLATE_LIMITS.count) {
       throw new HttpError(400, `You can keep up to ${TEMPLATE_LIMITS.count} templates. Delete one to save another.`);
     }
@@ -113,7 +127,7 @@ export async function createTemplate(req, res) {
   res.status(201).json({ template: serializeTemplate(template) });
 }
 
-export async function deleteTemplate(req, res) {
+export async function deleteTemplate(req: Request<{ templateId: string }>, res: Response) {
   const { templateId } = req.params;
   const result = mongoose.isValidObjectId(templateId)
     ? await Template.deleteOne({ _id: templateId, owner: req.userId })

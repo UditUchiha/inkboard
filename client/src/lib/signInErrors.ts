@@ -1,7 +1,7 @@
 // What sign-in links bring in their address, made safe to use. A sign-in with Google or GitHub that fails
 // sends the person back with an error *code* (?error=expired&provider=google), never text, so a link can't
 // put words of its own into an official-looking message. The codes come from
-// server/src/controllers/oauth.controller.js. Where to go next (?next=/board/…) is only followed inside the app.
+// server/src/controllers/oauth.controller.ts. Where to go next (?next=/board/…) is only followed inside the app.
 
 const PROVIDER_LABELS: Record<string, string> = { google: "Google", github: "GitHub" };
 

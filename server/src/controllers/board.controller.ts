@@ -1,3 +1,5 @@
+import type { Element } from "@inkboard/shared/types";
+import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
 import { BoardState } from "../models/board-state.model.ts";
@@ -21,6 +23,7 @@ import {
   serializeMeta,
   withRoom,
 } from "../services/boards.ts";
+import type { BoardDoc, PopulatedMembers } from "../services/boards.ts";
 import { emailConfigured } from "../services/email.ts";
 import { notify } from "../services/notifications.ts";
 import { boardPreviews } from "../services/previews.ts";
@@ -28,7 +31,13 @@ import { TRASH_DAYS } from "../services/trash.ts";
 
 const DAY_MS = 24 * 3600 * 1000;
 
-function readTitle(value) {
+/**
+ * A request for one board, named by the `:boardId` in the route. A body comes from anyone, so its fields are
+ * unknown until a check narrows them, and it is missing when nothing was sent.
+ */
+export type BoardRequest<Body = unknown> = Request<{ boardId: string }, unknown, Body | undefined>;
+
+function readTitle(value: unknown) {
   if (value != null && typeof value !== "string") throw new HttpError(400, "The title must be text.");
   const title = (value ?? "").trim();
   if (title.length > 80) throw new HttpError(400, "Use 80 characters or fewer for the title.");
@@ -39,7 +48,7 @@ const MAX_BULK_BOARDS = 100;
 
 // Everything the person can open: their own boards, boards they were invited to, and
 // boards they opened through a link that is still shared.
-export async function listBoards(req, res) {
+export async function listBoards(req: Request, res: Response) {
   const states = await BoardState.find({ user: req.userId });
   const stateByBoard = new Map(states.map((state) => [String(state.board), state]));
 
@@ -54,13 +63,16 @@ export async function listBoards(req, res) {
     // Drawings can be megabytes each, so the list carries none: cards ask for their previews (see listPreviews).
     .select("-elements")
     .sort({ updatedAt: -1 })
-    .populate(populateMembers);
+    .populate<PopulatedMembers>(populateMembers);
 
   res.json({ boards: boards.map((board) => serializeListed(board, req.userId, stateByBoard.get(board.id) ?? null)) });
 }
 
 // Archive or unarchive several boards at once, for this person only.
-export async function archiveBoards(req, res) {
+export async function archiveBoards(
+  req: Request<{}, unknown, { ids?: unknown; archived?: unknown } | undefined>,
+  res: Response,
+) {
   const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))] : [];
   if (ids.length === 0 || ids.length > MAX_BULK_BOARDS || !ids.every((id) => mongoose.isValidObjectId(id))) {
     throw new HttpError(400, `Choose between 1 and ${MAX_BULK_BOARDS} boards.`);
@@ -84,7 +96,7 @@ export async function archiveBoards(req, res) {
 
 // Drops a board from this person's dashboard. For a board shared by link that means
 // forgetting they ever opened it; opening the link again brings it back.
-export async function forgetBoard(req, res) {
+export async function forgetBoard(req: BoardRequest, res: Response) {
   if (!mongoose.isValidObjectId(req.params.boardId)) throw new HttpError(404, "This board doesn't exist.");
   await BoardState.deleteOne({ user: req.userId, board: req.params.boardId });
   res.status(204).end();
@@ -95,9 +107,12 @@ export async function forgetBoard(req, res) {
  * drawings sent along (`elements`), e.g. a built-in template or a board a
  * guest drew before signing up.
  */
-export async function createBoard(req, res) {
+export async function createBoard(
+  req: Request<{}, unknown, { title?: unknown; elements?: unknown; templateId?: unknown } | undefined>,
+  res: Response,
+) {
   let title = readTitle(req.body?.title);
-  let elements = sanitizeElements(req.body?.elements);
+  let elements: Element[] = sanitizeElements(req.body?.elements);
 
   const { templateId } = req.body ?? {};
   if (templateId) {
@@ -111,19 +126,21 @@ export async function createBoard(req, res) {
 
   const bytes = drawingBytes(elements);
   // A blank board is tiny, so only one that starts with a drawing is held to the owner's space.
-  const board = await withRoom(req.userId, { board: true, bytes: elements.length > 0 ? bytes : 0 }, () =>
+  // `requireAuth` has set `userId` by now, which the types can't know.
+  const board = await withRoom(req.userId!, { board: true, bytes: elements.length > 0 ? bytes : 0 }, () =>
     Board.create({ title: title || "Untitled board", owner: req.userId, elements, bytes }),
   );
   await board.populate(populateMembers);
-  res.status(201).json({ board: serializeBoard(board, req.userId) });
+  // `populate` fills in the owner and collaborators on the board itself, which the types can't see.
+  res.status(201).json({ board: serializeBoard(board as typeof board & PopulatedMembers, req.userId) });
 }
 
-export async function getBoard(req, res) {
+export async function getBoard(req: BoardRequest, res: Response) {
   const board = await findBoardForViewing(req.params.boardId, req.userId);
   res.json({ board: serializeBoard(board, req.userId, await currentElements(board.id)) });
 }
 
-export async function renameBoard(req, res) {
+export async function renameBoard(req: BoardRequest<{ title?: unknown }>, res: Response) {
   const title = readTitle(req.body?.title);
   if (!title) throw new HttpError(400, "Enter a title for the board.");
 
@@ -135,18 +152,19 @@ export async function renameBoard(req, res) {
   res.json({ board: serializeMeta(board) });
 }
 
-export async function setLinkAccess(req, res) {
+export async function setLinkAccess(req: BoardRequest<{ linkAccess?: unknown }>, res: Response) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!isOwner(board, req.userId)) {
     throw new HttpError(403, "Only the owner can change who can open the link.");
   }
 
   const { linkAccess } = req.body ?? {};
-  if (!LINK_ACCESS.includes(linkAccess)) {
+  // `includes` only compares, so it doesn't tell the types that a value that passes is one of the strings.
+  if (!LINK_ACCESS.includes(linkAccess as string)) {
     throw new HttpError(400, `Choose one of: ${LINK_ACCESS.join(", ")}.`);
   }
 
-  board.linkAccess = linkAccess;
+  board.linkAccess = linkAccess as string;
   // Sharing isn't editing, so it doesn't move the board up the dashboard.
   await board.save({ timestamps: false });
 
@@ -154,7 +172,7 @@ export async function setLinkAccess(req, res) {
   res.json({ board: serializeMeta(board) });
 }
 
-export async function starBoard(req, res) {
+export async function starBoard(req: BoardRequest<{ starred?: unknown }>, res: Response) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   const starred = req.body?.starred ?? true;
   if (typeof starred !== "boolean") throw new HttpError(400, "starred must be true or false.");
@@ -168,7 +186,7 @@ export async function starBoard(req, res) {
 }
 
 /** Moves a board to the trash. Everyone loses access until the owner restores it. */
-export async function deleteBoard(req, res) {
+export async function deleteBoard(req: BoardRequest, res: Response) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!isOwner(board, req.userId)) {
     throw new HttpError(403, "Only the owner can delete this board.");
@@ -180,18 +198,22 @@ export async function deleteBoard(req, res) {
   res.status(204).end();
 }
 
-const serializeTrashed = (board, userId) => ({
+const serializeTrashed = (
+  board: Parameters<typeof serializeListed>[0] & Pick<BoardDoc, "deletedAt">,
+  userId: unknown,
+) => ({
   ...serializeListed(board, userId),
   deletedAt: board.deletedAt,
-  purgeAt: new Date(board.deletedAt.getTime() + TRASH_DAYS * DAY_MS),
+  // listTrash only finds boards that have been trashed, which the types can't see.
+  purgeAt: new Date(board.deletedAt!.getTime() + TRASH_DAYS * DAY_MS),
 });
 
 // Boards being deleted for good (see destroyBoard) are on their way out, so they aren't listed.
-export async function listTrash(req, res) {
+export async function listTrash(req: Request, res: Response) {
   const boards = await Board.find({ owner: req.userId, deletedAt: { $ne: null }, purgingAt: null })
     .select("-elements")
     .sort({ deletedAt: -1 })
-    .populate(populateMembers);
+    .populate<PopulatedMembers>(populateMembers);
   res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId)) });
 }
 
@@ -201,7 +223,7 @@ const MAX_PREVIEWS = 24;
  * Previews (see previews.js) of up to 24 boards the person can open, as { [boardId]: elements }, for the
  * dashboard's cards. Boards that are gone or off limits are left out. A deleted board is only for its owner.
  */
-export async function listPreviews(req, res) {
+export async function listPreviews(req: Request, res: Response) {
   const ids = String(req.query.ids ?? "")
     .split(",")
     .filter(Boolean);
@@ -213,7 +235,7 @@ export async function listPreviews(req, res) {
   res.json({ previews: Object.fromEntries(await boardPreviews(boards)) });
 }
 
-async function findTrashed(boardId, userId) {
+async function findTrashed(boardId: string, userId: string | undefined) {
   const board = mongoose.isValidObjectId(boardId)
     ? await Board.findOne({ _id: boardId, owner: userId, deletedAt: { $ne: null } })
     : null;
@@ -222,7 +244,7 @@ async function findTrashed(boardId, userId) {
 }
 
 // Restoring takes no room: a board in the trash still counts against its owner's limits (see withRoom).
-export async function restoreBoard(req, res) {
+export async function restoreBoard(req: BoardRequest, res: Response) {
   const board = await findTrashed(req.params.boardId, req.userId);
   // One write, which only takes a board nobody has started deleting for good, so a restore and
   // a purge can't both go ahead (see destroyBoard).
@@ -236,11 +258,12 @@ export async function restoreBoard(req, res) {
     }
     throw new HttpError(404, "That board isn't in your trash."); // restored by another request just now
   }
-  const updated = await Board.findById(board._id).populate(populateMembers);
-  res.json({ board: serializeBoard(updated, req.userId) });
+  const updated = await Board.findById(board._id).populate<PopulatedMembers>(populateMembers);
+  // Found a moment ago; a purge that finished since would make this null and fail here, as it always has.
+  res.json({ board: serializeBoard(updated!, req.userId) });
 }
 
-export async function purgeBoard(req, res) {
+export async function purgeBoard(req: BoardRequest, res: Response) {
   const board = await findTrashed(req.params.boardId, req.userId);
   // False when the board was restored after it was looked up, in which case it's not gone.
   if (!(await destroyBoard(board._id))) {
@@ -249,16 +272,17 @@ export async function purgeBoard(req, res) {
   res.status(204).end();
 }
 
-export async function emptyTrash(req, res) {
+export async function emptyTrash(req: Request, res: Response) {
   const boards = await Board.find({ owner: req.userId, deletedAt: { $ne: null } }).select("_id");
   await Promise.all(boards.map((board) => destroyBoard(board._id)));
   res.status(204).end();
 }
 
 // The board as it is now, after a change to who is on it.
-const reload = (board) => Board.findById(board._id).select("-elements").populate(populateMembers);
+const reload = (board: Pick<BoardDoc, "_id">) =>
+  Board.findById(board._id).select("-elements").populate<PopulatedMembers>(populateMembers);
 
-export async function addCollaborator(req, res) {
+export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, res: Response) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!isOwner(board, req.userId)) {
     throw new HttpError(403, "Only the owner can invite people.");
@@ -301,14 +325,15 @@ export async function addCollaborator(req, res) {
     }
     throw new HttpError(409, `${invitee.name} already has access.`);
   }
-  const updated = await reload(board);
+  // The board was found and changed just above; one erased since would make this null and fail below, as it always has.
+  const updated = (await reload(board))!;
 
   await syncAccess(updated);
   await notify({ users: [invitee._id], type: "invite", actor: updated.owner, board: updated });
   res.status(201).json({ board: serializeMeta(updated) });
 }
 
-export async function removeCollaborator(req, res) {
+export async function removeCollaborator(req: Request<{ boardId: string; userId: string }>, res: Response) {
   const removingSelf = req.params.userId === "me" || req.params.userId === String(req.userId);
   const targetId = removingSelf ? String(req.userId) : req.params.userId;
   if (!mongoose.isValidObjectId(targetId)) throw new HttpError(404, "That person isn't on this board.");
@@ -332,7 +357,7 @@ export async function removeCollaborator(req, res) {
   // Forget their filing too, so a board with an open link doesn't linger on their dashboard.
   await BoardState.deleteOne({ user: targetId, board: board._id });
 
-  const updated = await reload(board);
+  const updated = (await reload(board))!; // as in addCollaborator
   await syncAccess(updated);
   // Someone who left may still see the board through its link, so they get what any visitor would.
   res.json({ board: serializeMeta(updated, { redact: removingSelf }) });

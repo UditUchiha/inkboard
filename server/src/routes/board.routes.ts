@@ -16,7 +16,7 @@ import {
   restoreBoard,
   setLinkAccess,
   starBoard,
-} from "../controllers/board.controller.js";
+} from "../controllers/board.controller.ts";
 import { requireAuth } from "../middleware/auth.ts";
 import { limitPerUser } from "../middleware/user-limit.ts";
 

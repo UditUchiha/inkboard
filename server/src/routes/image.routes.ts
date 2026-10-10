@@ -1,5 +1,6 @@
 import { pipeline } from "node:stream";
 import { Router } from "express";
+import type { NextFunction, Request, Response } from "express";
 import { env } from "../config/env.ts";
 import { openImage } from "../services/image-storage.ts";
 
@@ -11,7 +12,12 @@ const router = Router();
 // the viewer's own browser (not shared caches or CDNs) and only for a day: a removed
 // picture stops showing soon after, rather than staying cached for a year.
 const CACHE_CONTROL = "private, max-age=86400, immutable";
-async function sendImage(req, res, next, { small = false } = {}) {
+async function sendImage(
+  req: Request<{ imageId: string }>,
+  res: Response,
+  next: NextFunction,
+  { small = false }: { small?: boolean } = {},
+) {
   try {
     const image = await openImage(req.params.imageId, { small });
     if (!image) return res.status(404).json({ error: "That image doesn't exist." });
@@ -30,13 +36,15 @@ async function sendImage(req, res, next, { small = false } = {}) {
       // to be able to: CLIENT_ORIGIN, or outside production the Vite dev server (see env.js).
       "Cross-Origin-Resource-Policy": env.clientOrigins.length > 0 ? "cross-origin" : "same-origin",
     });
-    async function* rest() {
+    // The stored file is read in chunks of bytes.
+    async function* rest(): AsyncGenerator<Buffer> {
       if (!first.done) yield first.value;
       for (let piece = await pieces.next(); !piece.done; piece = await pieces.next()) yield piece.value;
     }
     // Once the picture is on its way, an error can only cut the response off, which pipeline does.
     // Either way the stored file is closed, also when the download is cut off.
-    pipeline(rest, res, () => pieces.return().catch(() => {}));
+    // The stored file's iterator always has `return`; the type only says it may not.
+    pipeline(rest, res, () => pieces.return!().catch(() => {}));
   } catch (error) {
     next(error);
   }

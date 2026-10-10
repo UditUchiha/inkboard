@@ -10,7 +10,7 @@ import mongoose from "mongoose";
 import { eventually, startServer } from "./helpers.js";
 
 const { env } = await import("../src/config/env.ts");
-const { createApp } = await import("../src/app.js");
+const { createApp } = await import("../src/app.ts");
 const { errorHandler } = await import("../src/middleware/error-handler.ts");
 const { OAUTH_LINK, OAUTH_LOGIN, OAUTH_STATE, SESSION, signPurposeToken, signToken } =
   await import("../src/lib/tokens.ts");

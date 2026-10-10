@@ -4,21 +4,22 @@ import { fileURLToPath } from "node:url";
 import compression from "compression";
 import cors from "cors";
 import express from "express";
+import type { Request, Response } from "express";
 import helmet from "helmet";
 import mongoose from "mongoose";
 import { env } from "./config/env.ts";
 import { errorHandler, notFound } from "./middleware/error-handler.ts";
-import authRoutes from "./routes/auth.routes.js";
-import { notificationRoutes, templateRoutes, threadRoutes, versionRoutes } from "./routes/board-extras.routes.js";
-import boardRoutes from "./routes/board.routes.js";
-import imageRoutes from "./routes/image.routes.js";
+import authRoutes from "./routes/auth.routes.ts";
+import { notificationRoutes, templateRoutes, threadRoutes, versionRoutes } from "./routes/board-extras.routes.ts";
+import boardRoutes from "./routes/board.routes.ts";
+import imageRoutes from "./routes/image.routes.ts";
 
 const defaultClientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
 
 // Answers 200 while the process is up, even if the database is briefly unreachable: hosts such as
 // Render restart an instance whose health check fails, and a restart doesn't fix a database blip.
 // `database` and `status` still say what's wrong, for whoever is watching.
-function health(req, res) {
+function health(req: Request, res: Response) {
   const database = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
   res.set("Cache-Control", "no-store").json({
     status: database === "connected" ? "ok" : "degraded",

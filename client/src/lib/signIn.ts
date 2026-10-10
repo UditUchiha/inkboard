@@ -1,4 +1,4 @@
-// The tab's half of signing in with Google or GitHub (see server/src/controllers/oauth.controller.js).
+// The tab's half of signing in with Google or GitHub (see server/src/controllers/oauth.controller.ts).
 // Starting a sign-in makes a random `bind` that stays in this tab's sessionStorage; only a hash of it
 // goes out in the URL. The redirect at the end carries a code that is only good with that `bind`, so
 // a redirect someone made elsewhere (login CSRF: "open this link and you're signed in as me") finds no
