@@ -9,6 +9,7 @@ import { BoardEditor } from "../features/board/BoardEditor";
 import { clearScratch, currentScratch, useScratchBoard } from "../features/board/scratch";
 import { importScratch } from "../features/board/scratchImport";
 import { useBoardSnapshot } from "../features/board/store";
+import type { BoardSync } from "../features/board/useBoardSync";
 import { api } from "../lib/api";
 import type { AccountUser } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
@@ -62,9 +63,9 @@ function ScratchEditor({ user = null, onSave = null }: ScratchEditorProps) {
     });
   });
 
-  // BoardEditor is still JavaScript and takes `local` as null (its default) as far as its types can tell, though
-  // it reads `onSave` from it.
-  return <BoardEditor store={store} sync={sync} user={user} local={{ onSave: save } as never} />;
+  // The cast: the scratch board's stand-in for the live sync has what the editor reads of it, but isn't a
+  // BoardSync (it has no socketId, and its phase, role and details are only as wide as strings; see scratch.ts).
+  return <BoardEditor store={store} sync={sync as unknown as BoardSync} user={user} local={{ onSave: save }} />;
 }
 
 // Signed in: turn the guest's drawing into a real board, then open it. If that
@@ -92,12 +93,10 @@ function ImportScratch({ onKeep, created }: ImportScratchProps) {
       scratch,
       createBoard: api.createBoard,
       socket,
-      // importScratch is still JavaScript, so its types see `created` as only null, and onCreated as a function
-      // with no parameters, though it takes the board an earlier try made and calls onCreated with the one it makes.
-      created: created.current as never,
-      onCreated: ((board: CreatedBoard) => {
+      created: created.current,
+      onCreated: (board) => {
         created.current = board;
-      }) as () => void,
+      },
     })
       .then((board: CreatedBoard) => {
         clearScratch();
