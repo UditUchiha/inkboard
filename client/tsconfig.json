@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    // The browser app: Vite resolves imports written without an extension, and turns JSX into React calls.
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    // While the client moves over, its .ts files import JavaScript ones, whose types are inferred, not checked.
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["src"]
+}
