@@ -5,7 +5,7 @@ import { ButtonLink } from "../components/Button";
 import { FullPageLoader, FullPageMessage } from "../components/RouteGuards";
 import { APP_NAME } from "../config";
 import { BoardEditor } from "../features/board/BoardEditor";
-import { createBoardStore } from "../features/board/store";
+import { createEditorStore } from "../features/board/editorStore";
 import { useBoardSync } from "../features/board/useBoardSync";
 import { useAuth } from "../providers/AuthProvider";
 
@@ -14,10 +14,17 @@ const goHome = <ButtonLink to="/">Go home</ButtonLink>;
 
 export default function BoardPage() {
   const { boardId } = useParams();
+  // Going from one board to another (a notification's Open button, back and forward)
+  // keeps this page mounted. Keyed, each board gets its own editor and sync state, so
+  // edits not sent yet can't end up on the other board, nor can its title, role or view.
+  return <OpenBoard key={boardId} boardId={boardId} />;
+}
+
+function OpenBoard({ boardId }) {
   const location = useLocation();
   const { user } = useAuth(); // null for guests viewing a shared link
   const exit = user ? backToBoards : goHome;
-  const store = useMemo(() => createBoardStore(), [boardId]);
+  const store = useMemo(createEditorStore, []);
   const sync = useBoardSync(boardId, store);
 
   useEffect(() => {

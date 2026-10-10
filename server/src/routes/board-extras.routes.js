@@ -16,6 +16,14 @@ import {
   saveVersion,
 } from "../controllers/version.controller.js";
 import { requireAuth } from "../middleware/auth.js";
+import { limitPerUser } from "../middleware/user-limit.js";
+
+// Every comment can notify people, so they are rationed.
+const commenting = limitPerUser({
+  windowMs: 60 * 1000,
+  limit: 40,
+  message: "You're commenting very quickly. Wait a moment and try again.",
+});
 
 // Mounted at /api/boards/:boardId/versions
 export const versionRoutes = Router({ mergeParams: true });
@@ -30,8 +38,8 @@ versionRoutes.delete("/:versionId", deleteVersion);
 export const threadRoutes = Router({ mergeParams: true });
 threadRoutes.use(requireAuth);
 threadRoutes.get("/", listThreads);
-threadRoutes.post("/", createThread);
-threadRoutes.post("/:threadId/messages", replyToThread);
+threadRoutes.post("/", commenting, createThread);
+threadRoutes.post("/:threadId/messages", commenting, replyToThread);
 threadRoutes.patch("/:threadId", updateThread);
 threadRoutes.delete("/:threadId", deleteThread);
 

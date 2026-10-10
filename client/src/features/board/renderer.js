@@ -1,11 +1,15 @@
 import getStroke from "perfect-freehand";
 import rough from "roughjs";
-import { resolveConnectors } from "./connectors";
+import { createDrawingCache } from "./drawCache";
+import { connectionDots, forgetResolvedConnectors, isConnector, resolveConnectors } from "./connectors";
 import { FRAME_BORDER, FRAME_FILL, FRAME_LABEL_COLOR, LINE_HEIGHT, NOTE_TEXT_COLOR } from "./constants";
 import {
-  arrowHeadLength,
+  arrowHeads,
   canRotate,
+  connectorLabel,
   fontFor,
+  forgetBounds,
+  forgetConnectorLabels,
   forgetFrameLabels,
   frameLabel,
   frameLabelBox,
@@ -15,10 +19,11 @@ import {
   inDrawOrder,
   isFrame,
 } from "./elements";
-import { arrowHeadPoints, expandRect, normalizeRect, rectCenter, rectsOverlap } from "./geometry";
-import { getImage } from "./images";
+import { expandRect, normalizeRect, rectCenter, rectsOverlap } from "./geometry";
+import { getImage, showingImages } from "./images";
 import { darkInk } from "./ink";
 import { forgetNoteMeasurements, noteLayout } from "./notes";
+import { connectorPath, pathData } from "./routes";
 import { getSelectionBox } from "./transform";
 
 const generator = rough.generator();
@@ -31,11 +36,13 @@ const sameInk = (color) => color;
 let ink = sameInk;
 let smallPictures = false;
 let labelScale = 1;
+let picturesDrawn = new Set(); // the image ids drawn in the scene being rendered
 
-// Elements are immutable, so generated shapes can be cached per object. Shapes
-// carry their colors, so light and dark mode each have their own.
-const drawableCaches = { light: new WeakMap(), dark: new WeakMap() };
-const penPathCache = new WeakMap();
+// Elements are immutable, so generated shapes can be cached per object (and
+// reused for copies that are only moved, as while dragging: see drawCache.js).
+// Shapes carry their colors, so light and dark mode each have their own.
+const drawableCaches = { light: createDrawingCache(), dark: createDrawingCache() };
+const penPathCache = createDrawingCache();
 
 function roughOptions(element, paint) {
   const sketchy = element.sketchy !== false;
@@ -60,10 +67,17 @@ function buildDrawables(element, paint = ink) {
   const { x1, y1, x2, y2 } = element;
   switch (element.type) {
     case "line":
-      return [generator.line(x1, y1, x2, y2, options)];
     case "arrow": {
-      const [a, b] = arrowHeadPoints(x1, y1, x2, y2, arrowHeadLength(element));
-      return [generator.line(x1, y1, x2, y2, options), generator.linearPath([a, [x2, y2], b], options)];
+      const path = connectorPath(element);
+      let body;
+      if (path.curved) body = generator.path(pathData(path), options);
+      else if (path.points.length > 2)
+        body = generator.linearPath(
+          path.points.map(({ x, y }) => [x, y]),
+          options,
+        );
+      else body = generator.line(x1, y1, x2, y2, options);
+      return [body, ...arrowHeads(element).map((head) => generator.linearPath(head, options))];
     }
     case "rectangle": {
       const r = normalizeRect(x1, y1, x2, y2);
@@ -107,13 +121,19 @@ export function penOutline(element) {
   return svgPathFromOutline(outline);
 }
 
-function penPath(element) {
-  let path = penPathCache.get(element);
-  if (!path) {
-    path = new Path2D(penOutline(element));
-    penPathCache.set(element, path);
+// A pen stroke's outline and how far along it is drawn.
+const penPath = (element) => penPathCache.get(element, (stroke) => new Path2D(penOutline(stroke)));
+
+// Draws what a cache gave for an element (see createDrawingCache) where the element is.
+function drawMoved({ dx, dy }, ctx, draw) {
+  if (!dx && !dy) {
+    draw();
+    return;
   }
-  return path;
+  ctx.save();
+  ctx.translate(dx, dy);
+  draw();
+  ctx.restore();
 }
 
 /**
@@ -124,7 +144,12 @@ export function shapePaths(element) {
   return buildDrawables(element, sameInk).flatMap((drawable) => generator.toPaths(drawable));
 }
 
-function drawElement(ctx, roughCanvas, element) {
+// `hideLabel` leaves out a connector's label (while it's being edited).
+function drawElement(ctx, roughCanvas, element, { hideLabel = false } = {}) {
+  if (isConnector(element)) {
+    drawConnector(ctx, roughCanvas, element, hideLabel);
+    return;
+  }
   if (!canRotate(element) || !element.angle) {
     drawUnturned(ctx, roughCanvas, element);
     return;
@@ -139,9 +164,39 @@ function drawElement(ctx, roughCanvas, element) {
   ctx.restore();
 }
 
+// A line or arrow, broken around its label, and the label.
+function drawConnector(ctx, roughCanvas, element, hideLabel) {
+  const label = connectorLabel(element);
+  if (!label) {
+    drawUnturned(ctx, roughCanvas, element);
+    return;
+  }
+  ctx.save();
+  // Everything but the label's box: the bounds around it, with the box cut out.
+  const around = expandRect(getBounds(element), 8);
+  ctx.beginPath();
+  ctx.rect(around.x, around.y, around.width, around.height);
+  ctx.rect(label.x, label.y, label.width, label.height);
+  ctx.clip("evenodd");
+  drawUnturned(ctx, roughCanvas, element);
+  ctx.restore();
+  if (hideLabel) return;
+  ctx.save();
+  ctx.font = label.font;
+  ctx.fillStyle = ink(element.stroke);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const lineHeight = label.fontSize * LINE_HEIGHT;
+  const centerX = label.x + label.width / 2;
+  const top = label.y + (label.height - label.lines.length * lineHeight) / 2 + (lineHeight - label.fontSize) / 2;
+  label.lines.forEach((line, index) => ctx.fillText(line, centerX, top + index * lineHeight));
+  ctx.restore();
+}
+
 // A picture, or a plain box in its place while it downloads (or if it can't).
 function drawPicture(ctx, element) {
   const { image, state } = getImage(element.imageId, { small: smallPictures });
+  picturesDrawn.add(element.imageId);
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   ctx.save();
   if (state === "ready") {
@@ -240,7 +295,8 @@ function drawUnturned(ctx, roughCanvas, element) {
 
   if (element.type === "pen") {
     ctx.fillStyle = ink(element.stroke);
-    ctx.fill(penPath(element));
+    const path = penPath(element);
+    drawMoved(path, ctx, () => ctx.fill(path.built));
     return;
   }
 
@@ -259,13 +315,10 @@ function drawUnturned(ctx, roughCanvas, element) {
     return;
   }
 
-  const drawableCache = ink === sameInk ? drawableCaches.light : drawableCaches.dark;
-  let drawables = drawableCache.get(element);
-  if (!drawables) {
-    drawables = buildDrawables(element);
-    drawableCache.set(element, drawables);
-  }
-  for (const drawable of drawables) roughCanvas.draw(drawable);
+  const drawables = (ink === sameInk ? drawableCaches.light : drawableCaches.dark).get(element, buildDrawables);
+  drawMoved(drawables, ctx, () => {
+    for (const drawable of drawables.built) roughCanvas.draw(drawable);
+  });
 }
 
 const SELECTION_COLOR = "#2d5bff";
@@ -331,6 +384,22 @@ function drawConnectTarget(ctx, element, zoom) {
   ctx.restore();
 }
 
+// The dots around a shape that connectors start from or are pinned to, `side`'s highlighted.
+function drawConnectionDots(ctx, element, zoom, side) {
+  ctx.save();
+  ctx.strokeStyle = ink(SELECTION_COLOR);
+  ctx.lineWidth = 1.5 / zoom;
+  for (const [each, dot] of Object.entries(connectionDots(element, zoom))) {
+    const active = each === side;
+    ctx.beginPath();
+    ctx.arc(dot.x, dot.y, (active ? 6 : 4.5) / zoom, 0, Math.PI * 2);
+    ctx.fillStyle = active ? ink(SELECTION_COLOR) : ink("#ffffff");
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function isVisible(element, view) {
   const b = getBounds(element);
   return (
@@ -341,8 +410,11 @@ function isVisible(element, view) {
 /**
  * Draws `elements` onto `canvas`. Pass `dark` to draw them as dark mode shows
  * them (pictures keep their own colors), `smallImages` for thumbnails,
- * `screenLabels` to keep frame names the same size on screen at any zoom, and
- * `connectTargetId` to outline the shape a connector end is about to attach to.
+ * `screenLabels` to keep frame names the same size on screen at any zoom,
+ * `connectTargetId` to outline the shape a connector end is about to attach
+ * to, and `dots` ({ id, side }) to show a shape's connection dots, `side`'s
+ * highlighted. The element `hiddenId` is left out while it's edited; for a
+ * connector, only its label is.
  */
 export function renderScene(
   canvas,
@@ -357,11 +429,13 @@ export function renderScene(
     smallImages = false,
     screenLabels = false,
     connectTargetId = null,
+    dots = null,
   },
 ) {
   ink = dark ? darkInk : sameInk;
   smallPictures = smallImages;
   labelScale = screenLabels ? 1 / viewport.zoom : 1;
+  picturesDrawn = new Set();
   const ctx = canvas.getContext("2d");
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -383,16 +457,23 @@ export function renderScene(
   const roughCanvas = rough.canvas(canvas);
   let selected = null;
   let target = null;
+  let dotted = null;
   const frames = [];
   for (const element of inDrawOrder(resolveConnectors(elements))) {
     if (element.id === connectTargetId) target = element;
+    if (element.id === dots?.id) dotted = element;
     if (element.id === selectedId) selected = element;
-    if (element.id === hiddenId) continue;
+    const hidden = element.id === hiddenId;
+    if (hidden && !isConnector(element)) continue;
     if (isFrame(element)) frames.push(element);
-    if (isVisible(element, view)) drawElement(ctx, roughCanvas, element);
+    if (isVisible(element, view)) drawElement(ctx, roughCanvas, element, { hideLabel: hidden });
   }
+  for (const cache of [drawableCaches.light, drawableCaches.dark, penPathCache]) cache.trim(elements.length);
+  // The pictures on show here are kept while they are (see showingImages).
+  showingImages(canvas, picturesDrawn, { small: smallPictures });
   for (const frame of frames) drawFrameName(ctx, frame, view);
   if (target) drawConnectTarget(ctx, target, viewport.zoom);
+  if (dotted) drawConnectionDots(ctx, dotted, viewport.zoom, dots.side);
   if (selected && selected.id !== hiddenId) drawSelection(ctx, selected, viewport.zoom);
 }
 
@@ -409,6 +490,9 @@ export function loadCanvasFonts() {
     .then(() => {
       forgetNoteMeasurements();
       forgetFrameLabels();
+      forgetConnectorLabels();
+      forgetBounds();
+      forgetResolvedConnectors();
     });
   return fontsPromise;
 }

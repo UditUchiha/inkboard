@@ -51,10 +51,35 @@ describe("board previews", () => {
       preview.map((element) => element.id),
       ["frame", "pen", "t"],
     );
-    assert.equal(preview[0], elements[0]);
-    assert.equal(preview[2], elements[2]);
+    assert.deepEqual(preview[0], elements[0]);
+    assert.deepEqual(preview[2], elements[2]);
     assert.ok(preview[1].points.length < 200, `${preview[1].points.length} points kept of 2000`);
     assert.ok(JSON.stringify(preview).length < JSON.stringify(elements).length / 5);
+  });
+
+  it("cuts long text to what a thumbnail could show, and drops the sync stamps", () => {
+    const stamped = { version: 7, versionNonce: 99, stamps: { text: [3, 5] } };
+    const preview = previewElements([
+      { id: "t", type: "text", x1: 0, y1: 0, text: "x".repeat(20_000), ...stamped },
+      {
+        ...stroke("pen", [
+          [0, 0, 0.5],
+          [9, 9, 0.5],
+        ]),
+        ...stamped,
+      },
+      { ...box("b", 50), ...stamped },
+    ]);
+    assert.equal(preview[0].text.length, 300);
+    for (const element of preview) {
+      assert.equal(element.version, undefined);
+      assert.equal(element.versionNonce, undefined);
+      assert.equal(element.stamps, undefined);
+    }
+    assert.deepEqual(
+      preview.map((element) => element.id),
+      ["t", "pen", "b"],
+    );
   });
 
   it("draws strokes without real pen pressure at an even width", () => {

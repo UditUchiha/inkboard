@@ -1,24 +1,58 @@
 import clsx from "clsx";
-import { createContext, useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 
 const MenuContext = createContext(() => {});
 
+/** Closes the menu it is called inside, for items that aren't a MenuItem. */
+export const useCloseMenu = () => useContext(MenuContext);
+
 /**
  * A small dropdown menu. `trigger` receives the props to spread onto the
- * button that opens it.
+ * button that opens it. `onOpenChange` hears when it opens or closes.
  */
-export function Menu({ trigger, children, align = "end", side = "bottom", className }) {
+export function Menu({ trigger, children, align = "end", side = "bottom", className, onOpenChange }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const menuId = useId();
+  const returnFocus = useRef(false);
+  const isOpen = useRef(false);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+
+  // `restoreFocus` puts focus back on the button that opened the menu (Escape, picking an item), but
+  // not when the menu closes because someone clicked elsewhere.
+  const setMenuOpen = useCallback((next, restoreFocus = false) => {
+    returnFocus.current = restoreFocus;
+    if (isOpen.current === next) return;
+    isOpen.current = next;
+    setOpen(next);
+    onOpenChangeRef.current?.(next);
+  }, []);
+
+  // A menu can go away while open (browser Back, or a link elsewhere on the page); it still counts as closing, so
+  // whatever happens on close (marking notifications as seen, say) isn't skipped.
+  useEffect(
+    () => () => {
+      if (!isOpen.current) return;
+      isOpen.current = false;
+      onOpenChangeRef.current?.(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (open || !returnFocus.current) return;
+    returnFocus.current = false;
+    rootRef.current?.querySelector('[aria-haspopup="menu"]')?.focus();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return undefined;
     const onPointerDown = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+      if (!rootRef.current?.contains(event.target)) setMenuOpen(false);
     };
     const onKeyDown = (event) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") setMenuOpen(false, true);
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -28,13 +62,15 @@ export function Menu({ trigger, children, align = "end", side = "bottom", classN
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, setMenuOpen]);
 
   const onMenuKeyDown = (event) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
     const items = [...rootRef.current.querySelectorAll('[role="menuitem"]:not(:disabled)')];
     if (items.length === 0) return;
+    if (event.key === "Home") return items[0].focus();
+    if (event.key === "End") return items.at(-1).focus();
     const index = items.indexOf(document.activeElement);
     const step = event.key === "ArrowDown" ? 1 : -1;
     const next = index === -1 ? (step === 1 ? 0 : items.length - 1) : (index + step + items.length) % items.length;
@@ -47,7 +83,7 @@ export function Menu({ trigger, children, align = "end", side = "bottom", classN
         "aria-haspopup": "menu",
         "aria-expanded": open,
         "aria-controls": menuId,
-        onClick: () => setOpen((value) => !value),
+        onClick: () => setMenuOpen(!open),
       })}
       {open && (
         <div
@@ -61,7 +97,7 @@ export function Menu({ trigger, children, align = "end", side = "bottom", classN
             className,
           )}
         >
-          <MenuContext.Provider value={() => setOpen(false)}>{children}</MenuContext.Provider>
+          <MenuContext.Provider value={() => setMenuOpen(false, true)}>{children}</MenuContext.Provider>
         </div>
       )}
     </div>

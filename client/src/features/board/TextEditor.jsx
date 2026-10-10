@@ -1,13 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FONTS, LINE_HEIGHT, NOTE_TEXT_COLOR } from "./constants";
+import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
+import { FONTS, LABEL_FONT_SIZE, LINE_HEIGHT, NOTE_TEXT_COLOR, fontKey } from "./constants";
 import { fontFor, measureText } from "./elements";
 import { normalizeRect, toScreen } from "./geometry";
 import { noteLayout } from "./notes";
 
-export function TextEditor({ element, viewport, onCommit }) {
+// What the server keeps of a text (see MAX_TEXT_LENGTH), without half an emoji left at the end.
+export function cutText(value) {
+  const kept = value.slice(0, MAX_TEXT_LENGTH);
+  return kept.length < value.length && /[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept;
+}
+
+// Keys pressed to pick or cancel what an input method is composing (Japanese, Chinese, Korean…) aren't for the editor.
+const composing = (event) => event.nativeEvent.isComposing || event.keyCode === 229;
+
+// Ctrl or Cmd + Enter finishes text and notes (Enter starts a new line); Enter finishes a label.
+const finishesText = (event) => event.key === "Escape" || (event.key === "Enter" && (event.metaKey || event.ctrlKey));
+const finishesLabel = (event) => event.key === "Escape" || (event.key === "Enter" && !event.shiftKey);
+
+/**
+ * What the three inline editors share: a textarea that takes focus when it opens (with the
+ * caret at the end, or everything selected if `selectAll`), commits once (on blur, which
+ * is also how a key that `finishes` the edit ends it), and keeps its keys to itself.
+ * Spread `inputProps` onto the textarea.
+ */
+function useInlineEditor(initial, onCommit, { finishes, selectAll = false }) {
   const ref = useRef(null);
   const committed = useRef(false);
-  const [value, setValue] = useState(element.text);
+  const [value, setValue] = useState(initial);
 
   useEffect(() => {
     // Deferred so the click that opened the editor doesn't immediately blur it.
@@ -15,16 +35,39 @@ export function TextEditor({ element, viewport, onCommit }) {
       const textarea = ref.current;
       if (!textarea) return;
       textarea.focus();
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      if (selectAll) textarea.select();
+      else textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }, 0);
     return () => clearTimeout(timer);
-  }, []);
+  }, [selectAll]);
 
   const commit = () => {
     if (committed.current) return;
     committed.current = true;
-    onCommit(value);
+    onCommit(cutText(value));
   };
+
+  const inputProps = {
+    ref,
+    value,
+    maxLength: MAX_TEXT_LENGTH,
+    onChange: (event) => setValue(event.target.value),
+    onBlur: commit,
+    onKeyDown: (event) => {
+      event.stopPropagation();
+      if (composing(event)) return;
+      if (finishes(event)) {
+        event.preventDefault();
+        event.currentTarget.blur();
+      }
+    },
+    spellCheck: false,
+  };
+  return { value, inputProps };
+}
+
+export function TextEditor({ element, viewport, onCommit }) {
+  const { value, inputProps } = useInlineEditor(element.text, onCommit, { finishes: finishesText });
 
   const { zoom } = viewport;
   const position = toScreen(viewport, element.x1, element.y1);
@@ -32,19 +75,8 @@ export function TextEditor({ element, viewport, onCommit }) {
 
   return (
     <textarea
-      ref={ref}
-      value={value}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Escape" || (event.key === "Enter" && (event.metaKey || event.ctrlKey))) {
-          event.preventDefault();
-          event.currentTarget.blur();
-        }
-      }}
+      {...inputProps}
       wrap="off"
-      spellCheck={false}
       aria-label="Text"
       className="canvas-ink absolute z-10 m-0 resize-none overflow-hidden border-0 bg-transparent p-0 whitespace-pre outline-none"
       style={{
@@ -69,25 +101,7 @@ export function TextEditor({ element, viewport, onCommit }) {
  * and sized as the canvas will draw it (see notes.js).
  */
 export function NoteEditor({ element, viewport, onCommit }) {
-  const ref = useRef(null);
-  const committed = useRef(false);
-  const [value, setValue] = useState(element.text);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const textarea = ref.current;
-      if (!textarea) return;
-      textarea.focus();
-      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const commit = () => {
-    if (committed.current) return;
-    committed.current = true;
-    onCommit(value);
-  };
+  const { value, inputProps } = useInlineEditor(element.text, onCommit, { finishes: finishesText });
 
   const { zoom } = viewport;
   const box = normalizeRect(element.x1, element.y1, element.x2, element.y2);
@@ -107,25 +121,16 @@ export function NoteEditor({ element, viewport, onCommit }) {
       }}
     >
       <textarea
-        ref={ref}
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.key === "Escape" || (event.key === "Enter" && (event.metaKey || event.ctrlKey))) {
-            event.preventDefault();
-            event.currentTarget.blur();
-          }
-        }}
-        spellCheck={false}
+        {...inputProps}
         aria-label="Sticky note text"
-        className="m-0 block resize-none overflow-hidden border-0 bg-transparent p-0 text-center break-words whitespace-pre-wrap outline-none"
+        // Words break between letters when they're too long for a line, as on the canvas. Text that doesn't fit
+        // scrolls (without a scroll bar) so the caret stays in view, instead of running out of the note.
+        className="m-0 block resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent p-0 text-center whitespace-pre-wrap [overflow-wrap:anywhere] [scrollbar-width:none] outline-none [&::-webkit-scrollbar]:hidden"
         style={{
           width: layout.width * zoom,
           height: Math.min(layout.lines.length * layout.lineHeight, layout.height) * zoom,
           // Separate properties, not the `font` shorthand: the size changes as the text grows.
-          fontFamily: (FONTS[element.font] ?? FONTS.hand).family,
+          fontFamily: FONTS[fontKey(element.font)].family,
           fontSize: layout.fontSize * zoom,
           lineHeight: LINE_HEIGHT,
           color: NOTE_TEXT_COLOR,
@@ -133,5 +138,43 @@ export function NoteEditor({ element, viewport, onCommit }) {
         }}
       />
     </div>
+  );
+}
+
+/**
+ * Edits a line's or arrow's label in place, centred on `middle` (halfway along
+ * the connector, in board units), as the canvas will draw it.
+ */
+export function LabelEditor({ element, middle, viewport, onCommit }) {
+  const { value, inputProps } = useInlineEditor(element.text ?? "", onCommit, {
+    finishes: finishesLabel,
+    selectAll: true,
+  });
+
+  const { zoom } = viewport;
+  const style = { fontSize: LABEL_FONT_SIZE, font: element.font };
+  const { width, height } = measureText(style, value || " ");
+  const center = toScreen(viewport, middle.x, middle.y);
+  const boxWidth = (width + LABEL_FONT_SIZE) * zoom;
+  const boxHeight = height * zoom;
+
+  return (
+    <textarea
+      {...inputProps}
+      wrap="off"
+      aria-label="Label"
+      placeholder="Label"
+      className="canvas-ink absolute z-10 m-0 resize-none overflow-hidden border-0 bg-transparent p-0 text-center whitespace-pre outline-none"
+      style={{
+        left: center.x - boxWidth / 2,
+        top: center.y - boxHeight / 2,
+        width: boxWidth,
+        height: boxHeight,
+        font: fontFor(style, zoom),
+        lineHeight: LINE_HEIGHT,
+        color: element.stroke,
+        caretColor: element.stroke,
+      }}
+    />
   );
 }

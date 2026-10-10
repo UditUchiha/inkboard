@@ -17,8 +17,12 @@ export const TOOLS = [
 // Only offered to signed-in people who can edit the board. It has no number key.
 export const COMMENT_TOOL = { id: "comment", label: "Comment", key: "c" };
 
-// The most elements a board can hold (the server's limit too).
-export const MAX_ELEMENTS_PER_BOARD = 5000;
+// The board limit and the merge-rules version are the server's too (shared/src/limits.js).
+export { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT } from "@inkboard/shared/limits";
+
+// A pen stroke longer than this carries on as a new one: each step of a stroke
+// is sent whole, so the longer it gets the more every step costs.
+export const STROKE_SPLIT_POINTS = 1000;
 
 export const NUMBERED_TOOLS = 9;
 
@@ -84,7 +88,20 @@ export const FONTS = {
   code: { name: "Code", family: '"JetBrains Mono Variable", monospace' },
 };
 
+/** `font` if it names one of the FONTS, else the default (an element's font is whatever its author's file said). */
+export const fontKey = (font) => (Object.hasOwn(FONTS, font) ? font : "hand");
+
 export const LINE_HEIGHT = 1.25;
+
+// Labels typed on lines and arrows, in board units.
+export const LABEL_FONT_SIZE = 20;
+export const LABEL_PADDING = 4; // the gap the line leaves around its label
+
+export const ROUTE_OPTIONS = [
+  { name: "Straight", value: "straight" },
+  { name: "Curved", value: "curved" },
+  { name: "Elbow", value: "elbow" },
+];
 
 export const DEFAULT_STYLE = {
   stroke: STROKE_COLORS[0].value,
@@ -95,13 +112,15 @@ export const DEFAULT_STYLE = {
   fontSize: 32,
   font: "hand",
   noteFill: NOTE_COLORS[0].value,
+  route: "straight",
+  startHead: false,
 };
 
 // Which style controls each element type exposes.
 export const STYLE_CONTROLS = {
   pen: ["stroke", "penSize"],
-  line: ["stroke", "strokeWidth", "sketchy"],
-  arrow: ["stroke", "strokeWidth", "sketchy"],
+  line: ["stroke", "strokeWidth", "route", "sketchy", "labelFont"],
+  arrow: ["stroke", "strokeWidth", "route", "startHead", "sketchy", "labelFont"],
   rectangle: ["stroke", "fill", "strokeWidth", "sketchy"],
   ellipse: ["stroke", "fill", "strokeWidth", "sketchy"],
   text: ["stroke", "font", "fontSize"],

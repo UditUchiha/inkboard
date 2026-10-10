@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { API_URL } from "../config";
+import { toast } from "sonner";
 import { api } from "../lib/api";
+import { startSignIn } from "../lib/signIn";
 import { buttonClass } from "./Button";
 
 export function GoogleIcon({ className }) {
@@ -59,13 +61,24 @@ export const useOAuthProviders = () => useAuthOptions().providers;
 /** Whether email verification and password reset are switched on. */
 export const useEmailEnabled = () => useAuthOptions().email;
 
-export const oauthStartUrl = (provider, next) =>
-  `${API_URL}/api/auth/oauth/${provider}${next ? `?next=${encodeURIComponent(next)}` : ""}`;
+// `bind` is the hash from startSignIn: the server needs it to tie the end of the sign-in to this tab.
+export const oauthStartUrl = (provider, next, bind) =>
+  `${API_URL}/api/auth/oauth/${provider}?bind=${encodeURIComponent(bind)}${next ? `&next=${encodeURIComponent(next)}` : ""}`;
 
 /** "Continue with Google / GitHub", for whichever providers the server has set up. */
 export function OAuthButtons({ next, className }) {
   const providers = useOAuthProviders();
   if (providers.length === 0) return null;
+
+  // Makes the tab's `bind` first (see lib/signIn.js), so what comes back can only sign in this tab.
+  async function start(provider) {
+    const bind = await startSignIn();
+    if (!bind) {
+      toast.error("Your browser won't let this tab keep a sign-in going. Allow site storage and try again.");
+      return;
+    }
+    window.location.assign(oauthStartUrl(provider, next, bind));
+  }
 
   return (
     <div className={className}>
@@ -78,14 +91,15 @@ export function OAuthButtons({ next, className }) {
         {providers.map(({ id, label }) => {
           const Icon = PROVIDER_ICONS[id];
           return (
-            <a
+            <button
               key={id}
-              href={oauthStartUrl(id, next)}
+              type="button"
+              onClick={() => start(id)}
               className={buttonClass({ variant: "secondary", size: "lg", className: "w-full" })}
             >
               {Icon && <Icon className="size-[18px]" />}
               Continue with {label}
-            </a>
+            </button>
           );
         })}
       </div>

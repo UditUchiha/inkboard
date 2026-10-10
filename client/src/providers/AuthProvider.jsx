@@ -1,9 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api, setAuthToken, setUnauthorizedHandler } from "../lib/api";
+import { logoutPlan } from "../lib/session";
 
 const TOKEN_KEY = "inkboard.token";
 
-const AuthContext = createContext(null);
+// Exported for tests, which render pages with an account in a state of their choosing.
+export const AuthContext = createContext(null);
 
 function readToken() {
   try {
@@ -29,17 +31,42 @@ export function AuthProvider({ children }) {
   const [attempt, setAttempt] = useState(0);
 
   setAuthToken(token);
+  // The login this tab is using, for logout, which keeps one identity across renders.
+  const tokenRef = useRef(token);
+  tokenRef.current = token;
 
-  const logout = useCallback(() => {
-    writeToken(null);
-    setToken(null);
+  // Ends this tab's login (see logoutPlan for what happens to the stored one). `explicit` is the person
+  // choosing to log out: this tab then ends up logged out, whatever another tab has stored. When the
+  // server refused this tab's token instead, a newer login for the same account that another tab just
+  // stored (after a password change, say) is followed rather than lost.
+  const endSession = useCallback((explicit) => {
+    const { adopt, clearStored } = logoutPlan({ own: tokenRef.current, stored: readToken(), explicit });
+    if (clearStored) writeToken(null);
+    setAuthToken(adopt);
+    setToken(adopt);
     setUser(null);
-    setStatus("anonymous");
+    setStatus(adopt ? "loading" : "anonymous");
   }, []);
+  const logout = useCallback(() => endSession(true), [endSession]);
+  const sessionRefused = useCallback(() => endSession(false), [endSession]);
 
   useEffect(() => {
-    setUnauthorizedHandler(logout);
-  }, [logout]);
+    setUnauthorizedHandler(sessionRefused);
+  }, [sessionRefused]);
+
+  // Logging in or out in another tab changes the stored token (the `storage` event only fires in the
+  // other tabs). Follow it, so this tab neither keeps a login that was ended nor keeps using an old one.
+  useEffect(() => {
+    function onStorage(event) {
+      if (event.key !== TOKEN_KEY || event.newValue === token) return;
+      setAuthToken(event.newValue);
+      setToken(event.newValue);
+      setUser(null);
+      setStatus(event.newValue ? "loading" : "anonymous");
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [token]);
 
   useEffect(() => {
     if (!token || user) return;
@@ -53,13 +80,13 @@ export function AuthProvider({ children }) {
       })
       .catch((error) => {
         if (!active) return;
-        if (error.status === 401) logout();
+        if (error.status === 401) sessionRefused();
         else setStatus("offline");
       });
     return () => {
       active = false;
     };
-  }, [token, user, logout, attempt]);
+  }, [token, user, sessionRefused, attempt]);
 
   const retry = useCallback(() => {
     setStatus("loading");
@@ -74,15 +101,6 @@ export function AuthProvider({ children }) {
     setStatus("authenticated");
   }, []);
 
-  // Google and GitHub sign-in return only a token; the account is loaded by the effect above.
-  const adoptToken = useCallback((nextToken) => {
-    writeToken(nextToken);
-    setAuthToken(nextToken);
-    setToken(nextToken);
-    setUser(null);
-    setStatus("loading");
-  }, []);
-
   const value = useMemo(
     () => ({
       user,
@@ -90,14 +108,13 @@ export function AuthProvider({ children }) {
       status,
       login: async (input) => startSession(await api.login(input)),
       register: async (input) => startSession(await api.register(input)),
-      // Starts a session from `{ token, user }`, as a password reset returns.
+      // Starts a session from `{ token, user }`, as a password reset or a finished Google or GitHub sign-in returns.
       startSession,
-      adoptToken,
       updateUser: setUser,
       logout,
       retry,
     }),
-    [user, token, status, startSession, adoptToken, logout, retry],
+    [user, token, status, startSession, logout, retry],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

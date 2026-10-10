@@ -1,29 +1,29 @@
 import clsx from "clsx";
 import { Check, RotateCcw, Trash2, X } from "lucide-react";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton } from "../../components/Button";
 import { timeAgo } from "../../lib/format";
+import { useMinute } from "../../lib/useMinute";
 import { toScreen } from "./geometry";
 import { MentionTextarea } from "./MentionTextarea";
+import { isComposing, splitMentions } from "./mentions";
+import { focusAfterClose } from "./popoverFocus";
 
 const POPOVER_WIDTH = 320;
-
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Mentions are shown highlighted.
 function MessageBody({ message }) {
   const names = message.mentions.map((person) => person.name);
   if (names.length === 0) return <>{message.body}</>;
-  const pattern = new RegExp(`(@(?:${names.map(escapeRegExp).join("|")}))`, "g");
-  return message.body.split(pattern).map((part, index) =>
-    index % 2 === 1 ? (
+  return splitMentions(message.body, names).map((piece, index) =>
+    piece.mention ? (
       <span key={index} className="rounded bg-signal/12 px-0.5 font-medium text-signal">
-        {part}
+        {piece.text}
       </span>
     ) : (
-      <Fragment key={index}>{part}</Fragment>
+      <Fragment key={index}>{piece.text}</Fragment>
     ),
   );
 }
@@ -68,15 +68,44 @@ function Pin({ thread, point, active, onClick }) {
 }
 
 function Popover({ point, size, label, onClose, children }) {
+  const ref = useRef(null);
+  // Where focus was before the popover opened. Read while it first renders: by the time effects run,
+  // a field in it with autoFocus has already taken focus.
+  const [opener] = useState(() => document.activeElement);
+
+  // Keyboard users land in the popover (unless a field in it already took focus).
+  useEffect(() => {
+    if (!ref.current.contains(document.activeElement)) ref.current.focus({ preventScroll: true });
+  }, []);
+
+  // ...and get back to where they were, but only if focus is still inside the popover as it closes. This has to be
+  // checked before the popover leaves the page (a layout cleanup), since removing a focused element drops focus to
+  // the body, which looks the same as someone having clicked the canvas.
+  // The focus itself moves a moment later, so that React's development-only unmount-and-remount of effects (which
+  // never really closes the popover) doesn't pull focus out of the field that just took it.
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    const popover = ref.current;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const target = focusAfterClose(popover, document.activeElement, opener);
+      if (target) queueMicrotask(() => !mounted.current && target.isConnected && target.focus({ preventScroll: true }));
+    };
+  }, [opener]);
+
   // The pin is 36px wide and sits right of the point it marks, so clear it on either side.
   const left = point.x + 48 + POPOVER_WIDTH > size.width ? Math.max(8, point.x - 12 - POPOVER_WIDTH) : point.x + 48;
   const top = Math.min(Math.max(point.y - 40, 64), Math.max(64, size.height - 360));
   return (
     <div
+      ref={ref}
       role="dialog"
       aria-label={label}
-      onKeyDown={(event) => event.key === "Escape" && onClose()}
-      className="floating-panel pointer-events-auto absolute z-10 rounded-xl"
+      tabIndex={-1}
+      // Escape while an input method is composing cancels the composition, not the comment.
+      onKeyDown={(event) => event.key === "Escape" && !isComposing(event) && onClose()}
+      className="floating-panel pointer-events-auto absolute z-10 rounded-xl focus:outline-none"
       style={{ left, top, width: Math.min(POPOVER_WIDTH, size.width - 16) }}
     >
       {children}
@@ -129,6 +158,9 @@ function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }) {
 }
 
 function ThreadView({ thread, canComment, canDelete, members, onReply, onResolve, onDelete, onClose }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  useMinute();
+
   return (
     <>
       <div className="flex items-center justify-between gap-1 border-b border-rule px-3 py-2">
@@ -143,11 +175,33 @@ function ThreadView({ thread, canComment, canDelete, members, onReply, onResolve
             />
           )}
           {canDelete && (
-            <IconButton label="Delete thread" icon={Trash2} size="sm" onClick={onDelete} className="text-danger" />
+            <IconButton
+              label="Delete thread"
+              icon={Trash2}
+              size="sm"
+              onClick={() => setConfirmingDelete(true)}
+              className="text-danger"
+            />
           )}
           <IconButton label="Close" icon={X} size="sm" onClick={onClose} />
         </div>
       </div>
+      {confirmingDelete && (
+        <div className="border-b border-rule bg-surface-2 px-3 py-2.5">
+          <p className="text-sm">
+            Delete this thread{thread.messages.length > 1 ? ` and its ${thread.messages.length} messages` : ""}? This
+            can't be undone.
+          </p>
+          <div className="mt-2 flex justify-end gap-2">
+            <Button variant="secondary" size="sm" autoFocus onClick={() => setConfirmingDelete(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" size="sm" onClick={onDelete}>
+              Delete
+            </Button>
+          </div>
+        </div>
+      )}
       <ul className="max-h-64 divide-y divide-rule overflow-y-auto">
         {thread.messages.map((message) => (
           <li key={message.id} className="flex gap-2.5 px-3 py-2.5">
@@ -242,6 +296,7 @@ export function CommentsLayer({
 
       {active && !draft && (
         <Popover
+          key={active.id}
           point={toScreen(viewport, active.x, active.y)}
           size={size}
           label="Comment thread"

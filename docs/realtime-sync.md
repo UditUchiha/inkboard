@@ -16,14 +16,14 @@ An element's fields are split into groups that change independently:
 
 | Group | Fields |
 |---|---|
-| `shape` | `type`, `seed`, `imageId`, `x1`, `y1`, `x2`, `y2`, `startId`, `endId`, `points`, `pressure`, `angle`, `fontSize` |
+| `shape` | `type`, `seed`, `imageId`, `x1`, `y1`, `x2`, `y2`, `startId`, `endId`, `startAnchor`, `endAnchor`, `points`, `pressure`, `angle`, `fontSize` |
 | `text` | `text` |
-| `stroke`, `fill`, `strokeWidth`, `penSize`, `sketchy`, `font`, `name` | one field each |
+| `stroke`, `fill`, `strokeWidth`, `penSize`, `sketchy`, `font`, `name`, `route`, `startHead` | one field each |
 | `index` | `index` (its place in the stack) |
 
-Each group carries its own stamp, and when two copies of an element meet, each group is taken from whichever copy has it newer. So a move and a recolor made at the same time are both kept. The fields of one group always travel together: a move never mixes one person's corners with another's (a text's `fontSize` is in `shape` because resizing text changes it, and a connector's `startId` / `endId` because its ends and what they're attached to change together).
+Each group carries its own stamp, and when two copies of an element meet, each group is taken from whichever copy has it newer. So a move and a recolor made at the same time are both kept. The fields of one group always travel together: a move never mixes one person's corners with another's (a text's `fontSize` is in `shape` because resizing text changes it, and a connector's `startId` / `endId` / `startAnchor` / `endAnchor` because its ends and what (and which side) they're attached to change together). A connector's label is its `text`, in the `text` group like any other.
 
-**Connectors.** A line or arrow attached to shapes names them in `startId` / `endId`; where an attached end is drawn is worked out on each screen from where its shape is now ([`connectors.js`](../client/src/features/board/connectors.js)). Moving a shape therefore changes only the shape, never its arrows, so a move and someone else's edit to the arrow can't conflict. The stored `x`/`y` of an attached end is a fallback for when its shape is gone; whoever deletes a shape also lets go of its connectors where they're drawn, in the same change.
+**Connectors.** A line or arrow attached to shapes names them in `startId` / `endId`, and an end pinned to one of a shape's sides names the side in `startAnchor` / `endAnchor`; where an attached end is drawn, and the path between the ends (its `route`: straight, curved or elbow, [`routes.js`](../client/src/features/board/routes.js)), is worked out on each screen from where its shape is now ([`connectors.js`](../client/src/features/board/connectors.js)). Moving a shape therefore changes only the shape, never its arrows, so a move and someone else's edit to the arrow can't conflict. The stored `x`/`y` of an attached end is a fallback for when its shape is gone, so any change made in the browser that removes a shape (deleting, erasing, emptying a text, an undo or redo) also lets go of its connectors where they're drawn, in the same change. The store does this for every removal, and adds the attached connectors to the undo step so undoing attaches them again.
 
 An element stores its newest stamp as `version` / `versionNonce`, and lists only the groups whose stamp is older in `stamps`, e.g. `stamps: { stroke: [3, 81920], index: [1, 5] }`. A freshly created element has no `stamps`.
 
@@ -50,19 +50,23 @@ The server passes on every change it takes in, including changes to removed elem
 
 ## Stacking order
 
-Each element has an `index`, a string key from [fractional indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing) (`"a0"`, `"a1"`, … `"b00"`). Boards are kept sorted by key, then by id, and drawn in that order. So two elements added at the same moment (and given the same key) stack the same way on every screen. A key can always be made above, below or between others, so moving an element in the stack would only change that element's `index` (there is no UI for this yet).
+Each element has an `index`, a string key from [fractional indexing](https://observablehq.com/@dgreensp/implementing-fractional-indexing) (`"a0"`, `"a1"`, … `"b00"`). Boards are kept sorted by key, then by id, and drawn in that order. So two elements added at the same moment (and given the same key) stack the same way on every screen. A key can always be made above, below or between others, so moving an element in the stack only changes that element's `index` (the Layer buttons in the properties panel and Ctrl/⌘ + `[` / `]` do this: forward and backward step past the nearest element that overlaps the selection, and with Shift they go to the very front or back).
 
 ## The server
 
-For each `board:op` the server ([`realtime/index.js`](../server/src/realtime/index.js)):
+For each `board:op` the server ([`realtime/index.js`](../server/src/realtime/index.js)) first checks the sender's rate (a burst of 100, then 40 a second; cursors and views have their own, lower limits), then:
 
-1. **cleans** the elements ([`element-rules.js`](../server/src/realtime/element-rules.js));
-2. **prepares** the operation (`prepareOperation`): gives new elements without a key a place on top, and handles browsers still running an older app, which say so by not sending `sync: 2` when they join. Their elements are taken whole at their version, and ones without a version are stamped as the newest edit;
+1. **cleans** the elements ([`element-rules.js`](../shared/src/element-rules.js));
+2. **prepares** the operation (`prepareOperation`): gives new elements without a key a place on top, replaces a stamp that's more than a million versions ahead of what the board has for that element (a forged one would put the element out of reach of every later change) by one for the newest edit, and handles browsers still running an older app, which say so by not sending `sync: 2` when they join. Their elements are taken whole at their version, and ones without a version are stamped as the newest edit;
 3. **plans** it with the shared rules, without changing anything (`planOperation`);
 4. **checks sizes** against what would actually change (`admit`), including changes to removed elements, each of which must fit as an element;
 5. **commits** it and passes on what changed (`effectOf`): each element as the server now has it, merged.
 
-Removed elements' data is kept in memory while a board is open, up to 12 MB (a browser keeps up to about 4 MB of it). Past that the oldest keep only their stamp. An element that would come back on a board already at its element cap stays removed, tombstone and all. Stamps are also **saved with the board** (`removed`, hidden from ordinary queries), for 30 days and up to 2,000, so an edit from someone who was offline while everyone left can't bring back what was removed since.
+The sender's acknowledgement is `{ ok: true }`, plus `cleaned` (elements as the board stored them, where that isn't how they were sent, such as a label cut to the length limit, or the stored copy of an element whose change was refused) and `dropped` (ids of elements it refused, including new ones left out because the board is at its element cap). Or `{ ok: false, reason }`: `noSession` (join the board first), `invalid`, `tooLarge`, `forbidden` or `rate`. Only `noSession` (after joining again) and `rate` are worth sending again.
+
+Removed elements' data is kept in memory while a board is open, up to 12 MB (a browser keeps up to about 4 MB of it). Past that the oldest keep only their stamp. An element that would come back on a board already at its element cap stays removed, tombstone and all. Stamps are also **saved with the board** (`removed`, hidden from ordinary queries), for 30 days and up to 5,000, so an edit from someone who was offline while everyone left can't bring back what was removed since. A removal of an id the board has never had leaves no tombstone, so made-up ids can't push real ones out.
+
+Each open board is saved by one write at a time (changes made during a write go in the next round of the same save), a board someone opens again while it's being saved stays open, and a shutdown saves everything before disconnecting people and again afterwards, within a 20-second deadline.
 
 **Restoring a version** stamps the restored elements well ahead of everything else (`RESTORE_LEAD`), and removes what the version doesn't have with removals just as new. Changes still on their way from before the restore can't undo parts of it.
 

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button, ButtonLink } from "../components/Button";
 import { PasswordField, TextField } from "../components/Field";
@@ -8,6 +8,8 @@ import { OAuthButtons, useEmailEnabled } from "../components/OAuthButtons";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { APP_NAME } from "../config";
 import { api } from "../lib/api";
+import { signInErrorMessage } from "../lib/signInErrors";
+import { verifyView } from "../lib/verifyLink";
 import { useAuth } from "../providers/AuthProvider";
 
 // After a successful login or sign-up, <GuestOnly> redirects to ?next=… or /boards.
@@ -52,8 +54,11 @@ export function LoginPage() {
   const emailEnabled = useEmailEnabled();
   const [params] = useSearchParams();
   const [form, setForm] = useState({ email: "", password: "" });
-  // Google or GitHub sign-in that failed comes back here with ?error=…
-  const [error, setError] = useState(params.get("error") ?? "");
+  // Google or GitHub sign-in that failed comes back here with ?error=<code>&provider=<name>.
+  const [error, setError] = useState(() => {
+    const code = params.get("error");
+    return code ? signInErrorMessage(code, params.get("provider")) : "";
+  });
   const [submitting, setSubmitting] = useState(false);
 
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -345,63 +350,119 @@ export function ResetPasswordPage() {
 }
 
 export function VerifyEmailPage() {
-  const { status, updateUser } = useAuth();
+  const { status, user, updateUser, logout, retry } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const token = params.get("token");
+  // Opening the link only asks for confirmation: mail scanners and link previews open links too, and a
+  // link works once, so it's used up by the person's click and not by a visit.
   const [result, setResult] = useState(
     token
-      ? { phase: "verifying" }
+      ? { phase: "ready" }
       : { phase: "failed", message: "This link is incomplete. Open the link from the email again." },
   );
-  // A link works once, so it's sent once, even if React runs the effect twice.
-  const sent = useRef(false);
 
-  useEffect(() => {
-    if (!token || sent.current) return;
-    sent.current = true;
+  function verify() {
+    setResult({ phase: "verifying" });
     api
       .verifyEmail(token)
-      .then(({ email }) => setResult({ phase: "done", email }))
+      .then(({ email, user: verified }) => {
+        updateUser(verified); // seen as verified straight away
+        setResult({ phase: "done", email });
+      })
       .catch((error) => setResult({ phase: "failed", message: error.message }));
-  }, [token]);
+  }
 
-  // Someone logged in sees their account as verified straight away.
-  useEffect(() => {
-    if (result.phase !== "done" || status !== "authenticated") return;
-    api
-      .me()
-      .then(({ user }) => updateUser(user))
-      .catch(() => {});
-  }, [result.phase, status, updateUser]);
+  // The link only verifies the account it was sent for, for someone logged in to it, which shows the inbox
+  // and the account's password are in the same hands (see verifyEmail on the server). So the page says who
+  // is logged in, and when that isn't the account the link names (its `email`, a hint only: the server decides),
+  // offers to switch rather than a button that can't work. Logging in comes back here.
+  const view = verifyView({ status, user, linkEmail: params.get("email") });
+  const signedIn = view === "confirm" || view === "switch";
+  const here = `${location.pathname}${location.search}`;
+  function switchAccount() {
+    logout();
+    navigate(`/login${nextQuery(here)}`);
+  }
+  const switchButton = (
+    <button type="button" onClick={switchAccount} className="font-medium text-ink underline underline-offset-4">
+      Switch account
+    </button>
+  );
 
-  const signedIn = status === "authenticated";
+  let subtitle = "This takes a moment.";
+  if (result.phase === "done") subtitle = `${result.email} is verified. People can now invite you to their boards.`;
+  else if (result.phase === "failed") subtitle = result.message;
+  else if (result.phase === "ready") {
+    subtitle = {
+      loading: "Confirm that this is your address.",
+      offline: "We couldn't reach the server to see who's logged in.",
+      login: "Log in to the account this email was sent for, then confirm that this is your address.",
+      switch: `You're logged in as ${user?.email}, but this link was sent to a different account.`,
+      confirm: `You're logged in as ${user?.email}. Confirm that this is your address.`,
+    }[view];
+  }
+
   return (
     <AuthLayout
       title={
-        { verifying: "Verifying your email…", done: "Email verified", failed: "That link didn't work" }[result.phase]
+        {
+          ready: "Verify your email",
+          verifying: "Verifying your email�",
+          done: "Email verified",
+          failed: "That link didn't work",
+        }[result.phase]
       }
-      subtitle={
-        result.phase === "done"
-          ? `${result.email} is verified. People can now invite you to their boards.`
-          : result.phase === "failed"
-            ? result.message
-            : "This takes a moment."
-      }
-      footer={signedIn ? null : <>Have an account? {loginLink}</>}
+      subtitle={subtitle}
+      footer={view === "login" ? <>Have an account? {loginLink}</> : null}
     >
-      {result.phase === "done" && (
-        <ButtonLink to={signedIn ? "/boards" : "/login"} size="lg" className="w-full">
-          {signedIn ? "Go to your boards" : "Log in"}
+      {result.phase === "ready" && view === "offline" && (
+        <Button size="lg" onClick={retry} className="w-full">
+          Try again
+        </Button>
+      )}
+      {result.phase === "ready" && view === "login" && (
+        <ButtonLink to={`/login${nextQuery(here)}`} size="lg" className="w-full">
+          Log in to verify
         </ButtonLink>
       )}
-      {result.phase === "failed" &&
-        (signedIn ? (
+      {result.phase === "ready" && view === "switch" && (
+        <Button size="lg" onClick={switchAccount} className="w-full">
+          Switch account
+        </Button>
+      )}
+      {result.phase === "ready" && (view === "loading" || view === "confirm") && (
+        <div className="grid gap-4">
+          <Button size="lg" onClick={verify} disabled={view === "loading"} className="w-full">
+            {user ? `Verify ${user.email}` : "Verify my email"}
+          </Button>
+          {user && <p className="text-center text-sm text-graphite">Not your account? {switchButton}</p>}
+        </div>
+      )}
+      {result.phase === "done" && (
+        <ButtonLink to="/boards" size="lg" className="w-full">
+          Go to your boards
+        </ButtonLink>
+      )}
+      {result.phase === "failed" && view === "offline" && (
+        <Button size="lg" onClick={retry} className="w-full">
+          Try again
+        </Button>
+      )}
+      {result.phase === "failed" && signedIn && (
+        <div className="grid gap-4">
           <VerifyEmailNotice />
-        ) : (
-          <p className="text-[15px] text-graphite">
-            Log in to get a new link: there's a button for it on your boards page.
+          <p className="text-sm text-graphite">
+            Logged in as {user.email}. Is this link for another account? {switchButton}
           </p>
-        ))}
+        </div>
+      )}
+      {result.phase === "failed" && view === "login" && (
+        <p className="text-[15px] text-graphite">
+          Log in to get a new link: there's a button for it on your boards page.
+        </p>
+      )}
     </AuthLayout>
   );
 }

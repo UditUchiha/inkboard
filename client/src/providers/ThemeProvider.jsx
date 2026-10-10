@@ -3,6 +3,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 const THEME_KEY = "inkboard.theme";
 const ThemeContext = createContext(null);
 
+// The page color browsers show around the app (the paper color of each theme). index.html has one tag per
+// system theme; this makes them follow the theme that was chosen instead.
+const BROWSER_COLORS = { light: "#f3f6f4", dark: "#121b2e" };
+
 const systemPrefersDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
 
 function readPreference() {
@@ -29,6 +33,10 @@ export function ThemeProvider({ children }) {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    for (const tag of document.querySelectorAll('meta[name="theme-color"]')) {
+      tag.removeAttribute("media");
+      tag.setAttribute("content", BROWSER_COLORS[theme]);
+    }
   }, [theme]);
 
   const choose = useCallback((next) => {

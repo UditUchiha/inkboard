@@ -2,6 +2,7 @@ import clsx from "clsx";
 import { Link } from "react-router";
 import { AvatarStack } from "../../components/Avatar";
 import { timeAgo } from "../../lib/format";
+import { useMinute } from "../../lib/useMinute";
 import { BoardPreview } from "../board/BoardPreview";
 import { BoardMenu, RoleBadge, StarButton } from "./BoardParts";
 import { daysLeft, isMember, ROLES } from "./sections";
@@ -16,10 +17,11 @@ function subtitle(board, trashed) {
 }
 
 export function BoardCard({ board, trashed = false, actions }) {
+  useMinute();
   const members = [board.owner, ...board.collaborators];
   const preview = (
-    <BoardPreview elements={board.preview} className="aspect-[16/10]">
-      {board.preview.length === 0 && (
+    <BoardPreview elements={board.preview ?? []} className="aspect-[16/10]">
+      {board.preview?.length === 0 && (
         <span className="absolute inset-0 grid place-items-center text-sm text-graphite">Empty board</span>
       )}
     </BoardPreview>

@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
-import { TRASH_DAYS } from "../src/controllers/board.controller.js";
 import { Board } from "../src/models/board.model.js";
 import { BoardState } from "../src/models/board-state.model.js";
-import { purgeExpiredTrash } from "../src/services/trash.js";
+import { Thread } from "../src/models/thread.model.js";
+import { Version } from "../src/models/version.model.js";
+import { destroyBoard } from "../src/services/boards.js";
+import { PREVIEW_CACHE_LIMITS, previewCacheSize } from "../src/services/previews.js";
+import { purgeExpiredTrash, TRASH_DAYS } from "../src/services/trash.js";
 import { eventually, rect, startServer, upsert } from "./helpers.js";
 
 let app;
@@ -15,6 +19,10 @@ after(() => app.stop());
 
 const list = async (user) => (await app.request("/boards", { user })).data.boards;
 const find = (boards, id) => boards.find((board) => board.id === id);
+// What the dashboard's cards draw: previews are fetched apart from the list, for the boards on screen.
+const previews = async (user, ...ids) =>
+  (await app.request(`/boards/previews?ids=${ids.join(",")}`, { user })).data.previews;
+const previewIdsOf = async (user, id) => (await previews(user, id))[id]?.map((element) => element.id);
 const setLink = (user, id, linkAccess) =>
   app.request(`/boards/${id}/link-access`, { method: "PATCH", user, body: { linkAccess } });
 const archive = (user, ids, archived) =>
@@ -70,24 +78,33 @@ describe("the board list", () => {
     const client = await app.connect(owner);
     await client.join(id);
     await client.op(id, upsert(rect("live-1")));
-    assert.deepEqual(
-      find(await list(owner), id).preview.map((element) => element.id),
-      ["live-1"],
-    );
+    assert.deepEqual(await previewIdsOf(owner, id), ["live-1"]);
   });
 
-  it("sends a preview of each drawing rather than the drawing itself", async () => {
+  it("lists boards without their drawings or previews, and sends previews apart, a page at a time", async () => {
     const owner = await app.signUp("Owner");
+    const stranger = await app.signUp("Stranger");
     const id = await app.createBoard(owner);
     const board = find(await list(owner), id);
     assert.equal(board.elements, undefined);
-    assert.deepEqual(board.preview, []);
+    assert.equal(board.preview, undefined);
+    assert.deepEqual(await previews(owner, id), { [id]: [] });
+
+    // Boards the person can't open are left out; bad or too many ids are refused.
+    assert.deepEqual(await previews(stranger, id), {});
+    const ask = (ids) => app.request(`/boards/previews?ids=${ids}`, { user: owner });
+    assert.equal((await ask("")).status, 400);
+    assert.equal((await ask("not-an-id")).status, 400);
+    const many = Array.from({ length: 25 }, () => new mongoose.Types.ObjectId().toString());
+    assert.equal((await ask(many.join(","))).status, 400);
+    assert.deepEqual((await ask(many.slice(0, 24).join(","))).data.previews, {});
+    assert.equal((await app.request(`/boards/previews?ids=${id}`)).status, 401);
   });
 
   it("brings a saved board's preview up to date after each change", async () => {
     const owner = await app.signUp("Owner");
     const id = await app.createBoard(owner);
-    const previewIds = async () => find(await list(owner), id).preview.map((element) => element.id);
+    const previewIds = () => previewIdsOf(owner, id);
 
     for (const [element, expected] of [
       ["a", ["a"]],
@@ -100,6 +117,33 @@ describe("the board list", () => {
       await eventually(async () => JSON.stringify(await previewIds()) === JSON.stringify(expected), {
         message: `the preview showing ${expected}`,
       });
+    }
+  });
+});
+
+describe("the preview cache", () => {
+  it("is held to a number of bytes, dropping the longest unused previews first", async () => {
+    const owner = await app.signUp("Owner");
+    const ids = [];
+    for (let index = 0; index < 3; index += 1) {
+      const id = await app.createBoard(owner, `Board ${index}`);
+      await Board.updateOne({ _id: id }, { $set: { elements: [rect(`r${index}`)] } });
+      ids.push(id);
+    }
+    const saved = { ...PREVIEW_CACHE_LIMITS };
+    try {
+      await previews(owner, ...ids);
+      const { entries, bytes } = previewCacheSize();
+      assert.ok(entries >= 3);
+
+      // Room for about two previews: the third one in pushes the oldest out.
+      Object.assign(PREVIEW_CACHE_LIMITS, { bytes: Math.floor((bytes / entries) * 2.5) });
+      await Board.updateOne({ _id: ids[0] }, { $set: { elements: [rect("changed")] } });
+      await previews(owner, ...ids);
+      assert.ok(previewCacheSize().bytes <= PREVIEW_CACHE_LIMITS.bytes, "the cache is within its byte limit");
+      assert.equal(Object.keys(await previews(owner, ...ids)).length, 3, "every preview is still served, recomputed");
+    } finally {
+      Object.assign(PREVIEW_CACHE_LIMITS, saved);
     }
   });
 });
@@ -278,11 +322,9 @@ describe("trash", () => {
 
     const row = find(await listTrash(owner), id);
     assert.ok(row.deletedAt);
-    assert.deepEqual(
-      row.preview.map((element) => element.id),
-      ["keep-me"],
-      "the trash shows a preview",
-    );
+    assert.equal(row.preview, undefined);
+    assert.deepEqual(await previewIdsOf(owner, id), ["keep-me"], "the trash shows a preview, to its owner only");
+    assert.deepEqual(await previews(editor, id), {});
     assert.equal(new Date(row.purgeAt) - new Date(row.deletedAt), TRASH_DAYS * 24 * 3600 * 1000);
     assert.deepEqual(
       (await app.request("/boards/trash", { user: editor })).data.boards,
@@ -292,12 +334,8 @@ describe("trash", () => {
 
     const restored = await app.request(`/boards/${id}/restore`, { method: "POST", user: owner });
     assert.equal(restored.status, 200);
-    const back = find(await list(owner), id);
-    assert.deepEqual(
-      back.preview.map((element) => element.id),
-      ["keep-me"],
-      "the latest drawing came back",
-    );
+    assert.ok(find(await list(owner), id));
+    assert.deepEqual(await previewIdsOf(owner, id), ["keep-me"], "the latest drawing came back");
     assert.ok(find(await list(editor), id), "and the editor has it again");
   });
 
@@ -345,6 +383,64 @@ describe("trash", () => {
     assert.equal(await purgeExpiredTrash(), 1);
     assert.equal(await Board.exists({ _id: expired }), null);
     assert.ok(await Board.exists({ _id: fresh }));
+  });
+
+  it("leaves alone a board that was restored, or trashed again, after the sweep looked at it", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    await Version.create({ board: id, kind: "named", label: "Keep", elements: [] });
+    const cutoff = new Date();
+
+    // Restored: not in the trash any more, so nothing is erased.
+    assert.equal(await destroyBoard(id, { trashedBefore: cutoff }), false);
+    // Trashed again since: its deletion date is newer than the cutoff.
+    await trash(owner, id);
+    assert.equal(await destroyBoard(id, { trashedBefore: new Date(Date.now() - 60_000) }), false);
+    assert.equal(await Version.countDocuments({ board: id }), 1);
+    assert.ok(await Board.exists({ _id: id }));
+
+    assert.equal(await destroyBoard(id), true);
+    assert.equal(await Version.countDocuments({ board: id }), 0);
+    assert.equal(await Board.exists({ _id: id }), null);
+  });
+
+  it("keeps the board until what belongs to it is gone, so a failure part-way can be retried", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    await Version.create({ board: id, kind: "named", label: "Keep", elements: [] });
+    await trash(owner, id);
+
+    const original = Thread.deleteMany;
+    Thread.deleteMany = () => Promise.reject(new Error("the database hiccupped"));
+    try {
+      await assert.rejects(destroyBoard(id), /hiccupped/);
+    } finally {
+      Thread.deleteMany = original;
+    }
+    assert.ok(await Board.exists({ _id: id }), "still there to be erased again");
+    assert.equal(await destroyBoard(id), true);
+  });
+});
+
+describe("responses", () => {
+  it("are compressed when the browser accepts it", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    await Board.updateOne(
+      { _id: id },
+      { $set: { elements: Array.from({ length: 300 }, (_, index) => rect(`r${index}`, index)) } },
+    );
+    const response = await new Promise((resolve, reject) => {
+      http
+        .get(
+          `${app.url}/api/boards/${id}`,
+          { headers: { Authorization: `Bearer ${owner.token}`, "Accept-Encoding": "gzip" } },
+          resolve,
+        )
+        .on("error", reject);
+    });
+    response.resume();
+    assert.equal(response.headers["content-encoding"], "gzip");
   });
 });
 

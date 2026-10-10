@@ -28,7 +28,7 @@ import { compareOrder } from "./board-order.js";
 // newer change (an undo, say) can, and merges with what was there.
 
 export const FIELD_GROUPS = {
-  // A connector's ends and the shapes they're attached to change together.
+  // A connector's ends and the shapes (and sides) they're attached to change together.
   shape: [
     "type",
     "seed",
@@ -39,6 +39,8 @@ export const FIELD_GROUPS = {
     "y2",
     "startId",
     "endId",
+    "startAnchor",
+    "endAnchor",
     "points",
     "pressure",
     "angle",
@@ -52,6 +54,8 @@ export const FIELD_GROUPS = {
   sketchy: ["sketchy"],
   font: ["font"],
   name: ["name"],
+  route: ["route"],
+  startHead: ["startHead"],
   index: ["index"],
 };
 // Every field an element can have belongs to exactly one group. A field that
@@ -65,6 +69,11 @@ const META = new Set(["id", "version", "versionNonce", "stamps"]);
 // stop being exact. A version past it is refused, or one change could put an
 // element where no later version can follow it.
 export const MAX_VERSION = 2 ** 48;
+
+// How far ahead of what a board knows of an element a change to it may be stamped
+// (see the server's prepareOperation): far more edits than anyone makes while
+// offline, but too few for a forged version to leave an element out of reach.
+export const MAX_VERSION_JUMP = 1_000_000;
 
 export const isVersion = (value) => Number.isSafeInteger(value) && value >= 0 && value <= MAX_VERSION;
 export const isNonce = (value) => Number.isInteger(value) && value >= 0 && value < 2 ** 31;
@@ -157,7 +166,10 @@ export function copyGroup(target, source, group) {
 /**
  * Two copies of the same element merged: each group from whichever copy has
  * it newer. Returns `current` when `incoming` adds nothing, and `incoming`
- * when it's newer throughout.
+ * when it's newer throughout. A copy that doesn't have a group at all (a
+ * connector made without a label, say) has no say in it, so a change to
+ * something else never takes the group away; to clear a field, set it to an
+ * empty value ("", null) rather than leaving it out.
  */
 export function mergeElement(current, incoming) {
   const mine = groupStamps(current);
@@ -165,9 +177,7 @@ export function mergeElement(current, incoming) {
   const groups = new Set([...Object.keys(mine), ...Object.keys(theirs)]);
   const won = new Set();
   for (const group of groups) {
-    const a = theirs[group] ?? stampOf(incoming);
-    const b = mine[group] ?? stampOf(current);
-    if (compareStamps(a, b) > 0) won.add(group);
+    if (theirs[group] && (!mine[group] || compareStamps(theirs[group], mine[group]) > 0)) won.add(group);
   }
   if (won.size === 0) return current;
   if (won.size === groups.size) return incoming;
@@ -177,12 +187,41 @@ export function mergeElement(current, incoming) {
   for (const group of groups) {
     const fromIncoming = won.has(group);
     copyGroup(fields, fromIncoming ? incoming : current, group);
-    stamps[group] = fromIncoming ? (theirs[group] ?? stampOf(incoming)) : (mine[group] ?? stampOf(current));
+    stamps[group] = fromIncoming ? theirs[group] : mine[group];
   }
   return withStamps(fields, stamps);
 }
 
 const removalOf = (entry) => (typeof entry === "string" ? { id: entry } : entry);
+
+// The elements by id as a plan sees them: `index` (the board as it was) with the
+// plan's changes laid over it, which `settle` then writes into `index`, so a
+// board that keeps an index never has to build one per operation.
+class Overlay {
+  constructor(index) {
+    this.index = index;
+    this.changes = new Map();
+  }
+
+  get(id) {
+    return this.changes.has(id) ? (this.changes.get(id) ?? undefined) : this.index.get(id);
+  }
+
+  set(id, element) {
+    this.changes.set(id, element);
+  }
+
+  delete(id) {
+    this.changes.set(id, null);
+  }
+
+  settle() {
+    for (const [id, element] of this.changes) {
+      if (element) this.index.set(id, element);
+      else this.index.delete(id);
+    }
+  }
+}
 
 /**
  * Works out what `op` does to `elements`, without changing anything:
@@ -195,9 +234,21 @@ const removalOf = (entry) => (typeof entry === "string" ? { id: entry } : entry)
  * - `added`: ids of elements that weren't on the board before
  *
  * `tombstones` maps a removed element's id to { version, versionNonce, element? }.
+ *
+ * Options: `index`, a Map of `elements` by id that the caller keeps up to date,
+ * which saves building one (commitPlan brings it up to date); and `remember`,
+ * which says whether a removal of an element nobody has seen is remembered
+ * (it is by default, so the element stays gone if it turns up late; the server,
+ * which sees every element before anyone can remove it, turns this off, or
+ * anyone could fill its memory with removals of made-up ids).
  */
-export function planOperation(elements, { upsert = [], remove = [] }, tombstones = new Map()) {
-  const live = new Map(elements.map((element) => [element.id, element]));
+export function planOperation(
+  elements,
+  { upsert = [], remove = [] },
+  tombstones = new Map(),
+  { index = null, remember = true } = {},
+) {
+  const live = index ? new Overlay(index) : new Map(elements.map((element) => [element.id, element]));
   const graves = new Map();
   const grave = (id) => (graves.has(id) ? graves.get(id) : tombstones.get(id));
   const shown = new Map();
@@ -217,7 +268,7 @@ export function planOperation(elements, { upsert = [], remove = [] }, tombstones
       added.delete(removal.id);
       hidden.set(removal.id, stamp);
       graves.set(removal.id, { ...stamp, element: current });
-    } else if (isStamped(removal)) {
+    } else if (isStamped(removal) && (remember || grave(removal.id))) {
       const tombstone = grave(removal.id);
       const stamp = stampOf(removal);
       if (tombstone && compareStamps(stamp, tombstone) <= 0) continue;
@@ -281,24 +332,38 @@ export function effectOf(plan) {
 export function commitPlan(plan, tombstones, { limit = Infinity } = {}) {
   if (plan.shown.size === 0 && plan.hidden.size === 0) {
     setGraves(plan.graves, tombstones);
+    plan.live.settle?.();
     return { elements: plan.elements, dropped: [] };
   }
+  // What a plan changes is in `shown` and `hidden`, which are usually small, so the board is gone
+  // through once looking only in those. (An element removed and brought back by the same change is
+  // in `hidden` and in `added`, and goes with the new ones.)
   const next = [];
   let reorder = false;
   for (const element of plan.elements) {
-    const now = plan.live.get(element.id);
-    if (!now || plan.added.has(element.id)) continue;
+    if (plan.hidden.has(element.id)) continue;
+    const now = plan.shown.get(element.id) ?? element;
     if (now.index !== element.index) reorder = true;
     next.push(now);
   }
+  // New elements usually go on top, above everything, in order: then they're added at the end
+  // rather than the whole board sorted again.
   const dropped = [];
   for (const id of plan.added) {
-    if (next.length >= limit) dropped.push(id);
-    else next.push(plan.live.get(id));
-    reorder = true;
+    if (next.length >= limit) {
+      dropped.push(id);
+      continue;
+    }
+    const element = plan.live.get(id);
+    if (next.length > 0 && compareOrder(next.at(-1), element) > 0) reorder = true;
+    next.push(element);
   }
-  for (const id of dropped) plan.graves.delete(id);
+  for (const id of dropped) {
+    plan.graves.delete(id);
+    plan.live.delete(id);
+  }
   setGraves(plan.graves, tombstones);
+  plan.live.settle?.();
   if (reorder) next.sort(compareOrder);
   return { elements: next, dropped };
 }

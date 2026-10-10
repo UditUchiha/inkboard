@@ -1,5 +1,7 @@
+import { COORDINATE_LIMIT } from "@inkboard/shared/element-rules";
 import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.js";
+import { Notification } from "../models/notification.model.js";
 import { Thread } from "../models/thread.model.js";
 import { User } from "../models/user.model.js";
 import { emitToSignedIn } from "../realtime/index.js";
@@ -57,8 +59,11 @@ async function findThread(board, threadId) {
   return thread;
 }
 
+// A thread is one document, so what goes into it is bounded: 2,000 characters a message, this many messages.
+const MAX_MESSAGES = 200;
+
 function readBody(value) {
-  const body = String(value ?? "").trim();
+  const body = typeof value === "string" ? value.trim() : "";
   if (!body) throw new HttpError(400, "Write a comment first.");
   if (body.length > 2000) throw new HttpError(400, "Keep comments under 2,000 characters.");
   return body;
@@ -78,13 +83,23 @@ async function publish(board, thread) {
   return payload;
 }
 
+// Where a thread was placed: a number the board's drawings could be at.
+function readCoordinate(value) {
+  const coordinate = typeof value === "number" ? value : NaN;
+  if (!Number.isFinite(coordinate) || Math.abs(coordinate) > COORDINATE_LIMIT) {
+    throw new HttpError(400, "Choose where to place the comment.");
+  }
+  return coordinate;
+}
+
 async function notifyAbout(board, thread, { actor, body, mentions }) {
-  const excerpt = body.replace(/\s+/g, " ");
-  await notify({ users: mentions, type: "mention", actor, board, thread: thread._id, excerpt });
-  // Everyone else who took part in the thread hears about replies.
+  await notify({ users: mentions, type: "mention", actor, board, thread: thread._id, excerpt: body });
+  // Everyone else who took part in the thread hears about replies, unless they can't open the board any more.
   const mentioned = new Set(mentions);
-  const participants = thread.messages.map((message) => idOf(message.author)).filter((id) => !mentioned.has(id));
-  await notify({ users: participants, type: "reply", actor, board, thread: thread._id, excerpt });
+  const participants = thread.messages
+    .map((message) => idOf(message.author))
+    .filter((id) => !mentioned.has(id) && roleOf(board, id));
+  await notify({ users: participants, type: "reply", actor, board, thread: thread._id, excerpt: body });
 }
 
 export async function listThreads(req, res) {
@@ -95,9 +110,8 @@ export async function listThreads(req, res) {
 
 export async function createThread(req, res) {
   const board = await openBoard(req, { toComment: true });
-  const x = Number(req.body?.x);
-  const y = Number(req.body?.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) throw new HttpError(400, "Choose where to place the comment.");
+  const x = readCoordinate(req.body?.x);
+  const y = readCoordinate(req.body?.y);
   const body = readBody(req.body?.body);
   const mentions = readMentions(board, req.body?.mentions);
 
@@ -119,6 +133,9 @@ export async function replyToThread(req, res) {
   const thread = await findThread(board, req.params.threadId);
   const body = readBody(req.body?.body);
   const mentions = readMentions(board, req.body?.mentions);
+  if (thread.messages.length >= MAX_MESSAGES) {
+    throw new HttpError(400, `This thread has reached its limit of ${MAX_MESSAGES} messages. Start a new one.`);
+  }
 
   const previous = thread.messages.map((message) => message.toObject());
   thread.messages.push({ author: req.userId, body, mentions });
@@ -136,11 +153,7 @@ export async function updateThread(req, res) {
   const thread = await findThread(board, req.params.threadId);
   if (typeof req.body?.resolved === "boolean") thread.resolved = req.body.resolved;
   for (const key of ["x", "y"]) {
-    if (req.body?.[key] !== undefined) {
-      const value = Number(req.body[key]);
-      if (!Number.isFinite(value)) throw new HttpError(400, "Choose where to place the comment.");
-      thread[key] = value;
-    }
+    if (req.body?.[key] !== undefined) thread[key] = readCoordinate(req.body[key]);
   }
   await thread.save();
   res.json({ thread: await publish(board, thread) });
@@ -153,6 +166,8 @@ export async function deleteThread(req, res) {
     throw new HttpError(403, "Only the person who started this thread or the board's owner can delete it.");
   }
   await thread.deleteOne();
+  // What they pointed at is gone, so don't leave them in anyone's notification list.
+  await Notification.deleteMany({ thread: thread._id });
   emitToSignedIn(board.id, "thread:delete", { id: thread.id });
   res.status(204).end();
 }

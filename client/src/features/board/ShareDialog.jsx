@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { Check, Globe, Link2, Lock, Pencil } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../components/Avatar";
 import { Button } from "../../components/Button";
@@ -47,8 +47,17 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
   const [error, setError] = useState("");
   const [inviting, setInviting] = useState(false);
   const [removingId, setRemovingId] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null); // who Remove / Leave is waiting on a second click for
   const [savingAccess, setSavingAccess] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Start fresh each time the dialog opens.
+  useEffect(() => {
+    if (!open) return;
+    setEmail("");
+    setError("");
+    setConfirmingId(null);
+  }, [open]);
 
   const isOwner = role === "owner";
   const isViewer = role !== "owner" && role !== "editor"; // viewers and edit-link contributors
@@ -86,6 +95,7 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
       toast.error(removeError.message);
     } finally {
       setRemovingId(null);
+      setConfirmingId(null);
     }
   }
 
@@ -105,7 +115,10 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
 
   async function copyLink() {
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      // Without ?thread=, which only makes sense to whoever had that comment open.
+      const link = new URL(window.location.href);
+      link.searchParams.delete("thread");
+      await navigator.clipboard.writeText(link.href);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -149,7 +162,7 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
               const canRemove = member.role !== "Owner" && (isOwner || isYou);
               return (
                 <li key={member.id} className="flex items-center gap-3 py-2.5">
-                  <Avatar id={member.id} name={member.name} size="md" />
+                  <Avatar id={member.id} name={member.name} color={member.color} src={member.avatarUrl} size="md" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">
                       {member.name}
@@ -157,12 +170,26 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
                     </p>
                     <p className="truncate text-sm text-graphite">{member.email}</p>
                   </div>
-                  {canRemove ? (
+                  {canRemove && confirmingId === member.id ? (
+                    <span className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" autoFocus onClick={() => setConfirmingId(null)}>
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        loading={removingId === member.id}
+                        onClick={() => remove(member)}
+                        aria-label={isYou ? "Confirm leaving this board" : `Confirm removing ${member.name}`}
+                      >
+                        {isYou ? "Leave" : "Remove"}
+                      </Button>
+                    </span>
+                  ) : canRemove ? (
                     <Button
                       variant="ghost"
                       size="sm"
-                      loading={removingId === member.id}
-                      onClick={() => remove(member)}
+                      onClick={() => setConfirmingId(member.id)}
                       className="text-danger"
                     >
                       {isYou ? "Leave" : "Remove"}

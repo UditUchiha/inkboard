@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
+import { IMAGE_ID } from "@inkboard/shared/element-rules";
 import mongoose from "mongoose";
 
 // Where uploaded images live. Everything else talks to the functions in this
@@ -34,8 +35,6 @@ function getBucket() {
 
 const files = () => mongoose.connection.db.collection(`${BUCKET}.files`);
 
-export const IMAGE_ID = /^[a-f0-9]{32}$/;
-
 const smallName = (id) => `${id}.small`;
 
 // Narrows a query to some boards' images (all images when `boards` is left out),
@@ -48,11 +47,24 @@ function matching({ boards, uploadedBefore } = {}, { withSmall = false } = {}) {
   return query;
 }
 
+// A write that hangs would otherwise hold up everything waiting behind it.
+const WRITE_TIMEOUT_MS = 30_000;
+
 function write(filename, buffer, metadata) {
   return new Promise((resolve, reject) => {
     const upload = getBucket().openUploadStream(filename, { metadata });
-    upload.once("error", reject);
-    upload.once("finish", resolve);
+    const timer = setTimeout(() => {
+      Promise.resolve(upload.abort()).catch(() => {});
+      reject(new Error("Saving the image took too long."));
+    }, WRITE_TIMEOUT_MS);
+    upload.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    upload.once("finish", () => {
+      clearTimeout(timer);
+      resolve();
+    });
     Readable.from([buffer]).pipe(upload);
   });
 }
@@ -62,7 +74,15 @@ export async function putImage({ board, buffer, mime, uploadedBy, small }) {
   const id = randomBytes(16).toString("hex");
   const metadata = { board: String(board), mime, uploadedBy: uploadedBy ?? null };
   await write(id, buffer, metadata);
-  if (small) await write(smallName(id), small.buffer, { ...metadata, mime: small.mime, of: id });
+  if (small) {
+    try {
+      await write(smallName(id), small.buffer, { ...metadata, mime: small.mime, of: id });
+    } catch (error) {
+      // Nobody was given this id, so the image would sit there for good.
+      await deleteImages([id]);
+      throw error;
+    }
+  }
   return id;
 }
 
@@ -103,10 +123,14 @@ export async function deleteImages(ids) {
   const found = await files()
     .find({ filename: { $in: [...ids, ...ids.map(smallName)] } }, { projection: { _id: 1 } })
     .toArray();
-  for (const file of found)
-    await getBucket()
-      .delete(file._id)
-      .catch(() => {});
+  for (const file of found) {
+    try {
+      await getBucket().delete(file._id);
+    } catch (error) {
+      // Keep going: the rest should still go, and a sweep finds what's left.
+      console.error(`Couldn't delete a stored image: ${error.message}`);
+    }
+  }
 }
 
 /** Deletes every image that belongs to a board. */

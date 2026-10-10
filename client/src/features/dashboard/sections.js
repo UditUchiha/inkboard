@@ -91,6 +91,17 @@ export const SORT_KEYS = {
   title: { label: "Title", defaultDir: "asc", value: null },
 };
 
+export const DEFAULT_SORT = { key: "modified", dir: "desc" };
+
+/** Whether a (possibly stored) value is a sort the dashboard understands. */
+export const isSort = (value) =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  Object.hasOwn(SORT_KEYS, value.key) &&
+  (value.dir === "asc" || value.dir === "desc");
+
+export const isView = (value) => value === "grid" || value === "list";
+
 export function compareBoards({ key, dir }) {
   const sign = dir === "asc" ? 1 : -1;
   const { value } = SORT_KEYS[key];

@@ -1,23 +1,52 @@
 import assert from "node:assert/strict";
-import { after, before, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
+import mongoose from "mongoose";
 import { eventually, rect, remove, startServer, upsert } from "./helpers.js";
 
+const { env } = await import("../src/config/env.js");
+
 const { imageBytes } = await import("../src/services/image-storage.js");
-const { IMAGE_LIMITS, sweepUnusedImages } = await import("../src/services/images.js");
+const { forgetRecentUploads, IMAGE_LIMITS, sweepsSettled, sweepUnusedImages } =
+  await import("../src/services/images.js");
 
 let app;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
+// Rates are per minute, so each test starts with nobody having uploaded lately.
+beforeEach(() => forgetRecentUploads());
 
-// The smallest real files of each kind, padded so they pass the "is this a picture" check.
-const png = (extra = 0) =>
-  Buffer.concat([Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"), Buffer.alloc(extra, 1)]);
-const jpeg = () => Buffer.concat([Buffer.from("ffd8ffe000104a464946", "hex"), Buffer.alloc(8, 2)]);
-const gif = () => Buffer.concat([Buffer.from("474946383961", "hex"), Buffer.alloc(12, 3)]);
-const webp = () =>
-  Buffer.concat([Buffer.from("52494646", "hex"), Buffer.alloc(4), Buffer.from("57454250", "hex"), Buffer.alloc(8)]);
+// The smallest headers of each kind that say how big the picture is (16 by 16 unless told otherwise), padded
+// so they pass the "is this a picture" check. They can't be drawn, but the server only reads the header.
+const u32 = (value) => Buffer.from(value.toString(16).padStart(8, "0"), "hex");
+const u16le = (value) => Buffer.from([value & 255, value >> 8]);
+const u24le = (value) => Buffer.from([value & 255, (value >> 8) & 255, value >> 16]);
+const png = (extra = 0, [width, height] = [16, 16]) =>
+  Buffer.concat([
+    Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+    u32(width),
+    u32(height),
+    Buffer.alloc(extra, 1),
+  ]);
+const jpeg = ([width, height] = [16, 16]) =>
+  Buffer.concat([
+    Buffer.from("ffd8ffc0001108", "hex"),
+    Buffer.from([height >> 8, height & 255, width >> 8, width & 255]),
+    Buffer.from("03011100021100031100", "hex"),
+  ]);
+const gif = ([width, height] = [16, 16]) =>
+  Buffer.concat([Buffer.from("474946383961", "hex"), u16le(width), u16le(height), Buffer.alloc(8, 3)]);
+const webp = ([width, height] = [16, 16]) =>
+  Buffer.concat([
+    Buffer.from("52494646", "hex"),
+    Buffer.alloc(4),
+    Buffer.from("57454250", "hex"),
+    Buffer.from("56503858", "hex"), // VP8X
+    Buffer.alloc(8),
+    u24le(width - 1),
+    u24le(height - 1),
+  ]);
 
 const setLink = (user, boardId, linkAccess) =>
   app.request(`/boards/${boardId}/link-access`, { method: "PATCH", user, body: { linkAccess } });
@@ -92,6 +121,51 @@ describe("uploading images", () => {
     assert.equal(reply.tooLarge, true);
   });
 
+  it("refuses pictures that declare too many pixels, whatever their file size", async () => {
+    const { boardId, client } = await ownerOnBoard();
+    const side = IMAGE_LIMITS.side;
+    for (const bomb of [
+      png(0, [30000, 30000]),
+      png(0, [side + 1, 16]),
+      jpeg([16, 30000]),
+      gif([30000, 16]),
+      webp([side + 1, 16]),
+    ]) {
+      const reply = await client.image(boardId, bomb);
+      assert.equal(reply.ok, false);
+      assert.match(reply.error, /too large/);
+    }
+    // At the limit is fine, and so is every format's header being read.
+    ok(await client.image(boardId, png(0, [side, side])));
+    ok(await client.image(boardId, jpeg([side, 16])));
+    ok(await client.image(boardId, gif([side, 16])));
+  });
+
+  it("refuses pictures whose header doesn't say how big they are", async () => {
+    const { boardId, client } = await ownerOnBoard();
+    const noHeader = Buffer.concat([Buffer.from("ffd8ffe000104a464946", "hex"), Buffer.alloc(8, 2)]);
+    const reply = await client.image(boardId, noHeader);
+    assert.equal(reply.ok, false);
+    assert.match(reply.error, /couldn't be read/);
+  });
+
+  it("drops a small copy with too many pixels, but keeps the image", async () => {
+    const { boardId, client } = await ownerOnBoard();
+    const full = png(1000);
+    const id = ok(await client.image(boardId, full, png(0, [IMAGE_LIMITS.smallSide + 1, 16])));
+    assert.equal((await fetch(`${imageUrl(id)}/small`)).headers.get("content-length"), String(full.length));
+  });
+
+  it("slows down an account that uploads many pictures in a minute", async () => {
+    const { boardId, client } = await ownerOnBoard();
+    await withLimits({ uploadsPerMinute: 3 }, async () => {
+      for (let index = 0; index < 3; index += 1) ok(await client.image(boardId, png()));
+      const reply = await client.image(boardId, png());
+      assert.equal(reply.ok, false);
+      assert.match(reply.error, /too quickly/);
+    });
+  });
+
   it("stops a board from filling the database with images", async () => {
     const { boardId, client } = await ownerOnBoard();
     let stored = 0;
@@ -115,6 +189,53 @@ describe("uploading images", () => {
       const reply = await client.image(second, png(100_000));
       assert.equal(reply.full, "owner");
       assert.match(reply.error, /Your boards are out of image space/);
+    });
+  });
+
+  it("gives an account whose email address nobody has confirmed a smaller share, once email is set up", async () => {
+    const stranger = await app.signUp("Stranger", { verified: false });
+    const verified = await app.signUp("Verified");
+    const open = async (user) => {
+      const boardId = await app.createBoard(user);
+      const client = await app.connect(user);
+      await client.join(boardId);
+      return { boardId, client };
+    };
+    const first = await open(stranger);
+    const second = await open(verified);
+    const saved = { ...env.email };
+    try {
+      env.email.brevoApiKey = "key";
+      env.email.from = "ink@example.test";
+      await withLimits({ owner: 250_000, unverifiedOwner: 150_000 }, async () => {
+        ok(await first.client.image(first.boardId, png(100_000)));
+        const refused = await first.client.image(first.boardId, png(100_000));
+        assert.equal(refused.full, "owner");
+        assert.match(refused.error, /Confirm your email address/);
+
+        ok(await second.client.image(second.boardId, png(100_000)));
+        ok(await second.client.image(second.boardId, png(100_000)));
+        const verifiedRefused = await second.client.image(second.boardId, png(100_000));
+        assert.equal(verifiedRefused.full, "owner");
+        assert.doesNotMatch(verifiedRefused.error, /Confirm your email/);
+      });
+    } finally {
+      Object.assign(env.email, saved);
+    }
+    // With no email set up, nobody can confirm an address, so nobody is held to the smaller share.
+    await withLimits({ unverifiedOwner: 1 }, async () => ok(await first.client.image(first.boardId, png(1000))));
+  });
+
+  it("slows down one network address however many accounts are behind it", async () => {
+    const a = await ownerOnBoard();
+    const b = await ownerOnBoard();
+    await withLimits({ uploadsPerMinutePerAddress: 3 }, async () => {
+      ok(await a.client.image(a.boardId, png()));
+      ok(await b.client.image(b.boardId, png()));
+      ok(await a.client.image(a.boardId, png()));
+      const reply = await b.client.image(b.boardId, png());
+      assert.equal(reply.ok, false);
+      assert.match(reply.error, /too quickly/);
     });
   });
 
@@ -152,6 +273,28 @@ describe("uploading images", () => {
       const id = ok(await client.image(boardId, png(), small));
       assert.equal((await fetch(`${imageUrl(id)}/small`)).headers.get("content-length"), String(png().length));
     }
+  });
+
+  it("answers with an error, rather than dropping the connection, for a stored image that can't be read", async () => {
+    const { boardId, client } = await ownerOnBoard();
+    const { db } = mongoose.connection;
+    const lose = async (id, chunks) => {
+      const file = await db.collection("images.files").findOne({ filename: id });
+      await db.collection("images.chunks").deleteMany({ files_id: file._id, ...chunks });
+    };
+    const expectError = async (id) => {
+      const response = await fetch(imageUrl(id));
+      assert.equal(response.status, 500);
+      assert.match((await response.json()).error, /went wrong/);
+    };
+    // Bigger than one 255 KB chunk, with its first chunk gone: reading it fails.
+    const firstLost = ok(await client.image(boardId, png(300_000)));
+    await lose(firstLost, { n: 0 });
+    await expectError(firstLost);
+    // Every chunk gone: reading it finds nothing at all.
+    const allLost = ok(await client.image(boardId, png()));
+    await lose(allLost, {});
+    await expectError(allLost);
   });
 
   it("answers 404 for an image that doesn't exist and for a malformed id", async () => {
@@ -261,8 +404,9 @@ describe("image elements on a board", () => {
       body: { boardId, title: "T" },
     });
     assert.equal(status, 201);
+    assert.equal(data.template.elementCount, 1);
     assert.deepEqual(
-      data.template.elements.map((element) => element.type),
+      data.template.preview.map((element) => element.type),
       ["rectangle"],
     );
   });
@@ -293,16 +437,19 @@ describe("cleaning up images nothing shows", () => {
     assert.equal(await status(inVersion), 200);
   });
 
-  it("makes room by sweeping pictures nothing shows when a board runs out", async () => {
+  it("makes room by sweeping pictures nothing shows when a board runs out, outside the upload", async () => {
     const { boardId, client } = await ownerOnBoard();
     await withLimits({ board: 250_000, keepUnusedForMs: 0 }, async () => {
       const unused = ok(await client.image(boardId, png(100_000)));
       const placed = ok(await client.image(boardId, png(100_000)));
       await client.op(boardId, upsert(picture(placed, "a")));
 
-      ok(await client.image(boardId, png(100_000)));
+      // The upload that runs out is answered straight away; the sweep it starts runs after.
+      assert.equal((await client.image(boardId, png(100_000))).full, "board");
+      await sweepsSettled();
       assert.equal(await status(unused), 404);
       assert.equal(await status(placed), 200);
+      ok(await client.image(boardId, png(100_000)));
     });
   });
 
@@ -313,6 +460,22 @@ describe("cleaning up images nothing shows", () => {
       const second = ok(await client.image(boardId, png(100_000)));
       await client.op(boardId, upsert(picture(first, "a"), picture(second, "b")));
       assert.equal((await client.image(boardId, png(100_000))).full, "board");
+    });
+  });
+
+  it("doesn't sweep for the same owner again right after a sweep that freed nothing", async () => {
+    const { boardId, client } = await ownerOnBoard();
+    await withLimits({ board: 250_000, keepUnusedForMs: 0, sweepEveryMs: 60_000 }, async () => {
+      const first = ok(await client.image(boardId, png(100_000)));
+      const second = ok(await client.image(boardId, png(100_000)));
+      await client.op(boardId, upsert(picture(first, "a"), picture(second, "b")));
+      assert.equal((await client.image(boardId, png(100_000))).full, "board"); // swept, nothing to free
+      await sweepsSettled();
+
+      await client.op(boardId, remove("a"));
+      assert.equal((await client.image(boardId, png(100_000))).full, "board"); // too soon to sweep again
+      await sweepsSettled();
+      assert.equal(await status(first), 200);
     });
   });
 });

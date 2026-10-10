@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   applyOperation,
   cleanStamps,
+  commitPlan,
   compareStamps,
   effectOf,
   groupStamps,
@@ -92,10 +93,106 @@ describe("merging two copies of an element", () => {
     assert.equal(mergeElement(base, base), base);
   });
 
+  it("keeps a group the newer copy doesn't have at all, such as a label on a connector that was only moved", () => {
+    // A connector made without a label, moved by one person while another labels it (and the other way round).
+    const arrow = { ...rect("c"), type: "arrow", x2: 80, y2: 0 };
+    const plain = everyGroup(arrow, at(1, 9));
+    const labelled = withStamps(
+      { ...plain, text: "yes", font: "hand", route: "elbow" },
+      { ...groupStamps(plain), text: at(2, 1), font: at(2, 1), route: at(2, 1) },
+    );
+    const dragged = withStamps({ ...plain, x2: 200 }, { ...groupStamps(plain), shape: at(3, 5) });
+    for (const merged of [mergeElement(labelled, dragged), mergeElement(dragged, labelled)]) {
+      assert.equal(merged.x2, 200);
+      assert.deepEqual([merged.text, merged.font, merged.route], ["yes", "hand", "elbow"]);
+    }
+    assert.deepEqual(mergeElement(labelled, dragged), mergeElement(dragged, labelled));
+  });
+
+  it("clears a field set to an empty value, since leaving it out says nothing", () => {
+    const labelled = everyGroup({ ...rect("c"), type: "arrow", text: "yes" }, at(1, 9));
+    const cleared = withStamps({ ...labelled, text: "" }, { ...groupStamps(labelled), text: at(2) });
+    assert.equal(mergeElement(labelled, cleared).text, "");
+  });
+
   it("drops fields the winning copy doesn't have, like an angle that was reset", () => {
     const turned = withStamps({ ...base, angle: 1 }, { ...groupStamps(base), shape: at(2) });
     const straightened = withStamps({ ...base }, { ...groupStamps(base), shape: at(3) });
     assert.equal("angle" in mergeElement(turned, straightened), false);
+  });
+});
+
+describe("removals of elements nobody has seen", () => {
+  const removal = { id: "ghost", version: 5, versionNonce: 0 };
+
+  it("are remembered by default, so the element stays gone if it turns up late", () => {
+    const tombstones = new Map();
+    applyOperation([], { upsert: [], remove: [removal] }, tombstones);
+    assert.deepEqual([...tombstones.keys()], ["ghost"]);
+    assert.deepEqual(applyOperation([], { upsert: [everyGroup(rect("ghost"), at(2))], remove: [] }, tombstones), []);
+  });
+
+  it("can be left out, so made-up ids don't fill a board's memory", () => {
+    const tombstones = new Map([["known", { ...at(1) }]]);
+    const plan = planOperation([], { upsert: [], remove: [removal, { id: "known", ...at(4) }] }, tombstones, {
+      remember: false,
+    });
+    assert.deepEqual([...plan.graves.keys()], ["known"], "only one that was already removed is brought up to date");
+  });
+});
+
+describe("keeping an index of the elements by id", () => {
+  it("is brought up to date by commitPlan, and gives the same board", () => {
+    const board = [everyGroup(rect("a", { index: "a0" }), at(1)), everyGroup(rect("b", { index: "a1" }), at(1))];
+    const index = new Map(board.map((element) => [element.id, element]));
+    const op = {
+      upsert: [everyGroup(rect("a", { index: "a0", x1: 7 }), at(2)), everyGroup(rect("c", { index: "a2" }), at(1))],
+      remove: [{ id: "b", ...at(3) }],
+    };
+    const plan = planOperation(board, op, new Map(), { index });
+    const { elements } = commitPlan(plan, new Map());
+    assert.deepEqual(elements, applyOperation(board, op, new Map()));
+    assert.deepEqual([...index.keys()].sort(), ["a", "c"]);
+    assert.equal(index.get("a").x1, 7);
+  });
+
+  it("adds new elements on top without sorting, and still sorts those that go lower, or a removal and return", () => {
+    const board = [everyGroup(rect("a", { index: "a1" }), at(1)), everyGroup(rect("b", { index: "a2" }), at(1))];
+    const sorted = (elements) => [...elements].sort((x, y) => (x.index < y.index ? -1 : x.index > y.index ? 1 : 0));
+    const onTop = applyOperation(board, {
+      upsert: [everyGroup(rect("c", { index: "a3" }), at(1)), everyGroup(rect("d", { index: "a4" }), at(1))],
+    });
+    assert.deepEqual(
+      onTop.map((element) => element.id),
+      ["a", "b", "c", "d"],
+    );
+    const below = applyOperation(board, {
+      upsert: [everyGroup(rect("e", { index: "a3" }), at(1)), everyGroup(rect("f", { index: "a0" }), at(1))],
+    });
+    assert.deepEqual(below, sorted(below));
+    assert.deepEqual(
+      below.map((element) => element.id),
+      ["f", "a", "b", "e"],
+    );
+    // Removed and brought back by one change: once, in its place.
+    const back = applyOperation(board, {
+      remove: [{ id: "a", ...at(2) }],
+      upsert: [everyGroup(rect("a", { index: "a1", x1: 3 }), at(3))],
+    });
+    assert.deepEqual(
+      back.map((element) => [element.id, element.x1]),
+      [
+        ["a", 3],
+        ["b", 0],
+      ],
+    );
+  });
+
+  it("leaves out new elements past the cap", () => {
+    const index = new Map();
+    const plan = planOperation([], { upsert: [everyGroup(rect("x"), at(1))], remove: [] }, new Map(), { index });
+    commitPlan(plan, new Map(), { limit: 0 });
+    assert.equal(index.size, 0);
   });
 });
 

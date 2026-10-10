@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { Avatar } from "../../components/Avatar";
 import { timeAgo } from "../../lib/format";
+import { useMinute } from "../../lib/useMinute";
 import { BoardMenu, RoleBadge, StarButton } from "./BoardParts";
 import { daysLeft, isMember, SORT_KEYS } from "./sections";
 
@@ -31,6 +32,7 @@ function SortHeader({ id, sort, onSort, children, className }) {
 /** The list view: one row per board, with checkboxes for acting on several at once. */
 export function BoardTable({ boards, trashed = false, sort, onSort, selected, onToggle, onToggleAll, actions }) {
   const allRef = useRef(null);
+  useMinute();
   const chosen = boards.filter((board) => selected.has(board.id)).length;
 
   useEffect(() => {

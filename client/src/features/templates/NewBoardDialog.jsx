@@ -2,7 +2,7 @@ import clsx from "clsx";
 import { FilePlus2, LoaderCircle, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { IconButton } from "../../components/Button";
+import { Button, IconButton } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { api } from "../../lib/api";
 import { BoardPreview } from "../board/BoardPreview";
@@ -48,12 +48,15 @@ function BuiltinChoice({ template, disabled, onChoose }) {
  * Pick how a new board starts: blank, a built-in template, or one of the
  * person's own saved templates. `onCreate` receives what to send to
  * api.createBoard ({} for blank, { title, elements } or { templateId }).
+ * Saved templates are listed as light previews; the server copies the full one when a board starts from it.
  */
-export function NewBoardDialog({ open, onClose, onCreate, busy = false, signedIn = true }) {
+export function NewBoardDialog({ open, onClose, onCreate, busy = false }) {
   const [mine, setMine] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null); // the template Delete is waiting on a second click for
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
-    if (!open || !signedIn) return undefined;
+    if (!open) return undefined;
     let active = true;
     api
       .listTemplates()
@@ -62,15 +65,19 @@ export function NewBoardDialog({ open, onClose, onCreate, busy = false, signedIn
     return () => {
       active = false;
     };
-  }, [open, signedIn]);
+  }, [open]);
 
   async function remove(template) {
+    setDeletingId(template.id);
     try {
       await api.deleteTemplate(template.id);
       setMine((list) => list.filter((item) => item.id !== template.id));
       toast.success(`Deleted the “${template.title}” template`);
     } catch (error) {
       toast.error(error.message);
+    } finally {
+      setDeletingId(null);
+      setConfirmingId(null);
     }
   }
 
@@ -97,7 +104,7 @@ export function NewBoardDialog({ open, onClose, onCreate, busy = false, signedIn
         ))}
       </ul>
 
-      {signedIn && mine?.length > 0 && (
+      {mine?.length > 0 && (
         <>
           <h3 className="mt-6 mb-3 text-sm font-medium text-graphite">Your templates</h3>
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -105,20 +112,37 @@ export function NewBoardDialog({ open, onClose, onCreate, busy = false, signedIn
               <Choice
                 key={template.id}
                 title={template.title}
-                detail={`${template.elements.length} elements`}
+                detail={`${template.elementCount} elements`}
                 disabled={busy}
                 onClick={() => onCreate({ templateId: template.id })}
                 action={
-                  <IconButton
-                    label={`Delete the ${template.title} template`}
-                    icon={Trash2}
-                    size="sm"
-                    onClick={() => remove(template)}
-                    className="absolute top-1.5 right-1.5 bg-surface/90 text-danger opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100"
-                  />
+                  confirmingId === template.id ? (
+                    <span className="absolute top-1.5 right-1.5 flex gap-1 rounded-lg bg-surface/90 p-1 shadow-sm">
+                      <Button variant="ghost" size="sm" autoFocus onClick={() => setConfirmingId(null)}>
+                        Keep
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        loading={deletingId === template.id}
+                        onClick={() => remove(template)}
+                        aria-label={`Confirm deleting the ${template.title} template`}
+                      >
+                        Delete
+                      </Button>
+                    </span>
+                  ) : (
+                    <IconButton
+                      label={`Delete the ${template.title} template`}
+                      icon={Trash2}
+                      size="sm"
+                      onClick={() => setConfirmingId(template.id)}
+                      className="absolute top-1.5 right-1.5 bg-surface/90 text-danger opacity-0 shadow-sm group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 [@media(pointer:coarse)]:opacity-100"
+                    />
+                  )
                 }
               >
-                <BoardPreview elements={template.elements} className="aspect-[16/10]" padding={10} />
+                <BoardPreview elements={template.preview ?? []} className="aspect-[16/10]" padding={10} />
               </Choice>
             ))}
           </ul>

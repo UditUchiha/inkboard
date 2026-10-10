@@ -1,4 +1,4 @@
-import { FONTS, LINE_HEIGHT } from "./constants";
+import { FONTS, LINE_HEIGHT, fontKey } from "./constants";
 import { normalizeRect } from "./geometry";
 
 // How a sticky note lays out its text: wrapped to the note's width, centered,
@@ -11,10 +11,38 @@ export const NOTE_PADDING = 0.09; // of the note's shorter side, on every edge
 export const MIN_NOTE_FONT_SIZE = 6;
 const SHRINK = 0.9;
 
+// Whole characters as people see them, so a break never splits an emoji, a
+// flag, or a letter with its accents.
+const segmenter =
+  typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+export const charactersOf = (word) =>
+  segmenter ? Array.from(segmenter.segment(word), (part) => part.segment) : Array.from(word);
+
+// How many characters from `start` fit in `maxWidth`, at least one: doubling
+// until one doesn't, then halving back, so it measures the length of a line a
+// few times over, never the word that's left.
+function charactersThatFit(characters, start, maxWidth, measure) {
+  const remaining = characters.length - start;
+  const fits = (count) => measure(characters.slice(start, start + count).join("")) <= maxWidth;
+  let low = 1; // a line takes at least one character, fitting or not
+  let high = 2; // doesn't fit, or is more than is left
+  while (high <= remaining && fits(high)) {
+    low = high;
+    high *= 2;
+  }
+  high = Math.min(high, remaining + 1);
+  while (high - low > 1) {
+    const middle = Math.floor((low + high) / 2);
+    if (fits(middle)) low = middle;
+    else high = middle;
+  }
+  return low;
+}
+
 /**
  * `text` broken into lines no wider than `maxWidth`, measured by `measure(line)`.
  * Lines break between words; a word too long for a line of its own is broken
- * between letters. Line breaks in the text are kept, and spaces too, as the
+ * between characters. Line breaks in the text are kept, and spaces too, as the
  * editor shows them: at the start of a paragraph they're kept, and where a line
  * breaks they hang off the end of it, unseen.
  */
@@ -31,16 +59,36 @@ export function wrapLines(text, maxWidth, measure) {
       if (word === "") continue; // a space where the line breaks
       if (line !== null) lines.push(line);
       line = word;
-      while (line.length > 1 && measure(line) > maxWidth) {
-        let fits = 1;
-        while (fits < line.length - 1 && measure(line.slice(0, fits + 1)) <= maxWidth) fits += 1;
-        lines.push(line.slice(0, fits));
-        line = line.slice(fits);
+      if (measure(line) <= maxWidth) continue;
+      const characters = charactersOf(word);
+      let start = 0;
+      while (characters.length - start > 1) {
+        const count = charactersThatFit(characters, start, maxWidth, measure);
+        if (start + count >= characters.length) break;
+        lines.push(characters.slice(start, start + count).join(""));
+        start += count;
       }
+      line = characters.slice(start).join("");
     }
     lines.push(line ?? "");
   }
   return lines;
+}
+
+// Past this many characters, wrapping the text at every size it's tried at gets expensive.
+const LONG_TEXT = 400;
+
+// Whether a long text surely needs more lines than fit at `size`, going by how
+// wide it is rather than wrapping it: the lines hold all of it but the spaces
+// where they break. So a size it can't fit is passed over without wrapping.
+function cannotFit(element, size, width, height, measure) {
+  if (element.text.length <= LONG_TEXT) return false;
+  let lines = 0;
+  for (const paragraph of element.text.split("\n")) {
+    const letters = measure(paragraph.replaceAll(" ", ""), size, element.font);
+    lines += Math.max(1, Math.floor(letters / width));
+  }
+  return lines * size * LINE_HEIGHT > height;
 }
 
 /**
@@ -62,6 +110,10 @@ export function layoutNote(element, measure) {
   let fits;
   for (;;) {
     const size = fontSize;
+    if (fontSize > MIN_NOTE_FONT_SIZE && cannotFit(element, size, width, height, measure)) {
+      fontSize = Math.max(MIN_NOTE_FONT_SIZE, Math.floor(fontSize * SHRINK));
+      continue;
+    }
     lines = wrapLines(element.text, width, (line) => measure(line, size, element.font));
     fits = lines.length * fontSize * LINE_HEIGHT <= height;
     if (fits || fontSize <= MIN_NOTE_FONT_SIZE) break;
@@ -83,11 +135,14 @@ export function layoutNote(element, measure) {
 // Text width scales with font size, so each piece of text is measured once, at
 // a reference size, and scaled.
 const REFERENCE_SIZE = 100;
+// Lines and words are worth remembering, the pieces of one enormous word that
+// wrapping tries one after another are not.
+const MAX_REMEMBERED_LENGTH = 120;
 const widths = new Map(); // font -> Map(text -> width at REFERENCE_SIZE)
 let context;
 
 function measureInCanvas(text, fontSize, font) {
-  const key = FONTS[font] ? font : "hand";
+  const key = fontKey(font);
   let known = widths.get(key);
   if (!known) {
     known = new Map();
@@ -98,8 +153,10 @@ function measureInCanvas(text, fontSize, font) {
     context ??= document.createElement("canvas").getContext("2d");
     context.font = `${REFERENCE_SIZE}px ${FONTS[key].family}`;
     width = context.measureText(text).width;
-    if (known.size > 20_000) known.clear();
-    known.set(text, width);
+    if (text.length <= MAX_REMEMBERED_LENGTH) {
+      if (known.size > 20_000) known.clear();
+      known.set(text, width);
+    }
   }
   return (width * fontSize) / REFERENCE_SIZE;
 }

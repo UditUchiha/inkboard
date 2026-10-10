@@ -5,20 +5,25 @@ import { Button, ButtonLink } from "../components/Button";
 import { FullPageLoader, FullPageMessage, RequireAuth } from "../components/RouteGuards";
 import { APP_NAME } from "../config";
 import { BoardEditor } from "../features/board/BoardEditor";
-import { clearScratch, readScratch, useScratchBoard } from "../features/board/scratch";
+import { clearScratch, currentScratch, useScratchBoard } from "../features/board/scratch";
+import { importScratch } from "../features/board/scratchImport";
 import { useBoardSnapshot } from "../features/board/store";
 import { api } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
+import { useSocket } from "../providers/SocketProvider";
 
 // /draw is the no-account whiteboard. The board is kept in this browser. Once
 // someone signs up or logs in (the "Save board" button sends them to /register?next=/draw),
 // they land back here and the drawing becomes their first board.
 
-function ScratchEditor() {
+// `user` is set when someone signed in comes back here because saving their drawing failed:
+// they can keep working on it, and `onSave` tries saving again.
+function ScratchEditor({ user = null, onSave = null }) {
   const navigate = useNavigate();
   const { store, sync } = useScratchBoard();
   const { elements } = useBoardSnapshot(store);
   const hadDrawing = useRef(false);
+  const [restored] = useState(() => currentScratch().elements.length > 0); // from an earlier visit, not new work
 
   useEffect(() => {
     document.title = `Draw · ${APP_NAME}`;
@@ -32,14 +37,15 @@ function ScratchEditor() {
       toast("Draw something first, then save it.");
       return;
     }
-    navigate("/register?next=/draw");
+    if (onSave) onSave();
+    else navigate("/register?next=/draw");
   };
 
   // Once, after the first mark: say where the drawing is and how to keep it.
   useEffect(() => {
-    if (elements.length === 0 || hadDrawing.current) return;
+    if (elements.length === 0 || hadDrawing.current || user) return;
     hadDrawing.current = true;
-    if (readScratch().elements.length > 0) return; // restored from an earlier visit, not new work
+    if (restored) return;
     toast("Your board is saved in this browser.", {
       description: "Create a free account to keep it safe and share it.",
       action: { label: "Save board", onClick: save },
@@ -47,33 +53,46 @@ function ScratchEditor() {
     });
   });
 
-  return <BoardEditor store={store} sync={sync} user={null} local={{ onSave: save }} />;
+  return <BoardEditor store={store} sync={sync} user={user} local={{ onSave: save }} />;
 }
 
-// Signed in: turn the guest's drawing into a real board, then open it.
-function ImportScratch() {
+// Signed in: turn the guest's drawing into a real board, then open it. If that
+// fails the person can try again, or go back to the drawing (`onKeep`): it is
+// still here, so nothing is lost. `created` holds a board an earlier try made, to
+// be filled in rather than made again; it's kept by the page, so it outlasts going
+// back to the drawing and saving from there.
+function ImportScratch({ onKeep, created }) {
   const navigate = useNavigate();
-  const started = useRef(false);
+  const socket = useSocket();
+  const started = useRef(-1); // the try that's under way or done
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    const scratch = readScratch();
+    if (!socket) return; // a big drawing is partly uploaded over the socket
+    const scratch = currentScratch();
     if (scratch.elements.length === 0) {
       navigate("/boards", { replace: true });
       return;
     }
-    if (started.current && attempt === 0) return;
-    started.current = true;
-    api
-      .createBoard({ title: scratch.title, elements: scratch.elements })
-      .then(({ board }) => {
+    if (started.current === attempt) return;
+    started.current = attempt;
+    importScratch({
+      scratch,
+      createBoard: api.createBoard,
+      socket,
+      created: created.current,
+      onCreated: (board) => {
+        created.current = board;
+      },
+    })
+      .then((board) => {
         clearScratch();
         toast.success("Your drawing is saved to your boards.");
         navigate(`/board/${board.id}`, { replace: true });
       })
-      .catch((createError) => setError(createError.message));
-  }, [navigate, attempt]);
+      .catch((importError) => setError(importError.message));
+  }, [navigate, socket, attempt, created]);
 
   if (error) {
     return (
@@ -89,6 +108,9 @@ function ImportScratch() {
             >
               Try again
             </Button>
+            <Button variant="secondary" onClick={onKeep}>
+              Back to the drawing
+            </Button>
             <ButtonLink to="/boards" variant="secondary">
               Go to your boards
             </ButtonLink>
@@ -103,8 +125,16 @@ function ImportScratch() {
 }
 
 function DrawRoute() {
-  const { status } = useAuth();
-  if (status === "authenticated") return <ImportScratch />;
+  const { status, user } = useAuth();
+  const [keepEditing, setKeepEditing] = useState(false);
+  const created = useRef(null); // the board saving this drawing made (see ImportScratch)
+  if (status === "authenticated") {
+    return keepEditing ? (
+      <ScratchEditor user={user} onSave={() => setKeepEditing(false)} />
+    ) : (
+      <ImportScratch onKeep={() => setKeepEditing(true)} created={created} />
+    );
+  }
   if (status === "anonymous") return <ScratchEditor />;
   return <Navigate to="/" replace />;
 }

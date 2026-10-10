@@ -10,7 +10,7 @@ const notificationSchema = new mongoose.Schema(
     type: { type: String, enum: NOTIFICATION_TYPES, required: true },
     actor: { type: ObjectId, ref: "User", required: true },
     board: { type: ObjectId, ref: "Board", required: true, index: true },
-    thread: { type: ObjectId, default: null },
+    thread: { type: ObjectId, default: null, index: true },
     excerpt: { type: String, maxlength: 140, default: null },
     read: { type: Boolean, default: false },
     // Old notifications are removed automatically after 60 days.

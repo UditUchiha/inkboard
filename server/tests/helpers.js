@@ -5,8 +5,8 @@ import { io as connectSocket } from "socket.io-client";
 
 process.env.NODE_ENV ??= "test";
 // Tests must not depend on whatever is in a developer's server/.env. Variables already set win over
-// that file, so blanking these keeps social sign-in "not configured" and emails unsent (kept in the
-// outbox) for every test.
+// that file, so blanking these keeps social sign-in "not configured", emails unsent (kept in the
+// outbox), links built from each request's address and CORS at its default for every test.
 for (const key of [
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
@@ -14,6 +14,13 @@ for (const key of [
   "GITHUB_CLIENT_SECRET",
   "BREVO_API_KEY",
   "EMAIL_FROM",
+  "EMAIL_FROM_NAME",
+  "EMAIL_DAILY_LIMIT",
+  "APP_URL",
+  "API_URL",
+  "CLIENT_ORIGIN",
+  "TRUST_PROXY",
+  "JWT_EXPIRES_IN",
 ]) {
   process.env[key] = "";
 }
@@ -36,8 +43,13 @@ export async function eventually(check, { timeout = 3000, interval = 25, message
   }
 }
 
-/** Waits long enough for something that should NOT happen to have had its chance. */
-export const settle = (ms = 150) => wait(ms);
+/**
+ * A round trip on `client`'s socket, for asserting that something did NOT arrive without sleeping. The server
+ * answers after everything it sent that socket earlier (one connection delivers in order), so once this resolves,
+ * whatever the server had already emitted to the client is in `client.events`. (The request names no board, so it
+ * changes nothing; the reply is "noSession".)
+ */
+export const roundTrip = (client) => client.op("no-board", { upsert: [], remove: [] });
 
 // Small element factories. Shapes match what the client creates.
 export const rect = (id, x = 0, y = 0) => ({

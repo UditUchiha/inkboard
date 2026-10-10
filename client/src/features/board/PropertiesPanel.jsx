@@ -6,10 +6,12 @@ import {
   FONTS,
   NOTE_COLORS,
   PEN_SIZES,
+  ROUTE_OPTIONS,
   STROKE_COLORS,
   STROKE_WIDTHS,
   STYLE_CONTROLS,
 } from "./constants";
+import { isComposing } from "./mentions";
 
 function Section({ label, children }) {
   return (
@@ -105,7 +107,8 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
           <input
             value={values.name ?? ""}
             onChange={(event) => onChange("name", event.target.value.slice(0, 200))}
-            onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+            // Enter while an input method is composing confirms the text, not the name.
+            onKeyDown={(event) => event.key === "Enter" && !isComposing(event) && event.currentTarget.blur()}
             placeholder="Frame"
             className="h-8 rounded-lg border border-rule bg-surface px-2 text-sm outline-none focus:border-signal"
           />
@@ -200,6 +203,29 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
         </Section>
       )}
 
+      {controls.includes("route") && (
+        <Section label="Path">
+          <Segmented
+            options={ROUTE_OPTIONS}
+            value={values.route ?? "straight"}
+            onChange={(value) => onChange("route", value)}
+          />
+        </Section>
+      )}
+
+      {controls.includes("startHead") && (
+        <Section label="Arrowheads">
+          <Segmented
+            options={[
+              { name: "End", value: false },
+              { name: "Both ends", value: true },
+            ]}
+            value={Boolean(values.startHead)}
+            onChange={(value) => onChange("startHead", value)}
+          />
+        </Section>
+      )}
+
       {controls.includes("sketchy") && (
         <Section label="Edges">
           <Segmented
@@ -213,8 +239,8 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
         </Section>
       )}
 
-      {controls.includes("font") && (
-        <Section label="Font">
+      {(controls.includes("font") || (controls.includes("labelFont") && values.text)) && (
+        <Section label={controls.includes("labelFont") ? "Label font" : "Font"}>
           <Segmented
             options={Object.entries(FONTS).map(([value, font]) => ({ name: font.name, value }))}
             value={values.font}

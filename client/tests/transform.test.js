@@ -14,7 +14,18 @@ before(() => {
 const { getBounds, getFrame, hitTest } = await import("../src/features/board/elements.js");
 const { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } =
   await import("../src/features/board/transform.js");
-const { rotatePoint, rotatedRectBounds } = await import("../src/features/board/geometry.js");
+const {
+  DRAG_THRESHOLD,
+  appendPoints,
+  clamp,
+  hasDragged,
+  pinchViewport,
+  pressRole,
+  rotatePoint,
+  rotatedRectBounds,
+  stalePointers,
+  TOUCH_IDLE_MS,
+} = await import("../src/features/board/geometry.js");
 
 const near = (actual, expected, message, tolerance = 1e-6) =>
   assert.ok(Math.abs(actual - expected) <= tolerance, `${message}: expected ${expected}, got ${actual}`);
@@ -237,6 +248,78 @@ describe("resizing", () => {
     assert.ok(resized.points.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])));
   });
 
+  it("keeps a flat stroke where it is along its flat side, and scales it along the other", () => {
+    const flat = pen({
+      points: [
+        [0, 40, 0.5],
+        [100, 40, 0.5],
+      ],
+    });
+    const taller = resizeElement(flat, "se", { x: 200, y: 100 });
+    assert.deepEqual(
+      taller.points.map((point) => point[1]),
+      [40, 40],
+      "no sliding sideways to follow the pointer",
+    );
+    near(Math.max(...taller.points.map((point) => point[0])), 200, "still stretches along its length");
+    const wider = resizeElement(flat, "s", { x: 50, y: 90 });
+    assert.deepEqual(wider.points, flat.points);
+  });
+
+  it("scales a flat stroke along its real side with Shift held, as it does without", () => {
+    const upright = pen({
+      points: [
+        [100, 0, 0.5],
+        [100, 50, 0.5],
+        [100, 100, 0.5],
+      ],
+    });
+    const span = (element, axis) =>
+      Math.max(...element.points.map((p) => p[axis])) - Math.min(...element.points.map((p) => p[axis]));
+    const point = { x: 140, y: 110 };
+    for (const keepAspect of [false, true]) {
+      const out = resizeElement(upright, "se", point, { keepAspect });
+      near(span(out, 1), 110, `taller to the pointer (keepAspect ${keepAspect})`);
+      near(span(out, 0), 0, "and still flat");
+    }
+    const lying = pen({
+      points: [
+        [0, 40, 0.5],
+        [100, 40, 0.5],
+      ],
+    });
+    near(span(resizeElement(lying, "se", { x: 200, y: 100 }, { keepAspect: true }), 0), 200, "a level stroke too");
+  });
+
+  it("keeps the far end of a turned flat stroke where it is", () => {
+    // Flat along x, turned a quarter: on screen it runs down from (50, -50) to (50, 50).
+    const flat = pen({
+      points: [
+        [0, 0, 0.5],
+        [50, 0, 0.5],
+        [100, 0, 0.5],
+      ],
+      angle: Math.PI / 2,
+    });
+    const onScreen = (element) => {
+      const { cx, cy, angle } = getFrame(element);
+      return element.points.map(([x, y]) => rotatePoint(x, y, cx, cy, angle));
+    };
+    const longer = onScreen(resizeElement(flat, "e", { x: 50, y: 150 }));
+    nearPoint(longer[0], [50, -50], "the top end stays put");
+    nearPoint(longer.at(-1), [50, 150], "the bottom end follows the pointer");
+    const upwards = onScreen(resizeElement(flat, "w", { x: 50, y: -100 }));
+    nearPoint(upwards.at(-1), [50, 50], "the bottom end stays put");
+    nearPoint(upwards[0], [50, -100]);
+    const corner = onScreen(resizeElement(flat, "se", { x: 90, y: 150 }));
+    assert.ok(corner.every(([x, y]) => Number.isFinite(x) && Number.isFinite(y)));
+    nearPoint(corner[0], [50, -50], "a corner keeps the top end too");
+    assert.ok(
+      corner.every(([x]) => Math.abs(x - 50) < 1e-6),
+      "and the stroke stays flat",
+    );
+  });
+
   it("moves one end of a line or arrow, with 15 degree steps on Shift", () => {
     const line = { id: "l", type: "line", x1: 0, y1: 0, x2: 100, y2: 0, strokeWidth: 2, stroke: "#000" };
     const free = resizeElement(line, "end", { x: 40, y: 70 });
@@ -303,5 +386,104 @@ describe("turning", () => {
   it("keeps a stroke's points as they are, so turning is undoable and lossless", () => {
     const turned = rotateElement(pen(), { x: 50, y: -50 }, { x: 150, y: 30 });
     assert.deepEqual(turned.points, pen().points);
+  });
+});
+
+describe("drag threshold", () => {
+  it("counts a press as a drag only once the pointer has gone a few pixels", () => {
+    const press = { x: 100, y: 100 };
+    assert.equal(hasDragged(press, press), false);
+    assert.equal(hasDragged(press, { x: 102, y: 101 }), false, "a shaky click");
+    assert.equal(hasDragged(press, { x: 100 + DRAG_THRESHOLD - 1, y: 100 }), false);
+    assert.equal(hasDragged(press, { x: 100 + DRAG_THRESHOLD, y: 100 }), true);
+    assert.equal(hasDragged(press, { x: 103, y: 103 }), true, "diagonal distance counts");
+  });
+});
+
+describe("pointers held on the canvas", () => {
+  const held = (...pointers) => new Map(pointers.map(([id, type]) => [id, { type }]));
+
+  it("are let go of when a press shows their pointerup was missed", () => {
+    assert.deepEqual(stalePointers(held([1, "mouse"]), 1, "mouse"), [1], "the same mouse pressed again");
+    assert.deepEqual(stalePointers(held([7, "pen"]), 8, "pen"), [7], "a pen has a new id each time it lands");
+    assert.deepEqual(stalePointers(held([1, "mouse"]), 9, "pen"), [1], "a mouse can't be held down with a pen");
+    assert.deepEqual(stalePointers(held([3, "touch"]), 3, "touch"), [3], "a finger by the same id");
+    assert.deepEqual(stalePointers(held([3, "touch"], [4, "touch"]), 5, "touch"), [], "other fingers can be down");
+    assert.deepEqual(stalePointers(held([3, "touch"]), 1, "mouse"), [3], "a mouse can't press while a finger is down");
+    assert.deepEqual(stalePointers(held([3, "touch"]), 9, "pen"), [], "a pen lands beside a resting palm");
+  });
+
+  it("lets go of a finger that has been still for too long when another lands", () => {
+    const fingers = new Map([[3, { type: "touch", at: 1000 }]]);
+    assert.deepEqual(stalePointers(fingers, 4, "touch", 1000 + TOUCH_IDLE_MS), [], "a finger resting for a pinch");
+    assert.deepEqual(stalePointers(fingers, 4, "touch", 1000 + TOUCH_IDLE_MS + 1), [3], "one never lifted");
+    assert.deepEqual(stalePointers(fingers, 4, "touch"), [], "without a time, none is judged");
+    assert.deepEqual(stalePointers(new Map([[3, { type: "touch" }]]), 4, "touch", 1e9), [], "nor one with none");
+    const pointers = new Map(fingers);
+    for (const id of stalePointers(pointers, 4, "touch", 60_000)) pointers.delete(id);
+    assert.equal(pressRole([...pointers.values()], "touch"), "start", "a new finger isn't half a pinch");
+  });
+
+  it("decide what a press does", () => {
+    assert.equal(pressRole([], "mouse"), "start");
+    assert.equal(pressRole([{ type: "touch" }], "touch"), "pinch", "a second finger");
+    assert.equal(pressRole([{ type: "touch" }, { type: "touch" }], "touch"), "ignore", "a third finger");
+    assert.equal(pressRole([{ type: "pen" }], "touch"), "ignore", "a palm beside a pen");
+    assert.equal(pressRole([{ type: "touch" }], "mouse"), "ignore", "a mouse click while touching");
+    assert.equal(pressRole([{ type: "touch" }], "pen"), "take over", "a pen landing beside a resting palm");
+    assert.equal(pressRole([{ type: "touch" }, { type: "touch" }], "pen"), "take over", "or a whole hand");
+  });
+
+  it("never leave a mouse unable to press after a missed pointerup", () => {
+    const pointers = held([1, "mouse"]);
+    for (const id of stalePointers(pointers, 1, "mouse")) pointers.delete(id);
+    assert.equal(pressRole([...pointers.values()], "mouse"), "start");
+  });
+});
+
+describe("pinching", () => {
+  const start = { zoom: 1, x: 0, y: 0 };
+
+  it("scales the zoom with how far apart the fingers are", () => {
+    const zoomed = pinchViewport(start, { x: 150, y: 100 }, 100, { x: 100, y: 100 }, { x: 300, y: 100 });
+    near(zoomed.zoom, 2, "fingers twice as far apart");
+    near(200 / zoomed.zoom - zoomed.x, 150, "the point first between the fingers stays between them");
+  });
+
+  it("stays finite when both fingers start on the same spot", () => {
+    const spot = { x: 120, y: 80 };
+    for (const [a, b] of [
+      [spot, spot],
+      [spot, { x: 220, y: 80 }],
+    ]) {
+      const next = pinchViewport(start, spot, 0, a, b);
+      assert.ok(Number.isFinite(next.zoom) && Number.isFinite(next.x) && Number.isFinite(next.y));
+    }
+  });
+
+  it("clamps NaN to the lower limit instead of passing it on", () => {
+    assert.equal(clamp(Number.NaN, 0.1, 6), 0.1);
+    assert.equal(clamp(9, 0.1, 6), 6);
+  });
+});
+
+describe("pen stroke points", () => {
+  it("are kept to two decimals, and a point where the last one is is not added", () => {
+    const first = [[1.234567, 2.345678, 0.123456]];
+    const points = appendPoints(first, [
+      [1.2349, 2.3449, 0.5],
+      [5.5, 6.5, 0.5],
+      [5.5, 6.5, 0.9],
+    ]);
+    assert.deepEqual(points, [
+      [1.234567, 2.345678, 0.123456],
+      [1.23, 2.34, 0.5],
+      [5.5, 6.5, 0.5],
+    ]);
+  });
+
+  it("are the same array when nothing is added", () => {
+    const points = [[1, 2, 0.5]];
+    assert.equal(appendPoints(points, [[1.001, 2.002, 0.7]]), points);
   });
 });

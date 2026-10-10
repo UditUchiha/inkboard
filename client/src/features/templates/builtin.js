@@ -47,9 +47,11 @@ const arrow = (x1, y1, x2, y2, stroke = INK) => ({
   fill: null,
   strokeWidth: 2,
   sketchy: true,
+  text: "",
+  route: "straight",
+  font: "hand",
+  startHead: false,
 });
-
-const line = (x1, y1, x2, y2, stroke = GREY) => ({ ...arrow(x1, y1, x2, y2, stroke), type: "line" });
 
 const text = (x1, y1, value, { fontSize = 28, stroke = INK, font = "hand" } = {}) => ({
   id: newId(),
@@ -110,10 +112,12 @@ const flowchart = () => {
     text(430, 392, "yes", { fontSize: 22, stroke: GREY }),
     end,
     text(568, 408, "End", { fontSize: 28 }),
-    arrow(278, 428, 150, 428),
-    text(200, 392, "no", { fontSize: 22, stroke: GREY }),
-    line(150, 428, 150, 274),
-    arrow(150, 274, 238, 274),
+    // "No" goes back round to the step, as one arrow attached at both ends.
+    connect(
+      { ...arrow(278, 428, 238, 274), route: "elbow", startAnchor: "left", endAnchor: "left", text: "no" },
+      decision,
+      step,
+    ),
   ];
 };
 
@@ -173,7 +177,7 @@ const brainstorm = () => {
 
 export const BUILTIN_TEMPLATES = [
   { id: "kanban", title: "Kanban board", detail: "Three columns to move work across", build: kanban },
-  { id: "flowchart", title: "Flowchart", detail: "Steps, a decision and two endings", build: flowchart },
+  { id: "flowchart", title: "Flowchart", detail: "Steps, a decision and a way back", build: flowchart },
   { id: "retro", title: "Retrospective", detail: "What went well, what to fix, what's next", build: retrospective },
   { id: "swot", title: "SWOT analysis", detail: "Strengths, weaknesses, opportunities, threats", build: swot },
   { id: "brainstorm", title: "Brainstorm", detail: "A big idea with four branches", build: brainstorm },

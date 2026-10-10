@@ -22,5 +22,7 @@ const versionSchema = new mongoose.Schema(
 );
 
 versionSchema.index({ board: 1, createdAt: -1 });
+// Adding up the space a board's saved versions (or an owner's boards') take reads only this index.
+versionSchema.index({ board: 1, kind: 1, bytes: 1 });
 
 export const Version = mongoose.model("Version", versionSchema);

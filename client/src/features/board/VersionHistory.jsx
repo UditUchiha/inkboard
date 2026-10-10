@@ -2,11 +2,14 @@ import clsx from "clsx";
 import { Bookmark, History, LoaderCircle, RotateCcw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Avatar } from "../../components/Avatar";
 import { Button, IconButton } from "../../components/Button";
 import { api } from "../../lib/api";
 import { timeAgo } from "../../lib/format";
+import { useMinute } from "../../lib/useMinute";
+import { useSocket } from "../../providers/SocketProvider";
 import { BoardPreview } from "./BoardPreview";
+
+const REFRESH_MS = 30_000;
 
 const KIND_LABELS = {
   auto: "Autosaved",
@@ -15,6 +18,7 @@ const KIND_LABELS = {
 };
 
 function VersionRow({ version, selected, onSelect }) {
+  useMinute();
   const title = version.label || KIND_LABELS[version.kind];
   return (
     <li>
@@ -46,27 +50,36 @@ function VersionRow({ version, selected, onSelect }) {
 
 function Preview({ boardId, version, onRestored, onDeleted }) {
   const [elements, setElements] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(null); // "restore" | "delete"
 
   useEffect(() => {
     setElements(null);
-    setConfirming(null);
+    setFailed(false);
     let active = true;
     api
       .getVersion(boardId, version.id)
       .then(({ version: full }) => active && setElements(full.elements))
-      .catch((error) => active && toast.error(error.message));
+      .catch((error) => {
+        if (!active) return;
+        setFailed(true);
+        toast.error(error.message);
+      });
     return () => {
       active = false;
     };
-  }, [boardId, version.id]);
+  }, [boardId, version.id, attempt]);
+
+  useEffect(() => setConfirming(null), [version.id]);
 
   async function restore() {
     setBusy(true);
     try {
       await api.restoreVersion(boardId, version.id);
-      toast.success("Version restored. What was here before is saved in the history.");
+      // The same id as the "someone restored a version" toast everyone gets, so the restorer sees just this one.
+      toast.success("Version restored. What was here before is saved in the history.", { id: "board-restored" });
       onRestored();
     } catch (error) {
       toast.error(error.message);
@@ -95,6 +108,13 @@ function Preview({ boardId, version, onRestored, onDeleted }) {
               <span className="absolute inset-0 grid place-items-center text-sm text-graphite">Empty board</span>
             )}
           </BoardPreview>
+        ) : failed ? (
+          <div className="grid aspect-[16/10] place-items-center content-center gap-2 text-center text-sm text-graphite">
+            <p>Couldn't load this version.</p>
+            <Button variant="secondary" size="sm" onClick={() => setAttempt((count) => count + 1)}>
+              Try again
+            </Button>
+          </div>
         ) : (
           <div className="grid aspect-[16/10] place-items-center text-graphite">
             <LoaderCircle className="size-5 animate-spin" aria-hidden />
@@ -151,19 +171,38 @@ export function VersionHistory({ boardId, onClose }) {
   const [label, setLabel] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const { versions: list } = await api.listVersions(boardId);
-      setVersions(list);
-    } catch (error) {
-      toast.error(error.message);
-      setVersions([]);
-    }
-  }, [boardId]);
+  const load = useCallback(
+    async ({ quiet = false } = {}) => {
+      try {
+        const { versions: list } = await api.listVersions(boardId);
+        setVersions(list);
+      } catch (error) {
+        if (quiet) return; // keep what is shown; the next refresh tries again
+        toast.error(error.message);
+        setVersions([]);
+      }
+    },
+    [boardId],
+  );
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Keep the list current: after someone restores a version, when coming back to the tab, and now and then
+  // (autosaves and other people's saved versions don't announce themselves).
+  const socket = useSocket();
+  useEffect(() => {
+    const refresh = () => document.visibilityState === "visible" && load({ quiet: true });
+    const timer = setInterval(refresh, REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
+    socket?.on("board:reset", refresh);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      socket?.off("board:reset", refresh);
+    };
+  }, [load, socket]);
 
   async function saveVersion(event) {
     event.preventDefault();

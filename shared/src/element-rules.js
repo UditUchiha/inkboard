@@ -1,6 +1,5 @@
-import { cleanStamps, groupStamps, isNonce, isVersion, withStamps } from "@inkboard/shared/board-merge";
-import { isOrderKey } from "@inkboard/shared/board-order";
-import { IMAGE_ID } from "../services/image-storage.js";
+import { cleanStamps, groupStamps, isNonce, isVersion, withStamps } from "./board-merge.js";
+import { isOrderKey } from "./board-order.js";
 
 // What each kind of element may contain, matching what the client creates (see
 // client/src/features/board/elements.js). Elements arrive from anyone who can
@@ -16,12 +15,18 @@ import { IMAGE_ID } from "../services/image-storage.js";
 export const COORDINATE_LIMIT = 10_000_000; // far beyond any real drawing
 export const MAX_TEXT_LENGTH = 20_000;
 export const MAX_FRAME_NAME_LENGTH = 200;
+// A stroke past this is refused before anything is done with it. About what fits in an
+// element (MAX_ELEMENT_BYTES on the server allows about 11,000), so this only stops absurd ones.
+export const MAX_STROKE_POINTS = 50_000;
+export const IMAGE_ID = /^[a-f0-9]{32}$/;
 
 const SHAPE_TYPES = new Set(["line", "arrow", "rectangle", "ellipse"]);
 const CONNECTOR_TYPES = new Set(["line", "arrow"]);
 const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
 const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "image", "pen", "text", "sticky"]);
 const FONTS = new Set(["hand", "sans", "code"]);
+const SIDES = new Set(["top", "right", "bottom", "left"]);
+const ROUTES = new Set(["straight", "curved", "elbow"]);
 const COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 const DEFAULTS = {
@@ -41,13 +46,37 @@ const isCoordinate = (value) =>
   typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= COORDINATE_LIMIT;
 const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
 
+// Made when first needed: this module is loaded with the editor, and a browser without
+// Intl.Segmenter (Firefox before 125) must still open it. Those cut between code points
+// instead, which keeps surrogate pairs whole but may split an emoji sequence.
+let graphemes;
+const segmentsOf = (text) => {
+  if (graphemes === undefined) graphemes = typeof Intl.Segmenter === "function" ? new Intl.Segmenter() : null;
+  return graphemes ? Array.from(graphemes.segment(text), ({ segment }) => segment) : Array.from(text);
+};
+
+/**
+ * `text` cut to at most `max` characters (UTF-16 units, as `.length` counts), never in the
+ * middle of a letter with its accents, an emoji (a ZWJ sequence, a flag, a surrogate pair)
+ * or anything else that's drawn as one. Looks only a little past `max`, so it costs the same for any length.
+ */
+export function cutText(text, max) {
+  if (text.length <= max) return text;
+  let end = 0;
+  for (const segment of segmentsOf(text.slice(0, max + 64))) {
+    if (end + segment.length > max) break;
+    end += segment.length;
+  }
+  return text.slice(0, end);
+}
+
 const color = (value, fallback) => (typeof value === "string" && COLOR.test(value) ? value : fallback);
 const inRange = (value, [min, max], fallback) =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 
 // A stroke's points, keeping only well-formed ones; null if none are.
 function cleanPoints(points) {
-  if (!Array.isArray(points)) return null;
+  if (!Array.isArray(points) || points.length > MAX_STROKE_POINTS) return null;
   const clean = [];
   for (const point of points) {
     if (!Array.isArray(point) || !isCoordinate(point[0]) || !isCoordinate(point[1])) continue;
@@ -56,15 +85,60 @@ function cleanPoints(points) {
   return clean.length > 0 ? clean : null;
 }
 
+// What a line or arrow has from the start (see createElement in client/src/features/board/elements.js):
+// a label (empty), a route, the label's font, and for an arrow, whether it has a head at the start. Each
+// is a property group of its own (see FIELD_GROUPS in board-merge.js).
+const CONNECTOR_DEFAULTS = { text: "", route: "straight", font: DEFAULTS.font };
+const ARROW_DEFAULTS = { ...CONNECTOR_DEFAULTS, startHead: false };
+
+// The stamp of a field filled in with its default: version 0, older than any edit (each is stamped
+// 1 or more), so whatever anyone actually set wins over it, and it wins over nothing.
+const UNSET = { version: 0, versionNonce: 0 };
+
+/**
+ * `element` with every field its kind always has, or `element` itself when none is missing. Lines and
+ * arrows saved before they all had a label, a route, a label font and (arrows) a start arrowhead get the
+ * defaults, stamped as never set. A copy that lacks a group has no say in it when copies are merged
+ * (see mergeElement), so without this, putting one of those back to how it was (undoing a label on an
+ * old arrow) couldn't be said, and the label would stay. Boards fill them in wherever elements arrive.
+ */
+export function withDefaults(element) {
+  const defaults = element?.type === "arrow" ? ARROW_DEFAULTS : element?.type === "line" ? CONNECTOR_DEFAULTS : null;
+  if (!defaults) return element;
+  const missing = Object.keys(defaults).filter((field) => !(field in element));
+  if (missing.length === 0) return element;
+  const stamps = isVersion(element.version) ? groupStamps(element) : null;
+  const filled = { ...element };
+  for (const field of missing) {
+    filled[field] = defaults[field];
+    if (stamps) stamps[field] = UNSET;
+  }
+  return stamps ? withStamps(filled, stamps) : filled;
+}
+
 const corner = (element) => isCoordinate(element.x1) && isCoordinate(element.y1);
 const box = (element) => corner(element) && isCoordinate(element.x2) && isCoordinate(element.y2);
 
-// A connector's attachments: ids of other elements. One that's missing later is ignored when drawing.
-function attachments(element) {
+// What a line or arrow has beyond its shape (see client/src/features/board/connectors.js and routes.js):
+// the elements its ends are attached to (one that's missing later is ignored when drawing), and the
+// side of each it's pinned to; its route; an arrowhead at the start; a label and the label's font.
+// Both ends can't be attached to the same element (the line would be a dot, or double back on
+// itself): the second attachment is left out.
+function connectorFields(element) {
   const kept = {};
-  for (const key of ["startId", "endId"]) {
-    if (isValidId(element[key]) && element[key] !== element.id) kept[key] = element[key];
+  for (const [key, side] of [
+    ["startId", "startAnchor"],
+    ["endId", "endAnchor"],
+  ]) {
+    if (!isValidId(element[key]) || element[key] === element.id) continue;
+    if (key === "endId" && element.endId === element.startId) continue;
+    kept[key] = element[key];
+    if (SIDES.has(element[side])) kept[side] = element[side];
   }
+  if (ROUTES.has(element.route)) kept.route = element.route;
+  if (element.type === "arrow" && typeof element.startHead === "boolean") kept.startHead = element.startHead;
+  if (typeof element.text === "string") kept.text = cutText(element.text, MAX_TEXT_LENGTH);
+  if (FONTS.has(element.font)) kept.font = element.font;
   return kept;
 }
 
@@ -113,7 +187,7 @@ function cleanByType(element) {
   if (type === "frame") {
     if (!box(element)) return null;
     const { x1, y1, x2, y2 } = element;
-    const name = typeof element.name === "string" ? element.name.slice(0, MAX_FRAME_NAME_LENGTH) : "";
+    const name = typeof element.name === "string" ? cutText(element.name, MAX_FRAME_NAME_LENGTH) : "";
     return { id, type, x1, y1, x2, y2, name };
   }
   if (type === "image") {
@@ -137,8 +211,7 @@ function cleanByType(element) {
       fill: FILLABLE_TYPES.has(type) ? color(element.fill, null) : null,
       strokeWidth: inRange(element.strokeWidth, RANGES.strokeWidth, DEFAULTS.strokeWidth),
       sketchy: element.sketchy !== false,
-      // The shapes a connector's ends are attached to (see client/src/features/board/connectors.js).
-      ...(CONNECTOR_TYPES.has(type) ? attachments(element) : {}),
+      ...(CONNECTOR_TYPES.has(type) ? connectorFields(element) : {}),
     };
   }
   return null;
@@ -163,7 +236,7 @@ export function cleanElement(element) {
     if (isNonce(element.versionNonce)) clean.versionNonce = element.versionNonce;
     const stamps = cleanStamps(element.stamps);
     if (stamps) clean.stamps = stamps;
-    return withStamps(clean, groupStamps(clean));
+    return withDefaults(withStamps(clean, groupStamps(clean)));
   }
-  return clean;
+  return withDefaults(clean);
 }

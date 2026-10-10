@@ -12,11 +12,45 @@ const OUTBOX_SIZE = 50;
 /** Emails "sent" by tests, or while no email service is configured, newest last. */
 export const outbox = [];
 
+let budgetDay = "";
+let sentToday = 0;
+
+/**
+ * How many emails this server process has sent since midnight UTC. The count lives in memory: it starts
+ * again at 0 when the process restarts, and each process (if there were several) counts its own.
+ */
+export function emailsSentToday() {
+  return budgetDay === new Date().toISOString().slice(0, 10) ? sentToday : 0;
+}
+
+// Brevo stops sending for the day at its quota, and sign-ups and reset requests are open to anyone.
+// Password resets are what someone locked out of their account needs, so this share of the day's
+// allowance is kept for them: a flood of sign-ups (each sends a verification email) can't use it up.
+export const RESERVED_FOR_RESETS = 0.4;
+
+function takeDailySlot(purpose) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== budgetDay) {
+    budgetDay = today;
+    sentToday = 0;
+  }
+  const { dailyLimit } = env.email;
+  const limit = purpose === "reset-password" ? dailyLimit : dailyLimit - Math.ceil(dailyLimit * RESERVED_FOR_RESETS);
+  if (sentToday >= limit) return false;
+  sentToday += 1;
+  return true;
+}
+
 /** Whether email is set up, and with it email verification and password reset. */
 export const emailConfigured = () => Boolean(env.email.brevoApiKey && env.email.from);
 
-/** Sends one email. Throws if the email service refuses it. */
-export async function sendEmail({ to, subject, text, html }) {
+/**
+ * Sends one email. Throws if the email service refuses it, or the daily limit is used up. `purpose` is
+ * "reset-password" for a password reset, which may use the share of the limit kept for those.
+ */
+export async function sendEmail({ to, subject, text, html, purpose }) {
+  if (!takeDailySlot(purpose))
+    throw new Error(`The daily limit of ${env.email.dailyLimit} emails is used up; "${subject}" wasn't sent.`);
   if (!emailConfigured() || process.env.NODE_ENV === "test") {
     outbox.push({ to, subject, text, html });
     if (outbox.length > OUTBOX_SIZE) outbox.shift();

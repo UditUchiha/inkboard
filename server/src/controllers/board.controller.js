@@ -5,9 +5,11 @@ import { Board, LINK_ACCESS } from "../models/board.model.js";
 import { Template } from "../models/template.model.js";
 import { User } from "../models/user.model.js";
 import { sanitizeElements } from "../realtime/operations.js";
-import { closeBoard, getLiveElements, notifyMetaChanged, syncAccess } from "../realtime/index.js";
+import { closeBoard, notifyMetaChanged, syncAccess } from "../realtime/index.js";
 import {
+  currentElements,
   destroyBoard,
+  drawingBytes,
   findBoardForMember,
   findBoardForViewing,
   idOf,
@@ -17,16 +19,18 @@ import {
   serializeBoard,
   serializeListed,
   serializeMeta,
+  withRoom,
 } from "../services/boards.js";
 import { emailConfigured } from "../services/email.js";
 import { notify } from "../services/notifications.js";
 import { boardPreviews } from "../services/previews.js";
+import { TRASH_DAYS } from "../services/trash.js";
 
-export const TRASH_DAYS = 30;
 const DAY_MS = 24 * 3600 * 1000;
 
 function readTitle(value) {
-  const title = String(value ?? "").trim();
+  if (value != null && typeof value !== "string") throw new HttpError(400, "The title must be text.");
+  const title = (value ?? "").trim();
   if (title.length > 80) throw new HttpError(400, "Use 80 characters or fewer for the title.");
   return title;
 }
@@ -47,17 +51,12 @@ export async function listBoards(req, res) {
       { _id: { $in: states.map((state) => state.board) }, linkAccess: { $in: ["view", "edit"] } },
     ],
   })
-    // Drawings can be megabytes each; the dashboard only needs previews of them.
+    // Drawings can be megabytes each, so the list carries none: cards ask for their previews (see listPreviews).
     .select("-elements")
     .sort({ updatedAt: -1 })
     .populate(populateMembers);
-  const previews = await boardPreviews(boards);
 
-  res.json({
-    boards: boards.map((board) =>
-      serializeListed(board, req.userId, previews.get(board.id) ?? [], stateByBoard.get(board.id) ?? null),
-    ),
-  });
+  res.json({ boards: boards.map((board) => serializeListed(board, req.userId, stateByBoard.get(board.id) ?? null)) });
 }
 
 // Archive or unarchive several boards at once, for this person only.
@@ -110,14 +109,18 @@ export async function createBoard(req, res) {
     title ||= template.title;
   }
 
-  const board = await Board.create({ title: title || "Untitled board", owner: req.userId, elements });
+  const bytes = drawingBytes(elements);
+  // A blank board is tiny, so only one that starts with a drawing is held to the owner's space.
+  const board = await withRoom(req.userId, { board: true, bytes: elements.length > 0 ? bytes : 0 }, () =>
+    Board.create({ title: title || "Untitled board", owner: req.userId, elements, bytes }),
+  );
   await board.populate(populateMembers);
   res.status(201).json({ board: serializeBoard(board, req.userId) });
 }
 
 export async function getBoard(req, res) {
   const board = await findBoardForViewing(req.params.boardId, req.userId);
-  res.json({ board: serializeBoard(board, req.userId, getLiveElements(board.id) ?? board.elements) });
+  res.json({ board: serializeBoard(board, req.userId, await currentElements(board.id)) });
 }
 
 export async function renameBoard(req, res) {
@@ -144,7 +147,8 @@ export async function setLinkAccess(req, res) {
   }
 
   board.linkAccess = linkAccess;
-  await board.save();
+  // Sharing isn't editing, so it doesn't move the board up the dashboard.
+  await board.save({ timestamps: false });
 
   await syncAccess(board);
   res.json({ board: serializeMeta(board) });
@@ -152,7 +156,8 @@ export async function setLinkAccess(req, res) {
 
 export async function starBoard(req, res) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
-  const starred = req.body?.starred !== false;
+  const starred = req.body?.starred ?? true;
+  if (typeof starred !== "boolean") throw new HttpError(400, "starred must be true or false.");
   // Starring is personal, so it shouldn't count as editing the board.
   await Board.updateOne(
     { _id: board._id },
@@ -175,19 +180,37 @@ export async function deleteBoard(req, res) {
   res.status(204).end();
 }
 
-const serializeTrashed = (board, userId, preview) => ({
-  ...serializeListed(board, userId, preview),
+const serializeTrashed = (board, userId) => ({
+  ...serializeListed(board, userId),
   deletedAt: board.deletedAt,
   purgeAt: new Date(board.deletedAt.getTime() + TRASH_DAYS * DAY_MS),
 });
 
+// Boards being deleted for good (see destroyBoard) are on their way out, so they aren't listed.
 export async function listTrash(req, res) {
-  const boards = await Board.find({ owner: req.userId, deletedAt: { $ne: null } })
+  const boards = await Board.find({ owner: req.userId, deletedAt: { $ne: null }, purgingAt: null })
     .select("-elements")
     .sort({ deletedAt: -1 })
     .populate(populateMembers);
-  const previews = await boardPreviews(boards);
-  res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId, previews.get(board.id) ?? [])) });
+  res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId)) });
+}
+
+const MAX_PREVIEWS = 24;
+
+/**
+ * Previews (see previews.js) of up to 24 boards the person can open, as { [boardId]: elements }, for the
+ * dashboard's cards. Boards that are gone or off limits are left out. A deleted board is only for its owner.
+ */
+export async function listPreviews(req, res) {
+  const ids = String(req.query.ids ?? "")
+    .split(",")
+    .filter(Boolean);
+  if (ids.length === 0 || ids.length > MAX_PREVIEWS || !ids.every((id) => mongoose.isValidObjectId(id))) {
+    throw new HttpError(400, `Ask for between 1 and ${MAX_PREVIEWS} boards.`);
+  }
+  const found = await Board.find({ _id: { $in: ids } }).select("owner collaborators linkAccess updatedAt deletedAt");
+  const boards = found.filter((board) => roleOf(board, req.userId) && (!board.deletedAt || isOwner(board, req.userId)));
+  res.json({ previews: Object.fromEntries(await boardPreviews(boards)) });
 }
 
 async function findTrashed(boardId, userId) {
@@ -198,17 +221,31 @@ async function findTrashed(boardId, userId) {
   return board;
 }
 
+// Restoring takes no room: a board in the trash still counts against its owner's limits (see withRoom).
 export async function restoreBoard(req, res) {
   const board = await findTrashed(req.params.boardId, req.userId);
-  board.deletedAt = null;
-  await board.save();
-  await board.populate(populateMembers);
-  res.json({ board: serializeBoard(board, req.userId) });
+  // One write, which only takes a board nobody has started deleting for good, so a restore and
+  // a purge can't both go ahead (see destroyBoard).
+  const restored = await Board.updateOne(
+    { _id: board._id, deletedAt: { $ne: null }, purgingAt: null },
+    { $set: { deletedAt: null } },
+  );
+  if (restored.modifiedCount === 0) {
+    if (await Board.exists({ _id: board._id, purgingAt: { $ne: null } })) {
+      throw new HttpError(409, "This board is being deleted for good, so it can't be restored.");
+    }
+    throw new HttpError(404, "That board isn't in your trash."); // restored by another request just now
+  }
+  const updated = await Board.findById(board._id).populate(populateMembers);
+  res.json({ board: serializeBoard(updated, req.userId) });
 }
 
 export async function purgeBoard(req, res) {
   const board = await findTrashed(req.params.boardId, req.userId);
-  await destroyBoard(board._id);
+  // False when the board was restored after it was looked up, in which case it's not gone.
+  if (!(await destroyBoard(board._id))) {
+    throw new HttpError(409, "This board was restored just now, so it wasn't deleted.");
+  }
   res.status(204).end();
 }
 
@@ -217,6 +254,9 @@ export async function emptyTrash(req, res) {
   await Promise.all(boards.map((board) => destroyBoard(board._id)));
   res.status(204).end();
 }
+
+// The board as it is now, after a change to who is on it.
+const reload = (board) => Board.findById(board._id).select("-elements").populate(populateMembers);
 
 export async function addCollaborator(req, res) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
@@ -245,24 +285,35 @@ export async function addCollaborator(req, res) {
       "That person hasn't verified their email yet. Ask them to click the link we sent them (or send a new one from Settings), then invite them again.",
     );
   }
-  if (board.collaborators.some((member) => idOf(member) === idOf(invitee))) {
+
+  // One write that adds them only if they aren't there yet, so invites sent at the same
+  // moment can't add someone twice or notify them twice. Sharing isn't editing, so
+  // `updatedAt` stays as it was.
+  const added = await Board.updateOne(
+    { _id: board._id, deletedAt: null, collaborators: { $ne: invitee._id } },
+    { $addToSet: { collaborators: invitee._id } },
+    { timestamps: false },
+  );
+  if (added.modifiedCount === 0) {
+    // The board may have gone to the trash since it was loaded, which the write also checks.
+    if (!(await Board.exists({ _id: board._id, deletedAt: null }))) {
+      throw new HttpError(404, "This board doesn't exist or has been deleted.");
+    }
     throw new HttpError(409, `${invitee.name} already has access.`);
   }
+  const updated = await reload(board);
 
-  board.collaborators.push(invitee._id);
-  await board.save();
-  await board.populate(populateMembers);
-
-  await syncAccess(board);
-  await notify({ users: [invitee._id], type: "invite", actor: board.owner, board });
-  res.status(201).json({ board: serializeMeta(board) });
+  await syncAccess(updated);
+  await notify({ users: [invitee._id], type: "invite", actor: updated.owner, board: updated });
+  res.status(201).json({ board: serializeMeta(updated) });
 }
 
 export async function removeCollaborator(req, res) {
-  const board = await findBoardForMember(req.params.boardId, req.userId);
-  const targetId = req.params.userId === "me" ? String(req.userId) : req.params.userId;
+  const removingSelf = req.params.userId === "me" || req.params.userId === String(req.userId);
+  const targetId = removingSelf ? String(req.userId) : req.params.userId;
+  if (!mongoose.isValidObjectId(targetId)) throw new HttpError(404, "That person isn't on this board.");
 
-  const removingSelf = targetId === String(req.userId);
+  const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!removingSelf && !isOwner(board, req.userId)) {
     throw new HttpError(403, "Only the owner can remove people.");
   }
@@ -270,12 +321,19 @@ export async function removeCollaborator(req, res) {
     throw new HttpError(400, "The owner can't leave their own board. Delete it instead.");
   }
 
-  board.collaborators = board.collaborators.filter((member) => idOf(member) !== targetId);
-  await board.save();
-  await board.populate(populateMembers);
+  // One write that takes them off (and drops their star), so removals sent at the same moment
+  // can't clash, and only someone who was on the board counts as removed.
+  const removed = await Board.updateOne(
+    { _id: board._id, collaborators: targetId },
+    { $pull: { collaborators: targetId, starredBy: targetId } },
+    { timestamps: false },
+  );
+  if (removed.modifiedCount === 0) throw new HttpError(404, "That person isn't on this board.");
   // Forget their filing too, so a board with an open link doesn't linger on their dashboard.
   await BoardState.deleteOne({ user: targetId, board: board._id });
 
-  await syncAccess(board);
-  res.json({ board: serializeMeta(board) });
+  const updated = await reload(board);
+  await syncAccess(updated);
+  // Someone who left may still see the board through its link, so they get what any visitor would.
+  res.json({ board: serializeMeta(updated, { redact: removingSelf }) });
 }

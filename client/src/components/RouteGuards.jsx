@@ -1,5 +1,6 @@
 import { LoaderCircle, WifiOff } from "lucide-react";
 import { Navigate, useLocation, useSearchParams } from "react-router";
+import { loginPathFor, safeNext } from "../lib/signInErrors";
 import { useAuth } from "../providers/AuthProvider";
 import { Button } from "./Button";
 
@@ -45,15 +46,9 @@ export function RequireAuth({ children, optional = false }) {
     );
   }
   if (status === "anonymous" && !optional) {
-    const next = encodeURIComponent(location.pathname + location.search);
-    return <Navigate to={`/login?next=${next}`} replace />;
+    return <Navigate to={loginPathFor(location)} replace />;
   }
   return children;
-}
-
-// Only follow redirects to paths inside the app.
-function safeNext(value) {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/boards";
 }
 
 /** Login and sign-up pages: once signed in, continue to where the person was headed. */

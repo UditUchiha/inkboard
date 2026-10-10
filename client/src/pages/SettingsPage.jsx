@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Check, Link2Off } from "lucide-react";
+import { Check, Link2Off, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -12,6 +12,8 @@ import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { API_URL, APP_NAME } from "../config";
 import { api } from "../lib/api";
 import { PEOPLE_COLORS, colorFor } from "../lib/format";
+import { formColor } from "../lib/profileColor";
+import { isProvider, providerLabel, signInErrorMessage } from "../lib/signInErrors";
 import { useAuth } from "../providers/AuthProvider";
 
 function Section({ title, description, children }) {
@@ -27,7 +29,9 @@ function Section({ title, description, children }) {
 function ProfileSection() {
   const { user, updateUser } = useAuth();
   const [name, setName] = useState(user.name);
-  const [color, setColor] = useState(user.color); // null: picked automatically
+  // null: picked automatically. An old palette color shows as the one that replaced it, ready to save;
+  // any other custom color is kept as it is.
+  const [color, setColor] = useState(formColor(user.color));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -114,6 +118,40 @@ function ProfileSection() {
   );
 }
 
+// Connecting a provider leaves the app for the provider's site and comes back to Settings. What comes back is
+// only accepted with the `bind` value kept here, in this tab, when it asked (see oauth.controller.js), so a
+// connect link made by someone else can't attach this person's Google or GitHub to that someone's account.
+const CONNECTING_KEY = "inkboard.connecting";
+
+function rememberConnecting(provider, bind) {
+  try {
+    sessionStorage.setItem(CONNECTING_KEY, JSON.stringify({ provider, bind }));
+  } catch {
+    // Storage unavailable: the connection can't be confirmed when it comes back, and says so then.
+  }
+}
+
+function takeConnecting(provider) {
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(CONNECTING_KEY) ?? "null");
+    sessionStorage.removeItem(CONNECTING_KEY);
+    return kept?.provider === provider ? kept.bind : null;
+  } catch {
+    return null;
+  }
+}
+
+// Forgets a connection that was started but never came back, and says which provider it was for.
+function dropConnecting() {
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(CONNECTING_KEY) ?? "null");
+    sessionStorage.removeItem(CONNECTING_KEY);
+    return kept?.provider ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function ConnectedAccounts() {
   const { user, updateUser } = useAuth();
   const providers = useOAuthProviders();
@@ -130,7 +168,8 @@ function ConnectedAccounts() {
   async function connect(provider) {
     setBusy(provider);
     try {
-      const { url } = await api.linkProvider(provider);
+      const { url, bind } = await api.linkProvider(provider);
+      rememberConnecting(provider, bind);
       window.location.assign(`${API_URL}${url}`);
     } catch (error) {
       toast.error(error.message);
@@ -188,28 +227,30 @@ function ConnectedAccounts() {
 }
 
 function PasswordSection() {
-  const { user, updateUser } = useAuth();
+  const { user, startSession } = useAuth();
   const [form, setForm] = useState({ currentPassword: "", newPassword: "" });
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  // Which field a problem is about: { field: "currentPassword" | "newPassword", message }.
+  const [problem, setProblem] = useState(null);
 
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
 
   async function save(event) {
     event.preventDefault();
-    setError("");
+    setProblem(null);
     if (form.newPassword.length < 8) {
-      setError("Use at least 8 characters for the new password.");
+      setProblem({ field: "newPassword", message: "Use at least 8 characters for the new password." });
       return;
     }
     setSaving(true);
     try {
-      const { user: updated } = await api.changePassword(form);
-      updateUser(updated);
+      // Every other login ends when the password changes; the reply holds a new login for this one.
+      startSession(await api.changePassword(form));
       setForm({ currentPassword: "", newPassword: "" });
       toast.success(user.hasPassword ? "Password changed" : "Password set");
     } catch (saveError) {
-      setError(saveError.message);
+      const aboutCurrent = /current password/i.test(saveError.message);
+      setProblem({ field: aboutCurrent ? "currentPassword" : "newPassword", message: saveError.message });
     } finally {
       setSaving(false);
     }
@@ -231,6 +272,7 @@ function PasswordSection() {
             autoComplete="current-password"
             value={form.currentPassword}
             onChange={update("currentPassword")}
+            error={problem?.field === "currentPassword" ? problem.message : undefined}
             required
           />
         )}
@@ -239,7 +281,7 @@ function PasswordSection() {
           autoComplete="new-password"
           value={form.newPassword}
           onChange={update("newPassword")}
-          error={error}
+          error={problem?.field === "newPassword" ? problem.message : undefined}
           required
         />
         <div>
@@ -256,6 +298,33 @@ function PasswordSection() {
   );
 }
 
+function SessionsSection() {
+  const { logout } = useAuth();
+  const [busy, setBusy] = useState(false);
+
+  async function logoutEverywhere() {
+    setBusy(true);
+    try {
+      await api.logoutEverywhere();
+      logout();
+    } catch (error) {
+      toast.error(error.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Where you're logged in"
+      description="Logging out on this device leaves your other devices logged in. If you've lost one, or used a computer that isn't yours, log out everywhere, this device included."
+    >
+      <Button variant="secondary" icon={LogOut} loading={busy} onClick={logoutEverywhere}>
+        Log out everywhere
+      </Button>
+    </Section>
+  );
+}
+
 export default function SettingsPage() {
   const { user, updateUser } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -264,21 +333,47 @@ export default function SettingsPage() {
     document.title = `Settings · ${APP_NAME}`;
   }, []);
 
-  // Coming back from connecting Google or GitHub.
+  // Coming back from connecting Google or GitHub that failed: the address holds an error code, never text
+  // to show (see lib/signInErrors.js).
   useEffect(() => {
-    const connected = params.get("connected");
     const error = params.get("error");
-    if (!connected && !error) return;
-    if (error) toast.error(error);
-    if (connected) {
-      toast.success(`${connected[0].toUpperCase() + connected.slice(1)} connected`);
-      api
-        .me()
-        .then(({ user: fresh }) => updateUser(fresh))
-        .catch(() => {});
-    }
+    if (!error) return;
+    dropConnecting(); // that connection is over, with this message
+    toast.error(signInErrorMessage(error, params.get("provider")));
     setParams({}, { replace: true });
-  }, [params, setParams, updateUser]);
+  }, [params, setParams]);
+
+  // Coming back from connecting one that worked, with a note of the account in the fragment, which is
+  // confirmed with the `bind` value this tab kept. The fragment is cleared first, so it's only used once.
+  useEffect(() => {
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const connect = fragment.get("connect");
+    const provider = fragment.get("provider");
+    if (!connect) {
+      // A connection this tab started that didn't come back (the login ran out on the way, or the person went
+      // back from the provider's page) isn't left to look as if it worked. One that failed has its own
+      // message (above), which also forgot it.
+      const unfinished = dropConnecting();
+      if (isProvider(unfinished)) {
+        toast.error(`Connecting ${providerLabel(unfinished)} didn't finish. Try again.`);
+      }
+      return;
+    }
+    window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search);
+    if (!isProvider(provider)) return;
+    const bind = takeConnecting(provider);
+    if (!bind) {
+      toast.error(signInErrorMessage("link-expired", provider));
+      return;
+    }
+    api
+      .confirmProviderLink(provider, { connect, bind })
+      .then(({ user: fresh }) => {
+        updateUser(fresh);
+        toast.success(`${providerLabel(provider)} connected`);
+      })
+      .catch((error) => toast.error(error.message));
+  }, [updateUser]);
 
   return (
     <div className="min-h-dvh">
@@ -291,6 +386,7 @@ export default function SettingsPage() {
           <ProfileSection />
           <ConnectedAccounts />
           <PasswordSection />
+          <SessionsSection />
         </div>
       </main>
     </div>

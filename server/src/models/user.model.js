@@ -1,5 +1,5 @@
-import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
+import { hashPassword, verifyPasswordHash } from "../lib/passwords.js";
 
 export const OAUTH_PROVIDERS = ["google", "github"];
 
@@ -14,6 +14,9 @@ const userSchema = new mongoose.Schema(
     password: { type: String, select: false },
     googleId: { type: String, unique: true, sparse: true, select: false },
     githubId: { type: String, unique: true, sparse: true, select: false },
+    // Logins carry the version they were issued at; raising it ends all of them.
+    // Accounts from before this existed have none, which counts as 0.
+    tokenVersion: { type: Number, default: 0 },
     avatarUrl: { type: String, default: null },
     // Avatar and cursor color. Null means one is picked from the user's id.
     color: { type: String, default: null, match: /^#[0-9a-f]{6}$/i },
@@ -21,14 +24,25 @@ const userSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-userSchema.pre("save", async function hashPassword() {
+userSchema.pre("save", async function hashNewPassword() {
   if (!this.isModified("password") || !this.password) return;
-  this.password = await bcrypt.hash(this.password, 12);
+  this.password = await hashPassword(this.password);
 });
 
-userSchema.methods.verifyPassword = function verifyPassword(candidate) {
-  if (!this.password) return Promise.resolve(false);
-  return bcrypt.compare(candidate, this.password);
+/** Checks a password, and quietly upgrades a hash made with the older algorithm (needs `+password`). */
+userSchema.methods.verifyPassword = async function verifyPassword(candidate) {
+  if (!this.password) return false;
+  const { ok, needsRehash } = await verifyPasswordHash(candidate, this.password);
+  if (ok && needsRehash) {
+    this.password = candidate;
+    await this.save().catch(() => {}); // an upgrade that fails is retried at the next login
+  }
+  return ok;
+};
+
+/** Ends every login made so far; the caller saves the user. */
+userSchema.methods.revokeSessions = function revokeSessions() {
+  this.$inc("tokenVersion", 1);
 };
 
 /** What other people may see about someone. */

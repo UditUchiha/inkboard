@@ -1,166 +1,55 @@
 import clsx from "clsx";
-import {
-  Check,
-  CloudCheck,
-  Download,
-  Ellipsis,
-  Eye,
-  FileCode2,
-  FileJson,
-  FileUp,
-  History,
-  Keyboard,
-  LayoutGrid,
-  LayoutTemplate,
-  LoaderCircle,
-  Maximize,
-  MessageSquare,
-  Minus,
-  Monitor,
-  Moon,
-  Palette,
-  Plus,
-  Redo2,
-  Save,
-  Sun,
-  Trash2,
-  Undo2,
-  UserPlus,
-  WifiOff,
-  X,
-} from "lucide-react";
-import { STACK_MOVES } from "@inkboard/shared/board-order";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
+import { Keyboard, Save, UserPlus, X } from "lucide-react";
+import { STACK_MOVES } from "@inkboard/shared/board-order";
+import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button, ButtonLink, IconButton } from "../../components/Button";
+import { Button, IconButton } from "../../components/Button";
 import { ConfirmDialog } from "../../components/Dialog";
+import { BoardCrashed, ErrorBoundary } from "../../components/ErrorBoundary";
 import { LogoMark } from "../../components/Logo";
-import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../../components/Menu";
 import { api } from "../../lib/api";
 import { getGuest } from "../../lib/guest";
-import { useTheme } from "../../providers/ThemeProvider";
 import { BoardCanvas } from "./BoardCanvas";
+import { BoardMenu } from "./BoardMenu";
+import { BoardTitle } from "./BoardTitle";
 import { CommentsLayer } from "./CommentsLayer";
-import { BoardFileError, isBoardFile, parseBoardFile, placeElements } from "./boardFile";
-import { COMMENT_TOOL, DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, NUMBERED_TOOLS, TOOLS } from "./constants";
-import { copyGroup, moveGroup, releaseFrom } from "./connectors";
-import { createImage, getSceneBounds, isFrame, stackKey, withContents } from "./elements";
-import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
-import { fitViewport, toWorld, zoomAround } from "./geometry";
+import { DEFAULT_STYLE, DRAWING_TOOLS } from "./constants";
+import { copyGroup, drawnElement, isConnector, moveGroup } from "./connectors";
+import { ElementList } from "./ElementList";
+import { describeElement } from "./elementLabels";
+import { getBounds, getSceneBounds, isFrame, stackKey, withContents } from "./elements";
+import { ExportError } from "./exportSize";
+import { fitViewport, zoomAround } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
-import { ImageError, isImageFile, placementSize, prepareImage, primeImage, uploadImage } from "./images";
+import { copyOffset, viewToReveal } from "./placement";
 import { PresenceStack } from "./PresenceStack";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { RemoteCursors } from "./RemoteCursors";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
+import { SyncStatus, ViewOnlyNotice } from "./StatusPanels";
+import { connectorPath, pathMiddle } from "./routes";
 import { useBoardSnapshot } from "./store";
-import { NoteEditor, TextEditor } from "./TextEditor";
+import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
-import { useFollow } from "./useFollow";
+import { useBoardShortcuts } from "./useBoardShortcuts";
+import { sameView, useFollow } from "./useFollow";
+import { useImageImport } from "./useImageImport";
 import { useThreads } from "./useThreads";
 import { VersionHistory } from "./VersionHistory";
+import { ViewControls } from "./ViewControls";
 
-const isTypingTarget = (target) =>
-  target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
-
-const isPressable = (target) =>
-  target instanceof HTMLElement && Boolean(target.closest("button, a[href], summary, [role='button']"));
+// The canvas only redraws when its own props change, not for every pointer or cursor message elsewhere.
+const MemoBoardCanvas = memo(BoardCanvas);
 
 const FRAME_COPY_GAP = 80;
-
-const ARROW_KEYS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
-
-// Tools are reachable by letter (V, P, R…), and the first nine by position (1–9) too.
-function toolForKey(key, withComments) {
-  const byLetter = (withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS).find((item) => item.key === key);
-  if (byLetter) return byLetter;
-  return /^[1-9]$/.test(key) && Number(key) <= NUMBERED_TOOLS ? TOOLS[Number(key) - 1] : null;
-}
 
 function styleTarget(tool, selected) {
   if (tool === "select") return selected?.type ?? null;
   return DRAWING_TOOLS.has(tool) ? tool : null;
-}
-
-function BoardTitle({ board, rename, onRenamed, readOnly }) {
-  const [title, setTitle] = useState(board.title);
-  useEffect(() => setTitle(board.title), [board.title]);
-
-  if (readOnly) {
-    return <h1 className="max-w-[clamp(7rem,24vw,16rem)] truncate px-2 font-semibold">{board.title}</h1>;
-  }
-
-  async function save() {
-    const next = title.trim();
-    if (!next || next === board.title) {
-      setTitle(board.title);
-      return;
-    }
-    try {
-      onRenamed(await rename(next));
-    } catch (error) {
-      toast.error(error.message);
-      setTitle(board.title);
-    }
-  }
-
-  return (
-    <input
-      value={title}
-      onChange={(event) => setTitle(event.target.value)}
-      onBlur={save}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-        if (event.key === "Escape") {
-          setTitle(board.title);
-          requestAnimationFrame(() => event.target.blur());
-        }
-      }}
-      maxLength={80}
-      aria-label="Board title"
-      className="h-10 w-[clamp(7rem,24vw,16rem)] truncate rounded-lg bg-transparent px-2 font-semibold transition-colors hover:bg-ink/5 focus:bg-surface-2 focus:outline-none"
-    />
-  );
-}
-
-function ViewOnlyNotice({ signedIn, loginHref }) {
-  return (
-    <div className="floating-panel flex h-12 items-center gap-3 rounded-xl pr-2 pl-4 text-sm">
-      <Eye className="size-4 shrink-0 text-graphite" aria-hidden />
-      <span className="font-medium">View only</span>
-      <span className="text-graphite max-lg:hidden">
-        {signedIn ? "Ask the owner to invite you to edit" : "Log in if you've been invited to edit"}
-      </span>
-      {!signedIn && (
-        <ButtonLink to={loginHref} size="sm">
-          Log in
-        </ButtonLink>
-      )}
-    </div>
-  );
-}
-
-function SyncStatus({ online, saving, readOnly, local }) {
-  let icon = <CloudCheck className="size-4 text-[#2f9e44]" aria-hidden />;
-  let label = readOnly ? "Up to date" : "Saved";
-  if (local) {
-    label = "Saved on this device";
-  } else if (!online) {
-    icon = <WifiOff className="size-4 text-danger" aria-hidden />;
-    label = readOnly ? "Reconnecting…" : "Reconnecting… changes are kept";
-  } else if (saving && !readOnly) {
-    icon = <LoaderCircle className="size-4 animate-spin text-graphite" aria-hidden />;
-    label = "Saving…";
-  }
-  return (
-    <div role="status" className="floating-panel flex h-10 items-center gap-2 rounded-xl px-3 text-sm text-graphite">
-      {icon}
-      <span className="max-sm:sr-only">{label}</span>
-    </div>
-  );
 }
 
 /**
@@ -171,7 +60,6 @@ function SyncStatus({ online, saving, readOnly, local }) {
 export function BoardEditor({ store, sync, user, local = null }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { preference, setPreference } = useTheme();
   const { elements, canUndo, canRedo } = useBoardSnapshot(store);
   const { meta: board, setMeta, role } = sync;
   const readOnly = role === "viewer"; // viewers can only look; contributors (edit link) can draw
@@ -194,13 +82,13 @@ export function BoardEditor({ store, sync, user, local = null }) {
   const [activeThread, setActiveThread] = useState(null);
   const [draft, setDraft] = useState(null); // where a new comment is being written
 
-  const selected = selectedId ? elements.find((element) => element.id === selectedId) : null;
+  const selected = selectedId ? (store.getElement(selectedId) ?? null) : null;
   const canAddImages = !readOnly && !local; // a guest's scratch board lives in the browser, with nowhere to keep files
   const fileInput = useRef(null);
   const boardFileInput = useRef(null);
 
   // Follow mode: tracking someone's view until we move ourselves.
-  const { followingId, follow, stopFollowing } = useFollow({ sync, canvasSize, setViewport });
+  const { followingId, follow, stopFollowing, followedView } = useFollow({ sync, canvasSize, setViewport });
   const changeViewport = useCallback(
     (next) => {
       stopFollowing();
@@ -209,11 +97,15 @@ export function BoardEditor({ store, sync, user, local = null }) {
     [stopFollowing],
   );
 
-  // Share what we're looking at, so others can follow us.
+  // Share what we're looking at, so others can follow us: always what's on screen, also once we stop
+  // following without moving, or resize. A view taken from someone we follow is sent as theirs, so
+  // two people following each other don't pass it back and forth (see sendViewport).
   const { sendViewport } = sync;
   useEffect(() => {
-    if (canvasSize.width) sendViewport({ ...viewport, width: canvasSize.width, height: canvasSize.height });
-  }, [viewport, canvasSize, sendViewport]);
+    if (!canvasSize.width) return;
+    const followed = followingId && sameView(viewport, followedView.current) ? followingId : null;
+    sendViewport({ ...viewport, width: canvasSize.width, height: canvasSize.height }, followed);
+  }, [viewport, canvasSize, sendViewport, followedView, followingId]);
 
   const { threads, ...threadApi } = useThreads({ boardId: board.id, socket: sync.socket, enabled: commentsEnabled });
   const members = useMemo(
@@ -291,30 +183,43 @@ export function BoardEditor({ store, sync, user, local = null }) {
     return element ? withContents(store.getElements(), element) : [];
   }, [selectedId, store]);
 
+  // A message with an Undo button for the step just taken. It goes away once anything else is done,
+  // because then Undo would undo that instead.
+  const toastWithUndo = useCallback(
+    (message) => {
+      const mark = store.historyMark();
+      let stopWatching = () => {};
+      const id = toast(message, {
+        action: { label: "Undo", onClick: () => store.undo() },
+        onDismiss: () => stopWatching(),
+        onAutoClose: () => stopWatching(),
+      });
+      stopWatching = store.subscribe(() => {
+        if (store.historyMark() === mark) return;
+        stopWatching();
+        toast.dismiss(id);
+      });
+    },
+    [store],
+  );
+
   const deleteSelected = useCallback(() => {
     const group = selectedGroup();
     if (group.length === 0) return;
-    const ids = new Set(group.map((element) => element.id));
-    // Connectors attached to what's deleted stay where they're drawn.
-    const released = releaseFrom(store.getElements(), ids);
-    store.commit({
-      undo: { upsert: [...group, ...released.map(({ before }) => before)] },
-      redo: { remove: [...ids], upsert: released.map(({ after }) => after) },
-    });
+    // Connectors attached to what's deleted stay where they're drawn (the store lets go of them).
+    store.commit({ undo: { upsert: group }, redo: { remove: group.map((element) => element.id) } });
     setSelectedId(null);
     if (group.length > 1) {
       const count = group.length - 1;
-      toast(`Frame and ${count} ${count === 1 ? "element" : "elements"} in it deleted`, {
-        action: { label: "Undo", onClick: () => store.undo() },
-      });
+      toastWithUndo(`Frame and ${count} ${count === 1 ? "element" : "elements"} in it deleted`);
     }
-  }, [selectedGroup, store]);
+  }, [selectedGroup, store, toastWithUndo]);
 
   const duplicateSelected = useCallback(() => {
     const group = selectedGroup();
     if (group.length === 0) return;
     // A frame's copy goes beside it, so the two don't overlap and claim each other's contents.
-    const [dx, dy] = isFrame(group[0]) ? [Math.abs(group[0].x2 - group[0].x1) + FRAME_COPY_GAP, 0] : [16, 16];
+    const [dx, dy] = isFrame(group[0]) ? copyOffset(store.getElements(), group, FRAME_COPY_GAP) : [16, 16];
     const copies = copyGroup(store.getElements(), group, dx, dy);
     store.commit({ undo: { remove: copies.map((copy) => copy.id) }, redo: { upsert: copies } });
     setSelectedId(copies[0].id);
@@ -332,12 +237,18 @@ export function BoardEditor({ store, sync, user, local = null }) {
     },
     [selectedId, store],
   );
+  // Which stack moves are possible takes a pass over the board for each, so it's worked out
+  // when the board is quiet, not on every step of a drag.
+  const settledElements = useDeferredValue(elements);
+  const settledSelection = useDeferredValue(selected);
   const stackMoves = useMemo(
     () =>
-      selected && !readOnly
-        ? Object.fromEntries(STACK_MOVES.map((where) => [where, stackKey(elements, selected, where) !== null]))
+      settledSelection && !readOnly
+        ? Object.fromEntries(
+            STACK_MOVES.map((where) => [where, stackKey(settledElements, settledSelection, where) !== null]),
+          )
         : {},
-    [elements, selected, readOnly],
+    [settledElements, settledSelection, readOnly],
   );
 
   const nudgeSelected = useCallback(
@@ -355,8 +266,9 @@ export function BoardEditor({ store, sync, user, local = null }) {
     [selectedGroup, store],
   );
 
-  // A frame just drawn is selected, ready to be named or filled.
-  const selectNewFrame = useCallback((id) => {
+  // Selecting with the select tool, so the element's own panel shows (Delete, Duplicate) and Enter edits it:
+  // a frame just drawn, ready to be named or filled, or an element picked from the keyboard list.
+  const selectElement = useCallback((id) => {
     setTool("select");
     setSelectedId(id);
   }, []);
@@ -365,251 +277,59 @@ export function BoardEditor({ store, sync, user, local = null }) {
   // was dropped, or in the middle of the screen. Each one is a single undo step.
   const view = useRef(null);
   view.current = { viewport, canvasSize };
-  const addImages = useCallback(
-    async (files, dropPoint = null) => {
-      if (local) {
-        toast("Save this board to your account to add images.");
-        return;
-      }
-      for (const [index, file] of files.slice(0, 10).entries()) {
-        const progress = toast.loading(
-          files.length > 1 ? `Adding image ${index + 1} of ${files.length}…` : "Adding image…",
-        );
-        try {
-          const picked = await prepareImage(file);
-          const id = await uploadImage(sync.socket, board.id, picked);
-          primeImage(id, picked.blob);
-          if (picked.small) primeImage(id, picked.small, { small: true });
 
-          const { viewport: vp, canvasSize: size } = view.current;
-          const area = { width: size.width / vp.zoom, height: size.height / vp.zoom };
-          const middle = dropPoint ?? { x: -vp.x + area.width / 2, y: -vp.y + area.height / 2 };
-          const shift = index * 24; // keep several pictures from landing exactly on top of each other
-          const fitted = placementSize(picked, area);
-          const element = createImage(
-            id,
-            { x: middle.x - fitted.width / 2 + shift, y: middle.y - fitted.height / 2 + shift },
-            fitted,
-          );
-          store.commit({ undo: { remove: [element.id] }, redo: { upsert: [element] } });
-          setTool("select");
-          setSelectedId(element.id);
-          toast.dismiss(progress);
-        } catch (error) {
-          toast.error(error instanceof ImageError ? error.message : "That image couldn't be added.", { id: progress });
-        }
-      }
-    },
-    [local, sync.socket, board.id, store],
-  );
-
-  // Adds what's in a board file (see boardFile.js) to this board, centred on
-  // the screen, as one undo step. Its pictures are uploaded again so they
-  // belong to this board.
-  const importBoardFile = useCallback(
-    async (file) => {
-      let parsed;
-      try {
-        parsed = parseBoardFile(await file.text());
-      } catch (error) {
-        toast.error(error instanceof BoardFileError ? error.message : "That file couldn't be read.");
-        return;
-      }
-      if (store.getElements().length + parsed.elements.length > MAX_ELEMENTS_PER_BOARD) {
-        toast.error(
-          `That would put more than ${MAX_ELEMENTS_PER_BOARD} elements on this board. Import it into a new board instead.`,
-        );
-        return;
-      }
-
-      const progress = toast.loading(`Importing ${file.name}…`);
-      const uploaded = new Map(); // image id in the file -> id on this board
-      const wanted = new Set(
-        parsed.elements.filter((element) => element.type === "image").map((element) => element.imageId),
-      );
-      if (!local) {
-        for (const oldId of wanted) {
-          const url = parsed.pictures.get(oldId);
-          if (!url) continue;
-          try {
-            const blob = await (await fetch(url)).blob();
-            const picked = await prepareImage(new File([blob], "picture", { type: blob.type }));
-            const id = await uploadImage(sync.socket, board.id, picked);
-            primeImage(id, picked.blob);
-            if (picked.small) primeImage(id, picked.small, { small: true });
-            uploaded.set(oldId, id);
-          } catch {
-            // Left out below, and counted in the message.
-          }
-        }
-      }
-
-      const kept = parsed.elements.flatMap((element) => {
-        if (element.type !== "image") return [element];
-        return uploaded.has(element.imageId) ? [{ ...element, imageId: uploaded.get(element.imageId) }] : [];
-      });
-      const missing = parsed.elements.length - kept.length;
-      if (kept.length === 0) {
-        toast.error(
-          local
-            ? "Save this board to your account to import pictures."
-            : "None of that file's pictures could be added.",
-          {
-            id: progress,
-          },
-        );
-        return;
-      }
-
-      const { viewport: vp, canvasSize: size } = view.current;
-      const center = { x: -vp.x + size.width / vp.zoom / 2, y: -vp.y + size.height / vp.zoom / 2 };
-      const placed = placeElements(kept, center);
-      store.commit({ undo: { remove: placed.map((element) => element.id) }, redo: { upsert: placed } });
-      setTool("select");
-      setSelectedId(null);
-      const added = `Added ${placed.length} ${placed.length === 1 ? "element" : "elements"} from ${file.name}`;
-      if (missing === 0) toast.success(added, { id: progress });
-      else
-        toast.warning(
-          `${added}. ${missing} ${missing === 1 ? "picture" : "pictures"} couldn't be added${local ? ": save this board to your account to import pictures" : ""}.`,
-          { id: progress },
-        );
-    },
-    [local, sync.socket, board.id, store],
-  );
-
-  // Pictures (and board files) can be pasted or dropped onto the board.
-  const importBoardFileRef = useRef(importBoardFile);
-  importBoardFileRef.current = importBoardFile;
-  const addImagesRef = useRef(addImages);
-  addImagesRef.current = addImages;
+  // Picking an element from the keyboard-reachable list can select one that is off screen: bring it into view.
+  // Only when the selection changes, not when the window is resized, and without leaving someone we follow.
   useEffect(() => {
-    const imagesIn = (list) => [...(list ?? [])].filter(isImageFile);
-    const blocked = (event) => isTypingTarget(event.target) || document.querySelector("dialog[open]");
+    const { viewport, canvasSize } = view.current;
+    const element = selectedId && canvasSize.width ? store.getElement(selectedId) : null;
+    if (!element) return;
+    const next = viewToReveal(viewport, canvasSize, getBounds(element));
+    if (next !== viewport) setViewport(next);
+  }, [selectedId, store]);
+  const { addImages, importBoardFile } = useImageImport({
+    store,
+    socket: sync.socket,
+    boardId: board.id,
+    local,
+    readOnly,
+    view,
+    setTool,
+    setSelectedId,
+  });
 
-    const onPaste = (event) => {
-      const files = imagesIn(event.clipboardData?.files);
-      if (readOnly || files.length === 0 || blocked(event)) return;
-      event.preventDefault();
-      addImagesRef.current(files);
-    };
-    const carriesFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes("Files");
-    const onDragOver = (event) => {
-      if (carriesFiles(event)) event.preventDefault();
-    };
-    const onDrop = (event) => {
-      if (!carriesFiles(event)) return;
-      // Left alone, the browser opens a dropped file in the tab, leaving the board,
-      // so this happens even for people who can only view it.
-      event.preventDefault();
-      const files = imagesIn(event.dataTransfer.files);
-      if (readOnly || blocked(event)) return;
-      const boardFile = [...event.dataTransfer.files].find(isBoardFile);
-      if (files.length === 0 && boardFile) {
-        importBoardFileRef.current(boardFile);
-        return;
-      }
-      if (files.length === 0) {
-        toast.error("Only PNG, JPEG, WebP and GIF images, or Inkboard board files, can be added.");
-        return;
-      }
-      const { viewport: vp } = view.current;
-      addImagesRef.current(files, toWorld(vp, event.clientX, event.clientY));
-    };
-
-    window.addEventListener("paste", onPaste);
-    window.addEventListener("dragover", onDragOver);
-    window.addEventListener("drop", onDrop);
-    return () => {
-      window.removeEventListener("paste", onPaste);
-      window.removeEventListener("dragover", onDragOver);
-      window.removeEventListener("drop", onDrop);
-    };
-  }, [readOnly]);
-
-  useEffect(() => {
-    const withModifier = {
-      z: (event) => (event.shiftKey ? store.redo() : store.undo()),
-      y: () => store.redo(),
-      d: duplicateSelected,
-      // Shift + ] and Shift + [ read as } and { on most layouts.
-      "]": (event) => moveSelected(event.shiftKey ? "front" : "forward"),
-      "}": () => moveSelected("front"),
-      "[": (event) => moveSelected(event.shiftKey ? "back" : "backward"),
-      "{": () => moveSelected("back"),
-      "=": () => zoomBy(1.25),
-      "+": () => zoomBy(1.25),
-      "-": () => zoomBy(0.8),
-      0: resetZoom,
-    };
-    const plain = {
-      " ": () => setSpacePressed(true),
-      delete: deleteSelected,
-      backspace: deleteSelected,
-      escape: () => {
-        setSelectedId(null);
-        setDraft(null);
-        setActiveThread(null);
-        stopFollowing();
-      },
-      i: () => canAddImages && fileInput.current?.click(),
-      enter: () => {
-        const element = selectedId && store.getElement(selectedId);
-        if (element?.type === "text" || element?.type === "sticky") setEditing({ element, isNew: false });
-      },
-      "?": () => setDialog("shortcuts"),
-      "!": fitToScreen, // Shift + 1
-    };
-
-    if (readOnly) {
-      for (const key of ["z", "y", "d", "]", "}", "[", "{"]) delete withModifier[key];
-      for (const key of ["delete", "backspace", "enter"]) delete plain[key];
-    }
-
-    function onKeyDown(event) {
-      if (isTypingTarget(event.target) || document.querySelector("dialog[open]")) return;
-      const key = event.key.toLowerCase();
-
-      if (event.ctrlKey || event.metaKey) {
-        if (!withModifier[key]) return;
-        event.preventDefault();
-        withModifier[key](event);
-        return;
-      }
-
-      if (plain[key]) {
-        // Enter on a focused button presses the button, and only that.
-        if (key === "enter" && isPressable(event.target)) return;
-        if (key === " ") event.preventDefault();
-        plain[key]();
-      } else if (ARROW_KEYS[event.key] && selectedId && !readOnly) {
-        event.preventDefault();
-        const step = event.shiftKey ? 10 : 1;
-        nudgeSelected(ARROW_KEYS[event.key][0] * step, ARROW_KEYS[event.key][1] * step);
-      } else if (!event.altKey && !readOnly) {
-        const next = toolForKey(key, canComment);
-        if (next) changeTool(next.id);
-      }
-    }
-    const onKeyUp = (event) => event.key === " " && setSpacePressed(false);
-    const onBlur = () => setSpacePressed(false);
-
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", onBlur);
-    };
+  useBoardShortcuts({
+    store,
+    readOnly,
+    canComment,
+    canAddImages,
+    selectedId,
+    fileInput,
+    actions: {
+      duplicateSelected,
+      moveSelected,
+      deleteSelected,
+      nudgeSelected,
+      zoomBy,
+      resetZoom,
+      fitToScreen,
+      changeTool,
+      stopFollowing,
+    },
+    setSpacePressed,
+    setSelectedId,
+    setDraft,
+    setActiveThread,
+    setEditing,
+    setDialog,
   });
 
   function commitText(text) {
     const { element, isNew } = editing;
     setEditing(null);
-    const value = text.trimEnd();
-    // An empty sticky note is still a note; empty text is nothing.
-    const keepEmpty = element.type === "sticky";
+    const value = text.slice(0, MAX_TEXT_LENGTH).trimEnd(); // the same cut the server makes
+    // An empty sticky note is still a note, and an arrow without a label still an arrow; empty text is nothing.
+    const keepEmpty = element.type === "sticky" || isConnector(element);
     if (isNew) {
       if (!value.trim() && !keepEmpty) return;
       const created = { ...element, text: value };
@@ -617,7 +337,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
       return;
     }
     const current = store.getElement(element.id) ?? element;
-    if (value === current.text) return;
+    if (value === (current.text ?? "")) return;
     if (!value.trim() && !keepEmpty) {
       store.commit({ undo: { upsert: [current] }, redo: { remove: [current.id] } });
     } else {
@@ -641,8 +361,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
     try {
       const done = await exporter(store.getElements(), board.title);
       if (!done) toast("Draw something first. There's nothing to export yet.");
-    } catch {
-      toast.error("The board couldn't be exported. Try again.");
+    } catch (error) {
+      toast.error(error instanceof ExportError ? error.message : "The board couldn't be exported. Try again.");
     }
   }
 
@@ -651,7 +371,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
     store.commit({ undo: { upsert: all }, redo: { remove: all.map((element) => element.id) } });
     setSelectedId(null);
     setDialog(null);
-    toast("Board cleared", { action: { label: "Undo", onClick: () => store.undo() } });
+    toastWithUndo("Board cleared");
   }
 
   const panelType = readOnly ? null : styleTarget(tool, selected);
@@ -670,24 +390,29 @@ export function BoardEditor({ store, sync, user, local = null }) {
     toast.success("Template saved. Find it when you start a new board.");
   }
 
+  // The element being edited as it is now, so its editor follows it if someone moves it meanwhile.
+  const edited = editing && (elements.find((element) => element.id === editing.element.id) ?? editing.element);
+
   return (
     <div className="fixed inset-0 overflow-hidden select-none">
-      <BoardCanvas
-        store={store}
-        tool={readOnly ? "hand" : tool}
-        style={style}
-        viewport={viewport}
-        onViewportChange={changeViewport}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        editingId={editing?.element.id}
-        onEditText={setEditing}
-        spacePressed={spacePressed}
-        onCursorMove={sync.sendCursor}
-        onSizeChange={setCanvasSize}
-        onPlaceComment={placeComment}
-        onFrameDrawn={selectNewFrame}
-      />
+      <ErrorBoundary fallback={BoardCrashed}>
+        <MemoBoardCanvas
+          store={store}
+          tool={readOnly ? "hand" : tool}
+          style={style}
+          viewport={viewport}
+          onViewportChange={changeViewport}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          editingId={editing?.element.id}
+          onEditText={setEditing}
+          spacePressed={spacePressed}
+          onCursorMove={sync.sendCursor}
+          onSizeChange={setCanvasSize}
+          onPlaceComment={placeComment}
+          onFrameDrawn={selectElement}
+        />
+      </ErrorBoundary>
 
       <input
         ref={boardFileInput}
@@ -704,7 +429,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
       <input
         ref={fileInput}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,image/heic,image/heif"
         multiple
         hidden
         onChange={(event) => {
@@ -712,6 +437,11 @@ export function BoardEditor({ store, sync, user, local = null }) {
           event.target.value = "";
         }}
       />
+
+      <ElementList elements={elements} selectedId={selectedId} onSelect={selectElement} />
+      <div role="status" className="sr-only">
+        {selected ? `Selected: ${describeElement(selected)}` : ""}
+      </div>
 
       <RemoteCursors cursors={sync.cursors} peers={sync.peers} viewport={viewport} />
 
@@ -736,10 +466,18 @@ export function BoardEditor({ store, sync, user, local = null }) {
       )}
 
       {editing &&
-        (editing.element.type === "sticky" ? (
-          <NoteEditor key={editing.element.id} element={editing.element} viewport={viewport} onCommit={commitText} />
+        (isConnector(editing.element) ? (
+          <LabelEditor
+            key={editing.element.id}
+            element={editing.element}
+            middle={pathMiddle(connectorPath(drawnElement(elements, editing.element.id) ?? editing.element))}
+            viewport={viewport}
+            onCommit={commitText}
+          />
+        ) : editing.element.type === "sticky" ? (
+          <NoteEditor key={editing.element.id} element={edited} viewport={viewport} onCommit={commitText} />
         ) : (
-          <TextEditor key={editing.element.id} element={editing.element} viewport={viewport} onCommit={commitText} />
+          <TextEditor key={editing.element.id} element={edited} viewport={viewport} onCommit={commitText} />
         ))}
 
       {/* Top left: back to boards, title */}
@@ -795,78 +533,22 @@ export function BoardEditor({ store, sync, user, local = null }) {
             <span className="max-sm:sr-only">Share</span>
           </Button>
         )}
-        <Menu
-          trigger={(props) => (
-            <IconButton label="Board menu" icon={Ellipsis} className="floating-panel rounded-xl" {...props} />
-          )}
-        >
-          <MenuLabel>Export</MenuLabel>
-          <MenuItem icon={Download} onSelect={() => exportAs(exportBoardAsPng)}>
-            Export as PNG
-          </MenuItem>
-          <MenuItem icon={FileCode2} onSelect={() => exportAs(exportBoardAsSvg)}>
-            Export as SVG
-          </MenuItem>
-          <MenuItem icon={FileJson} onSelect={() => exportAs(exportBoardAsJson)}>
-            Export board file
-          </MenuItem>
-          {!readOnly && (
-            <MenuItem icon={FileUp} onSelect={() => boardFileInput.current?.click()}>
-              Import board file…
-            </MenuItem>
-          )}
-          <MenuSeparator />
-          {isMember && !local && (
-            <>
-              <MenuItem icon={History} onSelect={() => setHistoryOpen(true)}>
-                Version history
-              </MenuItem>
-              <MenuItem icon={LayoutTemplate} onSelect={() => setDialog("template")} disabled={elements.length === 0}>
-                Save as template
-              </MenuItem>
-            </>
-          )}
-          {commentsEnabled && (
-            <MenuItem
-              icon={MessageSquare}
-              onSelect={() => setShowComments((shown) => !shown)}
-              hint={showComments ? <Check className="size-4" /> : null}
-            >
-              Show comments
-            </MenuItem>
-          )}
-          <MenuItem icon={Keyboard} hint="?" onSelect={() => setDialog("shortcuts")}>
-            Keyboard shortcuts
-          </MenuItem>
-          <MenuSeparator />
-          <MenuLabel>Theme</MenuLabel>
-          {[
-            ["light", "Light", Sun],
-            ["dark", "Dark", Moon],
-            ["system", "Match system", Monitor],
-          ].map(([value, label, Icon]) => (
-            <MenuItem
-              key={value}
-              icon={Icon}
-              onSelect={() => setPreference(value)}
-              hint={preference === value ? <Check className="size-4" /> : null}
-            >
-              {label}
-            </MenuItem>
-          ))}
-          <MenuSeparator />
-          {/* Wiping a whole board is for its members (or the guest who owns a scratch board), not link visitors. */}
-          {(isMember || local) && (
-            <MenuItem icon={Trash2} tone="danger" onSelect={() => setDialog("clear")} disabled={elements.length === 0}>
-              Clear board
-            </MenuItem>
-          )}
-          {user && (
-            <MenuItem icon={LayoutGrid} onSelect={() => navigate("/boards")}>
-              All boards
-            </MenuItem>
-          )}
-        </Menu>
+        <BoardMenu
+          user={user}
+          local={local}
+          readOnly={readOnly}
+          isMember={isMember}
+          commentsEnabled={commentsEnabled}
+          showComments={showComments}
+          isEmpty={elements.length === 0}
+          onExport={exportAs}
+          onImportFile={() => boardFileInput.current?.click()}
+          onHistory={() => setHistoryOpen(true)}
+          onTemplate={() => setDialog("template")}
+          onToggleComments={() => setShowComments((shown) => !shown)}
+          onShortcuts={() => setDialog("shortcuts")}
+          onClear={() => setDialog("clear")}
+        />
       </div>
 
       {followed && (
@@ -903,41 +585,29 @@ export function BoardEditor({ store, sync, user, local = null }) {
         </div>
       )}
 
-      {/* View controls */}
-      <div className="absolute bottom-[4.25rem] left-3 flex items-center gap-2 md:bottom-3">
-        {!readOnly && (
-          <div className="floating-panel flex items-center rounded-xl p-1">
-            <IconButton label="Undo" icon={Undo2} onClick={store.undo} disabled={!canUndo} />
-            <IconButton label="Redo" icon={Redo2} onClick={store.redo} disabled={!canRedo} />
-          </div>
-        )}
-        <div className="floating-panel flex items-center rounded-xl p-1 max-sm:hidden">
-          <IconButton label="Zoom out" icon={Minus} onClick={() => zoomBy(0.8)} />
-          <button
-            type="button"
-            onClick={resetZoom}
-            title="Reset zoom"
-            className="h-10 min-w-14 rounded-lg px-1 text-sm font-medium tabular-nums transition-colors hover:bg-ink/6"
-          >
-            {Math.round(viewport.zoom * 100)}%
-          </button>
-          <IconButton label="Zoom in" icon={Plus} onClick={() => zoomBy(1.25)} />
-          <IconButton
-            label="Fit drawing to screen"
-            icon={Maximize}
-            onClick={fitToScreen}
-            disabled={elements.length === 0}
-          />
-        </div>
-        {panelType && (
-          <div className="floating-panel rounded-xl p-1 md:hidden">
-            <IconButton label="Style" icon={Palette} active={panelOpen} onClick={() => setPanelOpen((open) => !open)} />
-          </div>
-        )}
-      </div>
+      <ViewControls
+        store={store}
+        readOnly={readOnly}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        zoom={viewport.zoom}
+        canFit={elements.length > 0}
+        onZoomBy={zoomBy}
+        onResetZoom={resetZoom}
+        onFit={fitToScreen}
+        showStyleButton={Boolean(panelType)}
+        styleOpen={panelOpen}
+        onToggleStyle={() => setPanelOpen((open) => !open)}
+      />
 
       <div className="absolute right-3 bottom-[4.25rem] flex items-center gap-2 md:bottom-3">
-        <SyncStatus online={sync.online} saving={sync.saving} readOnly={readOnly} local={Boolean(local)} />
+        <SyncStatus
+          online={sync.online}
+          saving={sync.saving}
+          readOnly={readOnly}
+          local={Boolean(local)}
+          unsaved={sync.unsaved}
+        />
         <div className="floating-panel rounded-xl p-1 max-md:hidden">
           <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={() => setDialog("shortcuts")} />
         </div>
@@ -963,7 +633,12 @@ export function BoardEditor({ store, sync, user, local = null }) {
           }}
         />
       )}
-      <ShortcutsDialog open={dialog === "shortcuts"} onClose={() => setDialog(null)} />
+      <ShortcutsDialog
+        open={dialog === "shortcuts"}
+        onClose={() => setDialog(null)}
+        readOnly={readOnly}
+        canComment={canComment}
+      />
       <ConfirmDialog
         open={dialog === "clear"}
         onClose={() => setDialog(null)}
