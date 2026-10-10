@@ -21,8 +21,8 @@ import {
   listProviders,
   startOAuth,
 } from "../controllers/oauth.controller.js";
-import { requireAuth, requireRecentLogin } from "../middleware/auth.js";
-import { limitPerUser } from "../middleware/user-limit.js";
+import { requireAuth, requireRecentLogin } from "../middleware/auth.ts";
+import { limitPerUser } from "../middleware/user-limit.ts";
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;

@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
-import { env } from "./env.js";
+import { env } from "./env.ts";
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function connectDatabase({ attempts = 20, delayMs = 3000 } = {}) {
   for (let attempt = 1; ; attempt += 1) {
@@ -11,8 +11,9 @@ export async function connectDatabase({ attempts = 20, delayMs = 3000 } = {}) {
       return;
     } catch (error) {
       if (attempt >= attempts) throw error;
+      // The driver rejects with Error objects, which is what lets this read `.message`.
       console.warn(
-        `MongoDB unavailable (attempt ${attempt}/${attempts}): ${error.message}. Retrying in ${delayMs / 1000}s.`,
+        `MongoDB unavailable (attempt ${attempt}/${attempts}): ${(error as Error).message}. Retrying in ${delayMs / 1000}s.`,
       );
       await wait(delayMs);
     }

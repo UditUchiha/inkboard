@@ -1,10 +1,10 @@
-import { emailLinkUrlFor } from "../lib/app-url.js";
-import { MAX_EMAIL_LENGTH, isEmailAddress } from "../lib/email-address.js";
-import { HttpError } from "../lib/http-error.js";
-import { spendPasswordTime, waitOutSlowestCheck } from "../lib/passwords.js";
-import { signToken } from "../lib/tokens.js";
-import { assertRecentLogin } from "../middleware/auth.js";
-import { OAUTH_PROVIDERS, User } from "../models/user.model.js";
+import { emailLinkUrlFor } from "../lib/app-url.ts";
+import { MAX_EMAIL_LENGTH, isEmailAddress } from "../lib/email-address.ts";
+import { HttpError } from "../lib/http-error.ts";
+import { spendPasswordTime, waitOutSlowestCheck } from "../lib/passwords.ts";
+import { signToken } from "../lib/tokens.ts";
+import { assertRecentLogin } from "../middleware/auth.ts";
+import { OAUTH_PROVIDERS, User } from "../models/user.model.ts";
 import { disconnectUser, refreshUser } from "../realtime/index.js";
 import {
   forgetSecrets,

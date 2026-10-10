@@ -1,8 +1,8 @@
 import http from "node:http";
 import mongoose from "mongoose";
 import { createApp } from "./app.js";
-import { connectDatabase } from "./config/db.js";
-import { env } from "./config/env.js";
+import { connectDatabase } from "./config/db.ts";
+import { env } from "./config/env.ts";
 import { attachRealtime, closeRealtime } from "./realtime/index.js";
 import { verifyAccountsMadeByProviders } from "./services/account-emails.js";
 import { emailConfigured } from "./services/email.js";

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { applyOperation } from "@inkboard/shared/board-merge";
 import mongoose from "mongoose";
-import { Board } from "../src/models/board.model.js";
+import { Board } from "../src/models/board.model.ts";
 import { heldGroupBytes } from "../src/realtime/index.js";
 import {
   holdPiece,

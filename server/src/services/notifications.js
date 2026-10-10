@@ -1,4 +1,4 @@
-import { Notification } from "../models/notification.model.js";
+import { Notification } from "../models/notification.model.ts";
 import { notifyUser } from "../realtime/index.js";
 import { idOf, serializePerson } from "./boards.js";
 

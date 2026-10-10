@@ -4,4 +4,4 @@
 export const MAX_EMAIL_LENGTH = 254;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
-export const isEmailAddress = (value) => value.length <= MAX_EMAIL_LENGTH && EMAIL_PATTERN.test(value);
+export const isEmailAddress = (value: string) => value.length <= MAX_EMAIL_LENGTH && EMAIL_PATTERN.test(value);

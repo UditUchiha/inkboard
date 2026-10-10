@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import type { InferSchemaType, Model } from "mongoose";
+import type { Element } from "@inkboard/shared/types";
 
 const { ObjectId, Mixed } = mongoose.Schema.Types;
 
@@ -36,4 +38,7 @@ boardSchema.index({ owner: 1, bytes: 1, _id: 1 });
 // index, so it stays tiny, and without it the sweep would read every board's drawing to find them.
 boardSchema.index({ purgingAt: 1 }, { partialFilterExpression: { purgingAt: { $type: "date" } } });
 
-export const Board = mongoose.model("Board", boardSchema);
+// Mongoose can only infer `elements` as `any[]` from Mixed, so the type says what is stored in it.
+type BoardFields = Omit<InferSchemaType<typeof boardSchema>, "elements"> & { elements: Element[] };
+
+export const Board = mongoose.model<BoardFields, Model<BoardFields>>("Board", boardSchema);

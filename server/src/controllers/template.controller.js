@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import { HttpError } from "../lib/http-error.js";
-import { Template } from "../models/template.model.js";
+import { HttpError } from "../lib/http-error.ts";
+import { Template } from "../models/template.model.ts";
 import { sanitizeElements } from "../realtime/operations.js";
 import { currentElements, drawingBytes, findBoardForMember, withRoom } from "../services/boards.js";
 import { previewElements } from "../services/previews.js";

@@ -1,4 +1,4 @@
-import { env } from "../config/env.js";
+import { env } from "../config/env.ts";
 
 // Sends email through Brevo's HTTP API (Render's free plan blocks SMTP ports).
 // Email is optional: without BREVO_API_KEY and EMAIL_FROM, the features that

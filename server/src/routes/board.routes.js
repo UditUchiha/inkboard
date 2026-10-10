@@ -17,8 +17,8 @@ import {
   setLinkAccess,
   starBoard,
 } from "../controllers/board.controller.js";
-import { requireAuth } from "../middleware/auth.js";
-import { limitPerUser } from "../middleware/user-limit.js";
+import { requireAuth } from "../middleware/auth.ts";
+import { limitPerUser } from "../middleware/user-limit.ts";
 
 const makingBoards = limitPerUser({
   windowMs: 10 * 60 * 1000,

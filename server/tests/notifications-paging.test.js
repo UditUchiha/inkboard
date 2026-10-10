@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
-import { Notification } from "../src/models/notification.model.js";
+import { Notification } from "../src/models/notification.model.ts";
 import { startServer } from "./helpers.js";
 
 let app;

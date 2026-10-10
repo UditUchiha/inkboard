@@ -1,4 +1,5 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import type { BinaryLike, ScryptOptions } from "node:crypto";
 import { promisify } from "node:util";
 import bcrypt from "bcryptjs";
 
@@ -7,22 +8,25 @@ import bcrypt from "bcryptjs";
 // with bcrypt before that are still accepted, and are replaced at the next login
 // (see waitOutSlowestCheck for what the slower check means for failed logins).
 // Stored as `scrypt$N$r$p$salt$hash` (salt and hash in base64).
-const scryptAsync = promisify(scrypt);
-const COST = { N: 2 ** 15, r: 8, p: 1 };
+// The type arguments pick promisify's overload for scrypt's form with options, which it wouldn't on its own.
+const scryptAsync = promisify<BinaryLike, BinaryLike, number, ScryptOptions, Buffer>(scrypt);
+
+type ScryptCost = { N: number; r: number; p: number };
+const COST: ScryptCost = { N: 2 ** 15, r: 8, p: 1 };
 const KEY_LENGTH = 64;
 const MAX_MEMORY = 128 * 1024 * 1024;
 
-const derive = (password, salt, { N, r, p }) =>
+const derive = (password: string, salt: Buffer, { N, r, p }: ScryptCost) =>
   scryptAsync(password.normalize("NFKC"), salt, KEY_LENGTH, { N, r, p, maxmem: MAX_MEMORY });
 
-export async function hashPassword(password) {
+export async function hashPassword(password: string) {
   const salt = randomBytes(16);
   const key = await derive(password, salt, COST);
   return ["scrypt", COST.N, COST.r, COST.p, salt.toString("base64"), key.toString("base64")].join("$");
 }
 
 /** Whether `password` matches `stored`, and whether `stored` should be re-made with the current algorithm. */
-export async function verifyPasswordHash(password, stored) {
+export async function verifyPasswordHash(password: string, stored: string) {
   if (stored.startsWith("scrypt$")) {
     const [, N, r, p, salt, hash] = stored.split("$");
     const expected = Buffer.from(hash, "base64");
@@ -37,7 +41,7 @@ export async function verifyPasswordHash(password, stored) {
 // Compared against when no account matches, so that answering takes as long as it
 // does for a real one and the response time doesn't reveal who has an account.
 const decoy = hashPassword(randomBytes(16).toString("base64"));
-export async function spendPasswordTime(password) {
+export async function spendPasswordTime(password: string) {
   await verifyPasswordHash(password, await decoy);
 }
 
@@ -67,6 +71,13 @@ async function timeLegacyCheck() {
   return performance.now() - started;
 }
 
+/** What `createCheckTimer` can be given in place of the real measurement, clock and wait (tests do). */
+export interface CheckTimerOptions {
+  measure?: () => Promise<number>;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<unknown>;
+}
+
 /**
  * Keeps the timing described above. `measure`, `now` and `sleep` can be swapped, which tests do.
  * Only the very first failed login waits for a measurement (one); the others that make the minimum
@@ -76,11 +87,11 @@ export function createCheckTimer({
   measure = timeLegacyCheck,
   now = () => performance.now(),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-} = {}) {
-  const samples = [];
+}: CheckTimerOptions = {}) {
+  const samples: number[] = [];
   let lastSampledAt = -Infinity;
-  let first = null;
-  let background = null;
+  let first: Promise<void> | null = null;
+  let background: Promise<void> | null = null;
 
   async function sample() {
     const ms = await measure();
@@ -108,7 +119,7 @@ export function createCheckTimer({
   return {
     slowestMs,
     /** Waits, without working, until a failed login that began at `startedAt` takes as long as the slowest check. */
-    async waitOut(startedAt) {
+    async waitOut(startedAt: number) {
       if (samples.length === 0) await (first ??= sample().finally(() => (first = null)));
       topUp();
       const remaining = startedAt + slowestMs() - now();
@@ -120,4 +131,4 @@ export function createCheckTimer({
 const checkTimer = createCheckTimer();
 
 /** Waits, without working, until a failed login that began at `startedAt` (performance.now()) takes as long as the slowest check. */
-export const waitOutSlowestCheck = (startedAt) => checkTimer.waitOut(startedAt);
+export const waitOutSlowestCheck = (startedAt: number) => checkTimer.waitOut(startedAt);

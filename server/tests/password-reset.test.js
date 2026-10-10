@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { eventually, startServer } from "./helpers.js";
 
-const { env } = await import("../src/config/env.js");
+const { env } = await import("../src/config/env.ts");
 const { outbox } = await import("../src/services/email.js");
-const { User } = await import("../src/models/user.model.js");
+const { User } = await import("../src/models/user.model.ts");
 const { sendVerificationEmail } = await import("../src/services/account-emails.js");
 
 // Email is off unless it's set up; these tests turn it on (tests never really send).
@@ -44,7 +44,7 @@ async function account(name = "Ana", { password, verified = false } = {}) {
   const email = newEmail(name.toLowerCase());
   const user = await User.create({ name, email, password, emailVerified: verified });
   if (!verified) await sendVerificationEmail(user, app.url);
-  return { id: user.id, name, email, token: (await import("../src/lib/tokens.js")).signToken(user) };
+  return { id: user.id, name, email, token: (await import("../src/lib/tokens.ts")).signToken(user) };
 }
 
 describe("forgetting a password", () => {

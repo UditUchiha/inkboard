@@ -1,9 +1,9 @@
 import { IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, IMAGE_SMALL_MAX_BYTES, IMAGE_SMALL_MAX_SIDE } from "@inkboard/shared/limits";
 import mongoose from "mongoose";
-import { keyedQueue } from "../lib/keyed-queue.js";
-import { Board } from "../models/board.model.js";
-import { User } from "../models/user.model.js";
-import { Version } from "../models/version.model.js";
+import { keyedQueue } from "../lib/keyed-queue.ts";
+import { Board } from "../models/board.model.ts";
+import { User } from "../models/user.model.ts";
+import { Version } from "../models/version.model.ts";
 import { getSession } from "../realtime/sessions.js";
 import { emailConfigured } from "./email.js";
 import { deleteImages, imageBytes, listImages, putImage } from "./image-storage.js";

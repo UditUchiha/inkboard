@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { startServer } from "./helpers.js";
 
-const { env } = await import("../src/config/env.js");
-const { signToken } = await import("../src/lib/tokens.js");
-const { User } = await import("../src/models/user.model.js");
+const { env } = await import("../src/config/env.ts");
+const { signToken } = await import("../src/lib/tokens.ts");
+const { User } = await import("../src/models/user.model.ts");
 const { outbox } = await import("../src/services/email.js");
 
 // Each kind of request has its own allowance (M9). Everything here comes from one address, as a

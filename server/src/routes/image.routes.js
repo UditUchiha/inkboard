@@ -1,6 +1,6 @@
 import { pipeline } from "node:stream";
 import { Router } from "express";
-import { env } from "../config/env.js";
+import { env } from "../config/env.ts";
 import { openImage } from "../services/image-storage.js";
 
 const router = Router();

@@ -1,9 +1,9 @@
 import { COORDINATE_LIMIT } from "@inkboard/shared/element-rules";
 import mongoose from "mongoose";
-import { HttpError } from "../lib/http-error.js";
-import { Notification } from "../models/notification.model.js";
-import { Thread } from "../models/thread.model.js";
-import { User } from "../models/user.model.js";
+import { HttpError } from "../lib/http-error.ts";
+import { Notification } from "../models/notification.model.ts";
+import { Thread } from "../models/thread.model.ts";
+import { User } from "../models/user.model.ts";
 import { emitToSignedIn } from "../realtime/index.js";
 import {
   canEdit,

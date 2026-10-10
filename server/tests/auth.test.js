@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { eventually, startServer } from "./helpers.js";
 
-const { isEmailAddress } = await import("../src/lib/email-address.js");
-const { User } = await import("../src/models/user.model.js");
+const { isEmailAddress } = await import("../src/lib/email-address.ts");
+const { User } = await import("../src/models/user.model.ts");
 
 // These use the real sign-up and login routes. The auth rate limit allows 30
 // attempts per 15 minutes, so this file stays well under that.

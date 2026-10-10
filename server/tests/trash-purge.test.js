@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { Board } from "../src/models/board.model.js";
-import { Thread } from "../src/models/thread.model.js";
-import { User } from "../src/models/user.model.js";
-import { Version } from "../src/models/version.model.js";
+import { Board } from "../src/models/board.model.ts";
+import { Thread } from "../src/models/thread.model.ts";
+import { User } from "../src/models/user.model.ts";
+import { Version } from "../src/models/version.model.ts";
 import { destroyBoard } from "../src/services/boards.js";
 import { expiredBoards, purgeExpiredTrash } from "../src/services/trash.js";
 import { startServer } from "./helpers.js";
