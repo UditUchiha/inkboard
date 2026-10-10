@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { Board } from "../src/models/board.model.ts";
 import { Notification } from "../src/models/notification.model.ts";
+import { Template } from "../src/models/template.model.ts";
 import { findBoardForMember } from "../src/services/boards.ts";
 import { eventually, rect, roundTrip, startServer, upsert } from "./helpers.js";
 
@@ -115,6 +116,49 @@ describe("anyone with the link can view", () => {
     }
     await roundTrip(watcher);
     assert.equal(watcher.of("board:op").length, 0);
+  });
+
+  it("checks a change against the role on the board it's for, even while the socket is still joining it", async () => {
+    // Someone who edits their own board moves to one they may only view, and sends changes for it straight away.
+    const owner = await app.signUp("Owner");
+    const viewer = await app.signUp("Viewer");
+    const ownBoard = await app.createBoard(viewer);
+    const viewOnly = await app.createBoard(owner);
+    await setLink(owner, viewOnly, "view");
+    const client = await app.connect(viewer);
+    assert.equal((await client.join(ownBoard)).board.role, "owner");
+
+    // Joining looks up how much space the board's owner has left; slowed down, it holds the join open.
+    const aggregate = Template.aggregate;
+    Template.aggregate = function (...args) {
+      const query = aggregate.apply(this, args);
+      const exec = query.exec.bind(query);
+      query.exec = () => new Promise((resolve) => setTimeout(resolve, 300)).then(exec);
+      return query;
+    };
+    try {
+      let joined = false;
+      const joining = client.join(viewOnly).then((reply) => {
+        joined = true;
+        return reply;
+      });
+      const replies = [];
+      for (let i = 0; !joined && i < 100; i++) {
+        replies.push(await client.op(viewOnly, upsert(rect(`sneaky-${i}`))));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal((await joining).board.role, "viewer");
+      assert.ok(replies.length > 0);
+      assert.deepEqual(
+        replies.filter((reply) => reply.ok),
+        [],
+        "no change was taken with the role from the board the socket came from",
+      );
+    } finally {
+      Template.aggregate = aggregate;
+    }
+    const board = await Board.findById(viewOnly);
+    assert.equal(board.elements.length, 0);
   });
 
   it("shows signed-in viewers and named guests in the presence list", async () => {
