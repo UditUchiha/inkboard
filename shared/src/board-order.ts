@@ -1,4 +1,5 @@
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
+import type { Element, StackMove } from "./types.ts";
 
 // Where each element sits in the stack is its `index`: a short string key
 // ("a0", "a1", … "b00", …). Boards are kept sorted by key, and drawn in that
@@ -18,7 +19,7 @@ const KEY_CHARACTERS = /^[0-9A-Za-z]+$/;
 const KEY_START = /^[N-Za-m]/;
 
 /** Whether `key` is a stacking key this module made (or could have). */
-export function isOrderKey(key) {
+export function isOrderKey(key: unknown): key is string {
   if (typeof key !== "string" || key.length > MAX_KEY_LENGTH || !KEY_CHARACTERS.test(key)) return false;
   if (!KEY_START.test(key)) return false;
   try {
@@ -30,12 +31,13 @@ export function isOrderKey(key) {
 }
 
 /** A key above `key` (or the first key, when there's nothing to go above). */
-export const keyAbove = (key) => generateKeyBetween(isOrderKey(key) ? key : null, null);
+export const keyAbove = (key: unknown): string => generateKeyBetween(isOrderKey(key) ? key : null, null);
 
-const keyOf = (element) => element.index ?? "";
+// Elements from before keys existed have no `index`, and `compareOrder` is also asked about ones that may not have it.
+const keyOf = (element: Pick<Element, "index">): string => element.index ?? "";
 
 /** Sort order for elements: by key, then by id. */
-export function compareOrder(a, b) {
+export function compareOrder(a: Pick<Element, "id" | "index">, b: Pick<Element, "id" | "index">): number {
   const [keyA, keyB] = [keyOf(a), keyOf(b)];
   if (keyA !== keyB) return keyA < keyB ? -1 : 1;
   if (a.id === b.id) return 0;
@@ -43,9 +45,11 @@ export function compareOrder(a, b) {
 }
 
 /** The key of the element on top of a sorted board, or null if it's empty. */
-export const topKey = (elements) => (elements.length > 0 ? keyOf(elements.at(-1)) || null : null);
+// The `!` is safe because the board isn't empty (checked first), so `.at(-1)` finds the last element.
+export const topKey = (elements: readonly Pick<Element, "index">[]): string | null =>
+  elements.length > 0 ? keyOf(elements.at(-1)!) || null : null;
 
-export const STACK_MOVES = ["front", "forward", "backward", "back"];
+export const STACK_MOVES: readonly StackMove[] = ["front", "forward", "backward", "back"];
 
 /**
  * The key that moves element `id` in the stack of the sorted board `elements`:
@@ -54,12 +58,17 @@ export const STACK_MOVES = ["front", "forward", "backward", "back"];
  * one that doesn't would change nothing anyone can see). Returns null when
  * there's nowhere to move it.
  */
-export function keyToMove(elements, id, where, overlaps = () => true) {
+export function keyToMove(
+  elements: readonly Element[],
+  id: string,
+  where: StackMove,
+  overlaps: (element: Element) => boolean = () => true,
+): string | null {
   const position = elements.findIndex((element) => element.id === id);
   if (position < 0) return null;
   const keys = elements.map(keyOf);
   if (!keys.every(isOrderKey)) return null;
-  let key = null;
+  let key: string | null = null;
 
   if (where === "front" && position < elements.length - 1) {
     key = generateKeyBetween(keys.at(-1), null);
@@ -91,7 +100,7 @@ export function keyToMove(elements, id, where, overlaps = () => true) {
  * array when it already is. A board saved before elements had keys is stacked
  * in the order it was stored, so it looks exactly as it did.
  */
-export function inStackOrder(elements) {
+export function inStackOrder(elements: Element[]): Element[] {
   if (!elements.every((element) => isOrderKey(element.index))) {
     const keys = generateNKeysBetween(null, null, elements.length);
     return elements.map((element, position) => ({ ...element, index: keys[position] }));
