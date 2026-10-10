@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import { useState } from "react";
+import type { Person } from "../lib/api";
 import { initials, personColor } from "../lib/format";
 
 const SIZES = {
@@ -9,9 +10,22 @@ const SIZES = {
   lg: "size-14 text-lg",
 };
 
+type AvatarSize = keyof typeof SIZES;
+
+type AvatarProps = {
+  id: string;
+  name: string;
+  color?: string | null;
+  src?: string | null;
+  size?: AvatarSize;
+  className?: string;
+  title?: string;
+  decorative?: boolean;
+};
+
 /** A person's photo (from Google or GitHub) or their initials on their color. */
 // Pass `decorative` when the person's name is already shown next to the avatar.
-export function Avatar({ id, name, color, src, size = "sm", className, title, decorative = false }) {
+export function Avatar({ id, name, color, src, size = "sm", className, title, decorative = false }: AvatarProps) {
   const [broken, setBroken] = useState(false);
   const showPhoto = src && !broken;
 
@@ -42,7 +56,12 @@ export function Avatar({ id, name, color, src, size = "sm", className, title, de
   );
 }
 
-export function AvatarStack({ people, size = "sm", max = 4 }) {
+/** Someone in a stack of avatars: `key` tells apart entries that share an id, and `title` replaces the name on hover. */
+export type StackedPerson = Person & { key?: string; title?: string };
+
+type AvatarStackProps = { people: StackedPerson[]; size?: AvatarSize; max?: number };
+
+export function AvatarStack({ people, size = "sm", max = 4 }: AvatarStackProps) {
   const shown = people.slice(0, max);
   const extra = people.length - shown.length;
   return (

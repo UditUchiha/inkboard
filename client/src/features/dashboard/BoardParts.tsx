@@ -14,8 +14,22 @@ import {
 } from "lucide-react";
 import { Menu, MenuItem, MenuSeparator } from "../../components/Menu";
 import { isMember, ROLES } from "./sections";
+import type { BoardRole, BoardSummary } from "./sections";
 
-export function RoleBadge({ role, className }) {
+/** What the dashboard can do to boards; the menus, cards and rows call these. */
+export type BoardActions = {
+  rename: (board: BoardSummary) => void;
+  askLeave: (board: BoardSummary) => void;
+  askPurge: (boards: BoardSummary[]) => void;
+  copyLink: (board: BoardSummary) => void;
+  toggleStar: (board: BoardSummary) => void;
+  archive: (boards: BoardSummary[], archived: boolean) => void;
+  trash: (boards: BoardSummary[]) => void;
+  restore: (boards: BoardSummary[]) => void;
+  forget: (board: BoardSummary) => void;
+};
+
+export function RoleBadge({ role, className }: { role: BoardRole; className?: string }) {
   const { label, icon: Icon, viaLink } = ROLES[role] ?? ROLES.viewer;
   return (
     <span
@@ -31,7 +45,9 @@ export function RoleBadge({ role, className }) {
   );
 }
 
-export function StarButton({ board, onToggle, className }) {
+type StarButtonProps = { board: BoardSummary; onToggle: (board: BoardSummary) => void; className?: string };
+
+export function StarButton({ board, onToggle, className }: StarButtonProps) {
   return (
     <button
       type="button"
@@ -57,7 +73,9 @@ export function StarButton({ board, onToggle, className }) {
  * owners can trash it, invited editors can leave it, and people who only have the
  * link can just remove it from their list.
  */
-export function BoardMenu({ board, trashed = false, actions }) {
+type BoardMenuProps = { board: BoardSummary; trashed?: boolean; actions: BoardActions };
+
+export function BoardMenu({ board, trashed = false, actions }: BoardMenuProps) {
   const member = isMember(board);
   return (
     <Menu

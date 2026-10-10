@@ -1,11 +1,16 @@
 import clsx from "clsx";
 import { Eye, EyeOff } from "lucide-react";
 import { useId, useState } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 const inputClass =
   "h-11 w-full rounded-lg border border-rule bg-surface px-3 text-[15px] text-ink transition-colors placeholder:text-graphite/70 hover:border-graphite/60 focus:border-signal focus:ring-3 focus:ring-signal/20 focus:outline-none aria-invalid:border-danger";
 
-export function TextField({ label, hint, error, id, className, ...props }) {
+// An `error` takes the place of the `hint` while there is one.
+type FieldProps = { label: ReactNode; hint?: ReactNode; error?: ReactNode } & ComponentPropsWithoutRef<"input">;
+
+// `className` goes on the wrapper, not the input.
+export function TextField({ label, hint, error, id, className, ...props }: FieldProps) {
   const autoId = useId();
   const inputId = id ?? autoId;
   const messageId = `${inputId}-message`;
@@ -32,7 +37,7 @@ export function TextField({ label, hint, error, id, className, ...props }) {
   );
 }
 
-export function PasswordField({ label, hint, error, id, ...props }) {
+export function PasswordField({ label, hint, error, id, ...props }: FieldProps) {
   const autoId = useId();
   const inputId = id ?? autoId;
   const messageId = `${inputId}-message`;

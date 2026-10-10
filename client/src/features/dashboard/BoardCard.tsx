@@ -5,18 +5,23 @@ import { timeAgo } from "../../lib/format";
 import { useMinute } from "../../lib/useMinute";
 import { BoardPreview } from "../board/BoardPreview";
 import { BoardMenu, RoleBadge, StarButton } from "./BoardParts";
+import type { BoardActions } from "./BoardParts";
 import { daysLeft, isMember, ROLES } from "./sections";
+import type { BoardSummary } from "./sections";
 
-function subtitle(board, trashed) {
+function subtitle(board: BoardSummary, trashed: boolean) {
   if (trashed) {
-    const left = daysLeft(board.purgeAt);
-    return `Deleted ${timeAgo(board.deletedAt)} · ${left === 1 ? "1 day" : `${left} days`} left`;
+    // A board in the trash has both dates; the list it came from is what `trashed` says.
+    const left = daysLeft(board.purgeAt!);
+    return `Deleted ${timeAgo(board.deletedAt!)} · ${left === 1 ? "1 day" : `${left} days`} left`;
   }
   if (board.role === "owner") return `Edited ${timeAgo(board.updatedAt)}`;
   return `${board.owner.name} · ${ROLES[board.role]?.label ?? "View only"}`;
 }
 
-export function BoardCard({ board, trashed = false, actions }) {
+type BoardCardProps = { board: BoardSummary; trashed?: boolean; actions: BoardActions };
+
+export function BoardCard({ board, trashed = false, actions }: BoardCardProps) {
   useMinute();
   const members = [board.owner, ...board.collaborators];
   const preview = (

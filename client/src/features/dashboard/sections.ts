@@ -1,10 +1,50 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import { Archive, Eye, LayoutGrid, PenLine, Pencil, Star, Trash2, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { Person } from "../../lib/api";
 
 export const TRASH_DAYS = 30;
 
+/** What a person can do on a board. */
+export type BoardRole = "owner" | "editor" | "contributor" | "viewer";
+
+/**
+ * A board as the dashboard lists it (the fields it reads): without its elements, with a preview once one has
+ * been fetched. Dates are the ISO strings the server sends.
+ */
+export type BoardSummary = {
+  id: string;
+  title: string;
+  role: BoardRole;
+  owner: Person;
+  collaborators: Person[];
+  starred: boolean;
+  /** This person's own filing of the board; missing on the trash list. */
+  archived?: boolean;
+  lastOpenedAt?: string | null;
+  updatedAt: string;
+  /** What to draw on the card, once it has been fetched. */
+  preview?: BoardElement[];
+  /** Only on a board in the trash: when it was deleted and when it will be erased for good. */
+  deletedAt?: string;
+  purgeAt?: string;
+};
+
+export type SectionId = "all" | "yours" | "shared" | "starred" | "archived" | "trash";
+
+type Section = {
+  id: SectionId;
+  label: string;
+  icon: LucideIcon;
+  group: "boards" | "tidy";
+  matches: (board: BoardSummary) => boolean | undefined;
+  description: (name: string) => string;
+  empty: { title: string; text: string };
+};
+
 // Which boards each place on the dashboard shows. The trash is the owner's own
 // list from the server, so it has no rule here.
-export const SECTIONS = [
+export const SECTIONS: Section[] = [
   {
     id: "all",
     label: "All boards",
@@ -71,43 +111,62 @@ export const SECTIONS = [
   },
 ];
 
+type RoleInfo = { label: string; icon: LucideIcon; viaLink: boolean };
+
 // What a person can do on a board. Link roles are for people who aren't invited.
-export const ROLES = {
+export const ROLES: Record<BoardRole, RoleInfo> = {
   owner: { label: "Owner", icon: PenLine, viaLink: false },
   editor: { label: "Can edit", icon: Pencil, viaLink: false },
   contributor: { label: "Can edit (link)", icon: Pencil, viaLink: true },
   viewer: { label: "View only", icon: Eye, viaLink: true },
 };
 
-export const isMember = (board) => board.role === "owner" || board.role === "editor";
+export const isMember = (board: BoardSummary) => board.role === "owner" || board.role === "editor";
 
-const time = (value) => new Date(value).getTime();
-const openedAt = (board) => time(board.lastOpenedAt ?? board.updatedAt);
-const byTitle = (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true });
+const time = (value: string) => new Date(value).getTime();
+const openedAt = (board: BoardSummary) => time(board.lastOpenedAt ?? board.updatedAt);
+const byTitle = (a: BoardSummary, b: BoardSummary) =>
+  a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true });
 
-export const SORT_KEYS = {
+/** What the list can be sorted by, and which way. */
+export type SortKey = "modified" | "opened" | "title";
+export type SortDir = "asc" | "desc";
+export type Sort = { key: SortKey; dir: SortDir };
+
+// `value` is the number to sort by, or null to sort by title.
+export const SORT_KEYS: Record<
+  SortKey,
+  { label: string; defaultDir: SortDir; value: ((board: BoardSummary) => number) | null }
+> = {
   modified: { label: "Last modified", defaultDir: "desc", value: (board) => time(board.updatedAt) },
   opened: { label: "Last opened", defaultDir: "desc", value: openedAt },
   title: { label: "Title", defaultDir: "asc", value: null },
 };
 
-export const DEFAULT_SORT = { key: "modified", dir: "desc" };
+export const DEFAULT_SORT: Sort = { key: "modified", dir: "desc" };
+
+// What isSort reads of an object it knows nothing about yet.
+type SortFields = { key: string; dir: unknown };
 
 /** Whether a (possibly stored) value is a sort the dashboard understands. */
-export const isSort = (value) =>
+export const isSort = (value: unknown): value is Sort =>
   Boolean(value) &&
   typeof value === "object" &&
-  Object.hasOwn(SORT_KEYS, value.key) &&
-  (value.dir === "asc" || value.dir === "desc");
+  // Boolean() has ruled out null but the type can't see it. Fields are read as they come, whatever they hold.
+  Object.hasOwn(SORT_KEYS, (value as SortFields).key) &&
+  ((value as SortFields).dir === "asc" || (value as SortFields).dir === "desc");
 
-export const isView = (value) => value === "grid" || value === "list";
+/** How the boards are laid out. */
+export type View = "grid" | "list";
 
-export function compareBoards({ key, dir }) {
+export const isView = (value: unknown): value is View => value === "grid" || value === "list";
+
+export function compareBoards({ key, dir }: Sort) {
   const sign = dir === "asc" ? 1 : -1;
   const { value } = SORT_KEYS[key];
-  return (a, b) => sign * (value ? value(a) - value(b) : byTitle(a, b)) || byTitle(a, b);
+  return (a: BoardSummary, b: BoardSummary) => sign * (value ? value(a) - value(b) : byTitle(a, b)) || byTitle(a, b);
 }
 
-export function daysLeft(purgeAt) {
+export function daysLeft(purgeAt: string) {
   return Math.max(0, Math.ceil((time(purgeAt) - Date.now()) / (24 * 3600 * 1000)));
 }

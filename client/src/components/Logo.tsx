@@ -1,7 +1,9 @@
 import clsx from "clsx";
 import { APP_NAME } from "../config";
 
-export function LogoMark({ className }) {
+type LogoProps = { className?: string };
+
+export function LogoMark({ className }: LogoProps) {
   return (
     <svg viewBox="0 0 32 32" className={clsx("size-7 shrink-0", className)} aria-hidden>
       <rect width="32" height="32" rx="8" className="fill-[#16213a] dark:fill-marker" />
@@ -17,7 +19,7 @@ export function LogoMark({ className }) {
   );
 }
 
-export function Logo({ className }) {
+export function Logo({ className }: LogoProps) {
   return (
     <span className={clsx("inline-flex items-center gap-2", className)}>
       <LogoMark />
