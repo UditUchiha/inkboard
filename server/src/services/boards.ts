@@ -38,6 +38,12 @@ export type Person = Pick<UserDoc, "_id" | "name" | "color" | "avatarUrl">;
 /** A person a board lists as its owner or a collaborator, who is populated with MEMBER_FIELDS. */
 type Member = Person & Pick<UserDoc, "email">;
 
+/** What a board's owner and collaborators become once they are populated (see populateMembers). */
+export interface PopulatedMembers {
+  owner: Member;
+  collaborators: Member[];
+}
+
 /** What serializeMeta reads of a board whose owner and collaborators are populated (see populateMembers). */
 interface BoardMeta extends Access {
   id: string;
@@ -108,10 +114,7 @@ async function loadBoard(boardId: ObjectIdLike, { elements = false }: { elements
     throw new HttpError(404, "This board doesn't exist.");
   }
   const query = Board.findOne({ _id: boardId, deletedAt: null });
-  const board = await (elements ? query : query.select("-elements")).populate<{
-    owner: Member;
-    collaborators: Member[];
-  }>(populateMembers);
+  const board = await (elements ? query : query.select("-elements")).populate<PopulatedMembers>(populateMembers);
   if (!board) {
     throw new HttpError(404, "This board doesn't exist or has been deleted.");
   }

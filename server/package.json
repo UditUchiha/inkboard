@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "main": "src/index.js",
+  "main": "src/index.ts",
   "scripts": {
-    "dev": "node --watch --import ./scripts/dev-env.js src/index.js",
-    "start": "node src/index.js",
+    "dev": "node --watch --import ./scripts/dev-env.js src/index.ts",
+    "start": "node src/index.ts",
     "db": "node scripts/dev-db.js",
     "test": "node --test --test-concurrency=2",
     "coverage": "node --test --test-concurrency=2 --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\"",

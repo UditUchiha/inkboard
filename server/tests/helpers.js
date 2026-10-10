@@ -25,7 +25,7 @@ for (const key of [
   process.env[key] = "";
 }
 
-const { createApp } = await import("../src/app.js");
+const { createApp } = await import("../src/app.ts");
 const { signToken } = await import("../src/lib/tokens.ts");
 const { User } = await import("../src/models/user.model.ts");
 const { attachRealtime, flushAllSessions } = await import("../src/realtime/index.js");

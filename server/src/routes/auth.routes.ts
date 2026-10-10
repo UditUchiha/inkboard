@@ -11,7 +11,7 @@ import {
   resetPassword,
   updateProfile,
   verifyEmail,
-} from "../controllers/auth.controller.js";
+} from "../controllers/auth.controller.ts";
 import {
   confirmLink,
   createLinkTicket,
@@ -20,7 +20,7 @@ import {
   finishOAuth,
   listProviders,
   startOAuth,
-} from "../controllers/oauth.controller.js";
+} from "../controllers/oauth.controller.ts";
 import { requireAuth, requireRecentLogin } from "../middleware/auth.ts";
 import { limitPerUser } from "../middleware/user-limit.ts";
 
@@ -31,7 +31,15 @@ const tooMany = { error: "Too many attempts. Wait a few minutes and try again." 
 // Each kind of request has its own allowance, so that, say, a school where everyone signs in from one
 // address doesn't use up the sign-ups of the next class. Limits count per address, and the ones that
 // guess at or flood a particular account also count per email address (with the address too, for logins).
-const perAddress = ({ windowMs = 15 * MINUTE, limit, failedOnly = false }) =>
+const perAddress = ({
+  windowMs = 15 * MINUTE,
+  limit,
+  failedOnly = false,
+}: {
+  windowMs?: number;
+  limit: number;
+  failedOnly?: boolean;
+}) =>
   rateLimit({
     windowMs,
     limit,
@@ -42,18 +50,30 @@ const perAddress = ({ windowMs = 15 * MINUTE, limit, failedOnly = false }) =>
   });
 
 // `andAddress` counts each email per network address instead of across all of them.
-const perEmail = ({ windowMs = 15 * MINUTE, limit, failedOnly = false, andAddress = false }) =>
+const perEmail = ({
+  windowMs = 15 * MINUTE,
+  limit,
+  failedOnly = false,
+  andAddress = false,
+}: {
+  windowMs?: number;
+  limit: number;
+  failedOnly?: boolean;
+  andAddress?: boolean;
+}) =>
   rateLimit({
     windowMs,
     limit,
     skipSuccessfulRequests: failedOnly,
     keyGenerator: (req) => {
-      const email = String(req.body?.email ?? "")
+      // The body is whatever was sent, and is made a string here.
+      const email = String((req.body as { email?: unknown } | undefined)?.email ?? "")
         .trim()
         .toLowerCase()
         .slice(0, 254);
-      if (!email) return ipKeyGenerator(req.ip);
-      return andAddress ? `email:${email}|${ipKeyGenerator(req.ip)}` : `email:${email}`;
+      // A request that is being handled has an address (it's only missing once the connection has closed).
+      if (!email) return ipKeyGenerator(req.ip!);
+      return andAddress ? `email:${email}|${ipKeyGenerator(req.ip!)}` : `email:${email}`;
     },
     standardHeaders: "draft-8",
     legacyHeaders: false,

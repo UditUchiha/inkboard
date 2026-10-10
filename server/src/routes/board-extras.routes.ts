@@ -1,20 +1,20 @@
 import { Router } from "express";
-import { listNotifications, markRead } from "../controllers/notification.controller.js";
-import { createTemplate, deleteTemplate, listTemplates } from "../controllers/template.controller.js";
+import { listNotifications, markRead } from "../controllers/notification.controller.ts";
+import { createTemplate, deleteTemplate, listTemplates } from "../controllers/template.controller.ts";
 import {
   createThread,
   deleteThread,
   listThreads,
   replyToThread,
   updateThread,
-} from "../controllers/thread.controller.js";
+} from "../controllers/thread.controller.ts";
 import {
   deleteVersion,
   getVersion,
   listVersions,
   restoreVersion,
   saveVersion,
-} from "../controllers/version.controller.js";
+} from "../controllers/version.controller.ts";
 import { requireAuth } from "../middleware/auth.ts";
 import { limitPerUser } from "../middleware/user-limit.ts";
 
