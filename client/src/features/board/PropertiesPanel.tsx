@@ -1,5 +1,8 @@
+import type { ElementType, Font, StackMove } from "@inkboard/shared/types";
 import clsx from "clsx";
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Ban, CopyPlus, Trash2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import {
   FILL_COLORS,
   FONT_SIZES,
@@ -11,9 +14,10 @@ import {
   STROKE_WIDTHS,
   STYLE_CONTROLS,
 } from "./constants";
+import type { Choice, Style } from "./constants";
 import { isComposing } from "./mentions";
 
-function Section({ label, children }) {
+function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
     <fieldset className="grid gap-2">
       <legend className="mb-2 text-xs font-medium text-graphite">{label}</legend>
@@ -22,7 +26,16 @@ function Section({ label, children }) {
   );
 }
 
-function Swatch({ color, name, selected, onClick, children }) {
+type SwatchProps = {
+  // Left out for a swatch that is not a colour (the one for no fill).
+  color?: string;
+  name: string;
+  selected: boolean;
+  onClick: () => void;
+  children?: ReactNode;
+};
+
+function Swatch({ color, name, selected, onClick, children }: SwatchProps) {
   return (
     <button
       type="button"
@@ -41,7 +54,15 @@ function Swatch({ color, name, selected, onClick, children }) {
   );
 }
 
-function CustomColor({ value, onChange, label }) {
+function CustomColor({
+  value,
+  onChange,
+  label,
+}: {
+  value?: string | null;
+  onChange: (value: string) => void;
+  label: string;
+}) {
   return (
     <label
       title={label}
@@ -58,7 +79,14 @@ function CustomColor({ value, onChange, label }) {
   );
 }
 
-function Segmented({ options, value, onChange, renderLabel = (option) => option.name }) {
+type SegmentedProps<T> = {
+  options: Choice<T>[];
+  value: T | undefined;
+  onChange: (value: T) => void;
+  renderLabel?: (option: Choice<T>) => ReactNode;
+};
+
+function Segmented<T>({ options, value, onChange, renderLabel = (option) => option.name }: SegmentedProps<T>) {
   return (
     <div className="grid auto-cols-fr grid-flow-col gap-1 rounded-lg bg-ink/5 p-0.5">
       {options.map((option) => (
@@ -80,20 +108,61 @@ function Segmented({ options, value, onChange, renderLabel = (option) => option.
   );
 }
 
-const isPreset = (palette, value) => palette.some((item) => item.value === value);
+const isPreset = (palette: Choice[], value: string | undefined) => palette.some((item) => item.value === value);
 
-const STACK_BUTTONS = [
+const STACK_BUTTONS: { where: StackMove; label: string; icon: LucideIcon }[] = [
   { where: "back", label: "Send to back", icon: ArrowDownToLine },
   { where: "backward", label: "Send backward", icon: ArrowDown },
   { where: "forward", label: "Bring forward", icon: ArrowUp },
   { where: "front", label: "Bring to front", icon: ArrowUpToLine },
 ];
 
+// What the panel can change, and the type of what each is set to.
+type Settings = Pick<
+  Style,
+  "stroke" | "fill" | "strokeWidth" | "penSize" | "sketchy" | "route" | "startHead" | "font" | "fontSize"
+> & { name: string };
+
+/** A change made in the panel: what is set (say "fill") and the value it is set to (a colour, or null for none). */
+export type StyleChange = { [K in keyof Settings]: [key: K, value: Settings[K]] }[keyof Settings];
+
+/** What the panel shows: the style new elements are drawn with, or the selected element (which has the same fields). */
+export type PanelValues = Partial<Settings> & {
+  // What a label's font control waits for: an arrow or line without text has no label to set a font for.
+  text?: string;
+  // Set when the values are an element's.
+  type?: ElementType;
+};
+
+/** What the properties panel takes: what it is for, what it shows and what its buttons do. */
+export type PropertiesPanelProps = {
+  // The kind of element it is for: the selected one, or what the drawing tool makes.
+  type: ElementType;
+  values: PanelValues;
+  onChange: (...change: StyleChange) => void;
+  // Whether it is for a selected element, which adds the layer, duplicate and delete buttons.
+  selection: boolean;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  // Which moves in the stack are possible.
+  stackMoves?: Partial<Record<StackMove, boolean>>;
+  onMove: (where: StackMove) => void;
+};
+
 /**
  * Shows the style options for the active drawing tool, or for the selected
  * element when the select tool is active.
  */
-export function PropertiesPanel({ type, values, onChange, selection, onDuplicate, onDelete, stackMoves = {}, onMove }) {
+export function PropertiesPanel({
+  type,
+  values,
+  onChange,
+  selection,
+  onDuplicate,
+  onDelete,
+  stackMoves = {},
+  onMove,
+}: PropertiesPanelProps) {
   const controls = STYLE_CONTROLS[type] ?? [];
 
   return (
@@ -242,7 +311,8 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
       {(controls.includes("font") || (controls.includes("labelFont") && values.text)) && (
         <Section label={controls.includes("labelFont") ? "Label font" : "Font"}>
           <Segmented
-            options={Object.entries(FONTS).map(([value, font]) => ({ name: font.name, value }))}
+            // Object.entries gives the keys of FONTS as strings, and they are its fonts.
+            options={Object.entries(FONTS).map(([value, font]) => ({ name: font.name, value: value as Font }))}
             value={values.font}
             onChange={(value) => onChange("font", value)}
             renderLabel={(option) => (

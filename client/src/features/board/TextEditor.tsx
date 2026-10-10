@@ -1,22 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
+import type { StickyElement, TextElement } from "@inkboard/shared/types";
 import { FONTS, LABEL_FONT_SIZE, LINE_HEIGHT, NOTE_TEXT_COLOR, fontKey } from "./constants";
 import { fontFor, measureText } from "./elements";
+import type { Connector } from "./elements";
 import { normalizeRect, toScreen } from "./geometry";
+import type { Viewport, XY } from "./geometry";
 import { noteLayout } from "./notes";
 
 // What the server keeps of a text (see MAX_TEXT_LENGTH), without half an emoji left at the end.
-export function cutText(value) {
+export function cutText(value: string): string {
   const kept = value.slice(0, MAX_TEXT_LENGTH);
   return kept.length < value.length && /[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept;
 }
 
+// A key pressed in one of the editors' textareas.
+type InlineKeyEvent = KeyboardEvent<HTMLTextAreaElement>;
+
 // Keys pressed to pick or cancel what an input method is composing (Japanese, Chinese, Korean…) aren't for the editor.
-const composing = (event) => event.nativeEvent.isComposing || event.keyCode === 229;
+const composing = (event: InlineKeyEvent) => event.nativeEvent.isComposing || event.keyCode === 229;
 
 // Ctrl or Cmd + Enter finishes text and notes (Enter starts a new line); Enter finishes a label.
-const finishesText = (event) => event.key === "Escape" || (event.key === "Enter" && (event.metaKey || event.ctrlKey));
-const finishesLabel = (event) => event.key === "Escape" || (event.key === "Enter" && !event.shiftKey);
+const finishesText = (event: InlineKeyEvent) =>
+  event.key === "Escape" || (event.key === "Enter" && (event.metaKey || event.ctrlKey));
+const finishesLabel = (event: InlineKeyEvent) => event.key === "Escape" || (event.key === "Enter" && !event.shiftKey);
 
 /**
  * What the three inline editors share: a textarea that takes focus when it opens (with the
@@ -24,8 +32,12 @@ const finishesLabel = (event) => event.key === "Escape" || (event.key === "Enter
  * is also how a key that `finishes` the edit ends it), and keeps its keys to itself.
  * Spread `inputProps` onto the textarea.
  */
-function useInlineEditor(initial, onCommit, { finishes, selectAll = false }) {
-  const ref = useRef(null);
+function useInlineEditor(
+  initial: string,
+  onCommit: (text: string) => void,
+  { finishes, selectAll = false }: { finishes: (event: InlineKeyEvent) => boolean; selectAll?: boolean },
+) {
+  const ref = useRef<HTMLTextAreaElement>(null);
   const committed = useRef(false);
   const [value, setValue] = useState(initial);
 
@@ -51,9 +63,9 @@ function useInlineEditor(initial, onCommit, { finishes, selectAll = false }) {
     ref,
     value,
     maxLength: MAX_TEXT_LENGTH,
-    onChange: (event) => setValue(event.target.value),
+    onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setValue(event.target.value),
     onBlur: commit,
-    onKeyDown: (event) => {
+    onKeyDown: (event: InlineKeyEvent) => {
       event.stopPropagation();
       if (composing(event)) return;
       if (finishes(event)) {
@@ -66,7 +78,13 @@ function useInlineEditor(initial, onCommit, { finishes, selectAll = false }) {
   return { value, inputProps };
 }
 
-export function TextEditor({ element, viewport, onCommit }) {
+/** What each inline editor takes: the viewport it is placed by, and what to do with the text once it is done. */
+type EditorProps = { viewport: Viewport; onCommit: (text: string) => void };
+
+/** What the text editor takes: the text being edited. */
+export type TextEditorProps = EditorProps & { element: TextElement };
+
+export function TextEditor({ element, viewport, onCommit }: TextEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text, onCommit, { finishes: finishesText });
 
   const { zoom } = viewport;
@@ -96,11 +114,14 @@ export function TextEditor({ element, viewport, onCommit }) {
   );
 }
 
+/** What the note editor takes: the sticky note being edited. */
+export type NoteEditorProps = EditorProps & { element: StickyElement };
+
 /**
  * Edits a sticky note's text in place: the note itself, with its text wrapped
  * and sized as the canvas will draw it (see notes.js).
  */
-export function NoteEditor({ element, viewport, onCommit }) {
+export function NoteEditor({ element, viewport, onCommit }: NoteEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text, onCommit, { finishes: finishesText });
 
   const { zoom } = viewport;
@@ -141,11 +162,14 @@ export function NoteEditor({ element, viewport, onCommit }) {
   );
 }
 
+/** What the label editor takes: the line or arrow being labelled, and the point halfway along it. */
+export type LabelEditorProps = EditorProps & { element: Connector; middle: XY };
+
 /**
  * Edits a line's or arrow's label in place, centred on `middle` (halfway along
  * the connector, in board units), as the canvas will draw it.
  */
-export function LabelEditor({ element, middle, viewport, onCommit }) {
+export function LabelEditor({ element, middle, viewport, onCommit }: LabelEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text ?? "", onCommit, {
     finishes: finishesLabel,
     selectAll: true,
