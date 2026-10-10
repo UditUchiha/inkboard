@@ -118,6 +118,7 @@ describe("element rules", () => {
       text({ text: "x".repeat(MAX_TEXT_LENGTH + 1) }),
       text({ x1: undefined }),
       picture({ imageId: "../../etc/passwd" }),
+      picture({ imageId: ["a".repeat(32)] }),
       picture({ x2: Infinity }),
       note({ text: undefined }),
       note({ text: "x".repeat(MAX_TEXT_LENGTH + 1) }),
