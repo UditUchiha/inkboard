@@ -225,10 +225,13 @@ async function getJson<Answer>(url: string, accessToken: string | undefined) {
 
 const enabledProviders = () => OAUTH_PROVIDERS.filter((name) => env.oauth[name]);
 
+// A name from the URL may be anything. Only the providers' own keys count: a plain lookup would also find what every
+// object has, such as "constructor".
+const isProvider = (name: string): name is OAuthProvider => Object.hasOwn(PROVIDERS, name);
+
 function providerFrom(req: Request): EnabledProvider {
-  // From the URL, so it may be anything; the lookups below turn away what isn't a provider.
-  const name = req.params.provider as OAuthProvider;
-  if (!PROVIDERS[name] || !env.oauth[name]) {
+  const name = String(req.params.provider);
+  if (!isProvider(name) || !env.oauth[name]) {
     throw new HttpError(404, "That sign-in method isn't available.");
   }
   // `!env.oauth[name]` above throws when the client is missing, which the types can't follow through `name`.
@@ -528,9 +531,8 @@ export async function confirmLink(
 
 /** Disconnects a provider, as long as the account keeps another way to sign in. */
 export async function disconnectProvider(req: Request, res: Response) {
-  // From the URL, so it may be anything; the lookup below turns away what isn't a provider.
-  const name = req.params.provider as OAuthProvider;
-  if (!PROVIDERS[name]) throw new HttpError(404, "That sign-in method isn't available.");
+  const name = String(req.params.provider);
+  if (!isProvider(name)) throw new HttpError(404, "That sign-in method isn't available.");
   const { label } = PROVIDERS[name];
 
   const user = await User.findById(req.userId).select("+password +googleId +githubId");

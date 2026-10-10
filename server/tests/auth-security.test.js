@@ -379,6 +379,16 @@ describe("connecting Google to an account (M2)", () => {
   });
 });
 
+describe("sign-in providers named in the URL", () => {
+  it("only knows Google and GitHub, not names every object has", async () => {
+    const { token } = await accountWith({ password: "a-password-here" });
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      assert.equal((await app.request(`/auth/oauth/${name}`)).status, 404, `start ${name}`);
+      assert.equal((await app.request(`/auth/oauth/${name}`, { method: "DELETE", user: { token } })).status, 404);
+    }
+  });
+});
+
 describe("Continue with Google", () => {
   it("creates an account, hands the app a sign-in code (not a login) to exchange, and sends failures as codes", async () => {
     const email = newEmail("fresh");
