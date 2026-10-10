@@ -17,8 +17,12 @@ export const TOOLS = [
 // Only offered to signed-in people who can edit the board. It has no number key.
 export const COMMENT_TOOL = { id: "comment", label: "Comment", key: "c" };
 
-// The most elements a board can hold (the server's limit too).
-export const MAX_ELEMENTS_PER_BOARD = 5000;
+// The board limit and the merge-rules version are the server's too (shared/src/limits.js).
+export { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT } from "@inkboard/shared/limits";
+
+// A pen stroke longer than this carries on as a new one: each step of a stroke
+// is sent whole, so the longer it gets the more every step costs.
+export const STROKE_SPLIT_POINTS = 1000;
 
 export const NUMBERED_TOOLS = 9;
 
@@ -83,6 +87,9 @@ export const FONTS = {
   sans: { name: "Sans", family: '"Archivo Variable", sans-serif' },
   code: { name: "Code", family: '"JetBrains Mono Variable", monospace' },
 };
+
+/** `font` if it names one of the FONTS, else the default (an element's font is whatever its author's file said). */
+export const fontKey = (font) => (Object.hasOwn(FONTS, font) ? font : "hand");
 
 export const LINE_HEIGHT = 1.25;
 
