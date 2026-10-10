@@ -175,12 +175,6 @@ type Under = { found?: Connection; hit?: BoardElement | null };
 // What the pointer handlers ask of an event for where it is.
 type Located = { clientX: number; clientY: number };
 
-// A pointer event as extendStroke reads it. It asks for the coalesced events, which a React event doesn't have
-// (only its native event does), so it gets none and takes the event itself.
-type StrokeEvent = PointerEvent<HTMLCanvasElement> & {
-  getCoalescedEvents?: () => (Located & { pressure: number })[];
-};
-
 // Safari's pinch gesture events, which the DOM's types lack.
 type PinchEvent = Event & { scale: number; clientX: number; clientY: number };
 
@@ -343,9 +337,10 @@ export function BoardCanvas({
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   };
 
-  // Coalesced events give smoother strokes on high-frequency pens and mice.
-  function extendStroke(element: PenElement, event: StrokeEvent, vp: Viewport) {
-    const samples = event.getCoalescedEvents?.() ?? [];
+  // Coalesced events give smoother strokes on high-frequency pens and mice. Only the browser's own event has
+  // them, not React's (some browsers have none, and then the event itself is the one sample).
+  function extendStroke(element: PenElement, event: PointerEvent<HTMLCanvasElement>, vp: Viewport) {
+    const samples = event.nativeEvent.getCoalescedEvents?.() ?? [];
     const added = (samples.length ? samples : [event]).map((sample): Point => {
       const s = screenPoint(sample);
       const point = toWorld(vp, s.x, s.y);
