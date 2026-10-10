@@ -138,11 +138,11 @@ export async function updateProfile(req: BodyRequest<{ name?: unknown; color?: u
   if (req.body?.name !== undefined) user.name = readName(req.body.name);
   if (req.body?.color !== undefined) {
     const { color } = req.body;
-    if (color !== null && !COLOR_PATTERN.test(String(color))) {
+    // A string is checked first because the pattern turns what it's given into one: ["#aabbcc"] would pass it.
+    if (color !== null && (typeof color !== "string" || !COLOR_PATTERN.test(color))) {
       throw new HttpError(400, "Choose one of the colors shown.");
     }
-    // The pattern test goes through String(), which the types can't follow back to a string or null.
-    user.color = color as string | null;
+    user.color = color;
   }
   await user.save();
   await refreshUser(user);

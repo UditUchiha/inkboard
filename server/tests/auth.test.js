@@ -138,6 +138,8 @@ describe("profile and password", () => {
     assert.equal(renamed.data.user.color, "#e8590c");
 
     assert.equal((await app.request("/auth/me", { method: "PATCH", user, body: { color: "red" } })).status, 400);
+    const listed = await app.request("/auth/me", { method: "PATCH", user, body: { color: ["#e8590c"] } });
+    assert.equal(listed.status, 400, "a list holding a color isn't a color");
     assert.equal((await app.request("/auth/me", { method: "PATCH", user, body: { name: "" } })).status, 400);
     const cleared = await app.request("/auth/me", { method: "PATCH", user, body: { color: null } });
     assert.equal(cleared.data.user.color, null);
