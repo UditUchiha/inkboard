@@ -5,7 +5,7 @@ import { describe, it } from "node:test";
 // imports: the segmenter is only made when text is first cut, and there's a fallback without one.
 const segmenter = Intl.Segmenter;
 Intl.Segmenter = undefined;
-const { cutText } = await import("../src/element-rules.js");
+const { cutText } = await import("../src/element-rules.ts");
 
 describe("cutting text without Intl.Segmenter", () => {
   it("loads, and cuts between code points, never inside a surrogate pair", () => {

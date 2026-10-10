@@ -11,7 +11,7 @@ import {
   planOperation,
   supersedes,
   withStamps,
-} from "../src/board-merge.js";
+} from "../src/board-merge.ts";
 
 // A small seeded generator, so a failure can be reproduced from its seed.
 function random(seed) {

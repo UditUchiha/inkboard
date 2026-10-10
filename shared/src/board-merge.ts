@@ -1,4 +1,23 @@
-import { compareOrder } from "./board-order.js";
+import { compareOrder } from "./board-order.ts";
+import type {
+  CommitOptions,
+  CommitResult,
+  Effect,
+  Element,
+  ElementStamps,
+  Fields,
+  FieldGroup,
+  GroupStamps,
+  LiveElements,
+  MaybeStamped,
+  Operation,
+  Plan,
+  PlanOptions,
+  Removal,
+  Stamp,
+  Tombstone,
+  Tombstones,
+} from "./types.ts";
 
 // How a board takes in changes. The browser and the server both apply these
 // rules, so everyone who has seen the same changes has the same board, whatever
@@ -27,7 +46,7 @@ import { compareOrder } from "./board-order.js";
 // made before the removal and arriving after it can't bring it back, while a
 // newer change (an undo, say) can, and merges with what was there.
 
-export const FIELD_GROUPS = {
+export const FIELD_GROUPS: Record<FieldGroup, readonly string[]> = {
   // A connector's ends and the shapes (and sides) they're attached to change together.
   shape: [
     "type",
@@ -61,8 +80,9 @@ export const FIELD_GROUPS = {
 // Every field an element can have belongs to exactly one group. A field that
 // isn't listed here doesn't survive a merge.
 
-const ALWAYS = ["shape", "index"];
-const OPTIONAL = Object.keys(FIELD_GROUPS).filter((group) => !ALWAYS.includes(group));
+const ALWAYS: readonly FieldGroup[] = ["shape", "index"];
+// Object.keys can only say "strings"; these are the keys of FIELD_GROUPS, so they are field groups.
+const OPTIONAL = (Object.keys(FIELD_GROUPS) as FieldGroup[]).filter((group) => !ALWAYS.includes(group));
 const META = new Set(["id", "version", "versionNonce", "stamps"]);
 
 // Far beyond any real board (each edit adds one), and far below where numbers
@@ -75,29 +95,34 @@ export const MAX_VERSION = 2 ** 48;
 // offline, but too few for a forged version to leave an element out of reach.
 export const MAX_VERSION_JUMP = 1_000_000;
 
-export const isVersion = (value) => Number.isSafeInteger(value) && value >= 0 && value <= MAX_VERSION;
-export const isNonce = (value) => Number.isInteger(value) && value >= 0 && value < 2 ** 31;
+// Number.isSafeInteger and Number.isInteger only return a boolean, so TypeScript doesn't learn from them that
+// `value` is a number; the casts say what the first check has already settled.
+export const isVersion = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= MAX_VERSION;
+export const isNonce = (value: unknown): value is number =>
+  Number.isInteger(value) && (value as number) >= 0 && (value as number) < 2 ** 31;
 
 /** The stamp of an element (its newest), or of a removal. Missing parts count as 0. */
-export const stampOf = (stamped) => ({
+export const stampOf = (stamped?: MaybeStamped | null): Stamp => ({
   version: isVersion(stamped?.version) ? stamped.version : 0,
   versionNonce: isNonce(stamped?.versionNonce) ? stamped.versionNonce : 0,
 });
 
 /** Positive when stamp `a` is newer than `b`, negative when older, 0 when they're the same stamp. */
-export function compareStamps(a, b) {
+export function compareStamps(a: Stamp, b: Stamp): number {
   if (a.version !== b.version) return a.version - b.version;
   return b.versionNonce - a.versionNonce;
 }
 
 /** Whether the change `incoming` wins over `current`, by their newest stamps. */
-export const supersedes = (incoming, current) => compareStamps(stampOf(incoming), stampOf(current)) >= 0;
+export const supersedes = (incoming: MaybeStamped, current: MaybeStamped): boolean =>
+  compareStamps(stampOf(incoming), stampOf(current)) >= 0;
 
 /** Whether a removal or element carries a stamp (changes from older browsers don't). */
-export const isStamped = (change) => isVersion(change?.version);
+export const isStamped = (change?: MaybeStamped | null): boolean => isVersion(change?.version);
 
 /** The groups an element has: its shape, its place in the stack, and whichever others it uses. */
-export function groupsOf(element) {
+export function groupsOf(element: Element): FieldGroup[] {
   const groups = [...ALWAYS];
   for (const group of OPTIONAL) {
     if (FIELD_GROUPS[group].some((field) => field in element)) groups.push(group);
@@ -106,11 +131,13 @@ export function groupsOf(element) {
 }
 
 /** `stamps` as an element may list them, or undefined if there's nothing valid. */
-export function cleanStamps(stamps) {
+export function cleanStamps(stamps: unknown): ElementStamps | undefined {
   if (!stamps || typeof stamps !== "object" || Array.isArray(stamps)) return undefined;
-  const clean = {};
-  for (const group of Object.keys(FIELD_GROUPS)) {
-    const pair = stamps[group];
+  const clean: ElementStamps = {};
+  // Object.keys can only say "strings"; these are the keys of FIELD_GROUPS, so they are field groups.
+  for (const group of Object.keys(FIELD_GROUPS) as FieldGroup[]) {
+    // Only an object that isn't an array got this far, and each entry is checked below before it's used.
+    const pair = (stamps as Record<string, unknown>)[group];
     if (Array.isArray(pair) && pair.length === 2 && isVersion(pair[0]) && isNonce(pair[1]))
       clean[group] = [pair[0], pair[1]];
   }
@@ -118,10 +145,10 @@ export function cleanStamps(stamps) {
 }
 
 /** The stamp of each of an element's groups: { group: { version, versionNonce } }. */
-export function groupStamps(element) {
+export function groupStamps(element: Element): GroupStamps {
   const newest = stampOf(element);
   const listed = element.stamps;
-  const stamps = {};
+  const stamps: GroupStamps = {};
   for (const group of groupsOf(element)) {
     const pair = listed?.[group];
     stamps[group] =
@@ -133,30 +160,34 @@ export function groupStamps(element) {
 }
 
 /** The element made of `fields` with each group stamped as in `stamps`. */
-export function withStamps(fields, stamps) {
-  let newest = null;
+export function withStamps(fields: Fields, stamps: GroupStamps): Element {
+  let newest: Stamp | null = null;
   for (const stamp of Object.values(stamps)) {
     if (!newest || compareStamps(stamp, newest) > 0) newest = stamp;
   }
-  const element = {};
+  const element: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
     if (!META.has(key)) element[key] = value;
   }
-  const older = {};
-  for (const [group, stamp] of Object.entries(stamps)) {
-    if (compareStamps(stamp, newest) !== 0) older[group] = [stamp.version, stamp.versionNonce];
+  const older: ElementStamps = {};
+  // Each `newest!` below is safe because `stamps` always has the "shape" group (see groupsOf), so the loop
+  // above set `newest`.
+  // Object.entries can only say "strings"; these are the keys of `stamps`, so they are field groups.
+  for (const [group, stamp] of Object.entries(stamps) as [FieldGroup, Stamp][]) {
+    if (compareStamps(stamp, newest!) !== 0) older[group] = [stamp.version, stamp.versionNonce];
   }
+  // Built up field by field from `fields`, which is how any element is kept, so it can't be shown to be one.
   return {
     id: fields.id,
     ...element,
-    version: newest.version,
-    versionNonce: newest.versionNonce,
+    version: newest!.version,
+    versionNonce: newest!.versionNonce,
     ...(Object.keys(older).length > 0 ? { stamps: older } : {}),
-  };
+  } as Element;
 }
 
 /** Copies the fields of `group` from `source` onto `target` (removing those `source` doesn't have). */
-export function copyGroup(target, source, group) {
+export function copyGroup(target: Fields, source: Fields, group: FieldGroup): void {
   for (const field of FIELD_GROUPS[group]) {
     if (field in source) target[field] = source[field];
     else delete target[field];
@@ -171,10 +202,11 @@ export function copyGroup(target, source, group) {
  * something else never takes the group away; to clear a field, set it to an
  * empty value ("", null) rather than leaving it out.
  */
-export function mergeElement(current, incoming) {
+export function mergeElement(current: Element, incoming: Element): Element {
   const mine = groupStamps(current);
   const theirs = groupStamps(incoming);
-  const groups = new Set([...Object.keys(mine), ...Object.keys(theirs)]);
+  // Object.keys can only say "strings"; these are the keys of group stamps, so they are field groups.
+  const groups = new Set([...(Object.keys(mine) as FieldGroup[]), ...(Object.keys(theirs) as FieldGroup[])]);
   const won = new Set();
   for (const group of groups) {
     if (theirs[group] && (!mine[group] || compareStamps(theirs[group], mine[group]) > 0)) won.add(group);
@@ -182,8 +214,8 @@ export function mergeElement(current, incoming) {
   if (won.size === 0) return current;
   if (won.size === groups.size) return incoming;
 
-  const fields = { id: current.id };
-  const stamps = {};
+  const fields: Fields = { id: current.id };
+  const stamps: GroupStamps = {};
   for (const group of groups) {
     const fromIncoming = won.has(group);
     copyGroup(fields, fromIncoming ? incoming : current, group);
@@ -192,30 +224,33 @@ export function mergeElement(current, incoming) {
   return withStamps(fields, stamps);
 }
 
-const removalOf = (entry) => (typeof entry === "string" ? { id: entry } : entry);
+const removalOf = (entry: Removal | string): Removal => (typeof entry === "string" ? { id: entry } : entry);
 
 // The elements by id as a plan sees them: `index` (the board as it was) with the
 // plan's changes laid over it, which `settle` then writes into `index`, so a
 // board that keeps an index never has to build one per operation.
-class Overlay {
-  constructor(index) {
+class Overlay implements LiveElements {
+  declare index: Map<string, Element>;
+  declare changes: Map<string, Element | null>;
+
+  constructor(index: Map<string, Element>) {
     this.index = index;
     this.changes = new Map();
   }
 
-  get(id) {
+  get(id: string): Element | undefined {
     return this.changes.has(id) ? (this.changes.get(id) ?? undefined) : this.index.get(id);
   }
 
-  set(id, element) {
+  set(id: string, element: Element): void {
     this.changes.set(id, element);
   }
 
-  delete(id) {
+  delete(id: string): void {
     this.changes.set(id, null);
   }
 
-  settle() {
+  settle(): void {
     for (const [id, element] of this.changes) {
       if (element) this.index.set(id, element);
       else this.index.delete(id);
@@ -243,18 +278,20 @@ class Overlay {
  * anyone could fill its memory with removals of made-up ids).
  */
 export function planOperation(
-  elements,
-  { upsert = [], remove = [] },
-  tombstones = new Map(),
-  { index = null, remember = true } = {},
-) {
-  const live = index ? new Overlay(index) : new Map(elements.map((element) => [element.id, element]));
-  const graves = new Map();
-  const grave = (id) => (graves.has(id) ? graves.get(id) : tombstones.get(id));
-  const shown = new Map();
-  const buried = new Map();
-  const hidden = new Map();
-  const added = new Set();
+  elements: Element[],
+  { upsert = [], remove = [] }: Operation,
+  tombstones: Tombstones = new Map(),
+  { index = null, remember = true }: PlanOptions = {},
+): Plan {
+  const live: LiveElements = index
+    ? new Overlay(index)
+    : new Map<string, Element>(elements.map((element) => [element.id, element]));
+  const graves = new Map<string, Tombstone | null>();
+  const grave = (id: string) => (graves.has(id) ? graves.get(id) : tombstones.get(id));
+  const shown = new Map<string, Element>();
+  const buried = new Map<string, Element>();
+  const hidden = new Map<string, Stamp>();
+  const added = new Set<string>();
 
   for (const entry of remove) {
     const removal = removalOf(entry);
@@ -310,11 +347,12 @@ export function planOperation(
  * bring back the same thing. Each goes with its removal, so a screen that
  * doesn't know about the removal (it opened the board since) keeps it hidden too.
  */
-export function effectOf(plan) {
-  const remove = new Map(plan.hidden);
+export function effectOf(plan: Plan): Effect {
+  const remove = new Map<string, Stamp>(plan.hidden);
   for (const id of plan.buried.keys()) {
     if (remove.has(id)) continue;
-    const { version, versionNonce } = plan.graves.get(id);
+    // Every buried element had its tombstone set in the same plan (see planOperation), so there is one.
+    const { version, versionNonce } = plan.graves.get(id)!;
     remove.set(id, { version, versionNonce });
   }
   return {
@@ -329,7 +367,7 @@ export function effectOf(plan) {
  * dropped (and listed in `dropped`). One dropped on its way back from being
  * removed stays removed, tombstone and all, and its entry leaves `plan.graves`.
  */
-export function commitPlan(plan, tombstones, { limit = Infinity } = {}) {
+export function commitPlan(plan: Plan, tombstones: Tombstones, { limit = Infinity }: CommitOptions = {}): CommitResult {
   if (plan.shown.size === 0 && plan.hidden.size === 0) {
     setGraves(plan.graves, tombstones);
     plan.live.settle?.();
@@ -338,7 +376,7 @@ export function commitPlan(plan, tombstones, { limit = Infinity } = {}) {
   // What a plan changes is in `shown` and `hidden`, which are usually small, so the board is gone
   // through once looking only in those. (An element removed and brought back by the same change is
   // in `hidden` and in `added`, and goes with the new ones.)
-  const next = [];
+  const next: Element[] = [];
   let reorder = false;
   for (const element of plan.elements) {
     if (plan.hidden.has(element.id)) continue;
@@ -348,14 +386,15 @@ export function commitPlan(plan, tombstones, { limit = Infinity } = {}) {
   }
   // New elements usually go on top, above everything, in order: then they're added at the end
   // rather than the whole board sorted again.
-  const dropped = [];
+  const dropped: string[] = [];
   for (const id of plan.added) {
     if (next.length >= limit) {
       dropped.push(id);
       continue;
     }
-    const element = plan.live.get(id);
-    if (next.length > 0 && compareOrder(next.at(-1), element) > 0) reorder = true;
+    // An added element is live, and `.at(-1)` finds the last one because `next` isn't empty (checked first).
+    const element = plan.live.get(id)!;
+    if (next.length > 0 && compareOrder(next.at(-1)!, element) > 0) reorder = true;
     next.push(element);
   }
   for (const id of dropped) {
@@ -368,7 +407,7 @@ export function commitPlan(plan, tombstones, { limit = Infinity } = {}) {
   return { elements: next, dropped };
 }
 
-function setGraves(graves, tombstones) {
+function setGraves(graves: Map<string, Tombstone | null>, tombstones: Tombstones): void {
   for (const [id, tombstone] of graves) {
     if (tombstone) tombstones.set(id, tombstone);
     else tombstones.delete(id);
@@ -379,7 +418,12 @@ function setGraves(graves, tombstones) {
  * Applies `op` to `elements` and returns the new list (the old one isn't
  * changed). `tombstones` is read and updated.
  */
-export function applyOperation(elements, op, tombstones = new Map(), options = undefined) {
+export function applyOperation(
+  elements: Element[],
+  op: Operation,
+  tombstones: Tombstones = new Map(),
+  options: CommitOptions | undefined = undefined,
+): Element[] {
   if ((op.upsert?.length ?? 0) === 0 && (op.remove?.length ?? 0) === 0) return elements;
   return commitPlan(planOperation(elements, op, tombstones), tombstones, options).elements;
 }

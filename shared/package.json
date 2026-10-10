@@ -5,14 +5,16 @@
   "description": "Rules the browser and the server must apply identically, such as how boards merge changes.",
   "type": "module",
   "exports": {
-    "./board-merge": "./src/board-merge.js",
-    "./board-order": "./src/board-order.js",
-    "./element-rules": "./src/element-rules.js",
-    "./limits": "./src/limits.js"
+    "./board-merge": "./src/board-merge.ts",
+    "./board-order": "./src/board-order.ts",
+    "./element-rules": "./src/element-rules.ts",
+    "./limits": "./src/limits.ts",
+    "./types": "./src/types.ts"
   },
   "scripts": {
     "test": "node --test",
-    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\""
+    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\"",
+    "typecheck": "tsc -p ."
   },
   "dependencies": {
     "fractional-indexing": "^4.0.0"

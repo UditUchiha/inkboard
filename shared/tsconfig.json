@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.base.json",
+  // The tests stay JavaScript for now: they feed the rules malformed input on purpose.
+  "include": ["src"]
+}

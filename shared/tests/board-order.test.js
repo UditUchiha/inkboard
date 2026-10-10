@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compareOrder, inStackOrder, isOrderKey, keyToMove } from "../src/board-order.js";
+import { compareOrder, inStackOrder, isOrderKey, keyToMove } from "../src/board-order.ts";
 
 const board = (...ids) => inStackOrder(ids.map((id) => ({ id })));
 const ids = (elements) => elements.map((element) => element.id);
