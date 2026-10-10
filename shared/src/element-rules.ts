@@ -240,10 +240,11 @@ function cleanByType(element: Fields): Element | null {
     return { id, type, x1, y1, x2, y2, name };
   }
   if (type === "image") {
-    // The test turns `imageId` into a string before matching it, so passing doesn't prove that it is one (an
-    // array holding a matching string passes too). Both casts only describe what is checked here.
-    if (!IMAGE_ID.test(element.imageId as string) || !box(element)) return null;
-    const { imageId, x1, y1, x2, y2 } = element as typeof element & { imageId: string };
+    // The type is checked first because the pattern turns what it's given into a string: an array holding a
+    // valid id would pass it, and the server's search for the pictures boards use would then miss it.
+    const imageId = element.imageId;
+    if (typeof imageId !== "string" || !IMAGE_ID.test(imageId) || !box(element)) return null;
+    const { x1, y1, x2, y2 } = element;
     return { id, type, imageId, x1, y1, x2, y2 };
   }
   if (SHAPE_TYPES.has(type)) {
