@@ -6,10 +6,13 @@
   "type": "module",
   "exports": {
     "./board-merge": "./src/board-merge.js",
-    "./board-order": "./src/board-order.js"
+    "./board-order": "./src/board-order.js",
+    "./element-rules": "./src/element-rules.js",
+    "./limits": "./src/limits.js"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\""
   },
   "dependencies": {
     "fractional-indexing": "^4.0.0"

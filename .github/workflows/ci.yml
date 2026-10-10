@@ -1,22 +1,38 @@
-# Checks formatting, then runs the tests and the production build on every push
-# and pull request, so a change that breaks sharing, saving or the build is
-# caught before it is merged.
+# Checks formatting and lint, then runs the tests (with a coverage report) and the production
+# build on every pull request and every push to main, so a change that breaks sharing, saving or
+# the build is caught before it is merged.
 name: CI
 
 on:
   push:
+    branches: [main] # other branches are covered by their pull request
   pull_request:
+
+# A newer push to the same branch makes the run in progress pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The server tests start a throwaway MongoDB. Pinning its version makes the download cache key
+  # exact, and skipping the npm postinstall download stops it fetching a second copy before the
+  # cache below has been restored.
+  MONGOMS_VERSION: "8.2.6"
+  MONGOMS_DISABLE_POSTINSTALL: "1"
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -24,14 +40,20 @@ jobs:
       - name: Formatting
         run: npm run format:check
 
-      # The server tests start a throwaway MongoDB. Cache its download between runs.
-      - uses: actions/cache@v4
+      - name: Lint
+        run: npm run lint
+
+      # Only dependencies that ship to users; a dev-tool advisory shouldn't block a merge.
+      - name: Audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/mongodb-binaries
-          key: mongodb-binaries-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: mongodb-binaries-${{ runner.os }}-${{ env.MONGOMS_VERSION }}
 
-      - name: Tests
-        run: npm test
+      - name: Tests and coverage
+        run: npm run coverage
 
       - name: Build
         run: npm run build

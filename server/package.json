@@ -5,14 +5,16 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "dev": "node --watch src/index.js",
+    "dev": "node --watch --import ./scripts/dev-env.js src/index.js",
     "start": "node src/index.js",
     "db": "node scripts/dev-db.js",
-    "test": "node --test --test-concurrency=2"
+    "test": "node --test --test-concurrency=2",
+    "coverage": "node --test --test-concurrency=2 --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\""
   },
   "dependencies": {
     "@inkboard/shared": "^1.0.0",
     "bcryptjs": "^3.0.3",
+    "compression": "^1.8.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
