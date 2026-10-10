@@ -31,7 +31,7 @@ import {
   hitTest,
 } from "../src/features/board/elements.ts";
 import { ELBOW_GAP, connectorPath, pathMiddle } from "../src/features/board/routes.ts";
-import { createBoardStore } from "../src/features/board/store.js";
+import { createBoardStore } from "../src/features/board/store.ts";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in measures 10 units a character.
 const measuringDocument = {

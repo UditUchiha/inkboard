@@ -1,3 +1,4 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import { BOARD_FILE_EXTENSION, makeBoardFile } from "./boardFile";
 import { getSceneBounds } from "./elements";
 import { downloadBlob, pictureDataUrls, safeFileName } from "./files";
@@ -10,7 +11,7 @@ import { fontFacesFor, measureBaselines } from "./svgFonts";
 // Exporting a board: as a picture (PNG), as vectors (SVG), or as a board file
 // (JSON) that can be imported again. Each resolves to false when the board is empty.
 
-export async function exportBoardAsPng(elements, fileName) {
+export async function exportBoardAsPng(elements: BoardElement[], fileName: string): Promise<boolean> {
   const bounds = getSceneBounds(elements);
   if (!bounds) return false;
   await Promise.all([loadCanvasFonts(), loadImagesOf(elements)]);
@@ -32,7 +33,7 @@ export async function exportBoardAsPng(elements, fileName) {
     background: "#ffffff",
   });
 
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   // Never on the page, so nothing else would let go of it (up to 64 MB of pixels).
   releaseImages(canvas);
   // A browser that can't make a canvas this big hands back nothing.
@@ -41,17 +42,18 @@ export async function exportBoardAsPng(elements, fileName) {
   return true;
 }
 
-export async function exportBoardAsSvg(elements, fileName) {
+export async function exportBoardAsSvg(elements: BoardElement[], fileName: string): Promise<boolean> {
   if (!getSceneBounds(elements)) return false;
   await loadCanvasFonts();
   const fonts = fontsUsed(elements);
   const [fontFaces, images] = await Promise.all([fontFacesFor(fonts), pictureDataUrls(elements)]);
-  const svg = buildSvg(elements, { images, fontFaces, baselines: measureBaselines(fonts) });
+  // The assertion: buildSvg gives null only for a board with nothing to draw, which is checked above.
+  const svg = buildSvg(elements, { images, fontFaces, baselines: measureBaselines(fonts) })!;
   downloadBlob(new Blob([svg], { type: "image/svg+xml" }), `${safeFileName(fileName)}.svg`);
   return true;
 }
 
-export async function exportBoardAsJson(elements, title) {
+export async function exportBoardAsJson(elements: BoardElement[], title: string): Promise<boolean> {
   if (elements.length === 0) return false;
   const file = makeBoardFile({ title, elements, pictures: await pictureDataUrls(elements) });
   downloadBlob(

@@ -1,7 +1,9 @@
 import { cleanElement } from "@inkboard/shared/element-rules";
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getGuest } from "../../lib/guest";
+import type { Person } from "../../lib/api";
 import { noCursors } from "./cursors";
 import { createEditorStore } from "./editorStore";
 
@@ -13,14 +15,23 @@ const SCRATCH_KEY = "inkboard.scratch";
 const SAVE_DELAY_MS = 400;
 const FULL_WARNING_EVERY_MS = 20_000;
 
+/** A guest's board: its title and its elements. */
+export type Scratch = { title: string; elements: BoardElement[] };
+
+// What is changed about the board's details (only the title is taken); a function gets the details as they are.
+type MetaUpdate = { title?: unknown };
+
 /** The saved scratch board. Anything in it that isn't a valid element is left out, so it can't break drawing. */
-export function readScratch() {
+export function readScratch(): Scratch {
   try {
-    const stored = JSON.parse(localStorage.getItem(SCRATCH_KEY) ?? "null");
+    const stored: { title?: unknown; elements?: unknown } | null = JSON.parse(
+      localStorage.getItem(SCRATCH_KEY) ?? "null",
+    );
     if (stored && Array.isArray(stored.elements)) {
       return {
         title: typeof stored.title === "string" ? stored.title : "Untitled board",
-        elements: stored.elements.map(cleanElement).filter(Boolean),
+        // The cast: filter(Boolean) leaves only the elements there are, which TypeScript doesn't see.
+        elements: stored.elements.map(cleanElement).filter(Boolean) as BoardElement[],
       };
     }
   } catch {
@@ -29,7 +40,7 @@ export function readScratch() {
   return { title: "Untitled board", elements: [] };
 }
 
-function writeScratch(scratch) {
+function writeScratch(scratch: Scratch): boolean {
   try {
     localStorage.setItem(SCRATCH_KEY, JSON.stringify(scratch));
     return true;
@@ -40,10 +51,10 @@ function writeScratch(scratch) {
 
 // The drawing as it is in this tab. When the browser has no room left, what's in
 // localStorage is out of date, and what is uploaded on signing up must be this.
-let live = null;
+let live: Scratch | null = null;
 
 /** The scratch board to show or upload: this tab's own drawing if it made one, otherwise what was saved. */
-export function currentScratch() {
+export function currentScratch(): Scratch {
   return live ?? readScratch();
 }
 
@@ -57,7 +68,7 @@ export function clearScratch() {
 }
 
 const NOOP = () => {};
-const NO_PEOPLE = [];
+const NO_PEOPLE: Person[] = [];
 
 /**
  * Everything BoardEditor needs for a board that has no server: a store loaded
@@ -72,7 +83,7 @@ export function useScratchBoard() {
   useEffect(() => {
     store.load(currentScratch().elements);
 
-    let timer = null;
+    let timer: number | null = null;
     let lastWarning = 0;
     let adopting = false; // showing what another tab saved: not a change to save again
 
@@ -80,7 +91,8 @@ export function useScratchBoard() {
       live = { title: titleRef.current, elements: store.getElements() };
     };
     const save = () => {
-      clearTimeout(timer);
+      // The cast, here and in onStorage: clearTimeout takes null as well as undefined, which the DOM types don't say.
+      clearTimeout(timer as number | undefined);
       timer = null;
       const kept = writeScratch({ title: titleRef.current, elements: store.getElements() });
       setUnsaved(!kept);
@@ -103,9 +115,9 @@ export function useScratchBoard() {
 
     // Another tab changed the drawing (or saved it to an account, which clears it): show that,
     // rather than carrying on with a copy that would overwrite it, or upload it a second time.
-    const onStorage = (event) => {
+    const onStorage = (event: StorageEvent) => {
       if (event.key !== SCRATCH_KEY && event.key !== null) return;
-      clearTimeout(timer);
+      clearTimeout(timer as number | undefined);
       timer = null;
       live = null;
       const scratch = readScratch();
@@ -137,7 +149,7 @@ export function useScratchBoard() {
         collaborators: [],
         linkAccess: "restricted",
       },
-      setMeta: (update) => {
+      setMeta: (update: MetaUpdate | ((current: { title: string }) => MetaUpdate)) => {
         const next = typeof update === "function" ? update({ title }) : update;
         if (typeof next.title !== "string" || next.title === title) return;
         titleRef.current = next.title;

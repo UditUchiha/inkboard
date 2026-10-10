@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createCursorStore } from "../src/features/board/cursors.ts";
-import { createOutbox } from "../src/features/board/outbox.js";
+import { createOutbox } from "../src/features/board/outbox.ts";
 
 const rect = (id, version = 1) => ({ id, type: "rectangle", x1: 0, y1: 0, x2: 10, y2: 10, version, versionNonce: 1 });
 const ids = (op) => [...op.upsert.map((element) => element.id), ...op.remove.map((removal) => removal.id)];

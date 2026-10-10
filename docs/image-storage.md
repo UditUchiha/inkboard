@@ -42,7 +42,7 @@ browser                                   server                         MongoDB
 
 | Limit | Value | Where |
 | --- | --- | --- |
-| Picked file, before shrinking | 25 MB | `client/src/features/board/images.js` |
+| Picked file, before shrinking | 25 MB | `client/src/features/board/images.ts` |
 | Longest side after shrinking | 2000 px | same |
 | Files up to 400 KB and 2000 px | uploaded untouched | same |
 | Small copy for thumbnails | 400 px, at most 200 KB | same, and `IMAGE_LIMITS.small` on the server |

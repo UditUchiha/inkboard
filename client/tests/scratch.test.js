@@ -18,8 +18,8 @@ const storage = {
 };
 globalThis.localStorage = storage;
 
-const { clearScratch, currentScratch, readScratch } = await import("../src/features/board/scratch.js");
-const { importScratch } = await import("../src/features/board/scratchImport.js");
+const { clearScratch, currentScratch, readScratch } = await import("../src/features/board/scratch.ts");
+const { importScratch } = await import("../src/features/board/scratchImport.ts");
 
 const rect = (id, extra = {}) => ({ id, type: "rectangle", x1: 0, y1: 0, x2: 10, y2: 10, ...extra });
 

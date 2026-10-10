@@ -1,6 +1,18 @@
+import type {
+  Element as BoardElement,
+  FrameElement,
+  ImageElement,
+  PenElement,
+  ShapeElement,
+  Side,
+  StickyElement,
+} from "@inkboard/shared/types";
 import getStroke from "perfect-freehand";
 import rough from "roughjs";
+import type { RoughCanvas } from "roughjs/bin/canvas";
+import type { Drawable, Options, PathInfo } from "roughjs/bin/core";
 import { createDrawingCache } from "./drawCache";
+import type { Moved } from "./drawCache";
 import { connectionDots, forgetResolvedConnectors, isConnector, resolveConnectors } from "./connectors";
 import { FRAME_BORDER, FRAME_FILL, FRAME_LABEL_COLOR, LINE_HEIGHT, NOTE_TEXT_COLOR } from "./constants";
 import {
@@ -19,12 +31,32 @@ import {
   inDrawOrder,
   isFrame,
 } from "./elements";
+import type { AnyElement, Connector } from "./elements";
 import { expandRect, normalizeRect, rectCenter, rectsOverlap } from "./geometry";
+import type { Rect, Viewport } from "./geometry";
 import { getImage, showingImages } from "./images";
 import { darkInk } from "./ink";
 import { forgetNoteMeasurements, noteLayout } from "./notes";
 import { connectorPath, pathData } from "./routes";
 import { getSelectionBox } from "./transform";
+
+/** Turns a stored colour into the one to draw. */
+type Ink = (color: string) => string;
+
+/** What renderScene takes besides the canvas: what to draw, where it is looked at and how it is shown (see there). */
+export type RenderOptions = {
+  elements: BoardElement[];
+  viewport: Viewport;
+  dpr?: number;
+  selectedId?: string | null;
+  hiddenId?: string | null;
+  background?: string | null;
+  dark?: boolean;
+  smallImages?: boolean;
+  screenLabels?: boolean;
+  connectTargetId?: string | null;
+  dots?: { id: string; side: Side } | null;
+};
 
 const generator = rough.generator();
 
@@ -32,19 +64,19 @@ const generator = rough.generator();
 // shows them, see ink.js), whether pictures come from their small copies (for
 // thumbnails), and how many board units a pixel of frame name or border takes
 // (see frameLabel). Set by renderScene.
-const sameInk = (color) => color;
-let ink = sameInk;
+const sameInk: Ink = (color) => color;
+let ink: Ink = sameInk;
 let smallPictures = false;
 let labelScale = 1;
-let picturesDrawn = new Set(); // the image ids drawn in the scene being rendered
+let picturesDrawn = new Set<string>(); // the image ids drawn in the scene being rendered
 
 // Elements are immutable, so generated shapes can be cached per object (and
 // reused for copies that are only moved, as while dragging: see drawCache.js).
 // Shapes carry their colors, so light and dark mode each have their own.
-const drawableCaches = { light: createDrawingCache(), dark: createDrawingCache() };
-const penPathCache = createDrawingCache();
+const drawableCaches = { light: createDrawingCache<Drawable[]>(), dark: createDrawingCache<Drawable[]>() };
+const penPathCache = createDrawingCache<Path2D>();
 
-function roughOptions(element, paint) {
+function roughOptions(element: ShapeElement, paint: Ink): Options {
   const sketchy = element.sketchy !== false;
   return {
     seed: element.seed,
@@ -62,14 +94,14 @@ function roughOptions(element, paint) {
 }
 
 // `paint` turns each stored color into the one to draw (see `ink`).
-function buildDrawables(element, paint = ink) {
+function buildDrawables(element: ShapeElement, paint: Ink = ink): Drawable[] {
   const options = roughOptions(element, paint);
   const { x1, y1, x2, y2 } = element;
   switch (element.type) {
     case "line":
     case "arrow": {
       const path = connectorPath(element);
-      let body;
+      let body: Drawable;
       if (path.curved) body = generator.path(pathData(path), options);
       else if (path.points.length > 2)
         body = generator.linearPath(
@@ -93,10 +125,10 @@ function buildDrawables(element, paint = ink) {
   }
 }
 
-const average = (a, b) => (a + b) / 2;
+const average = (a: number, b: number): number => (a + b) / 2;
 
 // Turns perfect-freehand's outline polygon into a smooth closed SVG path.
-function svgPathFromOutline(points) {
+function svgPathFromOutline(points: number[][]): string {
   if (points.length < 4) return "";
   let [a, b] = points;
   const c = points[2];
@@ -110,7 +142,7 @@ function svgPathFromOutline(points) {
 }
 
 /** A pen stroke's outline as SVG path data, filled with the stroke color to draw it. */
-export function penOutline(element) {
+export function penOutline(element: PenElement): string {
   const outline = getStroke(element.points, {
     size: element.penSize,
     thinning: 0.55,
@@ -122,10 +154,12 @@ export function penOutline(element) {
 }
 
 // A pen stroke's outline and how far along it is drawn.
-const penPath = (element) => penPathCache.get(element, (stroke) => new Path2D(penOutline(stroke)));
+// (The cast: the cache is only asked about pen strokes.)
+const penPath = (element: PenElement) =>
+  penPathCache.get(element, (stroke) => new Path2D(penOutline(stroke as PenElement)));
 
 // Draws what a cache gave for an element (see createDrawingCache) where the element is.
-function drawMoved({ dx, dy }, ctx, draw) {
+function drawMoved({ dx, dy }: Moved, ctx: CanvasRenderingContext2D, draw: () => void) {
   if (!dx && !dy) {
     draw();
     return;
@@ -140,12 +174,17 @@ function drawMoved({ dx, dy }, ctx, draw) {
  * A line, arrow, rectangle or ellipse as the SVG paths the canvas draws, in its
  * stored colors: `[{ d, stroke, strokeWidth, fill }]`.
  */
-export function shapePaths(element) {
+export function shapePaths(element: ShapeElement): PathInfo[] {
   return buildDrawables(element, sameInk).flatMap((drawable) => generator.toPaths(drawable));
 }
 
 // `hideLabel` leaves out a connector's label (while it's being edited).
-function drawElement(ctx, roughCanvas, element, { hideLabel = false } = {}) {
+function drawElement(
+  ctx: CanvasRenderingContext2D,
+  roughCanvas: RoughCanvas,
+  element: BoardElement,
+  { hideLabel = false }: { hideLabel?: boolean } = {},
+) {
   if (isConnector(element)) {
     drawConnector(ctx, roughCanvas, element, hideLabel);
     return;
@@ -165,7 +204,12 @@ function drawElement(ctx, roughCanvas, element, { hideLabel = false } = {}) {
 }
 
 // A line or arrow, broken around its label, and the label.
-function drawConnector(ctx, roughCanvas, element, hideLabel) {
+function drawConnector(
+  ctx: CanvasRenderingContext2D,
+  roughCanvas: RoughCanvas,
+  element: Connector,
+  hideLabel: boolean,
+) {
   const label = connectorLabel(element);
   if (!label) {
     drawUnturned(ctx, roughCanvas, element);
@@ -194,7 +238,7 @@ function drawConnector(ctx, roughCanvas, element, hideLabel) {
 }
 
 // A picture, or a plain box in its place while it downloads (or if it can't).
-function drawPicture(ctx, element) {
+function drawPicture(ctx: CanvasRenderingContext2D, element: ImageElement) {
   const { image, state } = getImage(element.imageId, { small: smallPictures });
   picturesDrawn.add(element.imageId);
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
@@ -223,7 +267,7 @@ function drawPicture(ctx, element) {
 }
 
 // A note casts a soft shadow, sized with the board so it zooms like the note.
-function drawNote(ctx, element) {
+function drawNote(ctx: CanvasRenderingContext2D, element: StickyElement) {
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   const transform = ctx.getTransform();
   const pixels = Math.hypot(transform.a, transform.b); // device pixels per board unit
@@ -253,7 +297,7 @@ function drawNote(ctx, element) {
   ctx.restore();
 }
 
-function drawFrame(ctx, element) {
+function drawFrame(ctx: CanvasRenderingContext2D, element: FrameElement) {
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   ctx.save();
   ctx.fillStyle = ink(FRAME_FILL);
@@ -266,7 +310,7 @@ function drawFrame(ctx, element) {
 
 // Names go above everything, so a drawing reaching over a frame's top edge can't hide one.
 // A name is seen on its own: zoomed out, it reaches well above the frame.
-function drawFrameName(ctx, element, view) {
+function drawFrameName(ctx: CanvasRenderingContext2D, element: FrameElement, view: Rect) {
   const label = frameLabel(element, labelScale);
   if (!rectsOverlap(frameLabelBox(label), view)) return;
   ctx.save();
@@ -277,7 +321,7 @@ function drawFrameName(ctx, element, view) {
   ctx.restore();
 }
 
-function drawUnturned(ctx, roughCanvas, element) {
+function drawUnturned(ctx: CanvasRenderingContext2D, roughCanvas: RoughCanvas, element: BoardElement) {
   if (element.type === "image") {
     drawPicture(ctx, element);
     return;
@@ -315,7 +359,11 @@ function drawUnturned(ctx, roughCanvas, element) {
     return;
   }
 
-  const drawables = (ink === sameInk ? drawableCaches.light : drawableCaches.dark).get(element, buildDrawables);
+  // The cast: buildDrawables takes shapes, and only shapes are left here.
+  const drawables = (ink === sameInk ? drawableCaches.light : drawableCaches.dark).get(
+    element,
+    buildDrawables as (element: BoardElement) => Drawable[],
+  );
   drawMoved(drawables, ctx, () => {
     for (const drawable of drawables.built) roughCanvas.draw(drawable);
   });
@@ -326,7 +374,7 @@ const HANDLE_SIZE = 9; // screen pixels
 
 // A dashed box around the selected element, with a handle to drag on each side and
 // corner and one above to turn it. Lines and arrows get a handle on each end instead.
-function drawSelection(ctx, element, zoom) {
+function drawSelection(ctx: CanvasRenderingContext2D, element: BoardElement, zoom: number) {
   const selection = getSelectionBox(element, zoom);
   ctx.save();
   ctx.strokeStyle = ink(SELECTION_COLOR);
@@ -368,7 +416,7 @@ function drawSelection(ctx, element, zoom) {
 }
 
 // The shape a connector end will attach to, while one is being drawn or dragged.
-function drawConnectTarget(ctx, element, zoom) {
+function drawConnectTarget(ctx: CanvasRenderingContext2D, element: AnyElement, zoom: number) {
   const { cx, cy, width, height, angle } = getFrame(element);
   const pad = 4 / zoom + (element.strokeWidth ?? 0) / 2;
   ctx.save();
@@ -385,7 +433,7 @@ function drawConnectTarget(ctx, element, zoom) {
 }
 
 // The dots around a shape that connectors start from or are pinned to, `side`'s highlighted.
-function drawConnectionDots(ctx, element, zoom, side) {
+function drawConnectionDots(ctx: CanvasRenderingContext2D, element: AnyElement, zoom: number, side: Side) {
   ctx.save();
   ctx.strokeStyle = ink(SELECTION_COLOR);
   ctx.lineWidth = 1.5 / zoom;
@@ -400,7 +448,7 @@ function drawConnectionDots(ctx, element, zoom, side) {
   ctx.restore();
 }
 
-function isVisible(element, view) {
+function isVisible(element: BoardElement, view: Rect): boolean {
   const b = getBounds(element);
   return (
     b.x <= view.x + view.width && b.x + b.width >= view.x && b.y <= view.y + view.height && b.y + b.height >= view.y
@@ -417,7 +465,7 @@ function isVisible(element, view) {
  * connector, only its label is.
  */
 export function renderScene(
-  canvas,
+  canvas: HTMLCanvasElement,
   {
     elements,
     viewport,
@@ -430,13 +478,14 @@ export function renderScene(
     screenLabels = false,
     connectTargetId = null,
     dots = null,
-  },
-) {
+  }: RenderOptions,
+): void {
   ink = dark ? darkInk : sameInk;
   smallPictures = smallImages;
   labelScale = screenLabels ? 1 / viewport.zoom : 1;
   picturesDrawn = new Set();
-  const ctx = canvas.getContext("2d");
+  // The assertion: a canvas that has no other kind of context gives a 2d one.
+  const ctx = canvas.getContext("2d")!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (background) {
@@ -455,10 +504,10 @@ export function renderScene(
   };
 
   const roughCanvas = rough.canvas(canvas);
-  let selected = null;
-  let target = null;
-  let dotted = null;
-  const frames = [];
+  let selected: BoardElement | null = null;
+  let target: BoardElement | null = null;
+  let dotted: BoardElement | null = null;
+  const frames: FrameElement[] = [];
   for (const element of inDrawOrder(resolveConnectors(elements))) {
     if (element.id === connectTargetId) target = element;
     if (element.id === dots?.id) dotted = element;
@@ -473,14 +522,15 @@ export function renderScene(
   showingImages(canvas, picturesDrawn, { small: smallPictures });
   for (const frame of frames) drawFrameName(ctx, frame, view);
   if (target) drawConnectTarget(ctx, target, viewport.zoom);
-  if (dotted) drawConnectionDots(ctx, dotted, viewport.zoom, dots.side);
+  // The assertion: `dotted` is only found when there is a `dots` to name it.
+  if (dotted) drawConnectionDots(ctx, dotted, viewport.zoom, dots!.side);
   if (selected && selected.id !== hiddenId) drawSelection(ctx, selected, viewport.zoom);
 }
 
-let fontsPromise;
+let fontsPromise: Promise<void> | undefined;
 
 // Canvas text only uses a web font once it has loaded, so wait before drawing.
-export function loadCanvasFonts() {
+export function loadCanvasFonts(): Promise<void> {
   fontsPromise ??= Promise.all(
     ['32px "Caveat Variable"', '32px "Archivo Variable"', '32px "JetBrains Mono Variable"'].map((font) =>
       document.fonts.load(font),

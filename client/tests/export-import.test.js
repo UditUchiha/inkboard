@@ -7,11 +7,11 @@ globalThis.document ??= {
   createElement: () => ({ getContext: () => ({ font: "", measureText: (text) => ({ width: text.length * 10 }) }) }),
 };
 
-const { buildSvg, fontsUsed, SVG_PADDING } = await import("../src/features/board/svgExport.js");
-const boardFile = await import("../src/features/board/boardFile.js");
+const { buildSvg, fontsUsed, SVG_PADDING } = await import("../src/features/board/svgExport.ts");
+const boardFile = await import("../src/features/board/boardFile.ts");
 const { BoardFileError, makeBoardFile, parseBoardFile, placeElements } = boardFile;
 const { getSceneBounds } = await import("../src/features/board/elements.ts");
-const { toOperations } = await import("../src/features/board/store.js");
+const { toOperations } = await import("../src/features/board/store.ts");
 
 const rect = (id, x = 0, y = 0, extra = {}) => ({
   id,
@@ -331,7 +331,7 @@ describe("sending changes in pieces: cost", () => {
 
 describe("exporting a picture", () => {
   it("stays inside what a canvas can be, whatever the shape of the board", async () => {
-    const { exportScale } = await import("../src/features/board/exportSize.js");
+    const { exportScale } = await import("../src/features/board/exportSize.ts");
     assert.equal(exportScale(500, 500), 2);
     for (const [width, height] of [
       [8000, 8000],
