@@ -21,8 +21,9 @@ browser                                   server                         MongoDB
   |                                         |  WebP/GIF? under 2 MB?        |
   |                                         |  room on the board (25 MB),   |
   |                                         |  the owner (100 MB) and the   |
-  |                                         |  app (300 MB)? If not, sweep  |
-  |                                         |  unused images and look again |
+  |                                         |  app (300 MB)? If not, refuse |
+  |                                         |  and sweep unused images in   |
+  |                                         |  the background               |
   |                                         |-- GridFS write -------------->|
   |<-- { ok, id } --------------------------|                               |
   |  adds { type: "image", imageId, x1..y2 } to the board like any element    |
@@ -32,9 +33,10 @@ browser                                   server                         MongoDB
 
 - **Uploads go over the board's socket**, not a separate HTTP call, so they pass the same permission check as drawing: invited editors and people with an edit link (guests included) can add images, link viewers cannot.
 - **The board only stores the image id**, never the bytes. Elements stay small, so sync, saving and version history are unaffected.
-- **Downloads are public by unguessable id.** An image id is 128 random bits. Only people who can open a board receive the ids in its elements, and nobody can guess one. This is the same approach Google Docs and Miro use for embedded images. The trade-off: a copied image link keeps working after the owner closes the board's link. Signed, short-lived URLs would be stricter but need a request per image view.
-- **Uploads are handled one at a time**, so two arriving together can't both squeeze into space only one of them fits.
-- **Images never change under their id**, so they are served with `Cache-Control: public, max-age=31536000, immutable`. After the first view a browser keeps them.
+- **Downloads are public by unguessable id.** An image id is 128 random bits and nobody can guess one. Ids reach whoever has the board's elements: its members, anyone with a link to it, and anyone who was a member or had the link while the image was on it (ids also sit in saved versions). Nobody gets one by any other route. This is the same approach Google Docs and Miro use for embedded images. The trade-off: an image link someone kept keeps working after the owner closes the board's link, until the picture itself is removed. Signed, short-lived URLs would be stricter but need a request per image view.
+- **Uploads are handled one at a time per board owner**, so two arriving together can't both squeeze into space only one of them fits. Different owners don't wait for each other (together they can overshoot the app-wide limit by an upload or two), and a storage write that hangs is given up after 30 seconds. An account (a guest's board, for guests) can upload 30 pictures a minute, and one network address 90. The server logs a warning when the app's image space passes 80%.
+- **The server reads each picture's size from its header** (PNG, JPEG, GIF and WebP) and refuses one more than 4096 px on a side, or one whose header can't be read, so a small file can't declare a picture that every viewer's browser has to decode. A small copy that is over 512 px is dropped, and the full picture is used for thumbnails.
+- **Images never change under their id**, so they are served with `Cache-Control: private, max-age=86400, immutable`: the viewer's browser keeps a picture for a day, but shared caches and CDNs don't keep it, so a removed picture stops being served soon after. `Cross-Origin-Resource-Policy` is `cross-origin` whenever the app may be on another address than the API: when `CLIENT_ORIGIN` is set, and outside production when it isn't (it then defaults to the Vite dev server, `http://localhost:5173`). Only in production with `CLIENT_ORIGIN` unset, where the server serves the app itself, is it `same-origin`.
 
 ### Limits (all in the code, easy to change)
 
@@ -44,11 +46,12 @@ browser                                   server                         MongoDB
 | Longest side after shrinking | 2000 px | same |
 | Files up to 400 KB and 2000 px | uploaded untouched | same |
 | Small copy for thumbnails | 400 px, at most 200 KB | same, and `IMAGE_LIMITS.small` on the server |
-| One stored image | 2 MB | `server/src/services/images.js` |
+| One stored image | 2 MB, at most 4096 px on a side | `shared/src/limits.js` (the browser shrinks to fit under it), applied in `server/src/services/images.js` |
 | Images per board | 25 MB | same (`IMAGE_LIMITS`) |
-| Images across all the boards one account owns, whoever added them | 100 MB | same |
+| Images across all the boards one account owns, whoever added them | 100 MB (20 MB while the account's email address is unconfirmed, once email is set up) | same |
 | Images in the whole app | 300 MB | same |
 | How long an image nothing shows is kept after upload | 1 hour | same |
+| Uploads per account (or guest board) / per network address per minute | 30 / 90 | same |
 | Pictures added at once | 10 | `BoardEditor.jsx` |
 | Formats | PNG, JPEG, WebP, GIF, checked by their first bytes. **SVG is refused** because it can carry scripts | `images.js` (server) |
 
@@ -56,7 +59,7 @@ Animated GIFs are drawn as a still picture, because the board is a canvas.
 
 ### Known gaps
 
-- **Space comes back slowly.** Deleting a picture doesn't delete its file straight away, because undo and version history can bring it back. A sweep (every 6 hours, and whenever an upload hits a limit) deletes images that neither their board nor any of its saved versions shows, once they are over an hour old. A picture that made it into a version is kept until that version goes: automatic versions roll off after 50 newer ones, named versions stay until someone deletes them. Undoing the deletion of a swept picture shows a crossed-out box. All of a board's files go when the board is deleted for good.
+- **Space comes back slowly.** Deleting a picture doesn't delete its file straight away, because undo and version history can bring it back. A sweep deletes images that neither their board nor any of its saved versions shows, once they are over an hour old. It runs every 6 hours, and when an upload is refused for want of room it starts in the background (the refused upload doesn't wait for it; trying again a moment later finds the room it made). Those background sweeps cover the owner's boards when the board or owner limit ran out, at most every 30 seconds per owner, or every image in the app when the app-wide limit did, at most every 30 seconds in all (one shared scope for everyone). A picture that made it into a version is kept until that version goes: automatic versions roll off after 50 newer ones (sooner when the board's history is over its 30 MB budget), named versions stay until someone deletes them. Undoing the deletion of a swept picture shows a crossed-out box. All of a board's files go when the board is deleted for good.
 - **Templates leave images out.** A template outlives the board it came from, and images belong to a board. Saving a board as a template skips its pictures.
 - **Thumbnails use a small copy.** With each picture the browser also uploads a copy about 400 px on the long side (WebP, at most 200 KB, checked like the picture). Dashboard cards and version history draw from it at `/api/images/:id/small`; pictures uploaded before small copies existed fall back to the full file there.
 - **Images count against the board's owner**, not the person who added them, since guests have no account to count against. Someone with an edit link can use up the owner's space; the owner can close the link.

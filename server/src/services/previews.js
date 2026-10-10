@@ -5,12 +5,15 @@ import { getSession } from "../realtime/sessions.js";
 // page of boards doesn't send every stroke of every drawing. A thumbnail is a few
 // hundred pixels wide, so pen strokes keep only the points that change how they
 // look at that size, and the busiest boards keep only their biggest elements.
-// Shapes, text and pictures are small already and are kept as they are.
+// Shapes and pictures are small already; text is cut to what a thumbnail could show, and
+// everything loses the bookkeeping that keeps collaborators' edits in step, which drawing doesn't need.
 
 // A thumbnail shows the board's longer side across about this many device
 // pixels; detail finer than one of them can't be seen.
 const PREVIEW_DETAIL = 1000;
 export const MAX_PREVIEW_ELEMENTS = 1000;
+// Text can run to 20,000 characters, but a thumbnail shows a few lines at most.
+const PREVIEW_TEXT_LENGTH = 300;
 
 const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
 
@@ -85,6 +88,15 @@ export function simplifyPoints(points, tolerance) {
   return points.filter((_, index) => keep[index]);
 }
 
+// What a thumbnail needs of any element: no sync stamps, and no more text than it could show.
+function slim(element) {
+  const { version: _version, versionNonce: _versionNonce, stamps: _stamps, ...kept } = element;
+  if (typeof kept.text === "string" && kept.text.length > PREVIEW_TEXT_LENGTH) {
+    kept.text = kept.text.slice(0, PREVIEW_TEXT_LENGTH);
+  }
+  return kept;
+}
+
 function previewStroke(element, tolerance) {
   if (!Array.isArray(element.points)) return element;
   const valid = element.points.filter(
@@ -116,21 +128,36 @@ export function previewElements(elements) {
       .slice(0, MAX_PREVIEW_ELEMENTS)
       .sort((a, b) => a.index - b.index);
   }
-  return kept.map(({ element }) => (element.type === "pen" ? previewStroke(element, tolerance) : element));
+  return kept.map(({ element }) => (element.type === "pen" ? previewStroke(slim(element), tolerance) : slim(element)));
 }
 
 // Previews of saved boards, kept until the board changes (every save moves
-// `updatedAt`). Open boards change constantly, so theirs are kept per version of
-// the in-memory element list instead.
-const MAX_CACHED = 5000;
-const saved = new Map(); // boardId -> { updatedAt, preview }
+// `updatedAt`), and the longest unused go first once there are too many or they
+// take too much memory. Open boards change constantly, so theirs are kept per version of
+// the in-memory element list instead. Tests lower these.
+export const PREVIEW_CACHE_LIMITS = { entries: 5000, bytes: 20_000_000 };
+const saved = new Map(); // boardId -> { updatedAt, preview, bytes }, oldest first
+let savedBytes = 0;
 const live = new WeakMap(); // an open board's elements array -> preview
 
-function remember(boardId, updatedAt, preview) {
+function forget(boardId) {
+  savedBytes -= saved.get(boardId)?.bytes ?? 0;
   saved.delete(boardId);
-  saved.set(boardId, { updatedAt, preview });
-  if (saved.size > MAX_CACHED) saved.delete(saved.keys().next().value);
 }
+
+function remember(boardId, updatedAt, preview) {
+  forget(boardId);
+  // JSON's length stands in for the memory the preview takes.
+  const bytes = JSON.stringify(preview).length;
+  saved.set(boardId, { updatedAt, preview, bytes });
+  savedBytes += bytes;
+  while (saved.size > 1 && (saved.size > PREVIEW_CACHE_LIMITS.entries || savedBytes > PREVIEW_CACHE_LIMITS.bytes)) {
+    forget(saved.keys().next().value);
+  }
+}
+
+/** How many saved boards' previews are cached, and about how many bytes they take. */
+export const previewCacheSize = () => ({ entries: saved.size, bytes: savedBytes });
 
 /**
  * Previews for `boards` (loaded without their elements), as a Map from board id.
@@ -147,8 +174,12 @@ export async function boardPreviews(boards) {
       continue;
     }
     const cached = saved.get(board.id);
-    if (cached && cached.updatedAt === board.updatedAt?.getTime()) previews.set(board.id, cached.preview);
-    else missing.push(board._id);
+    if (cached && cached.updatedAt === board.updatedAt?.getTime()) {
+      previews.set(board.id, cached.preview);
+      // Used just now, so it goes to the back of the line for eviction.
+      saved.delete(board.id);
+      saved.set(board.id, cached);
+    } else missing.push(board._id);
   }
 
   if (missing.length > 0) {

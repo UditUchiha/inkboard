@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { eventually, rect, settle, startServer, upsert } from "./helpers.js";
+import { Board } from "../src/models/board.model.js";
+import { Notification } from "../src/models/notification.model.js";
+import { findBoardForMember } from "../src/services/boards.js";
+import { eventually, rect, roundTrip, startServer, upsert } from "./helpers.js";
 
 let app;
 before(async () => {
@@ -108,9 +111,9 @@ describe("anyone with the link can view", () => {
 
     for (const client of [guest, viewer]) {
       const result = await client.op(boardId, upsert(rect("sneaky")));
-      assert.deepEqual(result, { ok: false, readOnly: true });
+      assert.deepEqual(result, { ok: false, reason: "forbidden", readOnly: true });
     }
-    await settle();
+    await roundTrip(watcher);
     assert.equal(watcher.of("board:op").length, 0);
   });
 
@@ -284,6 +287,97 @@ describe("invites", () => {
       200,
     );
     assert.equal((await (await app.connect(person)).join(boardId)).status, 403);
+  });
+
+  it("adds someone once, and notifies them once, however many invites arrive at the same moment", async () => {
+    const owner = await app.signUp("Owner");
+    const person = await app.signUp("Ed");
+    const boardId = await app.createBoard(owner);
+
+    const results = await Promise.all([1, 2, 3].map(() => invite(owner, boardId, person)));
+    assert.deepEqual(results.map((result) => result.status).sort(), [201, 409, 409]);
+    const board = await Board.findById(boardId).lean();
+    assert.deepEqual(board.collaborators.map(String), [person.id]);
+    assert.equal(await Notification.countDocuments({ user: person.id, type: "invite" }), 1);
+  });
+
+  it("answers removals sent at the same moment with 200 and 404, never an error", async () => {
+    const owner = await app.signUp("Owner");
+    const person = await app.signUp("Person");
+    const boardId = await app.createBoard(owner);
+    await invite(owner, boardId, person);
+
+    const remove = () =>
+      app.request(`/boards/${boardId}/collaborators/${person.id}`, { method: "DELETE", user: owner });
+    const results = await Promise.all([remove(), remove(), remove()]);
+    assert.deepEqual(results.map((result) => result.status).sort(), [200, 404, 404]);
+  });
+
+  it("answers 404 for a person who isn't on the board or isn't a valid id, and changes nothing", async () => {
+    const owner = await app.signUp("Owner");
+    const stranger = await app.signUp("Stranger");
+    const boardId = await app.createBoard(owner);
+    const before = await Board.findById(boardId).lean();
+
+    for (const target of ["not-an-id", stranger.id]) {
+      const result = await app.request(`/boards/${boardId}/collaborators/${target}`, { method: "DELETE", user: owner });
+      assert.equal(result.status, 404, target);
+    }
+    assert.deepEqual((await Board.findById(boardId).lean()).updatedAt, before.updatedAt);
+  });
+
+  it("doesn't count inviting, removing or sharing as editing the board", async () => {
+    const owner = await app.signUp("Owner");
+    const person = await app.signUp("Person");
+    const boardId = await app.createBoard(owner);
+    const stamp = async () => (await Board.findById(boardId).lean()).updatedAt.getTime();
+    const created = await stamp();
+
+    await invite(owner, boardId, person);
+    await setLink(owner, boardId, "view");
+    await app.request(`/boards/${boardId}/collaborators/${person.id}`, { method: "DELETE", user: owner });
+    assert.equal(await stamp(), created);
+  });
+
+  it("drops a removed person's star, and tells someone who leaves nothing members alone see", async () => {
+    const owner = await app.signUp("Owner");
+    const person = await app.signUp("Person");
+    const boardId = await app.createBoard(owner);
+    await invite(owner, boardId, person);
+    await app.request(`/boards/${boardId}/star`, { method: "PUT", user: person, body: { starred: true } });
+
+    const left = await app.request(`/boards/${boardId}/collaborators/me`, { method: "DELETE", user: person });
+    assert.equal(left.status, 200);
+    assert.deepEqual(left.data.board.collaborators, []);
+    assert.equal(left.data.board.owner.email, undefined);
+    assert.deepEqual((await Board.findById(boardId).lean()).starredBy, []);
+  });
+
+  it("only stars or unstars when told with true or false", async () => {
+    const owner = await app.signUp("Owner");
+    const boardId = await app.createBoard(owner);
+    const star = (starred) => app.request(`/boards/${boardId}/star`, { method: "PUT", user: owner, body: { starred } });
+    assert.equal((await star("false")).status, 400);
+    assert.equal((await star(0)).status, 400);
+    assert.equal((await star(true)).data.starred, true);
+    assert.equal((await star(false)).data.starred, false);
+  });
+
+  it("loads a board without its drawing unless asked for it", async () => {
+    const owner = await app.signUp("Owner");
+    const boardId = await app.createBoard(owner);
+    await Board.updateOne({ _id: boardId }, { $set: { elements: [rect("a")] } });
+
+    assert.equal((await findBoardForMember(boardId, owner.id)).elements, undefined);
+    const withDrawing = await findBoardForMember(boardId, owner.id, { elements: true });
+    assert.deepEqual(
+      withDrawing.elements.map((element) => element.id),
+      ["a"],
+    );
+    // The routes that need the drawing still send it.
+    assert.equal((await app.request(`/boards/${boardId}`, { user: owner })).data.board.elements.length, 1);
+    const client = await app.connect(owner);
+    assert.equal((await client.join(boardId)).board.elements.length, 1);
   });
 
   it("stops editors removing other people", async () => {
