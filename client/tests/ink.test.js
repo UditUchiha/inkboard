@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-const { darkInk, darkRgb } = await import("../src/features/board/ink.js");
+const { darkInk, darkRgb } = await import("../src/features/board/ink.ts");
 
 // Checked against Chromium's own `invert(93%) hue-rotate(180deg)` over 223 colors,
 // which never differed by more than 2 of 255 in any channel.

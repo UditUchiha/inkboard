@@ -1,20 +1,21 @@
 import archivoUrl from "@fontsource-variable/archivo/files/archivo-latin-wdth-normal.woff2?url";
 import caveatUrl from "@fontsource-variable/caveat/files/caveat-latin-wght-normal.woff2?url";
 import jetbrainsMonoUrl from "@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url";
+import type { Font } from "@inkboard/shared/types";
 import { FONTS } from "./constants";
 import { dataUrlOf } from "./files";
 
 // The text fonts, embedded in exported SVGs so text looks the same wherever the
 // file is opened. Only the Latin set of each is embedded (40-90 KB apiece);
 // other scripts fall back to the viewer's own fonts.
-const FONT_FILES = {
+const FONT_FILES: Partial<Record<string, { family: string; url: string; descriptors: string }>> = {
   hand: { family: "Caveat Variable", url: caveatUrl, descriptors: "font-weight: 400 700;" },
   sans: { family: "Archivo Variable", url: archivoUrl, descriptors: "font-weight: 100 900; font-stretch: 62% 125%;" },
   code: { family: "JetBrains Mono Variable", url: jetbrainsMonoUrl, descriptors: "font-weight: 100 800;" },
 };
 
 /** @font-face rules, with the font files inlined, for the fonts (keys of FONTS) in `keys`. */
-export async function fontFacesFor(keys) {
+export async function fontFacesFor(keys: Iterable<string>): Promise<string> {
   const rules = await Promise.all(
     [...keys].map(async (key) => {
       const font = FONT_FILES[key];
@@ -33,9 +34,9 @@ export async function fontFacesFor(keys) {
  * share of the font size. The canvas draws text from that top; SVG text sits
  * on its baseline. Measured from a capital H in both modes; fonts must be loaded.
  */
-export function measureBaselines(keys) {
-  const context = document.createElement("canvas").getContext("2d");
-  const baselines = {};
+export function measureBaselines(keys: Iterable<Font>): Partial<Record<Font, number>> {
+  const context = document.createElement("canvas").getContext("2d")!; // a canvas always gives a 2D context
+  const baselines: Partial<Record<Font, number>> = {};
   for (const key of keys) {
     context.font = `100px ${FONTS[key].family}`;
     context.textBaseline = "top";

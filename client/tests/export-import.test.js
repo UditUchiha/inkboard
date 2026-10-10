@@ -10,7 +10,7 @@ globalThis.document ??= {
 const { buildSvg, fontsUsed, SVG_PADDING } = await import("../src/features/board/svgExport.js");
 const boardFile = await import("../src/features/board/boardFile.js");
 const { BoardFileError, makeBoardFile, parseBoardFile, placeElements } = boardFile;
-const { getSceneBounds } = await import("../src/features/board/elements.js");
+const { getSceneBounds } = await import("../src/features/board/elements.ts");
 const { toOperations } = await import("../src/features/board/store.js");
 
 const rect = (id, x = 0, y = 0, extra = {}) => ({

@@ -19,7 +19,7 @@ import {
   readyToMove,
   releaseFrom,
   resolveConnectors,
-} from "../src/features/board/connectors.js";
+} from "../src/features/board/connectors.ts";
 import {
   arrowHeads,
   connectorLabel,
@@ -29,8 +29,8 @@ import {
   getLocalBounds,
   getSceneBounds,
   hitTest,
-} from "../src/features/board/elements.js";
-import { ELBOW_GAP, connectorPath, pathMiddle } from "../src/features/board/routes.js";
+} from "../src/features/board/elements.ts";
+import { ELBOW_GAP, connectorPath, pathMiddle } from "../src/features/board/routes.ts";
 import { createBoardStore } from "../src/features/board/store.js";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in measures 10 units a character.

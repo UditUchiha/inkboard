@@ -14,7 +14,7 @@ import type {
 } from "./types.ts";
 
 // What each kind of element may contain, matching what the client creates (see
-// client/src/features/board/elements.js). Elements arrive from anyone who can
+// client/src/features/board/elements.ts). Elements arrive from anyone who can
 // edit a board, including guests on an edit link, so nothing is trusted:
 //
 // - What an element *is* must be right: its id, type and geometry, a pen
@@ -125,7 +125,7 @@ function cleanPoints(points: unknown): Point[] | null {
   return clean.length > 0 ? clean : null;
 }
 
-// What a line or arrow has from the start (see createElement in client/src/features/board/elements.js):
+// What a line or arrow has from the start (see createElement in client/src/features/board/elements.ts):
 // a label (empty), a route, the label's font, and for an arrow, whether it has a head at the start. Each
 // is a property group of its own (see FIELD_GROUPS in board-merge.js).
 const CONNECTOR_DEFAULTS: { text: string; route: Route; font: Font } = {
@@ -168,7 +168,7 @@ const corner = (element: Fields): element is Fields & { x1: number; y1: number }
 const box = (element: Fields): element is Fields & { x1: number; y1: number; x2: number; y2: number } =>
   corner(element) && isCoordinate(element.x2) && isCoordinate(element.y2);
 
-// What a line or arrow has beyond its shape (see client/src/features/board/connectors.js and routes.js):
+// What a line or arrow has beyond its shape (see client/src/features/board/connectors.ts and routes.js):
 // the elements its ends are attached to (one that's missing later is ignored when drawing), and the
 // side of each it's pinned to; its route; an arrowhead at the start; a label and the label's font.
 // Both ends can't be attached to the same element (the line would be a dot, or double back on

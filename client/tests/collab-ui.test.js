@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { describeElement } from "../src/features/board/elementLabels.js";
-import { activeMentions, findMentions, isComposing, splitMentions } from "../src/features/board/mentions.js";
-import { focusAfterClose } from "../src/features/board/popoverFocus.js";
-import { titleToSave } from "../src/features/board/titleEdit.js";
+import { describeElement } from "../src/features/board/elementLabels.ts";
+import { activeMentions, findMentions, isComposing, splitMentions } from "../src/features/board/mentions.ts";
+import { focusAfterClose } from "../src/features/board/popoverFocus.ts";
+import { titleToSave } from "../src/features/board/titleEdit.ts";
 import { DEFAULT_SORT, isSort, isView } from "../src/features/dashboard/sections.ts";
 import { readStored } from "../src/features/dashboard/useStoredState.ts";
 import { colorFor, initials, PEOPLE_COLORS, personColor, timeAgo } from "../src/lib/format.ts";

@@ -1,5 +1,7 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import { getBounds, getSceneBounds } from "./elements";
 import { rectsOverlap } from "./geometry";
+import type { Pair, Rect, Size, Viewport } from "./geometry";
 
 const TRIES = 10;
 
@@ -8,11 +10,12 @@ const TRIES = 10;
  * the right, below, to the left or above, that has nothing else on it. Returns the offset `[dx, dy]`.
  * A copy put a fixed distance to the right would land on the next column of a Kanban board.
  */
-export function copyOffset(elements, group, gap = 80) {
+export function copyOffset(elements: BoardElement[], group: BoardElement[], gap = 80): Pair {
   const taken = new Set(group.map((element) => element.id));
   const others = elements.filter((element) => !taken.has(element.id)).map(getBounds);
-  const box = getSceneBounds(group);
-  const free = (dx, dy) => {
+  // The non-null assertions: a group has something in it, and what's in it is on the board.
+  const box = getSceneBounds(group)!;
+  const free = (dx: number, dy: number) => {
     const spot = { x: box.x + dx - gap / 2, y: box.y + dy - gap / 2, width: box.width + gap, height: box.height + gap };
     return !others.some((other) => rectsOverlap(spot, other));
   };
@@ -29,7 +32,7 @@ export function copyOffset(elements, group, gap = 80) {
     }
   }
   // Crowded all round: beyond everything.
-  const scene = getSceneBounds(elements);
+  const scene = getSceneBounds(elements)!;
   return [scene.x + scene.width + gap - box.x, 0];
 }
 
@@ -37,7 +40,7 @@ export function copyOffset(elements, group, gap = 80) {
  * The view that brings `bounds` (a rectangle of the board) into sight: `viewport` itself if any of it is
  * already showing, otherwise the same zoom with the rectangle's centre in the middle of the canvas.
  */
-export function viewToReveal(viewport, canvasSize, bounds) {
+export function viewToReveal(viewport: Viewport, canvasSize: Size, bounds: Rect): Viewport {
   const visible = {
     x: -viewport.x,
     y: -viewport.y,

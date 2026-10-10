@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { isOverlayKey, isPressable, isTypingTarget } from "../src/features/board/domTargets.js";
+import { isOverlayKey, isPressable, isTypingTarget } from "../src/features/board/domTargets.ts";
 
 // There's no DOM here: just enough of one for the selectors domTargets uses (tags, [attr], [attr='value']).
 function matches(element, selector) {

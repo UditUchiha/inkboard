@@ -1,4 +1,16 @@
 import { keyToMove } from "@inkboard/shared/board-order";
+import type {
+  Element as BoardElement,
+  Font,
+  FrameElement,
+  ImageElement,
+  PenElement,
+  Point,
+  ShapeElement,
+  StackMove,
+  StickyElement,
+  TextElement,
+} from "@inkboard/shared/types";
 import { resolveConnectors } from "./connectors";
 import {
   FILLABLE_TYPES,
@@ -11,6 +23,7 @@ import {
   LINE_HEIGHT,
   NOTE_SIZE,
 } from "./constants";
+import type { Style } from "./constants";
 import {
   arrowHeadPoints,
   distanceToSegment,
@@ -23,8 +36,37 @@ import {
   rotatedRectBounds,
   unionRects,
 } from "./geometry";
+import type { Pair, Rect, Size, TurnedRect, XY } from "./geometry";
 import { charactersOf } from "./notes";
 import { approachTo, connectorPath, pathExtremes, pathLength, pathMiddle, pathPolyline } from "./routes";
+
+/** A line or arrow: the shapes whose ends can be attached to other shapes, and that have a route and a label. */
+export type Connector = ShapeElement & { type: "line" | "arrow" };
+
+/** An element that can be turned (see canRotate): it has an `angle`. */
+export type Turnable =
+  PenElement | TextElement | StickyElement | ImageElement | (ShapeElement & { type: "rectangle" | "ellipse" });
+
+/** Any element, for code that reads a field only some kinds have (an angle, a stroke width, text): there it is optional. */
+export type AnyElement = BoardElement & { angle?: number; strokeWidth?: number; text?: string };
+
+/** What createElement draws with. A pen needs only a colour and a size; the rest is for the other kinds. */
+export type ElementStyle = Pick<Style, "stroke" | "penSize"> & Partial<Style>;
+
+/** What decides how text is drawn: its size and font (the default font if it has none). */
+export type TextStyle = { fontSize: number; font?: Font };
+
+/** What measuring text gives: its size, and its lines. */
+export type TextSize = { width: number; height: number; lines: string[] };
+
+/** A frame's name as it is drawn above the frame (see frameLabel). */
+export type FrameLabel = { text: string; font: string; x: number; bottom: number; width: number; height: number };
+
+/** A line's or arrow's label (see connectorLabel): its lines, font and size, and the box they fill. */
+export type ConnectorLabel = Rect & { lines: string[]; font: string; fontSize: number };
+
+/** An arrow's head: the points of its barb, its tip and its other barb. */
+export type ArrowHead = [Pair, Pair, Pair];
 
 // Elements are plain, immutable, JSON-serialisable objects. Any change makes a
 // new object, which lets the renderer cache expensive work per element.
@@ -47,15 +89,21 @@ import { approachTo, connectorPath, pathExtremes, pathLength, pathMiddle, pathPo
 // they are drawn turned about the centre of their box. Lines and arrows have two
 // ends instead, so they are reshaped by moving an end.
 
-const TURNABLE_TYPES = new Set(["rectangle", "ellipse", "image", "pen", "text", "sticky"]);
-export const canRotate = (element) => TURNABLE_TYPES.has(element.type);
-export const isFrame = (element) => element.type === "frame";
-const isConnector = (element) => element.type === "line" || element.type === "arrow";
+const TURNABLE_TYPES = new Set<BoardElement["type"]>(["rectangle", "ellipse", "image", "pen", "text", "sticky"]);
+export const canRotate = (element: BoardElement): element is Turnable => TURNABLE_TYPES.has(element.type);
+export const isFrame = (element: BoardElement): element is FrameElement => element.type === "frame";
+const isConnector = (element: BoardElement): element is Connector =>
+  element.type === "line" || element.type === "arrow";
 
 export const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const newSeed = () => Math.floor(Math.random() * 2 ** 31) + 1;
 
-export function createElement(type, { x, y }, style, pressure) {
+export function createElement(
+  type: "pen" | "text" | "frame" | ShapeElement["type"],
+  { x, y }: XY,
+  style: ElementStyle,
+  pressure?: number,
+): BoardElement {
   const id = newId();
   if (type === "pen") {
     return {
@@ -68,10 +116,11 @@ export function createElement(type, { x, y }, style, pressure) {
     };
   }
   if (type === "text") {
-    return { id, type, x1: x, y1: y, text: "", stroke: style.stroke, fontSize: style.fontSize, font: style.font };
+    // The non-null assertions: a text is made with a whole style, of which a pen needs only part.
+    return { id, type, x1: x, y1: y, text: "", stroke: style.stroke, fontSize: style.fontSize!, font: style.font! };
   }
   if (type === "frame") return { id, type, x1: x, y1: y, x2: x, y2: y, name: "" };
-  const shape = {
+  const shape: ShapeElement = {
     id,
     type,
     seed: newSeed(),
@@ -80,9 +129,10 @@ export function createElement(type, { x, y }, style, pressure) {
     x2: x,
     y2: y,
     stroke: style.stroke,
-    fill: FILLABLE_TYPES.has(type) ? style.fill : null,
-    strokeWidth: style.strokeWidth,
-    sketchy: style.sketchy,
+    // The casts and assertions: a shape is made with a whole style, of which a pen needs only part.
+    fill: FILLABLE_TYPES.has(type) ? (style.fill as string | null) : null,
+    strokeWidth: style.strokeWidth!,
+    sketchy: style.sketchy!,
   };
   if (!isConnector(shape)) return shape;
   // Every optional field is there from the start: a copy that lacks one has no say in it when changes
@@ -96,12 +146,12 @@ export function createElement(type, { x, y }, style, pressure) {
 }
 
 /** A picture placed with its top left corner at (x, y). */
-export function createImage(imageId, { x, y }, { width, height }) {
+export function createImage(imageId: string, { x, y }: XY, { width, height }: Size): ImageElement {
   return { id: newId(), type: "image", imageId, x1: x, y1: y, x2: x + width, y2: y + height };
 }
 
 /** A sticky note centred on (x, y). */
-export function createNote({ x, y }, style) {
+export function createNote({ x, y }: XY, style: Style): StickyElement {
   const half = NOTE_SIZE / 2;
   return {
     id: newId(),
@@ -117,7 +167,7 @@ export function createNote({ x, y }, style) {
 }
 
 /** "Frame 1", "Frame 2", …: the first such name no frame on the board has. */
-export function nextFrameName(elements) {
+export function nextFrameName(elements: BoardElement[]): string {
   const frames = elements.filter(isFrame);
   const taken = new Set(frames.map((frame) => frame.name));
   let number = frames.length + 1;
@@ -125,19 +175,21 @@ export function nextFrameName(elements) {
   return `Frame ${number}`;
 }
 
-let measureContext;
+let measureContext: CanvasRenderingContext2D; // made on first use
 
-export const fontFor = (element, scale = 1) => `${element.fontSize * scale}px ${FONTS[fontKey(element.font)].family}`;
+export const fontFor = (element: TextStyle, scale = 1): string =>
+  `${element.fontSize * scale}px ${FONTS[fontKey(element.font)].family}`;
 
-export function measureText(element, text = element.text) {
-  measureContext ??= document.createElement("canvas").getContext("2d");
+// The non-null assertions: a text with no text of its own is measured with one given, and a canvas always gives a 2D context.
+export function measureText(element: TextStyle & { text?: string }, text = element.text!): TextSize {
+  measureContext ??= document.createElement("canvas").getContext("2d")!;
   measureContext.font = fontFor(element);
   const lines = text.split("\n");
   const width = Math.max(...lines.map((line) => measureContext.measureText(line).width), element.fontSize * 0.5);
   return { width, height: lines.length * element.fontSize * LINE_HEIGHT, lines };
 }
 
-let labels = new WeakMap(); // frame -> { scale, label }, see frameLabel
+let labels = new WeakMap<FrameElement, { scale: number; label: FrameLabel }>(); // frame -> { scale, label }, see frameLabel
 
 /**
  * A frame's name as drawn above its top left corner, cut short to the frame's
@@ -147,7 +199,7 @@ let labels = new WeakMap(); // frame -> { scale, label }, see frameLabel
  * Shortening a name takes a few measurements, and the editor asks on every
  * frame drawn and every mouse move, so each frame keeps its last label.
  */
-export function frameLabel(frame, scale = 1) {
+export function frameLabel(frame: FrameElement, scale = 1): FrameLabel {
   const known = labels.get(frame);
   if (known?.scale === scale) return known.label;
   const label = measureFrameLabel(frame, scale);
@@ -161,24 +213,24 @@ export function forgetFrameLabels() {
 }
 
 /** Where a frame's label (see frameLabel) covers: { x, y, width, height }. */
-export const frameLabelBox = (label) => ({
+export const frameLabelBox = (label: FrameLabel): Rect => ({
   x: label.x,
   y: label.bottom - label.height,
   width: label.width,
   height: label.height,
 });
 
-function measureFrameLabel(frame, scale) {
+function measureFrameLabel(frame: FrameElement, scale: number): FrameLabel {
   const body = normalizeRect(frame.x1, frame.y1, frame.x2, frame.y2);
   const font = `500 ${FRAME_LABEL_SIZE * scale}px ${FONTS.sans.family}`;
-  measureContext ??= document.createElement("canvas").getContext("2d");
+  measureContext ??= document.createElement("canvas").getContext("2d")!; // a canvas always gives a 2D context
   measureContext.font = font;
-  const widthOf = (text) => measureContext.measureText(text).width;
+  const widthOf = (text: string) => measureContext.measureText(text).width;
   let text = frame.name || "Frame";
   if (widthOf(text) > body.width) {
     // The most characters that fit with the ellipsis, at least one.
     const characters = charactersOf(text);
-    const shortened = (count) => `${characters.slice(0, count).join("")}…`;
+    const shortened = (count: number) => `${characters.slice(0, count).join("")}…`;
     let low = 1;
     let high = characters.length; // all of them doesn't fit
     while (high - low > 1) {
@@ -198,15 +250,15 @@ function measureFrameLabel(frame, scale) {
   };
 }
 
-export const arrowHeadLength = (element) =>
+export const arrowHeadLength = (element: ShapeElement): number =>
   Math.min(14 + element.strokeWidth * 3, pathLength(connectorPath(element).points) * 0.45);
 
 /** An arrow's heads, each as the three points of its barbs and tip: the end's, then the start's if it has one. */
-export function arrowHeads(element) {
+export function arrowHeads(element: BoardElement): ArrowHead[] {
   if (element.type !== "arrow") return [];
   const path = connectorPath(element);
   const full = arrowHeadLength(element);
-  const head = (tip, from) => {
+  const head = (tip: XY, from: XY): ArrowHead => {
     // On a bent path a head is no longer than the straight run it sits on, or its barbs would stick out sideways,
     // but no shorter than half a full one: a run of next to nothing (an end just beside the bend) would leave no head.
     const run = Math.hypot(tip.x - from.x, tip.y - from.y);
@@ -214,19 +266,20 @@ export function arrowHeads(element) {
     const [a, b] = arrowHeadPoints(from.x, from.y, tip.x, tip.y, length);
     return [a, [tip.x, tip.y], b];
   };
-  const heads = [head(path.points.at(-1), approachTo(path, "end"))];
+  // The non-null assertion: a path has its two ends at least.
+  const heads = [head(path.points.at(-1)!, approachTo(path, "end"))];
   if (element.startHead) heads.push(head(path.points[0], approachTo(path, "start")));
   return heads;
 }
 
-let connectorLabels = new WeakMap();
+let connectorLabels = new WeakMap<Connector, ConnectorLabel>();
 
 /**
  * A line's or arrow's label, centred halfway along it: { lines, font,
  * fontSize, x, y, width, height } (the box is the text's, padding included),
  * or null when it has none.
  */
-export function connectorLabel(element) {
+export function connectorLabel(element: BoardElement): ConnectorLabel | null {
   if (!isConnector(element) || !element.text) return null;
   let label = connectorLabels.get(element);
   if (!label) {
@@ -245,8 +298,8 @@ export function forgetConnectorLabels() {
   connectorLabels = new WeakMap();
 }
 
-let boundsCache = new WeakMap();
-let turnedBoundsCache = new WeakMap();
+let boundsCache = new WeakMap<BoardElement, Rect>();
+let turnedBoundsCache = new WeakMap<BoardElement, Rect>();
 
 /** Forget measured bounds, once web fonts have loaded and text measures differently. */
 export function forgetBounds() {
@@ -255,7 +308,7 @@ export function forgetBounds() {
 }
 
 /** The box around an element before any turning, including its stroke. */
-export function getLocalBounds(element) {
+export function getLocalBounds(element: BoardElement): Rect {
   let bounds = boundsCache.get(element);
   if (bounds) return bounds;
 
@@ -286,7 +339,8 @@ export function getLocalBounds(element) {
       const pad = element.type === "arrow" ? element.strokeWidth : element.strokeWidth / 2 + (element.sketchy ? 3 : 0);
       bounds = expandRect({ x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }, pad);
       const label = connectorLabel(element);
-      if (label) bounds = unionRects([bounds, label]);
+      // The non-null assertion: there are two rectangles to join.
+      if (label) bounds = unionRects([bounds, label])!;
       break;
     }
     case "image":
@@ -312,7 +366,7 @@ export function getLocalBounds(element) {
 }
 
 /** The upright rectangle that holds the element as it is drawn, turned or not. */
-export function getBounds(element) {
+export function getBounds(element: BoardElement): Rect {
   if (!canRotate(element) || !element.angle) return getLocalBounds(element);
   let bounds = turnedBoundsCache.get(element);
   if (!bounds) {
@@ -326,8 +380,8 @@ export function getBounds(element) {
  * The element's box without its stroke, and the angle it is turned by. Resizing
  * and turning work on this. Not meant for lines and arrows.
  */
-export function getFrame(element) {
-  let box;
+export function getFrame(element: AnyElement): TurnedRect {
+  let box: Rect;
   if (element.type === "pen") {
     const xs = element.points.map((p) => p[0]);
     const ys = element.points.map((p) => p[1]);
@@ -344,11 +398,11 @@ export function getFrame(element) {
   return { cx: center.x, cy: center.y, width: box.width, height: box.height, angle: element.angle ?? 0 };
 }
 
-export function getSceneBounds(elements) {
+export function getSceneBounds(elements: BoardElement[]): Rect | null {
   return unionRects(resolveConnectors(elements).map(getBounds));
 }
 
-export function hitTest(element, pointX, pointY, tolerance) {
+export function hitTest(element: BoardElement, pointX: number, pointY: number, tolerance: number): boolean {
   let x = pointX;
   let y = pointY;
   if (canRotate(element) && element.angle) {
@@ -364,9 +418,9 @@ export function hitTest(element, pointX, pointY, tolerance) {
       const reach = tolerance + element.strokeWidth / 2;
       const label = connectorLabel(element);
       if (label && rectContains(expandRect(label, tolerance), x, y)) return true;
-      const near = (points) =>
+      const near = (points: Pair[]) =>
         points.some((point, i) => i > 0 && distanceToSegment(x, y, ...points[i - 1], ...point) <= reach);
-      const along = pathPolyline(connectorPath(element)).map((point) => [point.x, point.y]);
+      const along = pathPolyline(connectorPath(element)).map((point): Pair => [point.x, point.y]);
       return near(along) || arrowHeads(element).some(near);
     }
     case "rectangle": {
@@ -411,10 +465,10 @@ export function hitTest(element, pointX, pointY, tolerance) {
   }
 }
 
-const drawOrders = new WeakMap();
+const drawOrders = new WeakMap<BoardElement[], BoardElement[]>();
 
 // How many frames are wholly around `frame` (and bigger), so a frame is always drawn over the ones it sits in.
-function nesting(frames, frame) {
+function nesting(frames: FrameElement[], frame: FrameElement): number {
   const body = footprint(frame);
   return frames.filter((other) => {
     const around = footprint(other);
@@ -427,12 +481,13 @@ function nesting(frames, frame) {
  * everything else, those inside others after the ones around them (otherwise by
  * stack order), so a big frame never covers a smaller one inside it.
  */
-export function inDrawOrder(elements) {
+export function inDrawOrder(elements: BoardElement[]): BoardElement[] {
   let ordered = drawOrders.get(elements);
   if (!ordered) {
     const frames = elements.filter(isFrame);
-    const depths = new Map(frames.map((frame) => [frame, nesting(frames, frame)]));
-    const byDepth = [...frames].sort((a, b) => depths.get(a) - depths.get(b));
+    const depths = new Map<FrameElement, number>(frames.map((frame) => [frame, nesting(frames, frame)]));
+    // The non-null assertions: every frame is in `depths`.
+    const byDepth = [...frames].sort((a, b) => depths.get(a)! - depths.get(b)!);
     ordered = frames.length === 0 ? elements : [...byDepth, ...elements.filter((element) => !isFrame(element))];
     drawOrders.set(elements, ordered);
   }
@@ -444,7 +499,13 @@ export function inDrawOrder(elements) {
  * name, then whatever is drawn on top, then the innermost frame the point is
  * inside. Pass `labelScale` (see frameLabel) to find frames by their names.
  */
-export function elementAt(board, x, y, tolerance, { labelScale } = {}) {
+export function elementAt(
+  board: BoardElement[],
+  x: number,
+  y: number,
+  tolerance: number,
+  { labelScale }: { labelScale?: number } = {},
+): BoardElement | null {
   const elements = resolveConnectors(board);
   const frames = elements.filter(isFrame);
   if (labelScale) {
@@ -456,7 +517,7 @@ export function elementAt(board, x, y, tolerance, { labelScale } = {}) {
   for (let i = ordered.length - 1; i >= 0; i -= 1) {
     if (hitTest(ordered[i], x, y, tolerance)) return ordered[i];
   }
-  let innermost = null;
+  let innermost: FrameElement | null = null;
   let smallest = Infinity;
   for (const frame of frames) {
     const body = normalizeRect(frame.x1, frame.y1, frame.x2, frame.y2);
@@ -470,10 +531,10 @@ export function elementAt(board, x, y, tolerance, { labelScale } = {}) {
 }
 
 // The box an element must lie within to be inside a frame (a frame's own name doesn't count).
-const footprint = (element) =>
+const footprint = (element: BoardElement): Rect =>
   isFrame(element) ? normalizeRect(element.x1, element.y1, element.x2, element.y2) : getBounds(element);
 
-const encloses = (outer, inner) =>
+const encloses = (outer: Rect, inner: Rect) =>
   inner.x >= outer.x &&
   inner.y >= outer.y &&
   inner.x + inner.width <= outer.x + outer.width &&
@@ -488,23 +549,25 @@ const encloses = (outer, inner) =>
  * be inside a bigger frame, or an equal one higher in the stack, so no two
  * frames are ever inside each other.
  */
-export function frameContents(elements, frame) {
+export function frameContents(elements: BoardElement[], frame: FrameElement): BoardElement[] {
   const frames = elements.filter(isFrame);
   if (frames.length === 0) return [];
-  const bodies = new Map(frames.map((each, position) => [each.id, { box: footprint(each), position }]));
+  const bodies = new Map<string, { box: Rect; position: number }>(
+    frames.map((each, position) => [each.id, { box: footprint(each), position }]),
+  );
   // Where connectors are drawn decides which frame they're in.
-  const drawn = new Map(resolveConnectors(elements).map((element) => [element.id, element]));
-  const area = (box) => box.width * box.height;
-  const centre = (box) => rectCenter(box);
+  const drawn = new Map<string, BoardElement>(resolveConnectors(elements).map((element) => [element.id, element]));
+  const area = (box: Rect) => box.width * box.height;
+  const centre = (box: Rect) => rectCenter(box);
 
-  function ownerOf(element) {
+  function ownerOf(element: BoardElement): FrameElement | null {
     const box = footprint(drawn.get(element.id) ?? element);
     const self = bodies.get(element.id);
-    let owner = null;
-    let best = null;
+    let owner: FrameElement | null = null;
+    let best: number[] | null = null;
     for (const candidate of frames) {
       if (candidate.id === element.id) continue;
-      const body = bodies.get(candidate.id);
+      const body = bodies.get(candidate.id)!; // every frame has a body
       if (!encloses(body.box, box)) continue;
       if (self && area(body.box) === area(box) && body.position < self.position) continue;
       const middle = centre(body.box);
@@ -518,9 +581,9 @@ export function frameContents(elements, frame) {
     return owner;
   }
 
-  const owners = new Map(frames.map((each) => [each.id, ownerOf(each)]));
-  const isIn = (element) => {
-    let owner = owners.get(element.id) ?? (isFrame(element) ? null : ownerOf(element));
+  const owners = new Map<string, FrameElement | null>(frames.map((each) => [each.id, ownerOf(each)]));
+  const isIn = (element: BoardElement) => {
+    let owner: FrameElement | null | undefined = owners.get(element.id) ?? (isFrame(element) ? null : ownerOf(element));
     for (let depth = 0; owner && depth <= frames.length; depth += 1) {
       if (owner.id === frame.id) return true;
       owner = owners.get(owner.id);
@@ -531,12 +594,12 @@ export function frameContents(elements, frame) {
 }
 
 /** `element` and, for a frame, everything inside it. */
-export const withContents = (elements, element) =>
+export const withContents = (elements: BoardElement[], element: BoardElement): BoardElement[] =>
   isFrame(element) ? [element, ...frameContents(elements, element)] : [element];
 
-export function translate(element, dx, dy) {
+export function translate(element: BoardElement, dx: number, dy: number): BoardElement {
   if (element.type === "pen") {
-    return { ...element, points: element.points.map(([x, y, p]) => [x + dx, y + dy, p]) };
+    return { ...element, points: element.points.map(([x, y, p]): Point => [x + dx, y + dy, p]) };
   }
   if (element.type === "text") {
     return { ...element, x1: element.x1 + dx, y1: element.y1 + dy };
@@ -557,7 +620,7 @@ export function translate(element, dx, dy) {
  * Frames are drawn beneath everything else, so they only move among frames,
  * and everything else among everything but frames.
  */
-export function stackKey(board, element, where) {
+export function stackKey(board: BoardElement[], element: BoardElement, where: StackMove): string | null {
   const elements = resolveConnectors(board);
   const bounds = getBounds(elements.find((other) => other.id === element.id) ?? element);
   const peers = elements.filter((other) => isFrame(other) === isFrame(element));
@@ -565,14 +628,14 @@ export function stackKey(board, element, where) {
 }
 
 /** A copy of `element` with a new id, `dx` and `dy` along. */
-export function duplicate(element, dx = 16, dy = 16) {
+export function duplicate(element: BoardElement, dx = 16, dy = 16): BoardElement {
   const copy = { ...translate(element, dx, dy), id: newId() };
   if ("seed" in copy) copy.seed = newSeed();
   return copy;
 }
 
 // A click without a drag shouldn't leave an invisible shape behind: one under 3 screen pixels across (at `zoom`) is that.
-export function isDegenerate(element, zoom = 1) {
+export function isDegenerate(element: BoardElement, zoom = 1): boolean {
   if (element.type === "pen") return false;
   if (element.type === "text") return !element.text.trim();
   return Math.hypot(element.x2 - element.x1, element.y2 - element.y1) * zoom < 3;

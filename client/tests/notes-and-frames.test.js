@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inStackOrder } from "@inkboard/shared/board-order";
-import { resolveConnectors } from "../src/features/board/connectors.js";
+import { resolveConnectors } from "../src/features/board/connectors.ts";
 import {
   createElement,
   createNote,
@@ -15,9 +15,9 @@ import {
   stackKey,
   translate,
   withContents,
-} from "../src/features/board/elements.js";
-import { LINE_HEIGHT } from "../src/features/board/constants.js";
-import { layoutNote, MIN_NOTE_FONT_SIZE, NOTE_PADDING, wrapLines } from "../src/features/board/notes.js";
+} from "../src/features/board/elements.ts";
+import { LINE_HEIGHT } from "../src/features/board/constants.ts";
+import { layoutNote, MIN_NOTE_FONT_SIZE, NOTE_PADDING, wrapLines } from "../src/features/board/notes.ts";
 import { loadCanvasFonts } from "../src/features/board/renderer.js";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in makes every character `perCharacter` wide.
