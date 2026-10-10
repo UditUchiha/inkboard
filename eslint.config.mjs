@@ -17,7 +17,7 @@ export default [
     },
   },
   {
-    files: ["client/src/**/*.{js,jsx}"],
+    files: ["client/src/**/*.{js,jsx,ts,tsx}"],
     plugins: { "react-hooks": reactHooks },
     languageOptions: {
       parserOptions: { ecmaFeatures: { jsx: true } },
@@ -31,11 +31,11 @@ export default [
     files: ["client/vite.config.js", "client/tests/**", "server/**", "shared/**"],
     languageOptions: { globals: globals.node },
   },
-  // TypeScript files: the same rules, read with TypeScript's parser. tsc checks undefined names itself
-  // (and knows about types, which no-undef doesn't), and the TypeScript version of no-unused-vars
-  // understands type-only uses.
+  // TypeScript files (.ts, and .tsx with JSX): the same rules, read with TypeScript's parser. tsc checks
+  // undefined names itself (and knows about types, which no-undef doesn't), and the TypeScript version of
+  // no-unused-vars understands type-only uses.
   {
-    files: ["**/*.ts"],
+    files: ["**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: {
