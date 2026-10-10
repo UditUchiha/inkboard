@@ -33,8 +33,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
 /** Throws unless the person logged in recently. Use after `requireAuth`. */
 export function assertRecentLogin(req: Request) {
-  // `requireAuth` has set it, as the line above this function says to make sure of.
-  if (Date.now() / 1000 - req.loginIssuedAt! > RECENT_LOGIN_SECONDS) {
+  // Without a login time (used without `requireAuth` before it), the login doesn't count as recent: a missing
+  // time would otherwise make the sum NaN, and NaN is never more than the limit.
+  const issuedAt = req.loginIssuedAt;
+  if (issuedAt === undefined || Date.now() / 1000 - issuedAt > RECENT_LOGIN_SECONDS) {
     throw new HttpError(403, "For your security, log out and log in again, then try this again.");
   }
 }
