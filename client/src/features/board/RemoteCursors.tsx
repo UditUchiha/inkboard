@@ -7,7 +7,7 @@ import type { Peer } from "./useBoardSync";
 
 type RemoteCursorsProps = { cursors: CursorStore; peers: Peer[]; viewport: Viewport };
 
-// `cursors` is a cursor store (see cursors.js).
+// `cursors` is a cursor store (see cursors.ts).
 export function RemoteCursors({ cursors: store, peers, viewport }: RemoteCursorsProps) {
   const cursors = useCursors(store);
   const bySocket = new Map(peers.map((peer) => [peer.socketId, peer]));

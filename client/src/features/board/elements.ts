@@ -73,11 +73,11 @@ export type ArrowHead = [Pair, Pair, Pair];
 //
 //   shapes: { id, type, seed, x1, y1, x2, y2, stroke, fill, strokeWidth, sketchy }
 //   lines and arrows also: { route, font, text?, startId?, endId?, startAnchor?, endAnchor? },
-//   and arrows { startHead } (an arrowhead at the start too). See connectors.js and routes.js.
+//   and arrows { startHead } (an arrowhead at the start too). See connectors.ts and routes.ts.
 //   pen:    { id, type, points: [[x, y, pressure]], pressure, stroke, penSize }
 //   text:   { id, type, x1, y1, text, stroke, fontSize, font }
 //   image:  { id, type, imageId, x1, y1, x2, y2 }   (imageId names a file stored on the server)
-//   sticky: { id, type, x1, y1, x2, y2, text, fill, font }   (a sticky note, see notes.js)
+//   sticky: { id, type, x1, y1, x2, y2, text, fill, font }   (a sticky note, see notes.ts)
 //   frame:  { id, type, x1, y1, x2, y2, name }
 //
 // A frame holds whatever lies wholly inside it: moving, copying or deleting a
@@ -495,7 +495,7 @@ export function inDrawOrder(elements: BoardElement[]): BoardElement[] {
 }
 
 /**
- * The element under a point, as it's drawn (see connectors.js): a frame's
+ * The element under a point, as it's drawn (see connectors.ts): a frame's
  * name, then whatever is drawn on top, then the innermost frame the point is
  * inside. Pass `labelScale` (see frameLabel) to find frames by their names.
  */

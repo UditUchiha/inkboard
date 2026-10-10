@@ -55,13 +55,13 @@ export type RenderOptions = {
   smallImages?: boolean;
   screenLabels?: boolean;
   connectTargetId?: string | null;
-  dots?: { id: string; side: Side } | null;
+  dots?: { id: string; side: Side | null } | null;
 };
 
 const generator = rough.generator();
 
 // How the scene being rendered is drawn: its colors (as stored, or as dark mode
-// shows them, see ink.js), whether pictures come from their small copies (for
+// shows them, see ink.ts), whether pictures come from their small copies (for
 // thumbnails), and how many board units a pixel of frame name or border takes
 // (see frameLabel). Set by renderScene.
 const sameInk: Ink = (color) => color;
@@ -71,7 +71,7 @@ let labelScale = 1;
 let picturesDrawn = new Set<string>(); // the image ids drawn in the scene being rendered
 
 // Elements are immutable, so generated shapes can be cached per object (and
-// reused for copies that are only moved, as while dragging: see drawCache.js).
+// reused for copies that are only moved, as while dragging: see drawCache.ts).
 // Shapes carry their colors, so light and dark mode each have their own.
 const drawableCaches = { light: createDrawingCache<Drawable[]>(), dark: createDrawingCache<Drawable[]>() };
 const penPathCache = createDrawingCache<Path2D>();
@@ -433,7 +433,7 @@ function drawConnectTarget(ctx: CanvasRenderingContext2D, element: AnyElement, z
 }
 
 // The dots around a shape that connectors start from or are pinned to, `side`'s highlighted.
-function drawConnectionDots(ctx: CanvasRenderingContext2D, element: AnyElement, zoom: number, side: Side) {
+function drawConnectionDots(ctx: CanvasRenderingContext2D, element: AnyElement, zoom: number, side: Side | null) {
   ctx.save();
   ctx.strokeStyle = ink(SELECTION_COLOR);
   ctx.lineWidth = 1.5 / zoom;

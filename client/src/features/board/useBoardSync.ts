@@ -15,7 +15,7 @@ const VIEWPORT_INTERVAL_MS = 120;
 const ACK_TIMEOUT_MS = 10_000;
 const SLOW_TOAST = { id: "saving-slow" }; // one message however often it's said
 
-// What to tell the person when the server refuses a change for good (see outbox.js).
+// What to tell the person when the server refuses a change for good (see outbox.ts).
 const REFUSED: Record<string, string> = {
   tooLarge:
     "That change was too big to save, so it was undone. The board may be full: delete something or start a new board.",
@@ -119,11 +119,9 @@ export type BoardSync = ReturnType<typeof useBoardSync>;
  * Connects a board store to the server: joins the board's room, streams local
  * changes (batched every 40ms), applies collaborators' changes, and tracks
  * presence and cursors. Edits made while offline are queued and sent after
- * reconnecting. The queue and what to do with the server's replies are in outbox.js.
- *
- * `boardId` may be undefined only because the router types it so: the board's route always has one.
+ * reconnecting. The queue and what to do with the server's replies are in outbox.ts.
  */
-export function useBoardSync(boardId: string | undefined, store: BoardStore) {
+export function useBoardSync(boardId: string, store: BoardStore) {
   const socket = useSocket();
   const [phase, setPhase] = useState<Phase>({ name: "connecting" });
   const [meta, setMeta] = useState<BoardMeta | null>(null);
@@ -188,7 +186,7 @@ export function useBoardSync(boardId: string | undefined, store: BoardStore) {
         );
       }
       if (result.next) send(result.next);
-      // A change in pieces is done: what was made meanwhile waited for it (see outbox.js).
+      // A change in pieces is done: what was made meanwhile waited for it (see outbox.ts).
       else if (outbox.hasPending() && joined.current) flushTimer.current ??= setTimeout(flush, 0);
     } else if (result.kind === "retry" || result.kind === "rejoin") {
       // A reconnect in the meantime showed the board as the server has it,
@@ -228,12 +226,11 @@ export function useBoardSync(boardId: string | undefined, store: BoardStore) {
     let gone = false; // the board was deleted, or we can't see it any more: nothing joins it again
     // The board's id as events name it. The server names a board by its own spelling of the id (lower
     // case), whichever way the address spelled it, so that is taken from the reply to joining.
-    // The assertion: see the parameter.
-    let eventId = boardId!.toLowerCase();
+    let eventId = boardId.toLowerCase();
 
     // Another board in the same screen: nothing of the last one may carry over,
     // above all changes not sent yet, which would otherwise be sent to this board.
-    if (outbox.switchTo(boardId!)) {
+    if (outbox.switchTo(boardId)) {
       loaded.current = false;
       joined.current = false;
       roleRef.current = "viewer";
@@ -467,7 +464,7 @@ export function useBoardSync(boardId: string | undefined, store: BoardStore) {
     setMeta,
     role,
     peers,
-    cursors, // a store (see cursors.js): only what draws the pointers subscribes
+    cursors, // a store (see cursors.ts): only what draws the pointers subscribes
     online,
     saving,
     sendCursor,

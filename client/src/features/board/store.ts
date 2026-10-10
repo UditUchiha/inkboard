@@ -162,7 +162,7 @@ export function toOperation(pending: ReadonlyMap<string, PendingChange>): Effect
 const MAX_HISTORY = 200;
 const MERGE_WINDOW_MS = 1000;
 
-// Removed elements' last data is kept (see board-merge.js), up to about this
+// Removed elements' last data is kept (see board-merge.ts), up to about this
 // much of it as JSON. Past it the oldest keep only their stamp, as on the server.
 const MAX_BURIED_CHARS = 4_000_000;
 
@@ -186,7 +186,7 @@ function tombstonesFrom(removed: unknown): Tombstones {
 // never wipes out what collaborators drew in the meantime.
 //
 // `release(elements, ids)` says what else a change made here that removes
-// `ids` must change: the editor passes connectors.js's releaseFrom, so
+// `ids` must change: the editor passes connectors.ts's releaseFrom, so
 // connectors let go of shapes that go (see withReleases). It's handed in
 // rather than imported so the store stays free of drawing code, and runs
 // as it is in Node (the server's tests play it against the server's rules).
@@ -298,7 +298,7 @@ export function createBoardStore({
     return stamped.upsert.length > 0 || stamped.remove.length > 0 ? stamped : null;
   }
 
-  // Takes in an operation (see board-merge.js), keeping the data tombstones hold within MAX_BURIED_CHARS.
+  // Takes in an operation (see board-merge.ts), keeping the data tombstones hold within MAX_BURIED_CHARS.
   function take(op: Operation) {
     // The plan works from the index (rather than building one) and commitPlan brings it up to date.
     const plan = planOperation(elements, op, tombstones, { index: byId() });
@@ -336,7 +336,7 @@ export function createBoardStore({
   }
 
   // A change made here that removes shapes also lets go of the connectors
-  // attached to them, where they're drawn (see connectors.js), unless it
+  // attached to them, where they're drawn (see connectors.ts), unless it
   // changes those connectors itself. Otherwise they'd jump back to where they
   // were first drawn. Returns `op` with them, and them: [{ before, after }].
   function withReleases(op: Operation): { op: Operation; released: ConnectorChange[] } {

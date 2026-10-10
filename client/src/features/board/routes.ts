@@ -10,7 +10,7 @@ import type { Rect, TurnedRect, XY } from "./geometry";
 //   elbow                   right angles only, running straight out of a shape before turning
 //
 // An end's direction is the way the path leaves it. For an end attached to a
-// shape it's out of the shape's side (connectors.js works that out and hands
+// shape it's out of the shape's side (connectors.ts works that out and hands
 // it over with `setEndDirections`, along with the shape's box, which an elbow
 // goes round); for a free end, along whichever axis points more towards the
 // other end.
@@ -42,7 +42,7 @@ const paths = new WeakMap<ShapeElement, Path>();
 
 /**
  * Records which way the path leaves each attached end of a drawn connector (unit
- * vectors) and the box of the shape each is attached to (see connectors.js).
+ * vectors) and the box of the shape each is attached to (see connectors.ts).
  */
 export function setEndDirections(connector: ShapeElement, directions: EndDirections, boxes: EndBoxes) {
   endDirections.set(connector, { directions, boxes });

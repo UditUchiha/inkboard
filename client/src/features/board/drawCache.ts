@@ -24,7 +24,7 @@ const close = (a: number, b: number) => Math.abs(a - b) < TOLERANCE;
 // What a Rough.js shape's drawing depends on, apart from where it is.
 const SHAPE_LOOKS: (keyof ShapeElement)[] = ["type", "seed", "stroke", "fill", "strokeWidth", "sketchy"];
 
-// What a line's or arrow's drawing depends on as well, apart from its path (see routes.js).
+// What a line's or arrow's drawing depends on as well, apart from its path (see routes.ts).
 const CONNECTOR_LOOKS: (keyof ShapeElement)[] = ["startHead", "route"];
 
 const isConnector = (element: BoardElement): element is Connector =>
