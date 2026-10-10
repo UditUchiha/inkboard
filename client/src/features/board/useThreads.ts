@@ -30,8 +30,7 @@ type ThreadList = { threads: Thread[] };
 type ThreadReply = { thread: Thread };
 
 const sortThreads = (list: Thread[]) =>
-  // @ts-expect-error Subtracting two Dates gives the milliseconds between them, which TypeScript only allows on numbers.
-  [...list].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
 /** What useThreads takes: the board, the connection that keeps threads current, and whether to have any. */
 type ThreadsOptions = { boardId: string; socket: Socket | null; enabled: boolean };
