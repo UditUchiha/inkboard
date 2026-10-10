@@ -1,12 +1,14 @@
 import getStroke from "perfect-freehand";
 import rough from "roughjs";
-import { connectionDots, isConnector, resolveConnectors } from "./connectors";
+import { createDrawingCache } from "./drawCache";
+import { connectionDots, forgetResolvedConnectors, isConnector, resolveConnectors } from "./connectors";
 import { FRAME_BORDER, FRAME_FILL, FRAME_LABEL_COLOR, LINE_HEIGHT, NOTE_TEXT_COLOR } from "./constants";
 import {
   arrowHeads,
   canRotate,
   connectorLabel,
   fontFor,
+  forgetBounds,
   forgetConnectorLabels,
   forgetFrameLabels,
   frameLabel,
@@ -18,7 +20,7 @@ import {
   isFrame,
 } from "./elements";
 import { expandRect, normalizeRect, rectCenter, rectsOverlap } from "./geometry";
-import { getImage } from "./images";
+import { getImage, showingImages } from "./images";
 import { darkInk } from "./ink";
 import { forgetNoteMeasurements, noteLayout } from "./notes";
 import { connectorPath, pathData } from "./routes";
@@ -34,11 +36,13 @@ const sameInk = (color) => color;
 let ink = sameInk;
 let smallPictures = false;
 let labelScale = 1;
+let picturesDrawn = new Set(); // the image ids drawn in the scene being rendered
 
-// Elements are immutable, so generated shapes can be cached per object. Shapes
-// carry their colors, so light and dark mode each have their own.
-const drawableCaches = { light: new WeakMap(), dark: new WeakMap() };
-const penPathCache = new WeakMap();
+// Elements are immutable, so generated shapes can be cached per object (and
+// reused for copies that are only moved, as while dragging: see drawCache.js).
+// Shapes carry their colors, so light and dark mode each have their own.
+const drawableCaches = { light: createDrawingCache(), dark: createDrawingCache() };
+const penPathCache = createDrawingCache();
 
 function roughOptions(element, paint) {
   const sketchy = element.sketchy !== false;
@@ -117,13 +121,19 @@ export function penOutline(element) {
   return svgPathFromOutline(outline);
 }
 
-function penPath(element) {
-  let path = penPathCache.get(element);
-  if (!path) {
-    path = new Path2D(penOutline(element));
-    penPathCache.set(element, path);
+// A pen stroke's outline and how far along it is drawn.
+const penPath = (element) => penPathCache.get(element, (stroke) => new Path2D(penOutline(stroke)));
+
+// Draws what a cache gave for an element (see createDrawingCache) where the element is.
+function drawMoved({ dx, dy }, ctx, draw) {
+  if (!dx && !dy) {
+    draw();
+    return;
   }
-  return path;
+  ctx.save();
+  ctx.translate(dx, dy);
+  draw();
+  ctx.restore();
 }
 
 /**
@@ -186,6 +196,7 @@ function drawConnector(ctx, roughCanvas, element, hideLabel) {
 // A picture, or a plain box in its place while it downloads (or if it can't).
 function drawPicture(ctx, element) {
   const { image, state } = getImage(element.imageId, { small: smallPictures });
+  picturesDrawn.add(element.imageId);
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   ctx.save();
   if (state === "ready") {
@@ -284,7 +295,8 @@ function drawUnturned(ctx, roughCanvas, element) {
 
   if (element.type === "pen") {
     ctx.fillStyle = ink(element.stroke);
-    ctx.fill(penPath(element));
+    const path = penPath(element);
+    drawMoved(path, ctx, () => ctx.fill(path.built));
     return;
   }
 
@@ -303,13 +315,10 @@ function drawUnturned(ctx, roughCanvas, element) {
     return;
   }
 
-  const drawableCache = ink === sameInk ? drawableCaches.light : drawableCaches.dark;
-  let drawables = drawableCache.get(element);
-  if (!drawables) {
-    drawables = buildDrawables(element);
-    drawableCache.set(element, drawables);
-  }
-  for (const drawable of drawables) roughCanvas.draw(drawable);
+  const drawables = (ink === sameInk ? drawableCaches.light : drawableCaches.dark).get(element, buildDrawables);
+  drawMoved(drawables, ctx, () => {
+    for (const drawable of drawables.built) roughCanvas.draw(drawable);
+  });
 }
 
 const SELECTION_COLOR = "#2d5bff";
@@ -426,6 +435,7 @@ export function renderScene(
   ink = dark ? darkInk : sameInk;
   smallPictures = smallImages;
   labelScale = screenLabels ? 1 / viewport.zoom : 1;
+  picturesDrawn = new Set();
   const ctx = canvas.getContext("2d");
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -458,6 +468,9 @@ export function renderScene(
     if (isFrame(element)) frames.push(element);
     if (isVisible(element, view)) drawElement(ctx, roughCanvas, element, { hideLabel: hidden });
   }
+  for (const cache of [drawableCaches.light, drawableCaches.dark, penPathCache]) cache.trim(elements.length);
+  // The pictures on show here are kept while they are (see showingImages).
+  showingImages(canvas, picturesDrawn, { small: smallPictures });
   for (const frame of frames) drawFrameName(ctx, frame, view);
   if (target) drawConnectTarget(ctx, target, viewport.zoom);
   if (dotted) drawConnectionDots(ctx, dotted, viewport.zoom, dots.side);
@@ -478,6 +491,8 @@ export function loadCanvasFonts() {
       forgetNoteMeasurements();
       forgetFrameLabels();
       forgetConnectorLabels();
+      forgetBounds();
+      forgetResolvedConnectors();
     });
   return fontsPromise;
 }

@@ -127,3 +127,151 @@ describe("resizing and turning a picture", () => {
     assert.equal(next.imageId, "a".repeat(32));
   });
 });
+
+const nextTick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("the picture cache", () => {
+  const originalImage = globalThis.Image;
+  const originalNow = Date.now;
+  const created = [];
+
+  // A browser Image that never loads by itself: the test decides when it fails.
+  class FakeImage {
+    constructor() {
+      created.push(this);
+    }
+  }
+
+  it("asks again for a missing picture less and less often", async () => {
+    globalThis.Image = FakeImage;
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      const { getImage } = await import("../src/features/board/images.js");
+      const id = "c".repeat(32);
+      const fail = () => created.at(-1).onerror();
+      getImage(id);
+      fail();
+      const requests = () => created.length;
+      const before = requests();
+      now += 9_000;
+      getImage(id);
+      assert.equal(requests(), before, "not asked again within 10 seconds");
+      now += 2_000;
+      getImage(id);
+      assert.equal(requests(), before + 1, "asked again after 10 seconds");
+      fail();
+      now += 11_000;
+      getImage(id);
+      assert.equal(requests(), before + 1, "the second wait is twice as long");
+      now += 10_000;
+      getImage(id);
+      assert.equal(requests(), before + 2);
+    } finally {
+      globalThis.Image = originalImage;
+      Date.now = originalNow;
+    }
+  });
+
+  it("does not keep every picture it has ever shown", async () => {
+    globalThis.Image = FakeImage;
+    try {
+      const { getImage } = await import("../src/features/board/images.js");
+      const first = "d".repeat(32);
+      getImage(first);
+      created.at(-1).onload();
+      for (let index = 0; index < 400; index += 1) {
+        getImage(index.toString(16).padStart(32, "0"));
+        created.at(-1).onload();
+      }
+      await nextTick(); // dropping waits for whatever is being drawn
+      const before = created.length;
+      getImage(first);
+      assert.equal(created.length, before + 1, "the oldest was dropped, so it is fetched again");
+    } finally {
+      globalThis.Image = originalImage;
+    }
+  });
+
+  it("keeps every picture a canvas is showing, however many, so none keeps being fetched again", async () => {
+    globalThis.Image = FakeImage;
+    let now = 5_000_000;
+    Date.now = () => now;
+    try {
+      const { MAX_CACHED, getImage, showingImages } = await import("../src/features/board/images.js");
+      const canvas = { isConnected: true };
+      let ids = Array.from({ length: MAX_CACHED + 50 }, (_, index) => `shown-${index}`);
+      const missing = "9".repeat(32);
+      // Draws every picture, as the renderer does, and says which were shown; loads whatever it asked for
+      // (but the missing one).
+      const draw = () => {
+        const from = created.length;
+        for (const id of ids) getImage(id);
+        showingImages(canvas, new Set(ids));
+        const asked = created.slice(from);
+        for (const image of asked) (image.src.includes(missing) ? image.onerror : image.onload)();
+        return asked.length;
+      };
+      assert.equal(draw(), ids.length);
+      await nextTick();
+      assert.equal(draw(), 0, "more than the cache holds are on show, and none was dropped");
+
+      ids = [...ids, "f".repeat(32)];
+      assert.equal(draw(), 1, "a picture added is fetched");
+      await nextTick();
+      assert.equal(draw(), 0, "without dropping one on show");
+
+      // A missing picture tried again doesn't push one on show out either.
+      ids = [...ids, missing];
+      assert.equal(draw(), 1);
+      now += 60_000;
+      await nextTick();
+      assert.equal(draw(), 1, "only the missing picture is asked for again");
+      await nextTick();
+      assert.equal(draw(), 0);
+
+      // A canvas taken off the page lets go of its pictures.
+      canvas.isConnected = false;
+      getImage("a".repeat(31) + "b");
+      created.at(-1).onload();
+      await nextTick();
+      const before = created.length;
+      getImage(ids[0]);
+      assert.equal(created.length, before + 1, "the oldest is dropped once nothing shows it");
+    } finally {
+      globalThis.Image = originalImage;
+      Date.now = originalNow;
+    }
+  });
+});
+
+describe("canvases kept on show", () => {
+  it("are dropped once they leave the page or are released, even while the cache is small", async () => {
+    const { showingImages, releaseImages, canvasesShowing } = await import("../src/features/board/images.js");
+    const ids = new Set(["a".repeat(32)]);
+    const base = canvasesShowing();
+    const onPage = { isConnected: true };
+    showingImages(onPage, ids);
+    const gone = { isConnected: true };
+    showingImages(gone, ids, { small: true });
+    gone.isConnected = false; // a card unmounted without telling anyone
+    const offscreen = { isConnected: false }; // an export's canvas, never on the page
+    showingImages(offscreen, ids);
+    // Another canvas drawing sweeps what has left the page.
+    const other = { isConnected: true };
+    showingImages(other, ids);
+    assert.equal(canvasesShowing(), base + 2, "only the two on the page are kept");
+    releaseImages(onPage);
+    assert.equal(canvasesShowing(), base + 1, "a released canvas is dropped at once");
+    releaseImages(other);
+    assert.equal(canvasesShowing(), base);
+  });
+});
+
+describe("what browsers accept", () => {
+  it("takes formats it can re-encode as well as the ones the server stores", () => {
+    for (const type of ["image/png", "image/avif", "image/heic", "image/bmp"])
+      assert.equal(isImageFile({ type }), true);
+    assert.equal(isImageFile({ type: "image/svg+xml" }), false);
+  });
+});

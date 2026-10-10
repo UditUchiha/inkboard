@@ -1,15 +1,14 @@
 import { BOARD_FILE_EXTENSION, makeBoardFile } from "./boardFile";
 import { getSceneBounds } from "./elements";
 import { downloadBlob, pictureDataUrls, safeFileName } from "./files";
-import { loadImagesOf } from "./images";
+import { ExportError, MIN_SCALE, exportScale } from "./exportSize";
+import { loadImagesOf, releaseImages } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
 import { buildSvg, fontsUsed } from "./svgExport";
 import { fontFacesFor, measureBaselines } from "./svgFonts";
 
 // Exporting a board: as a picture (PNG), as vectors (SVG), or as a board file
 // (JSON) that can be imported again. Each resolves to false when the board is empty.
-
-const MAX_DIMENSION = 8000;
 
 export async function exportBoardAsPng(elements, fileName) {
   const bounds = getSceneBounds(elements);
@@ -19,7 +18,9 @@ export async function exportBoardAsPng(elements, fileName) {
   const padding = 32;
   const width = bounds.width + padding * 2;
   const height = bounds.height + padding * 2;
-  const scale = Math.min(2, MAX_DIMENSION / width, MAX_DIMENSION / height);
+  const scale = exportScale(width, height);
+  if (scale < MIN_SCALE)
+    throw new ExportError("This board is too large to export as a picture. Export it as SVG instead.");
 
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(width * scale);
@@ -32,6 +33,10 @@ export async function exportBoardAsPng(elements, fileName) {
   });
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  // Never on the page, so nothing else would let go of it (up to 64 MB of pixels).
+  releaseImages(canvas);
+  // A browser that can't make a canvas this big hands back nothing.
+  if (!blob) throw new ExportError("The picture is too big for this browser to make. Export it as SVG instead.");
   downloadBlob(blob, `${safeFileName(fileName)}.png`);
   return true;
 }

@@ -3,12 +3,16 @@ import { describe, it } from "node:test";
 import { FIELD_GROUPS } from "@inkboard/shared/board-merge";
 import {
   CONNECT_GAP,
+  DOT_CORE,
   DOT_GAP,
   attachEnd,
   connectTargetAt,
   connectionAt,
   connectionDots,
   copyGroup,
+  dotBeatsHandle,
+  dotGrab,
+  dotHover,
   facingSide,
   moveGroup,
   outlinePoint,
@@ -17,6 +21,7 @@ import {
   resolveConnectors,
 } from "../src/features/board/connectors.js";
 import {
+  arrowHeads,
   connectorLabel,
   createElement,
   elementAt,
@@ -417,5 +422,287 @@ describe("connector labels", () => {
     assert.ok(hitTest(labelled, 100, 14, 1), "on the label, off the line");
     assert.equal(hitTest({ ...labelled, text: "" }, 100, 14, 1), false);
     assert.ok(getLocalBounds(labelled).y <= -16.5);
+  });
+});
+
+describe("elbow routes", () => {
+  const A = shape("a", 0, 0, 100, 100);
+  const pathOf = (b, extra) =>
+    connectorPath(byId(resolveConnectors([A, b, arrow("link", "a", "b", { route: "elbow", ...extra })]), "link"));
+  // Whether any segment of `points` runs through the inside of `box`.
+  const crosses = (points, box) =>
+    points.some((point, i) => {
+      if (i === 0) return false;
+      const [x0, x1] = [Math.min(points[i - 1].x, point.x), Math.max(points[i - 1].x, point.x)];
+      const [y0, y1] = [Math.min(points[i - 1].y, point.y), Math.max(points[i - 1].y, point.y)];
+      return x1 > box.x1 && x0 < box.x2 && y1 > box.y1 && y0 < box.y2;
+    });
+
+  it("go round both shapes in the layouts that used to cut through them", () => {
+    const cases = [
+      ["right side to a box on the left", shape("b", -300, 20, -200, 80), "right", "left"],
+      ["right side to right side", shape("b", 300, 200, 400, 300), "right", "right"],
+      ["top to bottom of a box below", shape("b", 20, 300, 80, 400), "top", "bottom"],
+      ["left side to a box on the right", shape("b", 300, 20, 400, 80), "left", "right"],
+    ];
+    for (const [name, b, startAnchor, endAnchor] of cases) {
+      const { points } = pathOf(b, { startAnchor, endAnchor });
+      assert.equal(crosses(points, A), false, `${name}: not through the first box`);
+      assert.equal(crosses(points, b), false, `${name}: not through the second box`);
+      for (const [dx, dy] of segments(points)) assert.ok(Math.abs(dx) < 1e-6 || Math.abs(dy) < 1e-6, name);
+    }
+  });
+
+  it("avoid both boxes wherever they sit and whichever sides they join", () => {
+    const sides = ["top", "right", "bottom", "left"];
+    for (const [x, y] of [
+      [300, 0],
+      [300, 200],
+      [-300, 200],
+      [0, 300],
+      [-300, -250],
+      [150, -200],
+      [200, 40],
+    ]) {
+      const b = shape("b", x, y, x + 100, y + 100);
+      for (const startAnchor of sides) {
+        for (const endAnchor of sides) {
+          const { points } = pathOf(b, { startAnchor, endAnchor });
+          const where = `${startAnchor} to ${endAnchor} of a box at ${x},${y}`;
+          assert.equal(crosses(points, A) || crosses(points, b), false, where);
+        }
+      }
+    }
+  });
+
+  it("go round a turned shape rather than back through it", () => {
+    const turned = shape("a", 0, 0, 100, 100, "rectangle", { angle: Math.PI / 4 });
+    const b = shape("b", 300, 0, 400, 100);
+    const drawn = byId(
+      resolveConnectors([
+        turned,
+        b,
+        arrow("link", "a", "b", { route: "elbow", startAnchor: "left", endAnchor: "left" }),
+      ]),
+      "link",
+    );
+    const { points } = connectorPath(drawn);
+    // Each segment checked against the turned square: its corners are (50, -20.7), (120.7, 50), (50, 120.7), (-20.7, 50).
+    const inside = ({ x, y }) => Math.abs(x - 50) + Math.abs(y - 50) < 50 * Math.SQRT2 - 1e-6;
+    for (let i = 1; i < points.length; i += 1) {
+      for (let step = 0; step <= 50; step += 1) {
+        const t = step / 50;
+        const along = {
+          x: points[i - 1].x + (points[i].x - points[i - 1].x) * t,
+          y: points[i - 1].y + (points[i].y - points[i - 1].y) * t,
+        };
+        assert.equal(inside(along), false, `segment ${i} runs through the turned shape at ${along.x},${along.y}`);
+      }
+    }
+  });
+
+  it("still take the plainest route when nothing is in the way", () => {
+    const { points } = pathOf(shape("b", 300, 200, 400, 300), { startAnchor: "right", endAnchor: "left" });
+    assert.equal(points.length, 4, "across, down the middle, across");
+  });
+});
+
+describe("curved connector bounds", () => {
+  // Out of both boxes' right sides: the control points reach 135 out, the curve itself only three quarters of that.
+  const elements = [
+    shape("a", 0, 0, 100, 100),
+    shape("b", 0, 300, 100, 400),
+    arrow("link", "a", "b", { route: "curved", startAnchor: "right", endAnchor: "right", strokeWidth: 1 }),
+  ];
+  const drawn = byId(resolveConnectors(elements), "link");
+  const controlsX = Math.max(...connectorPath(drawn).points.map((point) => point.x));
+  const curveX = connectorPath(drawn).points[0].x + (controlsX - connectorPath(drawn).points[0].x) * 0.75;
+
+  it("follow the curve itself, not its control points", () => {
+    const bounds = getLocalBounds(drawn);
+    assert.ok(bounds.x + bounds.width >= curveX, "reaches the curve");
+    assert.ok(bounds.x + bounds.width < controlsX - 20, "not out to the control points");
+  });
+
+  it("count a curved arrow inside a frame when the curve is, though its control points are not", () => {
+    const frame = { id: "f", type: "frame", x1: -50, y1: -50, x2: curveX + 20, y2: 450, name: "" };
+    assert.ok(controlsX > frame.x2, "the control points stick out of the frame");
+    assert.ok(frameContents([...elements, frame], frame).some((element) => element.id === "link"));
+  });
+});
+
+describe("grabbing a connection dot", () => {
+  // The dot above a's top side sits 15 out (the gap plus half the stroke): at (50, -15).
+  const a = shape("a", 0, 0, 100, 100);
+  const dot = { x: 50, y: -15 };
+  const options = { zoom: 1, tolerance: 6 };
+
+  it("is a dot of the shape under the pointer", () => {
+    assert.equal(dotGrab([a], dot, options)?.side, "top");
+    assert.equal(dotGrab([a], { x: 500, y: 500 }, options), null);
+  });
+
+  it("goes to a neighbour drawn there instead, which can then be picked", () => {
+    const caption = shape("caption", 0, -60, 100, -12, "rectangle");
+    assert.equal(connectionAt([caption, a], dot, options).side, "top", "the dot is there");
+    assert.equal(dotGrab([caption, a], dot, options), null, "but the caption is picked");
+    assert.equal(elementAt([caption, a], dot.x, dot.y, 6)?.id, "caption");
+  });
+
+  it("is not taken away by a frame the shape sits in", () => {
+    const frame = { id: "f", type: "frame", x1: -200, y1: -200, x2: 400, y2: 400, name: "" };
+    assert.equal(dotGrab([frame, a], dot, options)?.side, "top");
+  });
+
+  it("starts another arrow from a side that already has one pinned there", () => {
+    const b = shape("b", 0, -300, 100, -200);
+    const pinned = arrow("link", "a", "b", { startAnchor: "top", endAnchor: "bottom" });
+    const elements = [a, b, pinned];
+    assert.equal(elementAt(elements, dot.x, dot.y, 6)?.id, "link", "the arrow runs out through the dot");
+    assert.deepEqual(dotGrab(elements, dot, options), { target: a, side: "top" });
+  });
+
+  it("leaves a press on the arrow beside the dot to the arrow, so it can be selected", () => {
+    const b = shape("b", 0, -300, 100, -200);
+    const pinned = arrow("link", "a", "b", { startAnchor: "top", endAnchor: "bottom" });
+    const elements = [a, b, pinned];
+    const core = DOT_CORE;
+    assert.equal(dotGrab(elements, { x: 50, y: -15 + core - 1 }, options)?.side, "top", "within the dot's core");
+    // Still near the dot (it can be reached there) but off its core, on the arrow's body.
+    const beside = { x: 50, y: -15 - core - 2 };
+    assert.equal(connectionAt(elements, beside, options).side, "top", "the dot is in reach");
+    assert.equal(elementAt(elements, beside.x, beside.y, 6)?.id, "link", "the arrow is there");
+    assert.equal(dotGrab(elements, beside, options), null, "so it is the arrow that is pressed");
+    assert.equal(dotHover(elements, beside, options), null, "and no dot is shown under the pointer");
+    // Zoomed out the core stays the same size on screen.
+    const far = { zoom: 0.5, tolerance: 12 };
+    assert.equal(dotGrab(elements, { x: 50, y: -30 }, far)?.side, "top");
+    assert.equal(dotGrab(elements, { x: 50, y: -30 + (core + 2) / far.zoom }, far), null);
+  });
+
+  it("goes to the selected arrow's end handle beside the dot only when nearer it", () => {
+    const pinned = byId(
+      resolveConnectors([a, arrow("link", "a", null, { startAnchor: "top", x2: 50, y2: -300 })]),
+      "link",
+    );
+    const grab = dotGrab([a, pinned], dot, options);
+    // The end sits 7 out, the dot 15: a press on the dot draws a new arrow, one on the end drags it.
+    assert.equal(dotBeatsHandle(pinned, "start", grab, dot, 1), true);
+    assert.equal(dotBeatsHandle(pinned, "start", grab, { x: 50, y: -8 }, 1), false);
+    assert.equal(dotBeatsHandle(pinned, null, grab, dot, 1), true, "no handle there");
+    assert.equal(dotBeatsHandle(pinned, "start", null, dot, 1), false, "no dot there");
+    // A selected shape's own handles always win over a neighbour's dot.
+    assert.equal(dotBeatsHandle(shape("c", 0, -60, 100, -16), "s", grab, dot, 1), false);
+  });
+});
+
+describe("connection dots shown with the select tool", () => {
+  const a = shape("a", 0, 0, 100, 100);
+  const options = { zoom: 1, tolerance: 6 };
+
+  it("show on the shape under the pointer, and stay while it goes out to a dot", () => {
+    assert.deepEqual(dotHover([a], { x: 50, y: 50 }, options), { target: a, side: null }, "over the shape");
+    assert.deepEqual(dotHover([a], { x: 50, y: -15 }, options), { target: a, side: "top" }, "on its top dot");
+    assert.equal(dotHover([a], { x: 500, y: 500 }, options), null);
+  });
+
+  it("show a dot as the one under the pointer only where a press would start an arrow from it", () => {
+    const caption = shape("caption", 0, -60, 100, -12);
+    assert.deepEqual(dotHover([caption, a], { x: 50, y: -15 }, options), { target: caption, side: null });
+  });
+});
+
+describe("undoing a delete that let go of connectors", () => {
+  it("puts back the connector's ends, but not an older label or color over someone else's change", () => {
+    const [here, there] = [createBoardStore({ release: releaseFrom }), createBoardStore({ release: releaseFrom })];
+    here.setBroadcaster((op) => there.applyRemote(op));
+    there.setBroadcaster((op) => here.applyRemote(op));
+    const start = board();
+    here.commit({ undo: { remove: start.map((element) => element.id) }, redo: { upsert: start } });
+
+    here.commit({ undo: { upsert: [here.getElement("b")] }, redo: { remove: ["b"] } });
+    const link = there.getElement("link");
+    there.commit({ undo: { upsert: [link] }, redo: { upsert: [{ ...link, text: "Yes", stroke: "#ff0000" }] } });
+
+    here.undo();
+    for (const store of [here, there]) {
+      const back = store.getElement("link");
+      assert.equal(back.endId, "b", "attached to the shape again");
+      assert.equal(back.text, "Yes", "the label stays");
+      assert.equal(back.stroke, "#ff0000", "and so does the color");
+    }
+    here.redo();
+    for (const store of [here, there]) {
+      assert.equal("endId" in store.getElement("link"), false);
+      assert.equal(store.getElement("link").text, "Yes");
+    }
+  });
+});
+
+describe("arrowheads on elbow routes", () => {
+  it("are no longer than the straight run they sit on", () => {
+    const target = shape("b", 60, 100, 160, 160);
+    // A bold arrow from a free start ends on the top of the box after a run of only 33, short of a full head (44).
+    const bold = arrow("link", null, "b", {
+      route: "elbow",
+      endAnchor: "top",
+      strokeWidth: 10,
+      startHead: true,
+      x2: 110,
+      y2: 130,
+    });
+    const drawn = byId(resolveConnectors([target, { ...bold, x1: 0, y1: 60 }]), "link");
+    const { points } = connectorPath(drawn);
+    const run = Math.hypot(points.at(-1).x - points.at(-2).x, points.at(-1).y - points.at(-2).y);
+    assert.ok(run < 44, `a short last run, ${run}`);
+    const [endHead] = arrowHeads(drawn);
+    for (const [x, y] of endHead) {
+      assert.ok(Math.hypot(x - points.at(-1).x, y - points.at(-1).y) <= run + 1e-6, "barbs stay within the run");
+    }
+    // An end just beside the bend still has a head, half a full one, pointing along its run.
+    const beside = byId(
+      resolveConnectors([
+        shape("a", 0, 0, 100, 100),
+        { ...arrow("link", "a", null, { route: "elbow", startAnchor: "top" }), x2: -125, y2: -30.5 },
+      ]),
+      "link",
+    );
+    const shortRun = connectorPath(beside).points;
+    assert.ok(Math.abs(shortRun.at(-1).y - shortRun.at(-2).y) < 1, "a run of next to nothing");
+    const [shortHead] = arrowHeads(beside);
+    near(Math.hypot(shortHead[0][0] - shortHead[1][0], shortHead[0][1] - shortHead[1][1]), 10);
+    // Along a straight path the head is as long as ever.
+    const straight = { ...arrow("s", null, null, { strokeWidth: 10 }), x2: 400, y2: 0 };
+    const [head] = arrowHeads(straight);
+    near(Math.hypot(head[0][0] - 400, head[0][1]), 44);
+  });
+});
+
+describe("built-in templates", () => {
+  it("draw their arrows attached to shapes, with every connector field set", async () => {
+    const { BUILTIN_TEMPLATES } = await import("../src/features/templates/builtin.js");
+    const { cleanElement } = await import("@inkboard/shared/element-rules");
+    for (const template of BUILTIN_TEMPLATES) {
+      const elements = template.build();
+      for (const element of elements) {
+        assert.ok(cleanElement(element), `${template.id}: ${element.type} is a valid element`);
+        if (element.type !== "arrow") continue;
+        for (const field of ["route", "font", "startHead"])
+          assert.ok(field in element, `${template.id}: arrow has ${field}`);
+      }
+      // No loose pieces: a flowchart or brainstorm connector joins two shapes.
+      if (template.id === "flowchart" || template.id === "brainstorm") {
+        for (const element of elements.filter((each) => each.type === "arrow" || each.type === "line")) {
+          assert.ok(element.startId && element.endId, `${template.id}: every connector is attached at both ends`);
+        }
+      }
+    }
+    const flowchart = BUILTIN_TEMPLATES.find((template) => template.id === "flowchart");
+    assert.equal(
+      flowchart.build().filter((element) => element.type === "arrow").length,
+      4,
+      "three steps and the way back",
+    );
+    assert.doesNotMatch(flowchart.detail, /two endings/);
   });
 });

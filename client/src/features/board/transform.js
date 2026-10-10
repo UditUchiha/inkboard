@@ -114,7 +114,13 @@ export function resizeElement(original, handleId, point, { keepAspect = false, p
 
   const frame = getFrame(original);
   const [dx, dy] = DIRECTIONS[handleId];
-  const lockAspect = (keepAspect || original.type === "text" || original.type === "image") && dx !== 0 && dy !== 0;
+  // A pen stroke with no width (or height) has nothing to scale along it, so it keeps its size that way.
+  const flatX = original.type === "pen" && frame.width < 1;
+  const flatY = original.type === "pen" && frame.height < 1;
+  // Not for a flat stroke: its proportions are a line, so keeping them would scale by the ratio of a drag to
+  // a size of nothing. It's scaled along its real side only, as it is without Shift.
+  const lockAspect =
+    (keepAspect || original.type === "text" || original.type === "image") && dx !== 0 && dy !== 0 && !flatX && !flatY;
 
   // The fixed point, and the point's position along the element's own axes from it.
   const [ax, ay] = rotatePoint(
@@ -135,14 +141,17 @@ export function resizeElement(original, handleId, point, { keepAspect = false, p
     width = Math.max(MIN_SIZE, frame.width * scale);
     height = Math.max(MIN_SIZE, frame.height * scale);
   }
+  if (flatX) width = frame.width;
+  if (flatY) height = frame.height;
 
   // Where the new box is centred: half its size out from the fixed point.
   const [cx, cy] = rotatePoint(ax + dx * (width / 2), ay + dy * (height / 2), ax, ay, frame.angle);
 
   switch (original.type) {
     case "pen": {
-      const scaleX = frame.width < 1 ? 1 : width / frame.width;
-      const scaleY = frame.height < 1 ? 1 : height / frame.height;
+      // Every point goes with the centre, which moves when the stroke is turned even along a flat side.
+      const scaleX = flatX ? 1 : width / frame.width;
+      const scaleY = flatY ? 1 : height / frame.height;
       return {
         ...original,
         points: original.points.map(([x, y, pressure]) => [

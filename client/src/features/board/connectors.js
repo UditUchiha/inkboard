@@ -1,4 +1,4 @@
-import { duplicate, getBounds, getFrame, inDrawOrder, newId, translate } from "./elements";
+import { duplicate, elementAt, getBounds, getFrame, inDrawOrder, isFrame, newId, translate } from "./elements";
 import { expandRect, rectContains, rotatePoint } from "./geometry";
 import { setEndDirections } from "./routes";
 
@@ -22,6 +22,7 @@ export const CONNECT_GAP = 6; // between an attached end and its shape's outline
 // The connection dots shown around a shape, in screen pixels.
 export const DOT_GAP = 14; // between the dots and the shape's outline
 export const DOT_REACH = 10; // around a dot that counts as being on it
+export const DOT_CORE = 5; // around a dot's middle (about the dot drawn) that wins over an arrow running through it
 
 // Each side's way out of a shape, before it's turned.
 export const SIDES = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] };
@@ -111,7 +112,7 @@ function floatingEnd(connector, target, toward) {
   return { ...point, dx: out.x, dy: out.y };
 }
 
-const drawnCopies = new WeakMap(); // connector -> its last drawn copy and its ends' directions: { drawn, directions }
+let drawnCopies = new WeakMap(); // connector -> its last drawn copy and its ends' directions and boxes: { drawn, directions, boxes }
 
 function drawConnector(connector, from, to) {
   if (!from && !to) return connector;
@@ -128,6 +129,9 @@ function drawConnector(connector, from, to) {
     start: start ? { x: start.dx, y: start.dy } : null,
     end: end ? { x: end.dx, y: end.dy } : null,
   };
+  // The shapes' boxes, which an elbow goes round, and for a turned shape the shape itself (see routes.js).
+  const boxOf = (target) => target && { ...getBounds(target), turned: getFrame(target) };
+  const boxes = { start: boxOf(from), end: boxOf(to) };
   // The same object while nothing moves, so what's drawn from it stays cached.
   const last = drawnCopies.get(connector);
   if (
@@ -137,19 +141,40 @@ function drawConnector(connector, from, to) {
     last.drawn.x2 === x2 &&
     last.drawn.y2 === y2 &&
     sameDirection(last.directions.start, directions.start) &&
-    sameDirection(last.directions.end, directions.end)
+    sameDirection(last.directions.end, directions.end) &&
+    sameBox(last.boxes.start, boxes.start) &&
+    sameBox(last.boxes.end, boxes.end)
   ) {
     return last.drawn;
   }
   const drawn = { ...connector, x1, y1, x2, y2 };
-  setEndDirections(drawn, directions);
-  drawnCopies.set(connector, { drawn, directions });
+  setEndDirections(drawn, directions, boxes);
+  drawnCopies.set(connector, { drawn, directions, boxes });
   return drawn;
 }
 
 const sameDirection = (a, b) => (!a && !b) || Boolean(a && b && a.x === b.x && a.y === b.y);
+const sameBox = (a, b) =>
+  (!a && !b) ||
+  Boolean(
+    a &&
+    b &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.turned.angle === b.turned.angle &&
+    a.turned.width === b.turned.width &&
+    a.turned.height === b.turned.height,
+  );
 
-const resolvedBoards = new WeakMap();
+let resolvedBoards = new WeakMap();
+
+/** Forget where connector ends were drawn, once web fonts have loaded and the text they're attached to measures differently. */
+export function forgetResolvedConnectors() {
+  drawnCopies = new WeakMap();
+  resolvedBoards = new WeakMap();
+}
 
 /**
  * `elements` as they're drawn: attached connector ends moved to their shapes.
@@ -220,6 +245,68 @@ export function connectionAt(elements, point, { zoom, tolerance, except }) {
   const side = near ? dotAt(near, point, zoom) : null;
   if (side) return { target: near, side };
   return { target: connectTargetAt(elements, point, tolerance, { except }), side: null };
+}
+
+// What is picked at `point`: the element there, frame names included (they're sized on screen).
+const hitAt = (elements, point, zoom, tolerance) =>
+  elementAt(elements, point.x, point.y, tolerance, { labelScale: 1 / zoom });
+
+// Whether a press at `point` on `found`'s dot goes to the dot, not to something else drawn there (see dotGrab).
+function dotIsFree(elements, point, found, { zoom, tolerance, hit = hitAt(elements, point, zoom, tolerance) }) {
+  if (hit && isConnector(hit)) {
+    // An arrow pinned to this side runs out through its dot: only a press right on the dot starts another,
+    // and one anywhere else along the arrow is a press on the arrow, so a short arrow can still be selected.
+    const dot = connectionDots(found.target, zoom)[found.side];
+    return Math.hypot(point.x - dot.x, point.y - dot.y) <= DOT_CORE / zoom;
+  }
+  return !hit || isFrame(hit) || hit.id === found.target.id;
+}
+
+/**
+ * The shape and side ({ target, side }) a press at `point` would start an arrow from, or null. That's
+ * connectionAt's dot, unless something else is drawn there: the dots sit just outside a shape, where a
+ * neighbour may be, and that is picked instead (a caption just above a box stays selectable). A frame
+ * the point is merely inside doesn't count: shapes in frames keep their dots. A line or arrow does only
+ * off the dot's core (DOT_CORE): one pinned to a side runs out through that side's dot, and another arrow
+ * must still be drawable from the dot itself, but a press on the arrow beside it selects the arrow.
+ * A caller that has already looked up `found` (connectionAt) and `hit` (what's picked at `point`, with the
+ * same `zoom` and `tolerance`; null for nothing) at this point can pass them, to not scan the board again.
+ */
+export function dotGrab(elements, point, { zoom, tolerance, ...known }) {
+  const found = known.found ?? connectionAt(elements, point, { zoom, tolerance });
+  if (!found.side) return null;
+  return dotIsFree(elements, point, found, { zoom, tolerance, ...known }) ? found : null;
+}
+
+/**
+ * The shape whose connection dots to show with the select tool's pointer at `point`, and the dot it's on:
+ * { target, side } (side null off the dots), or null. The dots show while the pointer is over a shape or
+ * out on its dots, so they can be seen before they're pressed. A dot a press wouldn't start an arrow from
+ * (see dotGrab) isn't shown as the one under the pointer: whatever is picked there is shown instead.
+ * `found` and `hit` can be passed as for dotGrab.
+ */
+export function dotHover(elements, point, { zoom, tolerance, ...known }) {
+  const found = known.found ?? connectionAt(elements, point, { zoom, tolerance });
+  if (!found.target) return null;
+  if (!found.side) return found;
+  const hit = known.hit === undefined ? hitAt(elements, point, zoom, tolerance) : known.hit;
+  if (dotIsFree(elements, point, found, { zoom, tolerance, hit })) return found;
+  return hit && canConnectTo(hit) ? { target: hit, side: null } : null;
+}
+
+/**
+ * Whether a select-tool press at `point` goes to a connection dot (`grab`, from dotGrab) rather than to
+ * `handle`, the handle of the `selected` element (as drawn) there, at `zoom`. A handle wins, except for a
+ * line's or arrow's end: one pinned to a side sits just inside that side's dot, close enough for the two to
+ * overlap, so the nearer of them does. Another arrow can then be drawn from the dot, and the end still dragged.
+ */
+export function dotBeatsHandle(selected, handle, grab, point, zoom) {
+  if (!grab) return false;
+  if (!handle) return true;
+  if (!isConnector(selected) || (handle !== "start" && handle !== "end")) return false;
+  const end = handle === "start" ? { x: selected.x1, y: selected.y1 } : { x: selected.x2, y: selected.y2 };
+  const dot = connectionDots(grab.target, zoom)[grab.side];
+  return Math.hypot(point.x - dot.x, point.y - dot.y) < Math.hypot(point.x - end.x, point.y - end.y);
 }
 
 /**

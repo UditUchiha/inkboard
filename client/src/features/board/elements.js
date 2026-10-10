@@ -3,6 +3,7 @@ import { resolveConnectors } from "./connectors";
 import {
   FILLABLE_TYPES,
   FONTS,
+  fontKey,
   FRAME_LABEL_GAP,
   FRAME_LABEL_SIZE,
   LABEL_FONT_SIZE,
@@ -22,7 +23,8 @@ import {
   rotatedRectBounds,
   unionRects,
 } from "./geometry";
-import { approachTo, connectorPath, pathLength, pathMiddle, pathPolyline } from "./routes";
+import { charactersOf } from "./notes";
+import { approachTo, connectorPath, pathExtremes, pathLength, pathMiddle, pathPolyline } from "./routes";
 
 // Elements are plain, immutable, JSON-serialisable objects. Any change makes a
 // new object, which lets the renderer cache expensive work per element.
@@ -83,7 +85,10 @@ export function createElement(type, { x, y }, style, pressure) {
     sketchy: style.sketchy,
   };
   if (!isConnector(shape)) return shape;
-  // A label typed on it later is written in the font of the moment.
+  // Every optional field is there from the start: a copy that lacks one has no say in it when changes
+  // are merged, so a label typed while someone else moves the arrow isn't lost. A label typed on it
+  // later is written in the font of the moment.
+  shape.text = "";
   shape.route = style.route ?? "straight";
   shape.font = style.font ?? "hand";
   if (type === "arrow") shape.startHead = Boolean(style.startHead);
@@ -122,8 +127,7 @@ export function nextFrameName(elements) {
 
 let measureContext;
 
-export const fontFor = (element, scale = 1) =>
-  `${element.fontSize * scale}px ${(FONTS[element.font] ?? FONTS.hand).family}`;
+export const fontFor = (element, scale = 1) => `${element.fontSize * scale}px ${FONTS[fontKey(element.font)].family}`;
 
 export function measureText(element, text = element.text) {
   measureContext ??= document.createElement("canvas").getContext("2d");
@@ -140,8 +144,8 @@ let labels = new WeakMap(); // frame -> { scale, label }, see frameLabel
  * width: { text, font, x, bottom, width, height }. `scale` is board units per
  * pixel of label: 1 / zoom in the editor, so names stay readable at any zoom.
  *
- * Shortening a name takes a measurement per letter, and the editor asks on
- * every frame drawn and every mouse move, so each frame keeps its last label.
+ * Shortening a name takes a few measurements, and the editor asks on every
+ * frame drawn and every mouse move, so each frame keeps its last label.
  */
 export function frameLabel(frame, scale = 1) {
   const known = labels.get(frame);
@@ -172,8 +176,17 @@ function measureFrameLabel(frame, scale) {
   const widthOf = (text) => measureContext.measureText(text).width;
   let text = frame.name || "Frame";
   if (widthOf(text) > body.width) {
-    while (text.length > 1 && widthOf(`${text}…`) > body.width) text = text.slice(0, -1);
-    text = `${text}…`;
+    // The most characters that fit with the ellipsis, at least one.
+    const characters = charactersOf(text);
+    const shortened = (count) => `${characters.slice(0, count).join("")}…`;
+    let low = 1;
+    let high = characters.length; // all of them doesn't fit
+    while (high - low > 1) {
+      const middle = Math.floor((low + high) / 2);
+      if (widthOf(shortened(middle)) <= body.width) low = middle;
+      else high = middle;
+    }
+    text = shortened(low);
   }
   return {
     text,
@@ -192,8 +205,12 @@ export const arrowHeadLength = (element) =>
 export function arrowHeads(element) {
   if (element.type !== "arrow") return [];
   const path = connectorPath(element);
-  const length = arrowHeadLength(element);
+  const full = arrowHeadLength(element);
   const head = (tip, from) => {
+    // On a bent path a head is no longer than the straight run it sits on, or its barbs would stick out sideways,
+    // but no shorter than half a full one: a run of next to nothing (an end just beside the bend) would leave no head.
+    const run = Math.hypot(tip.x - from.x, tip.y - from.y);
+    const length = path.curved ? full : Math.min(full, Math.max(run, full / 2));
     const [a, b] = arrowHeadPoints(from.x, from.y, tip.x, tip.y, length);
     return [a, [tip.x, tip.y], b];
   };
@@ -228,8 +245,14 @@ export function forgetConnectorLabels() {
   connectorLabels = new WeakMap();
 }
 
-const boundsCache = new WeakMap();
-const turnedBoundsCache = new WeakMap();
+let boundsCache = new WeakMap();
+let turnedBoundsCache = new WeakMap();
+
+/** Forget measured bounds, once web fonts have loaded and text measures differently. */
+export function forgetBounds() {
+  boundsCache = new WeakMap();
+  turnedBoundsCache = new WeakMap();
+}
 
 /** The box around an element before any turning, including its stroke. */
 export function getLocalBounds(element) {
@@ -252,9 +275,8 @@ export function getLocalBounds(element) {
     }
     case "line":
     case "arrow": {
-      // A curve stays within the box of its control points.
       const points = [
-        ...connectorPath(element).points.map((point) => [point.x, point.y]),
+        ...pathExtremes(connectorPath(element)).map((point) => [point.x, point.y]),
         ...arrowHeads(element).flat(),
       ];
       const xs = points.map((point) => point[0]);
@@ -391,12 +413,27 @@ export function hitTest(element, pointX, pointY, tolerance) {
 
 const drawOrders = new WeakMap();
 
-/** `elements` (in stack order) in the order they're drawn: frames first, beneath everything else. */
+// How many frames are wholly around `frame` (and bigger), so a frame is always drawn over the ones it sits in.
+function nesting(frames, frame) {
+  const body = footprint(frame);
+  return frames.filter((other) => {
+    const around = footprint(other);
+    return other !== frame && encloses(around, body) && around.width * around.height > body.width * body.height;
+  }).length;
+}
+
+/**
+ * `elements` (in stack order) in the order they're drawn: frames first, beneath
+ * everything else, those inside others after the ones around them (otherwise by
+ * stack order), so a big frame never covers a smaller one inside it.
+ */
 export function inDrawOrder(elements) {
   let ordered = drawOrders.get(elements);
   if (!ordered) {
     const frames = elements.filter(isFrame);
-    ordered = frames.length === 0 ? elements : [...frames, ...elements.filter((element) => !isFrame(element))];
+    const depths = new Map(frames.map((frame) => [frame, nesting(frames, frame)]));
+    const byDepth = [...frames].sort((a, b) => depths.get(a) - depths.get(b));
+    ordered = frames.length === 0 ? elements : [...byDepth, ...elements.filter((element) => !isFrame(element))];
     drawOrders.set(elements, ordered);
   }
   return ordered;
@@ -534,9 +571,9 @@ export function duplicate(element, dx = 16, dy = 16) {
   return copy;
 }
 
-// A click without a drag shouldn't leave an invisible shape behind.
-export function isDegenerate(element) {
+// A click without a drag shouldn't leave an invisible shape behind: one under 3 screen pixels across (at `zoom`) is that.
+export function isDegenerate(element, zoom = 1) {
   if (element.type === "pen") return false;
   if (element.type === "text") return !element.text.trim();
-  return Math.hypot(element.x2 - element.x1, element.y2 - element.y1) < 3;
+  return Math.hypot(element.x2 - element.x1, element.y2 - element.y1) * zoom < 3;
 }

@@ -11,6 +11,7 @@ import {
   STROKE_WIDTHS,
   STYLE_CONTROLS,
 } from "./constants";
+import { isComposing } from "./mentions";
 
 function Section({ label, children }) {
   return (
@@ -106,7 +107,8 @@ export function PropertiesPanel({ type, values, onChange, selection, onDuplicate
           <input
             value={values.name ?? ""}
             onChange={(event) => onChange("name", event.target.value.slice(0, 200))}
-            onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+            // Enter while an input method is composing confirms the text, not the name.
+            onKeyDown={(event) => event.key === "Enter" && !isComposing(event) && event.currentTarget.blur()}
             placeholder="Frame"
             className="h-8 rounded-lg border border-rule bg-surface px-2 text-sm outline-none focus:border-signal"
           />

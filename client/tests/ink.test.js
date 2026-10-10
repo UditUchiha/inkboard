@@ -30,3 +30,11 @@ describe("dark-mode ink", () => {
     for (const value of ["transparent", "currentColor", "", undefined, null]) assert.equal(darkInk(value), value);
   });
 });
+
+describe("the color cache", () => {
+  it("keeps giving right answers after it has had to start over", () => {
+    const first = darkInk("#123456");
+    for (let i = 0; i < 1200; i += 1) darkInk(`rgb(${i % 256}, ${(i * 7) % 256}, ${Math.floor(i / 256)})`);
+    assert.equal(darkInk("#123456"), first);
+  });
+});

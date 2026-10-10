@@ -44,6 +44,8 @@ function parseColor(color) {
   return null;
 }
 
+// Colors already converted. Anyone can put any color on a board, so this starts over when it's full.
+const MAX_CONVERTED = 500;
 const converted = new Map();
 
 /** A color as dark mode shows it. Anything it can't read (like "transparent") is returned as it is. */
@@ -58,6 +60,7 @@ export function darkInk(color) {
       const [r, g, b] = darkRgb(parsed);
       result = parsed[3] === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${parsed[3]})`;
     }
+    if (converted.size >= MAX_CONVERTED) converted.clear();
     converted.set(color, result);
   }
   return result;

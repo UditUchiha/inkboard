@@ -1,19 +1,40 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { inStackOrder } from "@inkboard/shared/board-order";
+import { resolveConnectors } from "../src/features/board/connectors.js";
 import {
   createElement,
   createNote,
   duplicate,
   elementAt,
   frameContents,
+  frameLabel,
+  getBounds,
   inDrawOrder,
   nextFrameName,
   stackKey,
   translate,
   withContents,
 } from "../src/features/board/elements.js";
+import { LINE_HEIGHT } from "../src/features/board/constants.js";
 import { layoutNote, MIN_NOTE_FONT_SIZE, NOTE_PADDING, wrapLines } from "../src/features/board/notes.js";
+import { loadCanvasFonts } from "../src/features/board/renderer.js";
+
+// Text is measured with a canvas, which Node doesn't have: a stand-in makes every character `perCharacter` wide.
+let perCharacter = 10;
+let measurements = 0;
+globalThis.document = {
+  createElement: () => ({
+    getContext: () => ({
+      font: "",
+      measureText: (text) => {
+        measurements += 1;
+        return { width: text.length * perCharacter };
+      },
+    }),
+  }),
+  fonts: { load: async () => {} },
+};
 
 // Every character is half the font size wide, so tests can work out where lines break.
 const measure = (text, fontSize) => text.length * fontSize * 0.5;
@@ -92,6 +113,57 @@ describe("sticky note text", () => {
     const short = layoutNote(note("Hi"), measure);
     assert.equal(short.shown, short.lines.length, "text that fits is all shown");
   });
+
+  it("breaks a very long word without measuring it over and over", () => {
+    const word = "x".repeat(20_000);
+    let calls = 0;
+    let measured = 0;
+    const counting = (text) => {
+      calls += 1;
+      measured += text.length;
+      return text.length;
+    };
+    const lines = wrapLines(word, 100, counting);
+    assert.equal(lines.length, 200);
+    assert.ok(lines.every((line) => line.length === 100));
+    assert.equal(lines.join(""), word);
+    assert.ok(calls < lines.length * 20, `${calls} measurements for ${lines.length} lines`);
+    assert.ok(measured < word.length * 20, `${measured} characters measured for ${word.length}`);
+
+    calls = 0;
+    measured = 0;
+    const layout = layoutNote({ ...note(word), font: "hand" }, (text, size) => {
+      calls += 1;
+      measured += text.length;
+      return text.length * size * 0.5;
+    });
+    assert.equal(layout.fontSize, MIN_NOTE_FONT_SIZE);
+    assert.equal(layout.lines.join(""), word);
+    assert.ok(calls < 10_000, `${calls} measurements to lay out the note`);
+    assert.ok(measured < word.length * 50, `${measured} characters measured to lay out the note`);
+  });
+
+  it("still finds the largest size that fits a long text, passing over the sizes it can't", () => {
+    const text = "lorem ipsum dolor sit amet ".repeat(16);
+    const layout = layoutNote(note(text), measure);
+    assert.ok(layout.fontSize > MIN_NOTE_FONT_SIZE, "fits above the smallest size");
+    assert.ok(layout.lines.length * layout.lineHeight <= layout.height);
+    const larger = Math.floor(layout.fontSize / 0.9);
+    const wrapped = wrapLines(text, layout.width, (line) => measure(line, larger));
+    assert.ok(
+      wrapped.length * larger * LINE_HEIGHT > layout.height || larger === layout.fontSize,
+      "the next size up didn't",
+    );
+  });
+
+  it("breaks between whole characters, never inside an emoji or a pair", () => {
+    const family = "👨‍👩‍👧"; // seven code units, one character
+    const grapheme = (text) => [...new Intl.Segmenter().segment(text)].length;
+    const lines = wrapLines(family.repeat(5), 20, (text) => grapheme(text) * 10);
+    assert.deepEqual(lines, [family.repeat(2), family.repeat(2), family]);
+    const faces = wrapLines("😀".repeat(5), 20, (text) => [...text].length * 10);
+    assert.deepEqual(faces, ["😀😀", "😀😀", "😀"]);
+  });
 });
 
 describe("frames", () => {
@@ -105,6 +177,22 @@ describe("frames", () => {
     assert.deepEqual(ids(inDrawOrder(elements)), ["f1", "f2", "a", "b"]);
     const plain = [box("a", 0, 0)];
     assert.equal(inDrawOrder(plain), plain);
+  });
+
+  it("are drawn after the frames around them, so a bigger frame never covers one inside it", () => {
+    // The inner frame is lower in the stack than the outer one it sits in; frames not inside another come first.
+    const elements = inStackOrder([
+      frame("inner", 10, 10, 50, 50),
+      frame("outer", 0, 0, 100, 100),
+      frame("beside", 200, 0, 300, 100),
+      box("a", 20, 20),
+    ]);
+    assert.deepEqual(ids(inDrawOrder(elements)), ["outer", "beside", "inner", "a"]);
+    assert.deepEqual(
+      ids(inDrawOrder(inStackOrder([frame("f1", 0, 0, 100, 100), frame("f2", 0, 0, 100, 100)]))),
+      ["f1", "f2"],
+      "equal frames keep their stack order",
+    );
   });
 
   it("hold what lies wholly inside them, including frames inside them", () => {
@@ -184,5 +272,48 @@ describe("frames", () => {
   it("start empty-named from the frame tool", () => {
     const created = createElement("frame", { x: 3, y: 4 }, {});
     assert.deepEqual({ ...created, id: "x" }, { id: "x", type: "frame", x1: 3, y1: 4, x2: 3, y2: 4, name: "" });
+  });
+});
+
+describe("text measured before the web fonts load", () => {
+  it("is measured again once they have, wherever it was measured", async () => {
+    const text = { id: "t", type: "text", x1: 0, y1: 0, text: "hello", stroke: "#000", fontSize: 20, font: "hand" };
+    const turned = { ...text, id: "r", angle: 1 };
+    const named = { ...frame("f", 0, 0, 500, 100), name: "hello" };
+    const connector = { ...box("c", 0, 0), type: "arrow", startId: "t", x1: 0, y1: 0, x2: 400, y2: 0 };
+    const board = [text, connector];
+
+    // The fallback font's letters are narrower than the web font's.
+    assert.equal(getBounds(text).width, 50);
+    const turnedWidth = getBounds(turned).width;
+    assert.equal(frameLabel(named).width, 50);
+    const startedAt = resolveConnectors(board)[1].x1;
+
+    perCharacter = 20;
+    assert.equal(getBounds(text).width, 50, "kept until the fonts load");
+    await loadCanvasFonts();
+    assert.equal(getBounds(text).width, 100);
+    assert.ok(getBounds(turned).width > turnedWidth, "turned bounds too");
+    assert.equal(frameLabel(named).width, 100);
+    assert.ok(resolveConnectors(board)[1].x1 > startedAt, "connectors attached to the text start further out");
+    perCharacter = 10;
+  });
+});
+
+describe("frame names", () => {
+  const named = (name, width) => ({ ...frame("f", 0, 0, width, 100), name });
+
+  it("are cut short to the frame's width, with an ellipsis", () => {
+    assert.equal(frameLabel(named("abcdefghij", 55)).text, "abcd…");
+    assert.equal(frameLabel(named("abcdefghij", 200)).text, "abcdefghij");
+    assert.equal(frameLabel(named("abcdefghij", 5)).text, "a…", "keeps at least a character");
+    assert.equal(frameLabel(named("😀".repeat(10), 75)).text, "😀😀😀…", "never half an emoji");
+  });
+
+  it("are cut short in a few measurements, not one per letter", () => {
+    measurements = 0;
+    const label = frameLabel(named("x".repeat(5000), 300));
+    assert.equal(label.text, `${"x".repeat(29)}…`);
+    assert.ok(measurements < 40, `${measurements} measurements`);
   });
 });
