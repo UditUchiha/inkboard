@@ -187,6 +187,20 @@ describe("anyone with the link can view", () => {
       message: "renamed guest in presence",
     });
   });
+
+  it("gives a guest whose id isn't a string an id of its own", async () => {
+    const owner = await app.signUp("Owner");
+    const boardId = await app.createBoard(owner);
+    await setLink(owner, boardId, "view");
+    // A list holding a valid id reads as one when turned into text, which is all the pattern looks at.
+    const guest = await app.connect(null, { guest: { id: ["g_abcdef123456"], name: "Listed" } });
+    await guest.join(boardId);
+    const presence = await eventually(() => guest.last("presence")?.find((person) => person.name === "Listed"), {
+      message: "the guest in presence",
+    });
+    assert.equal(typeof presence.userId, "string");
+    assert.notEqual(presence.userId, "g_abcdef123456");
+  });
 });
 
 describe("anyone with the link can edit", () => {

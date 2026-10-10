@@ -387,11 +387,10 @@ async function authenticate(socket: RealtimeSocket, next: (error?: Error) => voi
   const { token, guest }: { token?: unknown; guest?: { id?: unknown; name?: unknown } } = socket.handshake.auth ?? {};
   if (!token) {
     socket.data.user = null;
+    const id = guest?.id;
     socket.data.guest = {
-      // The test is on the text of the id, so anything that reads as a guest id passes.
-      id: GUEST_ID.test(String(guest?.id ?? ""))
-        ? (guest as { id: string }).id
-        : `g_${socket.id.replace(/[^a-z0-9]/gi, "")}`,
+      // A string first: the pattern turns what it's given into one, so ["g_abcdef"] would pass it.
+      id: typeof id === "string" && GUEST_ID.test(id) ? id : `g_${socket.id.replace(/[^a-z0-9]/gi, "")}`,
       name: cleanGuestName(guest?.name),
     };
     return next();
