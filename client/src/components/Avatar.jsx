@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { useState } from "react";
-import { colorFor, initials } from "../lib/format";
+import { initials, personColor } from "../lib/format";
 
 const SIZES = {
   xs: "size-6 text-[10px]",
@@ -24,7 +24,7 @@ export function Avatar({ id, name, color, src, size = "sm", className, title, de
         SIZES[size],
         className,
       )}
-      style={{ backgroundColor: color || colorFor(id) }}
+      style={{ backgroundColor: personColor({ id, color }) }}
     >
       {showPhoto ? (
         <img

@@ -1,7 +1,10 @@
-import { colorFor } from "../../lib/format";
+import { personColor } from "../../lib/format";
+import { useCursors } from "./cursors";
 import { toScreen } from "./geometry";
 
-export function RemoteCursors({ cursors, peers, viewport }) {
+// `cursors` is a cursor store (see cursors.js).
+export function RemoteCursors({ cursors: store, peers, viewport }) {
+  const cursors = useCursors(store);
   const bySocket = new Map(peers.map((peer) => [peer.socketId, peer]));
 
   return (
@@ -10,7 +13,7 @@ export function RemoteCursors({ cursors, peers, viewport }) {
         const peer = bySocket.get(socketId);
         if (!peer) return null;
         const { x, y } = toScreen(viewport, point.x, point.y);
-        const color = colorFor(peer.userId);
+        const color = personColor(peer);
         return (
           <div
             key={socketId}

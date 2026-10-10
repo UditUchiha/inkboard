@@ -38,7 +38,10 @@ export function GuestIdentity({ socket }) {
 
       <Dialog
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          setOpen(false);
+          setName(guest.name); // an unsaved edit doesn't wait for next time
+        }}
         title="You're a guest"
         description="Other people see this name next to your cursor. Make an account to keep your own boards."
       >

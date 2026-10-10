@@ -1,15 +1,7 @@
 import clsx from "clsx";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Avatar } from "../../components/Avatar";
-
-const MENTION_AT_CARET = /(^|\s)@(\S*)$/;
-
-/** The ids of picked people whose "@Name" is still in the text. */
-export const activeMentions = (text, members, ids) =>
-  ids.filter((id) => {
-    const member = members.find((m) => m.id === id);
-    return member && text.includes(`@${member.name}`);
-  });
+import { activeMentions, isComposing, MENTION_AT_CARET } from "./mentions";
 
 /**
  * A comment box where typing "@" suggests people on the board. `onChange`
@@ -18,6 +10,7 @@ export const activeMentions = (text, members, ids) =>
  */
 export function MentionTextarea({ text, mentions, onChange, onSubmit, members, placeholder, autoFocus, label }) {
   const ref = useRef(null);
+  const listId = useId();
   const [query, setQuery] = useState(null); // the text after "@", or null when not mentioning
   const [highlight, setHighlight] = useState(0);
 
@@ -49,6 +42,7 @@ export function MentionTextarea({ text, mentions, onChange, onSubmit, members, p
   }
 
   function handleKeyDown(event) {
+    if (isComposing(event)) return; // Enter confirms the composition, it doesn't send or pick
     if (suggestions.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -82,15 +76,22 @@ export function MentionTextarea({ text, mentions, onChange, onSubmit, members, p
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         aria-label={label}
+        aria-controls={suggestions.length > 0 ? listId : undefined}
+        aria-activedescendant={suggestions.length > 0 ? `${listId}-${highlight}` : undefined}
         autoFocus={autoFocus}
         rows={2}
         maxLength={2000}
         className="block w-full resize-none rounded-lg border border-rule bg-surface px-3 py-2 text-sm placeholder:text-graphite/70 focus:border-signal focus:ring-3 focus:ring-signal/20 focus:outline-none"
       />
       {suggestions.length > 0 && (
-        <ul role="listbox" className="floating-panel absolute right-0 bottom-full left-0 z-10 mb-1 rounded-lg p-1">
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label="People to mention"
+          className="floating-panel absolute right-0 bottom-full left-0 z-10 mb-1 rounded-lg p-1"
+        >
           {suggestions.map((member, index) => (
-            <li key={member.id} role="option" aria-selected={index === highlight}>
+            <li key={member.id} id={`${listId}-${index}`} role="option" aria-selected={index === highlight}>
               <button
                 type="button"
                 onMouseDown={(event) => {

@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { api } from "../lib/api";
+import { mergeNotifications, unreadIds, withNewestPage } from "../lib/notifications";
 import { useAuth } from "./AuthProvider";
 import { useSocket } from "./SocketProvider";
 
@@ -22,32 +23,80 @@ export function NotificationsProvider({ children }) {
   const socket = useSocket();
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
-  const [unread, setUnread] = useState(0);
+  const [more, setMore] = useState(false); // whether the server has older ones than those listed
+  const [loadingMore, setLoadingMore] = useState(false);
   const signedIn = status === "authenticated";
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  // Bumped whenever the list starts over, so an older page that was on its way isn't added to the new list.
+  const generation = useRef(0);
+  // Where the next older page starts, as the server says: past every row it looked at, shown or not, so a page
+  // whose notifications were all left out (their senders gone) can't send "Show older" round in a circle.
+  const cursor = useRef(null);
+  const unread = useMemo(() => unreadIds(items).length, [items]);
+
+  // The next 30 older ones, from where the last page ended (or the oldest one listed, from a server without `next`).
+  // Whether a page is on its way is a ref, so the callback stays the same and the effect below can use it.
+  const loadingRef = useRef(false);
+  const loadMore = useCallback(() => {
+    const before = cursor.current ?? itemsRef.current.at(-1)?.id;
+    if (!before || loadingRef.current) return;
+    const started = generation.current;
+    loadingRef.current = true;
+    setLoadingMore(true);
+    api
+      .listNotifications(before)
+      .then((data) => {
+        if (generation.current !== started) return;
+        setItems((list) => mergeNotifications(list, data.notifications));
+        cursor.current = data.next ?? null;
+        setMore(Boolean(data.more));
+      })
+      .catch(() => toast.error("Couldn't load older notifications. Try again."))
+      .finally(() => {
+        loadingRef.current = false;
+        setLoadingMore(false);
+      });
+  }, []);
+
+  // Loads what is saved and merges it with anything that arrived live meanwhile, now and after every reconnect
+  // (notifications sent while the socket was down are only saved, not delivered).
+  useEffect(() => {
+    generation.current += 1;
+    setItems([]);
+    setMore(false);
+    cursor.current = null;
+  }, [signedIn]);
 
   useEffect(() => {
-    setItems([]);
-    setUnread(0);
     if (!signedIn) return undefined;
     let active = true;
-    api
-      .listNotifications()
-      .then((data) => {
-        if (!active) return;
-        setItems(data.notifications);
-        setUnread(data.unread);
-      })
-      .catch(() => {}); // The bell just stays empty.
+    const refresh = () =>
+      api
+        .listNotifications()
+        .then((data) => {
+          if (!active) return;
+          generation.current += 1;
+          setItems((list) => withNewestPage(list, data.notifications));
+          cursor.current = data.next ?? null;
+          setMore(Boolean(data.more));
+          // A first page with nothing to show but older ones behind it (every sender gone): fetch the next one now, so
+          // the list isn't empty while notifications exist. Only once; "Show older" is there if that one is empty too.
+          if (data.notifications.length === 0 && data.more) loadMore();
+        })
+        .catch(() => {}); // The bell just keeps what it has.
+    if (!socket || socket.connected) refresh(); // otherwise the connect event below does
+    socket?.on("connect", refresh);
     return () => {
       active = false;
+      socket?.off("connect", refresh);
     };
-  }, [signedIn]);
+  }, [signedIn, socket, loadMore]);
 
   useEffect(() => {
     if (!socket || !signedIn) return undefined;
     const onNotification = (notification) => {
-      setItems((list) => [notification, ...list].slice(0, 30));
-      setUnread((count) => count + 1);
+      setItems((list) => mergeNotifications(list, [notification]));
       toast(describeNotification(notification), {
         description: notification.excerpt ?? undefined,
         action: { label: "Open", onClick: () => navigate(notificationLink(notification)) },
@@ -58,12 +107,16 @@ export function NotificationsProvider({ children }) {
   }, [socket, signedIn, navigate]);
 
   const markAllRead = useCallback(() => {
-    setUnread(0);
+    const ids = unreadIds(itemsRef.current);
+    if (ids.length === 0) return;
     setItems((list) => list.map((item) => ({ ...item, read: true })));
-    api.markNotificationsRead().catch(() => {});
+    api.markNotificationsRead(ids).catch(() => {});
   }, []);
 
-  const value = useMemo(() => ({ items, unread, markAllRead }), [items, unread, markAllRead]);
+  const value = useMemo(
+    () => ({ items, unread, more, loadingMore, markAllRead, loadMore }),
+    [items, unread, more, loadingMore, markAllRead, loadMore],
+  );
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;
 }
 
