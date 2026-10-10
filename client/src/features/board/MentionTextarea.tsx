@@ -1,17 +1,41 @@
 import clsx from "clsx";
 import { useId, useRef, useState } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
 import { Avatar } from "../../components/Avatar";
+import type { Person } from "../../lib/api";
 import { activeMentions, isComposing, MENTION_AT_CARET } from "./mentions";
+
+type MentionTextareaProps = {
+  text: string;
+  // The ids of the people mentioned so far.
+  mentions: string[];
+  onChange: (text: string, mentions: string[]) => void;
+  onSubmit: () => void;
+  // The people who can be mentioned.
+  members: Person[];
+  placeholder: string;
+  autoFocus?: boolean;
+  label: string;
+};
 
 /**
  * A comment box where typing "@" suggests people on the board. `onChange`
  * gets the text and the ids of everyone mentioned so far. Enter sends,
  * Shift+Enter adds a line.
  */
-export function MentionTextarea({ text, mentions, onChange, onSubmit, members, placeholder, autoFocus, label }) {
-  const ref = useRef(null);
+export function MentionTextarea({
+  text,
+  mentions,
+  onChange,
+  onSubmit,
+  members,
+  placeholder,
+  autoFocus,
+  label,
+}: MentionTextareaProps) {
+  const ref = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
-  const [query, setQuery] = useState(null); // the text after "@", or null when not mentioning
+  const [query, setQuery] = useState<string | null>(null); // the text after "@", or null when not mentioning
   const [highlight, setHighlight] = useState(0);
 
   const suggestions =
@@ -19,7 +43,7 @@ export function MentionTextarea({ text, mentions, onChange, onSubmit, members, p
       ? []
       : members.filter((member) => member.name.toLowerCase().includes(query.toLowerCase())).slice(0, 5);
 
-  function handleChange(event) {
+  function handleChange(event: ChangeEvent<HTMLTextAreaElement>) {
     const next = event.target.value;
     const before = next.slice(0, event.target.selectionStart);
     const match = MENTION_AT_CARET.exec(before);
@@ -28,10 +52,13 @@ export function MentionTextarea({ text, mentions, onChange, onSubmit, members, p
     onChange(next, activeMentions(next, members, mentions));
   }
 
-  function pick(member) {
-    const textarea = ref.current;
+  function pick(member: Person) {
+    // The assertion: a suggestion is only shown, and picked, while the textarea is on the page.
+    const textarea = ref.current!;
     const caret = textarea.selectionStart;
-    const before = text.slice(0, caret).replace(MENTION_AT_CARET, (_, space) => `${space}@${member.name} `);
+    const before = text
+      .slice(0, caret)
+      .replace(MENTION_AT_CARET, (_: string, space: string) => `${space}@${member.name} `);
     const next = before + text.slice(caret);
     setQuery(null);
     onChange(next, [...new Set([...activeMentions(next, members, mentions), member.id])]);
@@ -41,7 +68,7 @@ export function MentionTextarea({ text, mentions, onChange, onSubmit, members, p
     });
   }
 
-  function handleKeyDown(event) {
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (isComposing(event)) return; // Enter confirms the composition, it doesn't send or pick
     if (suggestions.length > 0) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {

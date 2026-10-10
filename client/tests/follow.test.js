@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { followedViewport, sameView } from "../src/features/board/useFollow.js";
+import { followedViewport, sameView } from "../src/features/board/useFollow.ts";
 
 const canvas = { width: 1000, height: 600 };
 

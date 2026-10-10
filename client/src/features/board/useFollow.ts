@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { MAX_ZOOM } from "./constants";
 import { fitViewport } from "./geometry";
+import type { Size, Viewport } from "./geometry";
+import type { BoardSync, SharedView } from "./useBoardSync";
 
 const SAME_ENOUGH = 0.5; // a view this close to ours (in screen pixels, and in zoom steps) isn't worth moving to
 
 /** Whether two views are the same one (a followed view is worked out the same way each time, so exactly). */
-export const sameView = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.zoom === b.zoom;
+// The assertions: Boolean() has ruled out null and undefined, which TypeScript doesn't see through it.
+export const sameView = (a: Viewport | null | undefined, b: Viewport | null | undefined) =>
+  Boolean(a && b) && a!.x === b!.x && a!.y === b!.y && a!.zoom === b!.zoom;
 
 /** Our view after following `view` (a collaborator's, as they send it), or `current` itself if that's no change. */
-export function followedViewport(current, view, canvasSize) {
+export function followedViewport(current: Viewport, view: SharedView, canvasSize: Size): Viewport {
   const visible = { x: -view.x, y: -view.y, width: view.width / view.zoom, height: view.height / view.zoom };
   const next = fitViewport(visible, canvasSize, { padding: 0, maxZoom: MAX_ZOOM });
   const same =
@@ -17,6 +22,12 @@ export function followedViewport(current, view, canvasSize) {
     Math.abs(next.zoom / current.zoom - 1) < 0.001;
   return same ? current : next;
 }
+
+/** What useFollow takes: the sync (for views and who is here), the canvas's size, and the setter of our own view. */
+type FollowOptions = { sync: BoardSync; canvasSize: Size; setViewport: Dispatch<SetStateAction<Viewport>> };
+
+/** What follow mode gives the editor: whom we follow, how to start and stop, and the view last taken from them. */
+export type Follow = ReturnType<typeof useFollow>;
 
 /**
  * Follow mode: while following someone, our view tracks theirs. Their view is
@@ -28,9 +39,9 @@ export function followedViewport(current, view, canvasSize) {
  * for others to follow, but that one mustn't be: two people following each
  * other would pass it back and forth, growing a little on each trip.
  */
-export function useFollow({ sync, canvasSize, setViewport }) {
-  const [followingId, setFollowingId] = useState(null); // a socket id
-  const followedView = useRef(null);
+export function useFollow({ sync, canvasSize, setViewport }: FollowOptions) {
+  const [followingId, setFollowingId] = useState<string | null>(null); // a socket id
+  const followedView = useRef<Viewport | null>(null);
 
   const { subscribeViewport, requestViewport, peers } = sync;
   const stopFollowing = useCallback(() => setFollowingId(null), []);

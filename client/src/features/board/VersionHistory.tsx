@@ -1,9 +1,12 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import clsx from "clsx";
 import { Bookmark, History, LoaderCircle, RotateCcw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { Button, IconButton } from "../../components/Button";
 import { api } from "../../lib/api";
+import type { ApiError, Person } from "../../lib/api";
 import { timeAgo } from "../../lib/format";
 import { useMinute } from "../../lib/useMinute";
 import { useSocket } from "../../providers/SocketProvider";
@@ -11,13 +14,33 @@ import { BoardPreview } from "./BoardPreview";
 
 const REFRESH_MS = 30_000;
 
-const KIND_LABELS = {
+/** How a version came about: saved by itself, named by someone, or saved just before a restore. */
+export type VersionKind = "auto" | "named" | "restore";
+
+/** A saved version of a board as the history lists it (see serializeVersion on the server), without its drawing. */
+export type Version = {
+  id: string;
+  kind: VersionKind;
+  label: string;
+  author: Person | null;
+  elementCount: number;
+  createdAt: string;
+};
+
+// What the version requests answer with. They don't say yet, so these describe their answers.
+type VersionList = { versions: Version[] };
+type VersionReply = { version: Version };
+type FullVersionReply = { version: Version & { elements: BoardElement[] } };
+
+const KIND_LABELS: Record<VersionKind, string> = {
   auto: "Autosaved",
   named: "Saved version",
   restore: "Before a restore",
 };
 
-function VersionRow({ version, selected, onSelect }) {
+type VersionRowProps = { version: Version; selected: boolean; onSelect: () => void };
+
+function VersionRow({ version, selected, onSelect }: VersionRowProps) {
   useMinute();
   const title = version.label || KIND_LABELS[version.kind];
   return (
@@ -48,21 +71,22 @@ function VersionRow({ version, selected, onSelect }) {
   );
 }
 
-function Preview({ boardId, version, onRestored, onDeleted }) {
-  const [elements, setElements] = useState(null);
+type PreviewProps = { boardId: string; version: Version; onRestored: () => void; onDeleted: () => void };
+
+function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
+  const [elements, setElements] = useState<BoardElement[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState(null); // "restore" | "delete"
+  const [confirming, setConfirming] = useState<"restore" | "delete" | null>(null);
 
   useEffect(() => {
     setElements(null);
     setFailed(false);
     let active = true;
-    api
-      .getVersion(boardId, version.id)
+    (api.getVersion(boardId, version.id) as Promise<FullVersionReply>)
       .then(({ version: full }) => active && setElements(full.elements))
-      .catch((error) => {
+      .catch((error: ApiError) => {
         if (!active) return;
         setFailed(true);
         toast.error(error.message);
@@ -82,7 +106,7 @@ function Preview({ boardId, version, onRestored, onDeleted }) {
       toast.success("Version restored. What was here before is saved in the history.", { id: "board-restored" });
       onRestored();
     } catch (error) {
-      toast.error(error.message);
+      toast.error((error as ApiError).message); // requests only fail with an ApiError
       setBusy(false);
     }
   }
@@ -94,7 +118,7 @@ function Preview({ boardId, version, onRestored, onDeleted }) {
       toast.success("Version deleted");
       onDeleted();
     } catch (error) {
-      toast.error(error.message);
+      toast.error((error as ApiError).message);
       setBusy(false);
     }
   }
@@ -165,20 +189,20 @@ function Preview({ boardId, version, onRestored, onDeleted }) {
 }
 
 /** A side panel listing a board's saved versions, with previews and restore. For members only. */
-export function VersionHistory({ boardId, onClose }) {
-  const [versions, setVersions] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
+export function VersionHistory({ boardId, onClose }: { boardId: string; onClose: () => void }) {
+  const [versions, setVersions] = useState<Version[] | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(
-    async ({ quiet = false } = {}) => {
+    async ({ quiet = false }: { quiet?: boolean } = {}) => {
       try {
-        const { versions: list } = await api.listVersions(boardId);
+        const { versions: list } = (await api.listVersions(boardId)) as VersionList;
         setVersions(list);
       } catch (error) {
         if (quiet) return; // keep what is shown; the next refresh tries again
-        toast.error(error.message);
+        toast.error((error as ApiError).message);
         setVersions([]);
       }
     },
@@ -204,17 +228,17 @@ export function VersionHistory({ boardId, onClose }) {
     };
   }, [load, socket]);
 
-  async function saveVersion(event) {
+  async function saveVersion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     try {
-      const { version } = await api.saveVersion(boardId, label);
+      const { version } = (await api.saveVersion(boardId, label)) as VersionReply;
       setVersions((list) => [version, ...(list ?? [])]);
       setSelectedId(version.id);
       setLabel("");
       toast.success("Version saved");
     } catch (error) {
-      toast.error(error.message);
+      toast.error((error as ApiError).message);
     } finally {
       setSaving(false);
     }
@@ -257,9 +281,10 @@ export function VersionHistory({ boardId, onClose }) {
             No versions yet. The board is saved automatically as people draw, and you can save a named version any time.
           </p>
         )}
-        {versions?.length > 0 && (
+        {/* The casts: versions is null while loading, and null > 0 is false, as meant; the types can't follow that. */}
+        {(versions?.length as number) > 0 && (
           <ul>
-            {versions.map((version) => (
+            {versions!.map((version) => (
               <VersionRow
                 key={version.id}
                 version={version}
@@ -281,7 +306,8 @@ export function VersionHistory({ boardId, onClose }) {
           }}
           onDeleted={() => {
             setSelectedId(null);
-            setVersions((list) => list.filter((version) => version.id !== selected.id));
+            // The assertion: a version is only selected from the list.
+            setVersions((list) => list!.filter((version) => version.id !== selected.id));
           }}
         />
       )}

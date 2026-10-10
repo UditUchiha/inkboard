@@ -1,12 +1,61 @@
+import type { Element as BoardElement, StackMove } from "@inkboard/shared/types";
 import { useEffect, useRef } from "react";
+import type { RefObject } from "react";
 import { COMMENT_TOOL, NUMBERED_TOOLS, TOOLS } from "./constants";
+import type { Tool, ToolId } from "./constants";
 import { isConnector } from "./connectors";
 import { isOverlayKey, isPressable, isTypingTarget } from "./domTargets";
+import type { BoardStore } from "./store";
 
-const ARROW_KEYS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+const ARROW_KEYS: Record<string, [dx: number, dy: number]> = {
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+};
+
+/** What the keys do. Each can change every render (see useBoardShortcuts). */
+export type ShortcutActions = {
+  duplicateSelected: () => void;
+  moveSelected: (where: StackMove) => void;
+  deleteSelected: () => void;
+  nudgeSelected: (dx: number, dy: number) => void;
+  zoomBy: (factor: number) => void;
+  resetZoom: () => void;
+  fitToScreen: () => void;
+  changeTool: (id: ToolId) => void;
+  stopFollowing: () => void;
+};
+
+/**
+ * What useBoardShortcuts takes. The setters are typed by what the shortcuts pass them (a state setter fits),
+ * and `fileInput` is the hidden input the "I" key opens.
+ */
+export type ShortcutOptions = {
+  store: BoardStore;
+  readOnly: boolean;
+  canComment: boolean;
+  canAddImages: boolean;
+  selectedId: string | null;
+  fileInput: RefObject<HTMLInputElement | null>;
+  actions: ShortcutActions;
+  setSpacePressed: (pressed: boolean) => void;
+  setSelectedId: (id: null) => void;
+  setDraft: (draft: null) => void;
+  setActiveThread: (id: null) => void;
+  setEditing: (editing: { element: BoardElement; isNew: boolean }) => void;
+  setDialog: (dialog: "shortcuts") => void;
+};
+
+// What the listeners are, kept in a ref so they always read the latest render's.
+type KeyHandlers = {
+  onKeyDown: (event: KeyboardEvent) => void;
+  onKeyUp: (event: KeyboardEvent) => void;
+  onBlur: () => void;
+};
 
 // Tools are reachable by letter (V, P, R…), and the first nine by position (1–9) too.
-function toolForKey(key, withComments) {
+function toolForKey(key: string, withComments: boolean): Tool | null {
   const byLetter = (withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS).find((item) => item.key === key);
   if (byLetter) return byLetter;
   return /^[1-9]$/.test(key) && Number(key) <= NUMBERED_TOOLS ? TOOLS[Number(key) - 1] : null;
@@ -41,9 +90,10 @@ export function useBoardShortcuts({
   setActiveThread,
   setEditing,
   setDialog,
-}) {
-  const keys = useRef({});
-  const withModifier = {
+}: ShortcutOptions) {
+  // The cast: filled in below, on every render, before any key can reach it.
+  const keys = useRef({} as KeyHandlers);
+  const withModifier: Record<string, (event: KeyboardEvent) => void> = {
     z: (event) => (event.shiftKey ? store.redo() : store.undo()),
     y: () => store.redo(),
     d: duplicateSelected,
@@ -57,7 +107,7 @@ export function useBoardShortcuts({
     "-": () => zoomBy(0.8),
     0: resetZoom,
   };
-  const plain = {
+  const plain: Record<string, () => void> = {
     " ": () => setSpacePressed(true),
     delete: deleteSelected,
     backspace: deleteSelected,
@@ -69,7 +119,8 @@ export function useBoardShortcuts({
     },
     i: () => canAddImages && fileInput.current?.click(),
     enter: () => {
-      const element = selectedId && store.getElement(selectedId);
+      // The cast: an id is never the empty string, so this is an element, or none.
+      const element = (selectedId && store.getElement(selectedId)) as BoardElement | null | undefined;
       const editable = element?.type === "text" || element?.type === "sticky" || (element && isConnector(element));
       if (editable) setEditing({ element, isNew: false });
     },
@@ -82,7 +133,7 @@ export function useBoardShortcuts({
     for (const key of ["delete", "backspace", "enter"]) delete plain[key];
   }
 
-  function onKeyDown(event) {
+  function onKeyDown(event: KeyboardEvent) {
     // Not while a menu or dialog has the keys, nor for a key something else already handled (a menu's arrow keys).
     if (event.defaultPrevented || isTypingTarget(event.target) || isOverlayKey(event.target)) return;
     const key = event.key.toLowerCase();
@@ -109,13 +160,13 @@ export function useBoardShortcuts({
       if (next) changeTool(next.id);
     }
   }
-  const onKeyUp = (event) => event.key === " " && setSpacePressed(false);
+  const onKeyUp = (event: KeyboardEvent) => event.key === " " && setSpacePressed(false);
   const onBlur = () => setSpacePressed(false);
 
   keys.current = { onKeyDown, onKeyUp, onBlur };
   useEffect(() => {
-    const onKeyDown = (event) => keys.current.onKeyDown(event);
-    const onKeyUp = (event) => keys.current.onKeyUp(event);
+    const onKeyDown = (event: KeyboardEvent) => keys.current.onKeyDown(event);
+    const onKeyUp = (event: KeyboardEvent) => keys.current.onKeyUp(event);
     const onBlur = () => keys.current.onBlur();
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);

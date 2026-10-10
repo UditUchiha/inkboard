@@ -1,14 +1,24 @@
 import clsx from "clsx";
 import { Check, Globe, Link2, Lock, Pencil } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../components/Avatar";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { TextField } from "../../components/Field";
 import { api } from "../../lib/api";
+import type { ApiError, LinkAccess, Person } from "../../lib/api";
+import type { BoardMeta, Member, Role } from "./useBoardSync";
 
-const LINK_OPTIONS = [
+// A way the link can open the board, as the dialog offers it.
+type LinkOption = { value: LinkAccess; icon: LucideIcon; title: string; detail: string };
+
+// What the sharing requests answer with: the board's details as they are now. They don't say yet, so this describes it.
+type BoardReply = { board: BoardMeta };
+
+const LINK_OPTIONS: LinkOption[] = [
   {
     value: "restricted",
     icon: Lock,
@@ -29,25 +39,37 @@ const LINK_OPTIONS = [
   },
 ];
 
-const LINK_TOASTS = {
+const LINK_TOASTS: Record<LinkAccess, string> = {
   restricted: "Only invited people can open the link",
   view: "Anyone with the link can now view",
   edit: "Anyone with the link can now edit",
 };
 
-const DESCRIPTIONS = {
+const DESCRIPTIONS: Record<Role, string> = {
   owner: "Invite people to draw with you, and choose what anyone with the link can do.",
   editor: "People you invite can draw, rename the board and see everyone's cursors.",
   contributor: "The link lets you draw on this board. Only people the owner invites can see who has access.",
   viewer: "You can view this board. Only people the owner invites can make changes.",
 };
 
-export function ShareDialog({ open, onClose, board, role, currentUser, onBoardChange, onLeft }) {
+type ShareDialogProps = {
+  open: boolean;
+  onClose: () => void;
+  board: BoardMeta;
+  role: Role;
+  // Who is looking, or null for a guest.
+  currentUser: Person | null;
+  onBoardChange: (updated: BoardMeta) => void;
+  // Called once the person has left the board.
+  onLeft: () => void;
+};
+
+export function ShareDialog({ open, onClose, board, role, currentUser, onBoardChange, onLeft }: ShareDialogProps) {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [inviting, setInviting] = useState(false);
-  const [removingId, setRemovingId] = useState(null);
-  const [confirmingId, setConfirmingId] = useState(null); // who Remove / Leave is waiting on a second click for
+  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null); // who Remove / Leave is waiting on a second click for
   const [savingAccess, setSavingAccess] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -64,27 +86,27 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
   const linkAccess = board.linkAccess ?? "restricted";
   const members = [{ ...board.owner, role: "Owner" }, ...board.collaborators.map((c) => ({ ...c, role: "Editor" }))];
 
-  async function invite(event) {
+  async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setInviting(true);
     try {
-      const { board: updated } = await api.inviteCollaborator(board.id, email.trim());
+      const { board: updated } = (await api.inviteCollaborator(board.id, email.trim())) as BoardReply;
       onBoardChange(updated);
       toast.success(`Invited ${email.trim()}`);
       setEmail("");
     } catch (inviteError) {
-      setError(inviteError.message);
+      setError((inviteError as ApiError).message); // requests only fail with an ApiError
     } finally {
       setInviting(false);
     }
   }
 
-  async function remove(member) {
+  async function remove(member: Member) {
     const leaving = member.id === currentUser?.id;
     setRemovingId(member.id);
     try {
-      const { board: updated } = await api.removeCollaborator(board.id, leaving ? "me" : member.id);
+      const { board: updated } = (await api.removeCollaborator(board.id, leaving ? "me" : member.id)) as BoardReply;
       if (leaving) {
         onLeft();
         return;
@@ -92,22 +114,22 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
       onBoardChange(updated);
       toast.success(`Removed ${member.name}`);
     } catch (removeError) {
-      toast.error(removeError.message);
+      toast.error((removeError as ApiError).message);
     } finally {
       setRemovingId(null);
       setConfirmingId(null);
     }
   }
 
-  async function changeLinkAccess(next) {
+  async function changeLinkAccess(next: LinkAccess) {
     if (next === linkAccess) return;
     setSavingAccess(true);
     try {
-      const { board: updated } = await api.setLinkAccess(board.id, next);
+      const { board: updated } = (await api.setLinkAccess(board.id, next)) as BoardReply;
       onBoardChange(updated);
       toast.success(LINK_TOASTS[next]);
     } catch (accessError) {
-      toast.error(accessError.message);
+      toast.error((accessError as ApiError).message);
     } finally {
       setSavingAccess(false);
     }
@@ -126,7 +148,8 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
     }
   }
 
-  const current = LINK_OPTIONS.find((option) => option.value === linkAccess);
+  // The assertion: the link access is one of the options.
+  const current = LINK_OPTIONS.find((option) => option.value === linkAccess)!;
 
   return (
     <Dialog

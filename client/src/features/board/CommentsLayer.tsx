@@ -1,20 +1,24 @@
 import clsx from "clsx";
 import { Check, RotateCcw, Trash2, X } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton } from "../../components/Button";
+import type { ApiError, Person } from "../../lib/api";
 import { timeAgo } from "../../lib/format";
 import { useMinute } from "../../lib/useMinute";
 import { toScreen } from "./geometry";
+import type { Size, Viewport, XY } from "./geometry";
 import { MentionTextarea } from "./MentionTextarea";
 import { isComposing, splitMentions } from "./mentions";
 import { focusAfterClose } from "./popoverFocus";
+import type { NewMessage, Thread, ThreadApi, ThreadMessage } from "./useThreads";
 
 const POPOVER_WIDTH = 320;
 
 // Mentions are shown highlighted.
-function MessageBody({ message }) {
+function MessageBody({ message }: { message: ThreadMessage }) {
   const names = message.mentions.map((person) => person.name);
   if (names.length === 0) return <>{message.body}</>;
   return splitMentions(message.body, names).map((piece, index) =>
@@ -28,7 +32,9 @@ function MessageBody({ message }) {
   );
 }
 
-function Pin({ thread, point, active, onClick }) {
+type PinProps = { thread: Thread; point: XY; active: boolean; onClick: () => void };
+
+function Pin({ thread, point, active, onClick }: PinProps) {
   const count = thread.messages.length;
   return (
     <button
@@ -67,15 +73,19 @@ function Pin({ thread, point, active, onClick }) {
   );
 }
 
-function Popover({ point, size, label, onClose, children }) {
-  const ref = useRef(null);
+type PopoverProps = { point: XY; size: Size; label: string; onClose: () => void; children: ReactNode };
+
+function Popover({ point, size, label, onClose, children }: PopoverProps) {
+  const ref = useRef<HTMLDivElement>(null);
   // Where focus was before the popover opened. Read while it first renders: by the time effects run,
   // a field in it with autoFocus has already taken focus.
-  const [opener] = useState(() => document.activeElement);
+  // The cast: what has focus is an HTMLElement (an SVG one would have `focus` too, which is all that is used).
+  const [opener] = useState(() => document.activeElement as HTMLElement | null);
 
   // Keyboard users land in the popover (unless a field in it already took focus).
   useEffect(() => {
-    if (!ref.current.contains(document.activeElement)) ref.current.focus({ preventScroll: true });
+    // The assertions: effects run once the popover is on the page.
+    if (!ref.current!.contains(document.activeElement)) ref.current!.focus({ preventScroll: true });
   }, []);
 
   // ...and get back to where they were, but only if focus is still inside the popover as it closes. This has to be
@@ -113,9 +123,18 @@ function Popover({ point, size, label, onClose, children }) {
   );
 }
 
-function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }) {
+type ComposerProps = {
+  members: Person[];
+  submitLabel: string;
+  placeholder: string;
+  // Sends what was written; it rejects with what to tell the person if that fails.
+  onSubmit: (message: NewMessage) => Promise<void>;
+  autoFocus?: boolean;
+};
+
+function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }: ComposerProps) {
   const [text, setText] = useState("");
-  const [mentions, setMentions] = useState([]);
+  const [mentions, setMentions] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -126,7 +145,7 @@ function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }) {
       setText("");
       setMentions([]);
     } catch (error) {
-      toast.error(error.message);
+      toast.error((error as ApiError).message); // requests only fail with an ApiError
     } finally {
       setBusy(false);
     }
@@ -157,7 +176,27 @@ function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }) {
   );
 }
 
-function ThreadView({ thread, canComment, canDelete, members, onReply, onResolve, onDelete, onClose }) {
+type ThreadViewProps = {
+  thread: Thread;
+  canComment: boolean;
+  canDelete: boolean;
+  members: Person[];
+  onReply: (message: NewMessage) => Promise<void>;
+  onResolve: (resolved: boolean) => void;
+  onDelete: () => void;
+  onClose: () => void;
+};
+
+function ThreadView({
+  thread,
+  canComment,
+  canDelete,
+  members,
+  onReply,
+  onResolve,
+  onDelete,
+  onClose,
+}: ThreadViewProps) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   useMinute();
 
@@ -234,6 +273,23 @@ function ThreadView({ thread, canComment, canDelete, members, onReply, onResolve
   );
 }
 
+type CommentsLayerProps = {
+  threads: Thread[];
+  viewport: Viewport;
+  // The canvas's size, which the popovers keep inside.
+  size: Size;
+  activeId: string | null;
+  onActive: (id: string | null) => void;
+  // Where a new comment is being written, if one is.
+  draft: XY | null;
+  onDraftClose: () => void;
+  members: Person[];
+  canComment: boolean;
+  canDeleteAny: boolean;
+  selfId: string;
+  api: ThreadApi;
+};
+
 /**
  * Comment pins over the canvas, plus the popover for the open thread or the
  * box for a new one. `members` are the people who can be @mentioned.
@@ -251,7 +307,7 @@ export function CommentsLayer({
   canDeleteAny,
   selfId,
   api,
-}) {
+}: CommentsLayerProps) {
   const active = threads.find((thread) => thread.id === activeId);
 
   return (
@@ -308,10 +364,12 @@ export function CommentsLayer({
             canDelete={canDeleteAny || active.author.id === selfId}
             members={members}
             onReply={(input) => api.reply(active.id, input)}
-            onResolve={(resolved) => api.setResolved(active.id, resolved).catch((error) => toast.error(error.message))}
+            onResolve={(resolved) =>
+              api.setResolved(active.id, resolved).catch((error: ApiError) => toast.error(error.message))
+            }
             onDelete={() => {
               onActive(null);
-              api.remove(active.id).catch((error) => toast.error(error.message));
+              api.remove(active.id).catch((error: ApiError) => toast.error(error.message));
             }}
             onClose={() => onActive(null)}
           />

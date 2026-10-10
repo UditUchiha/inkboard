@@ -1,5 +1,7 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import clsx from "clsx";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { ReactNode } from "react";
 import { useElementSize } from "../../lib/useElementSize";
 import { useTheme } from "../../providers/ThemeProvider";
 import { getSceneBounds } from "./elements";
@@ -10,10 +12,20 @@ import { loadCanvasFonts, renderScene } from "./renderer";
 // Start drawing a little before a preview scrolls into view.
 const VISIBLE_MARGIN = "200px";
 
+type BoardPreviewProps = {
+  elements: BoardElement[];
+  className?: string;
+  // The room left around the drawing, in pixels.
+  padding?: number;
+  maxZoom?: number;
+  // Laid over the drawing (a message for an empty board, say).
+  children?: ReactNode;
+};
+
 /** A static, scaled-to-fit rendering of a board, used for thumbnails. */
-export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, children }) {
-  const containerRef = useRef(null);
-  const canvasRef = useRef(null);
+export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, children }: BoardPreviewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = useElementSize(containerRef);
   const [fontsReady, setFontsReady] = useState(false);
   const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
@@ -26,7 +38,8 @@ export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, c
       (entries) => entries.some((entry) => entry.isIntersecting) && setVisible(true),
       { rootMargin: VISIBLE_MARGIN },
     );
-    observer.observe(containerRef.current);
+    // The assertion: effects run once the container is on the page.
+    observer.observe(containerRef.current!);
     return () => observer.disconnect();
   }, [visible]);
 
@@ -46,14 +59,18 @@ export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, c
     [elements],
   );
   const watching = visible && imageIds.length > 0;
-  const subscribe = useCallback((listener) => (watching ? subscribeImages(listener) : () => {}), [watching]);
+  const subscribe = useCallback(
+    (listener: () => void) => (watching ? subscribeImages(listener) : () => {}),
+    [watching],
+  );
   const picturesLoaded = useSyncExternalStore(subscribe, () =>
     watching ? imageIds.map((imageId) => imageState(imageId, { small: true })).join() : "",
   );
 
   // The canvas is gone with the card, so the pictures it kept on show (see showingImages) are let go of.
   useEffect(() => {
-    const canvas = canvasRef.current;
+    // The assertion: the canvas is always rendered, so it is there once effects run.
+    const canvas = canvasRef.current!;
     return () => releaseImages(canvas);
   }, []);
 
