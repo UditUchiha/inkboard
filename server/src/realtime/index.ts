@@ -672,11 +672,13 @@ async function joinBoard(socket: RealtimeSocket, payload: JoinPayload, ack?: (re
     // Joining the board it's already on is only a fresh copy of it. Otherwise the socket leaves
     // its board first, and the elements are read after that, so they include what it just did there.
     if (socket.data.boardId !== boardId) await leaveBoard(socket);
-    const session = await enterBoard(socket, boardId, requestedId);
-    await openOwner(session); // looked up now, so it's known by the time they draw
+    // Before the socket is on the board: changes aren't queued behind a join, so one sent for this board
+    // while the join still waits (below) would otherwise be checked against the role on the board it left.
     socket.data.role = roleOf(board, userId);
     // Browsers still running an older version of the app merge changes by older rules (see prepareOperation).
     socket.data.legacy = payload?.sync !== SYNC_FORMAT;
+    const session = await enterBoard(socket, boardId, requestedId);
+    await openOwner(session); // looked up now, so it's known by the time they draw
     if (userId) recordOpen(userId, boardId);
 
     // With the stamps of what was removed lately, so a change to one of those
