@@ -11,8 +11,8 @@ import { MemoryRouter } from "react-router";
 register("./jsx-hooks.js", import.meta.url);
 const { api } = await import("../src/lib/api.ts");
 const { AuthContext, AuthProvider, useAuth } = await import("../src/providers/AuthProvider.tsx");
-const { default: OAuthCallbackPage } = await import("../src/pages/OAuthCallbackPage.jsx");
-const { VerifyEmailPage } = await import("../src/pages/AuthPages.jsx");
+const { default: OAuthCallbackPage } = await import("../src/pages/OAuthCallbackPage.tsx");
+const { VerifyEmailPage } = await import("../src/pages/AuthPages.tsx");
 
 const TOKEN_KEY = "inkboard.token";
 const realFetch = globalThis.fetch;

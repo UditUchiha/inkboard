@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Button, ButtonLink } from "../components/Button";
@@ -9,6 +10,7 @@ import { clearScratch, currentScratch, useScratchBoard } from "../features/board
 import { importScratch } from "../features/board/scratchImport";
 import { useBoardSnapshot } from "../features/board/store";
 import { api } from "../lib/api";
+import type { AccountUser } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { useSocket } from "../providers/SocketProvider";
 
@@ -16,9 +18,16 @@ import { useSocket } from "../providers/SocketProvider";
 // someone signs up or logs in (the "Save board" button sends them to /register?next=/draw),
 // they land back here and the drawing becomes their first board.
 
+type ScratchEditorProps = { user?: AccountUser | null; onSave?: (() => void) | null };
+
+// The board that saving the drawing made, of which only the id is read here.
+type CreatedBoard = { id: string };
+
+type ImportScratchProps = { onKeep: () => void; created: RefObject<CreatedBoard | null> };
+
 // `user` is set when someone signed in comes back here because saving their drawing failed:
 // they can keep working on it, and `onSave` tries saving again.
-function ScratchEditor({ user = null, onSave = null }) {
+function ScratchEditor({ user = null, onSave = null }: ScratchEditorProps) {
   const navigate = useNavigate();
   const { store, sync } = useScratchBoard();
   const { elements } = useBoardSnapshot(store);
@@ -53,7 +62,9 @@ function ScratchEditor({ user = null, onSave = null }) {
     });
   });
 
-  return <BoardEditor store={store} sync={sync} user={user} local={{ onSave: save }} />;
+  // BoardEditor is still JavaScript and takes `local` as null (its default) as far as its types can tell, though
+  // it reads `onSave` from it.
+  return <BoardEditor store={store} sync={sync} user={user} local={{ onSave: save } as never} />;
 }
 
 // Signed in: turn the guest's drawing into a real board, then open it. If that
@@ -61,7 +72,7 @@ function ScratchEditor({ user = null, onSave = null }) {
 // still here, so nothing is lost. `created` holds a board an earlier try made, to
 // be filled in rather than made again; it's kept by the page, so it outlasts going
 // back to the drawing and saving from there.
-function ImportScratch({ onKeep, created }) {
+function ImportScratch({ onKeep, created }: ImportScratchProps) {
   const navigate = useNavigate();
   const socket = useSocket();
   const started = useRef(-1); // the try that's under way or done
@@ -81,17 +92,20 @@ function ImportScratch({ onKeep, created }) {
       scratch,
       createBoard: api.createBoard,
       socket,
-      created: created.current,
-      onCreated: (board) => {
+      // importScratch is still JavaScript, so its types see `created` as only null, and onCreated as a function
+      // with no parameters, though it takes the board an earlier try made and calls onCreated with the one it makes.
+      created: created.current as never,
+      onCreated: ((board: CreatedBoard) => {
         created.current = board;
-      },
+      }) as () => void,
     })
-      .then((board) => {
+      .then((board: CreatedBoard) => {
         clearScratch();
         toast.success("Your drawing is saved to your boards.");
         navigate(`/board/${board.id}`, { replace: true });
       })
-      .catch((importError) => setError(importError.message));
+      // importScratch rejects with errors (its own ImportError, or the API's).
+      .catch((importError: Error) => setError(importError.message));
   }, [navigate, socket, attempt, created]);
 
   if (error) {
@@ -127,7 +141,7 @@ function ImportScratch({ onKeep, created }) {
 function DrawRoute() {
   const { status, user } = useAuth();
   const [keepEditing, setKeepEditing] = useState(false);
-  const created = useRef(null); // the board saving this drawing made (see ImportScratch)
+  const created = useRef<CreatedBoard | null>(null); // the board saving this drawing made (see ImportScratch)
   if (status === "authenticated") {
     return keepEditing ? (
       <ScratchEditor user={user} onSave={() => setKeepEditing(false)} />

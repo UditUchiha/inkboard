@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { Check, Link2Off, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { AppHeader } from "../components/AppHeader";
@@ -11,12 +12,25 @@ import { PROVIDER_ICONS, useOAuthProviders } from "../components/OAuthButtons";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { API_URL, APP_NAME } from "../config";
 import { api } from "../lib/api";
+import type { AccountUser, ApiError } from "../lib/api";
 import { PEOPLE_COLORS, colorFor } from "../lib/format";
 import { formColor } from "../lib/profileColor";
 import { isProvider, providerLabel, signInErrorMessage } from "../lib/signInErrors";
 import { useAuth } from "../providers/AuthProvider";
+import type { AuthValue } from "../providers/AuthProvider";
 
-function Section({ title, description, children }) {
+type SectionProps = { title: string; description?: string; children: ReactNode };
+
+// What useAuth gives on this page: it is only reached through RequireAuth, so there is a logged in account.
+type SignedIn = AuthValue & { user: AccountUser };
+
+// Which field of the password form a problem is about.
+type PasswordProblem = { field: "currentPassword" | "newPassword"; message: string };
+
+// What is kept in sessionStorage while a provider is being connected (see rememberConnecting).
+type Connecting = { provider: string; bind: string };
+
+function Section({ title, description, children }: SectionProps) {
   return (
     <section className="rounded-xl border border-rule bg-surface p-6">
       <h2 className="text-lg font-bold">{title}</h2>
@@ -27,7 +41,7 @@ function Section({ title, description, children }) {
 }
 
 function ProfileSection() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser } = useAuth() as SignedIn;
   const [name, setName] = useState(user.name);
   // null: picked automatically. An old palette color shows as the one that replaced it, ready to save;
   // any other custom color is kept as it is.
@@ -38,7 +52,7 @@ function ProfileSection() {
   const automatic = colorFor(user.id);
   const changed = name.trim() !== user.name || color !== user.color;
 
-  async function save(event) {
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setSaving(true);
@@ -48,7 +62,8 @@ function ProfileSection() {
       setName(updated.name);
       toast.success("Profile saved");
     } catch (saveError) {
-      setError(saveError.message);
+      // updateProfile rejects with an ApiError.
+      setError((saveError as ApiError).message);
     } finally {
       setSaving(false);
     }
@@ -123,7 +138,7 @@ function ProfileSection() {
 // connect link made by someone else can't attach this person's Google or GitHub to that someone's account.
 const CONNECTING_KEY = "inkboard.connecting";
 
-function rememberConnecting(provider, bind) {
+function rememberConnecting(provider: string, bind: string) {
   try {
     sessionStorage.setItem(CONNECTING_KEY, JSON.stringify({ provider, bind }));
   } catch {
@@ -131,9 +146,10 @@ function rememberConnecting(provider, bind) {
   }
 }
 
-function takeConnecting(provider) {
+function takeConnecting(provider: string) {
   try {
-    const kept = JSON.parse(sessionStorage.getItem(CONNECTING_KEY) ?? "null");
+    // Only rememberConnecting writes this.
+    const kept: Connecting | null = JSON.parse(sessionStorage.getItem(CONNECTING_KEY) ?? "null");
     sessionStorage.removeItem(CONNECTING_KEY);
     return kept?.provider === provider ? kept.bind : null;
   } catch {
@@ -144,7 +160,8 @@ function takeConnecting(provider) {
 // Forgets a connection that was started but never came back, and says which provider it was for.
 function dropConnecting() {
   try {
-    const kept = JSON.parse(sessionStorage.getItem(CONNECTING_KEY) ?? "null");
+    // Only rememberConnecting writes this.
+    const kept: Connecting | null = JSON.parse(sessionStorage.getItem(CONNECTING_KEY) ?? "null");
     sessionStorage.removeItem(CONNECTING_KEY);
     return kept?.provider ?? null;
   } catch {
@@ -153,9 +170,9 @@ function dropConnecting() {
 }
 
 function ConnectedAccounts() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser } = useAuth() as SignedIn;
   const providers = useOAuthProviders();
-  const [busy, setBusy] = useState(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   // Providers that are connected but no longer configured on the server still need a way out.
   const rows = providers.length
@@ -165,26 +182,28 @@ function ConnectedAccounts() {
         .map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1) }));
   if (rows.length === 0) return null;
 
-  async function connect(provider) {
+  async function connect(provider: string) {
     setBusy(provider);
     try {
       const { url, bind } = await api.linkProvider(provider);
       rememberConnecting(provider, bind);
       window.location.assign(`${API_URL}${url}`);
     } catch (error) {
-      toast.error(error.message);
+      // linkProvider rejects with an ApiError.
+      toast.error((error as ApiError).message);
       setBusy(null);
     }
   }
 
-  async function disconnect(provider, label) {
+  async function disconnect(provider: string, label: string) {
     setBusy(provider);
     try {
       const { user: updated } = await api.disconnectProvider(provider);
       updateUser(updated);
       toast.success(`${label} disconnected`);
     } catch (error) {
-      toast.error(error.message);
+      // disconnectProvider rejects with an ApiError.
+      toast.error((error as ApiError).message);
     } finally {
       setBusy(null);
     }
@@ -227,15 +246,16 @@ function ConnectedAccounts() {
 }
 
 function PasswordSection() {
-  const { user, startSession } = useAuth();
+  const { user, startSession } = useAuth() as SignedIn;
   const [form, setForm] = useState({ currentPassword: "", newPassword: "" });
   const [saving, setSaving] = useState(false);
   // Which field a problem is about: { field: "currentPassword" | "newPassword", message }.
-  const [problem, setProblem] = useState(null);
+  const [problem, setProblem] = useState<PasswordProblem | null>(null);
 
-  const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
+  const update = (field: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) =>
+    setForm((current) => ({ ...current, [field]: event.target.value }));
 
-  async function save(event) {
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setProblem(null);
     if (form.newPassword.length < 8) {
@@ -249,8 +269,12 @@ function PasswordSection() {
       setForm({ currentPassword: "", newPassword: "" });
       toast.success(user.hasPassword ? "Password changed" : "Password set");
     } catch (saveError) {
-      const aboutCurrent = /current password/i.test(saveError.message);
-      setProblem({ field: aboutCurrent ? "currentPassword" : "newPassword", message: saveError.message });
+      // changePassword rejects with an ApiError.
+      const aboutCurrent = /current password/i.test((saveError as ApiError).message);
+      setProblem({
+        field: aboutCurrent ? "currentPassword" : "newPassword",
+        message: (saveError as ApiError).message,
+      });
     } finally {
       setSaving(false);
     }
@@ -308,7 +332,8 @@ function SessionsSection() {
       await api.logoutEverywhere();
       logout();
     } catch (error) {
-      toast.error(error.message);
+      // logoutEverywhere rejects with an ApiError.
+      toast.error((error as ApiError).message);
       setBusy(false);
     }
   }
@@ -326,7 +351,7 @@ function SessionsSection() {
 }
 
 export default function SettingsPage() {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser } = useAuth() as SignedIn;
   const [params, setParams] = useSearchParams();
 
   useEffect(() => {
@@ -339,7 +364,8 @@ export default function SettingsPage() {
     const error = params.get("error");
     if (!error) return;
     dropConnecting(); // that connection is over, with this message
-    toast.error(signInErrorMessage(error, params.get("provider")));
+    // A link without a provider gives null, which providerLabel answers with "your account".
+    toast.error(signInErrorMessage(error, params.get("provider") as string));
     setParams({}, { replace: true });
   }, [params, setParams]);
 
@@ -348,12 +374,14 @@ export default function SettingsPage() {
   useEffect(() => {
     const fragment = new URLSearchParams(window.location.hash.slice(1));
     const connect = fragment.get("connect");
-    const provider = fragment.get("provider");
+    // Null when it's missing, which isProvider turns away before this is used as a string.
+    const provider = fragment.get("provider") as string;
     if (!connect) {
       // A connection this tab started that didn't come back (the login ran out on the way, or the person went
       // back from the provider's page) isn't left to look as if it worked. One that failed has its own
       // message (above), which also forgot it.
-      const unfinished = dropConnecting();
+      // Null when nothing was started, which isProvider turns away before this is used as a string.
+      const unfinished = dropConnecting() as string;
       if (isProvider(unfinished)) {
         toast.error(`Connecting ${providerLabel(unfinished)} didn't finish. Try again.`);
       }
@@ -366,13 +394,14 @@ export default function SettingsPage() {
       toast.error(signInErrorMessage("link-expired", provider));
       return;
     }
-    api
-      .confirmProviderLink(provider, { connect, bind })
+    // confirmProviderLink doesn't say what it answers with yet: the account, with the provider now connected.
+    (api.confirmProviderLink(provider, { connect, bind }) as Promise<{ user: AccountUser }>)
       .then(({ user: fresh }) => {
         updateUser(fresh);
         toast.success(`${providerLabel(provider)} connected`);
       })
-      .catch((error) => toast.error(error.message));
+      // confirmProviderLink rejects with an ApiError.
+      .catch((error: ApiError) => toast.error(error.message));
   }, [updateUser]);
 
   return (

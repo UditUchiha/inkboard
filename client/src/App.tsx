@@ -18,7 +18,9 @@ const BoardPage = lazyPage(() => import("./pages/BoardPage"));
 const DashboardPage = lazyPage(() => import("./pages/DashboardPage"));
 const DrawPage = lazyPage(() => import("./pages/DrawPage"));
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"));
-const authPage = (name) => lazyPage(() => import("./pages/AuthPages").then((module) => ({ default: module[name] })));
+type AuthPageName = "LoginPage" | "RegisterPage" | "ForgotPasswordPage" | "ResetPasswordPage" | "VerifyEmailPage";
+const authPage = (name: AuthPageName) =>
+  lazyPage(() => import("./pages/AuthPages").then((module) => ({ default: module[name] })));
 const LoginPage = authPage("LoginPage");
 const RegisterPage = authPage("RegisterPage");
 const ForgotPasswordPage = authPage("ForgotPasswordPage");

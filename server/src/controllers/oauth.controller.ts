@@ -59,7 +59,7 @@ const LOGIN_CODE_TTL_SECONDS = 2 * 60;
 // A hash of the tab's `bind` (sha-256, base64url), as the app sends it.
 const BIND_HASH = /^[A-Za-z0-9_-]{43}$/;
 
-/** A sign-in that can't go ahead; `code` is what the app shows a message for (client/src/pages/AuthPages.jsx). */
+/** A sign-in that can't go ahead; `code` is what the app shows a message for (client/src/pages/AuthPages.tsx). */
 class SignInError extends Error {
   // `declare` keeps this a type only: Node strips it, and the assignment below still creates the field.
   declare code: string;

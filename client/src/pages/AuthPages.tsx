@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ChangeEvent, FormEvent, ReactNode } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { Button, ButtonLink } from "../components/Button";
@@ -8,6 +9,7 @@ import { OAuthButtons, useEmailEnabled } from "../components/OAuthButtons";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { APP_NAME } from "../config";
 import { api } from "../lib/api";
+import type { AccountUser, ApiError } from "../lib/api";
 import { signInErrorMessage } from "../lib/signInErrors";
 import { verifyView } from "../lib/verifyLink";
 import { useAuth } from "../providers/AuthProvider";
@@ -15,12 +17,14 @@ import { useAuth } from "../providers/AuthProvider";
 // After a successful login or sign-up, <GuestOnly> redirects to ?next=… or /boards.
 // Google and GitHub sign-in come back through /auth/callback instead.
 
-const nextQuery = (next) => (next ? `?next=${encodeURIComponent(next)}` : "");
+const nextQuery = (next: string | null) => (next ? `?next=${encodeURIComponent(next)}` : "");
 
 // Signing up from a guest board brings the drawing along (see DrawPage).
-const savingDrawing = (next) => next === "/draw";
+const savingDrawing = (next: string | null) => next === "/draw";
 
-function AuthLayout({ title, subtitle, children, footer }) {
+type AuthLayoutProps = { title: string; subtitle: ReactNode; children: ReactNode; footer: ReactNode };
+
+function AuthLayout({ title, subtitle, children, footer }: AuthLayoutProps) {
   useEffect(() => {
     document.title = `${title} · ${APP_NAME}`;
   }, [title]);
@@ -40,7 +44,9 @@ function AuthLayout({ title, subtitle, children, footer }) {
   );
 }
 
-function ErrorMessage({ children }) {
+type ErrorMessageProps = { children: ReactNode };
+
+function ErrorMessage({ children }: ErrorMessageProps) {
   if (!children) return null;
   return (
     <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
@@ -57,20 +63,23 @@ export function LoginPage() {
   // Google or GitHub sign-in that failed comes back here with ?error=<code>&provider=<name>.
   const [error, setError] = useState(() => {
     const code = params.get("error");
-    return code ? signInErrorMessage(code, params.get("provider")) : "";
+    // A link without a provider gives null, which providerLabel answers with "your account".
+    return code ? signInErrorMessage(code, params.get("provider") as string) : "";
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
+  const update = (field: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) =>
+    setForm((current) => ({ ...current, [field]: event.target.value }));
 
-  async function submit(event) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setSubmitting(true);
     try {
       await login(form);
     } catch (loginError) {
-      setError(loginError.message);
+      // login rejects with an ApiError.
+      setError((loginError as ApiError).message);
       setSubmitting(false);
     }
   }
@@ -136,9 +145,10 @@ export function RegisterPage() {
   const [passwordError, setPasswordError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }));
+  const update = (field: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) =>
+    setForm((current) => ({ ...current, [field]: event.target.value }));
 
-  async function submit(event) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setPasswordError("");
@@ -150,7 +160,8 @@ export function RegisterPage() {
     try {
       await register(form);
     } catch (registerError) {
-      setError(registerError.message);
+      // register rejects with an ApiError.
+      setError((registerError as ApiError).message);
       setSubmitting(false);
     }
   }
@@ -219,11 +230,11 @@ const loginLink = (
 export function ForgotPasswordPage() {
   const [params] = useSearchParams();
   const [email, setEmail] = useState(params.get("email") ?? "");
-  const [sentTo, setSentTo] = useState(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function submit(event) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setSubmitting(true);
@@ -231,7 +242,8 @@ export function ForgotPasswordPage() {
       await api.forgotPassword(email.trim());
       setSentTo(email.trim());
     } catch (sendError) {
-      setError(sendError.message);
+      // forgotPassword rejects with an ApiError.
+      setError((sendError as ApiError).message);
     } finally {
       setSubmitting(false);
     }
@@ -296,7 +308,7 @@ export function ResetPasswordPage() {
   const [passwordError, setPasswordError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function submit(event) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setPasswordError("");
@@ -306,11 +318,13 @@ export function ResetPasswordPage() {
     }
     setSubmitting(true);
     try {
-      startSession(await api.resetPassword({ token, password }));
+      // The field and the button are disabled without a token, so the form can't be sent without one.
+      startSession(await api.resetPassword({ token, password } as { token: string; password: string }));
       toast.success("Password changed. You're logged in.");
       navigate("/boards", { replace: true });
     } catch (resetError) {
-      setError(resetError.message);
+      // resetPassword rejects with an ApiError.
+      setError((resetError as ApiError).message);
       setSubmitting(false);
     }
   }
@@ -349,6 +363,10 @@ export function ResetPasswordPage() {
   );
 }
 
+// Where verifying the address has got to: it only gets past "ready" through the button, which needs a token.
+type VerifyResult =
+  { phase: "ready" } | { phase: "verifying" } | { phase: "done"; email: string } | { phase: "failed"; message: string };
+
 export function VerifyEmailPage() {
   const { status, user, updateUser, logout, retry } = useAuth();
   const location = useLocation();
@@ -357,7 +375,7 @@ export function VerifyEmailPage() {
   const token = params.get("token");
   // Opening the link only asks for confirmation: mail scanners and link previews open links too, and a
   // link works once, so it's used up by the person's click and not by a visit.
-  const [result, setResult] = useState(
+  const [result, setResult] = useState<VerifyResult>(
     token
       ? { phase: "ready" }
       : { phase: "failed", message: "This link is incomplete. Open the link from the email again." },
@@ -365,13 +383,15 @@ export function VerifyEmailPage() {
 
   function verify() {
     setResult({ phase: "verifying" });
-    api
-      .verifyEmail(token)
+    // The "ready" phase, where the button that calls this is shown, only happens with a token. The server answers
+    // with the address that was verified and the account as it is now.
+    (api.verifyEmail(token as string) as Promise<{ email: string; user: AccountUser }>)
       .then(({ email, user: verified }) => {
         updateUser(verified); // seen as verified straight away
         setResult({ phase: "done", email });
       })
-      .catch((error) => setResult({ phase: "failed", message: error.message }));
+      // verifyEmail rejects with an ApiError.
+      .catch((error: ApiError) => setResult({ phase: "failed", message: error.message }));
   }
 
   // The link only verifies the account it was sent for, for someone logged in to it, which shows the inbox
@@ -379,6 +399,7 @@ export function VerifyEmailPage() {
   // is logged in, and when that isn't the account the link names (its `email`, a hint only: the server decides),
   // offers to switch rather than a button that can't work. Logging in comes back here.
   const view = verifyView({ status, user, linkEmail: params.get("email") });
+  // Only these two views come with a logged in account (see verifyView), so `user` is set wherever signedIn is.
   const signedIn = view === "confirm" || view === "switch";
   const here = `${location.pathname}${location.search}`;
   function switchAccount() {
@@ -454,7 +475,7 @@ export function VerifyEmailPage() {
         <div className="grid gap-4">
           <VerifyEmailNotice />
           <p className="text-sm text-graphite">
-            Logged in as {user.email}. Is this link for another account? {switchButton}
+            Logged in as {user!.email}. Is this link for another account? {switchButton}
           </p>
         </div>
       )}
