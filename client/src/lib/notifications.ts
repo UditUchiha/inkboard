@@ -14,9 +14,9 @@ export function mergeNotifications(current: NotificationItem[], incoming: Notifi
     const seen = byId.get(notification.id);
     byId.set(notification.id, seen ? { ...seen, ...notification, read: seen.read || notification.read } : notification);
   }
-  // Subtracting two Dates gives milliseconds, which TypeScript doesn't allow.
-  // @ts-expect-error
-  return [...byId.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, limit);
+  return [...byId.values()]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, limit);
 }
 
 /**
