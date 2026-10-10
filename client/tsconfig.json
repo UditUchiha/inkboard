@@ -6,10 +6,7 @@
     "moduleResolution": "bundler",
     "lib": ["es2023", "dom", "dom.iterable"],
     "jsx": "react-jsx",
-    "types": ["vite/client"],
-    // While the client moves over, its .ts files import JavaScript ones, whose types are inferred, not checked.
-    "allowJs": true,
-    "checkJs": false
+    "types": ["vite/client"]
   },
   "include": ["src"]
 }

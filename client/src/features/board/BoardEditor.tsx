@@ -3,6 +3,13 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { Keyboard, Save, UserPlus, X } from "lucide-react";
 import { STACK_MOVES } from "@inkboard/shared/board-order";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
+import type {
+  Element as BoardElement,
+  ElementType,
+  StackMove,
+  StickyElement,
+  TextElement,
+} from "@inkboard/shared/types";
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button, IconButton } from "../../components/Button";
@@ -10,22 +17,30 @@ import { ConfirmDialog } from "../../components/Dialog";
 import { BoardCrashed, ErrorBoundary } from "../../components/ErrorBoundary";
 import { LogoMark } from "../../components/Logo";
 import { api } from "../../lib/api";
+import type { AccountUser } from "../../lib/api";
 import { getGuest } from "../../lib/guest";
 import { BoardCanvas } from "./BoardCanvas";
+import type { TextEdit } from "./BoardCanvas";
 import { BoardMenu } from "./BoardMenu";
+import type { Exporter } from "./BoardMenu";
 import { BoardTitle } from "./BoardTitle";
+import type { RenamedBoard } from "./BoardTitle";
 import { CommentsLayer } from "./CommentsLayer";
 import { DEFAULT_STYLE, DRAWING_TOOLS } from "./constants";
+import type { ToolId } from "./constants";
 import { copyGroup, drawnElement, isConnector, moveGroup } from "./connectors";
 import { ElementList } from "./ElementList";
 import { describeElement } from "./elementLabels";
 import { getBounds, getSceneBounds, isFrame, stackKey, withContents } from "./elements";
+import type { Connector } from "./elements";
 import { ExportError } from "./exportSize";
 import { fitViewport, zoomAround } from "./geometry";
+import type { Viewport, XY } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
 import { copyOffset, viewToReveal } from "./placement";
 import { PresenceStack } from "./PresenceStack";
 import { PropertiesPanel } from "./PropertiesPanel";
+import type { StyleChange } from "./PropertiesPanel";
 import { RemoteCursors } from "./RemoteCursors";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ShareDialog } from "./ShareDialog";
@@ -33,11 +48,14 @@ import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SyncStatus, ViewOnlyNotice } from "./StatusPanels";
 import { connectorPath, pathMiddle } from "./routes";
 import { useBoardSnapshot } from "./store";
+import type { BoardStore } from "./store";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
 import { useBoardShortcuts } from "./useBoardShortcuts";
+import type { BoardMeta, BoardSync, Peer } from "./useBoardSync";
 import { sameView, useFollow } from "./useFollow";
 import { useImageImport } from "./useImageImport";
+import type { ImportView } from "./useImageImport";
 import { useThreads } from "./useThreads";
 import { VersionHistory } from "./VersionHistory";
 import { ViewControls } from "./ViewControls";
@@ -47,50 +65,63 @@ const MemoBoardCanvas = memo(BoardCanvas);
 
 const FRAME_COPY_GAP = 80;
 
-function styleTarget(tool, selected) {
+// The elements that carry text, which are the ones edited in place.
+type TextBearing = TextElement | StickyElement | Connector;
+
+// The cast: DRAWING_TOOLS holds only tools that are also the type of the element they draw.
+function styleTarget(tool: ToolId, selected: BoardElement | null): ElementType | null {
   if (tool === "select") return selected?.type ?? null;
-  return DRAWING_TOOLS.has(tool) ? tool : null;
+  return DRAWING_TOOLS.has(tool) ? (tool as ElementType) : null;
 }
+
+/** What the editor takes: the store and sync (a scratch board's has `unsaved` too), who is looking, and `local`. */
+export type BoardEditorProps = {
+  store: BoardStore;
+  sync: BoardSync & { unsaved?: boolean };
+  user: AccountUser | null;
+  local?: { onSave: () => void } | null;
+};
 
 /**
  * The whiteboard. `user` is null for guests. `local` is set for a guest's own
  * scratch board, which lives in the browser: there's no server, so sharing,
  * history and comments give way to a "Save board" button ({ onSave }).
  */
-export function BoardEditor({ store, sync, user, local = null }) {
+export function BoardEditor({ store, sync, user, local = null }: BoardEditorProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { elements, canUndo, canRedo } = useBoardSnapshot(store);
-  const { meta: board, setMeta, role } = sync;
+  // The cast: the editor is only shown once the board's details are there (a scratch board has them from the start).
+  const { meta: board, setMeta, role } = sync as BoardSync & { meta: BoardMeta };
   const readOnly = role === "viewer"; // viewers can only look; contributors (edit link) can draw
   const isMember = role === "owner" || role === "editor";
   const commentsEnabled = Boolean(user) && !local; // comments are for signed-in people
   const canComment = commentsEnabled && !readOnly;
   const selfId = user?.id ?? getGuest().id;
 
-  const [tool, setTool] = useState("pen");
+  const [tool, setTool] = useState<ToolId>("pen");
   const [style, setStyle] = useState(DEFAULT_STYLE);
-  const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
+  const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
-  const [selectedId, setSelectedId] = useState(null);
-  const [editing, setEditing] = useState(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<TextEdit | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [dialog, setDialog] = useState(null); // "share" | "shortcuts" | "clear" | "template"
+  const [dialog, setDialog] = useState<"share" | "shortcuts" | "clear" | "template" | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showComments, setShowComments] = useState(true);
-  const [activeThread, setActiveThread] = useState(null);
-  const [draft, setDraft] = useState(null); // where a new comment is being written
+  const [activeThread, setActiveThread] = useState<string | null>(null);
+  const [draft, setDraft] = useState<XY | null>(null); // where a new comment is being written
 
   const selected = selectedId ? (store.getElement(selectedId) ?? null) : null;
   const canAddImages = !readOnly && !local; // a guest's scratch board lives in the browser, with nowhere to keep files
-  const fileInput = useRef(null);
-  const boardFileInput = useRef(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const boardFileInput = useRef<HTMLInputElement>(null);
 
   // Follow mode: tracking someone's view until we move ourselves.
   const { followingId, follow, stopFollowing, followedView } = useFollow({ sync, canvasSize, setViewport });
   const changeViewport = useCallback(
-    (next) => {
+    (next: Viewport | ((current: Viewport) => Viewport)) => {
       stopFollowing();
       setViewport(next);
     },
@@ -114,7 +145,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
   );
 
   // A notification links to ?thread=…: open that comment and bring it into view, once.
-  const openedThread = useRef(null);
+  const openedThread = useRef<string | null>(null);
   useEffect(() => {
     const id = new URLSearchParams(location.search).get("thread");
     const thread = id && threads.find((item) => item.id === id);
@@ -134,13 +165,15 @@ export function BoardEditor({ store, sync, user, local = null }) {
     if (!canComment && tool === "comment") setTool("pen");
   }, [canComment, tool]);
 
-  const placeComment = useCallback((point) => {
+  const placeComment = useCallback((point: XY) => {
     setActiveThread(null);
     setDraft(point);
   }, []);
 
+  // The cast: api.renameBoard doesn't type its reply, which is the board's new details under `board`.
   const renameBoard = useCallback(
-    async (title) => (local ? { title } : (await api.renameBoard(board.id, title)).board),
+    async (title: string): Promise<RenamedBoard> =>
+      local ? { title } : ((await api.renameBoard(board.id, title)) as { board: RenamedBoard }).board,
     [local, board.id],
   );
 
@@ -152,7 +185,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
     setDialog((current) => (current === "clear" ? null : current));
   }, [readOnly]);
 
-  const changeTool = useCallback((next) => {
+  const changeTool = useCallback((next: ToolId) => {
     setTool(next);
     if (next !== "select") setSelectedId(null);
   }, []);
@@ -167,7 +200,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
   }, [canvasSize, store]);
 
   const zoomBy = useCallback(
-    (factor) => changeViewport((vp) => zoomAround(vp, vp.zoom * factor, canvasSize.width / 2, canvasSize.height / 2)),
+    (factor: number) =>
+      changeViewport((vp) => zoomAround(vp, vp.zoom * factor, canvasSize.width / 2, canvasSize.height / 2)),
     [canvasSize, changeViewport],
   );
   const resetZoom = () => changeViewport((vp) => zoomAround(vp, 1, canvasSize.width / 2, canvasSize.height / 2));
@@ -186,7 +220,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
   // A message with an Undo button for the step just taken. It goes away once anything else is done,
   // because then Undo would undo that instead.
   const toastWithUndo = useCallback(
-    (message) => {
+    (message: string) => {
       const mark = store.historyMark();
       let stopWatching = () => {};
       const id = toast(message, {
@@ -228,7 +262,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
   // "front", "forward", "backward" or "back" in the stack. Only the element's
   // stacking key changes, so it merges with anyone else's edits to it.
   const moveSelected = useCallback(
-    (where) => {
+    (where: StackMove) => {
       const element = selectedId && store.getElement(selectedId);
       if (!element) return;
       const index = stackKey(store.getElements(), element, where);
@@ -241,7 +275,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
   // when the board is quiet, not on every step of a drag.
   const settledElements = useDeferredValue(elements);
   const settledSelection = useDeferredValue(selected);
-  const stackMoves = useMemo(
+  const stackMoves = useMemo<Partial<Record<StackMove, boolean>>>(
     () =>
       settledSelection && !readOnly
         ? Object.fromEntries(
@@ -252,7 +286,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
   );
 
   const nudgeSelected = useCallback(
-    (dx, dy) => {
+    (dx: number, dy: number) => {
       const group = selectedGroup();
       if (group.length === 0) return;
       // Nudges in a row are one undo step while they move the same things. A
@@ -268,14 +302,15 @@ export function BoardEditor({ store, sync, user, local = null }) {
 
   // Selecting with the select tool, so the element's own panel shows (Delete, Duplicate) and Enter edits it:
   // a frame just drawn, ready to be named or filled, or an element picked from the keyboard list.
-  const selectElement = useCallback((id) => {
+  const selectElement = useCallback((id: string) => {
     setTool("select");
     setSelectedId(id);
   }, []);
 
   // Adds pictures to the board: shrinks and uploads each, then places it where it
   // was dropped, or in the middle of the screen. Each one is a single undo step.
-  const view = useRef(null);
+  // The cast: filled in on the next line, on every render, before anything reads it.
+  const view = useRef(null as unknown as ImportView);
   view.current = { viewport, canvasSize };
 
   // Picking an element from the keyboard-reachable list can select one that is off screen: bring it into view.
@@ -324,8 +359,9 @@ export function BoardEditor({ store, sync, user, local = null }) {
     setDialog,
   });
 
-  function commitText(text) {
-    const { element, isNew } = editing;
+  function commitText(text: string) {
+    // The editors that call this are shown only while something is being edited.
+    const { element, isNew } = editing!;
     setEditing(null);
     const value = text.slice(0, MAX_TEXT_LENGTH).trimEnd(); // the same cut the server makes
     // An empty sticky note is still a note, and an arrow without a label still an arrow; empty text is nothing.
@@ -336,7 +372,8 @@ export function BoardEditor({ store, sync, user, local = null }) {
       store.commit({ undo: { remove: [created.id] }, redo: { upsert: [created] } });
       return;
     }
-    const current = store.getElement(element.id) ?? element;
+    // The cast: only elements that carry text are edited, so the one on the board does too.
+    const current = (store.getElement(element.id) ?? element) as TextBearing;
     if (value === (current.text ?? "")) return;
     if (!value.trim() && !keepEmpty) {
       store.commit({ undo: { upsert: [current] }, redo: { remove: [current.id] } });
@@ -345,7 +382,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
     }
   }
 
-  function changeStyle(key, value) {
+  function changeStyle(key: StyleChange[0], value: StyleChange[1]) {
     // A note's color is its fill, but new notes keep their own color, apart from new shapes' fill.
     const styleKey = panelType === "sticky" && key === "fill" ? "noteFill" : key;
     if (key !== "name") setStyle((current) => ({ ...current, [styleKey]: value }));
@@ -357,7 +394,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
     }
   }
 
-  async function exportAs(exporter) {
+  async function exportAs(exporter: Exporter) {
     try {
       const done = await exporter(store.getElements(), board.title);
       if (!done) toast("Draw something first. There's nothing to export yet.");
@@ -376,7 +413,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
 
   const panelType = readOnly ? null : styleTarget(tool, selected);
   const others = useMemo(() => {
-    const seen = new Map();
+    const seen = new Map<string, Peer>();
     for (const peer of sync.peers) {
       if (peer.userId !== selfId && !seen.has(peer.userId)) seen.set(peer.userId, peer);
     }
@@ -385,12 +422,15 @@ export function BoardEditor({ store, sync, user, local = null }) {
 
   const followed = others.find((person) => person.socketId === followingId);
 
-  async function saveCurrentAsTemplate(title) {
+  async function saveCurrentAsTemplate(title: string) {
     await api.saveTemplate(board.id, title);
     toast.success("Template saved. Find it when you start a new board.");
   }
 
   // The element being edited as it is now, so its editor follows it if someone moves it meanwhile.
+  // The casts in what follows: what is drawn under an id is the same kind of element, so a connector stays one;
+  // the editor for a note or for text is only shown for one; and the board's details are only changed once they are
+  // there, so a rename never starts from null.
   const edited = editing && (elements.find((element) => element.id === editing.element.id) ?? editing.element);
 
   return (
@@ -420,7 +460,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
         accept=".json,application/json"
         hidden
         onChange={(event) => {
-          const [file] = event.target.files;
+          const [file] = event.target.files!; // a file input always has a list
           if (file) importBoardFile(file);
           event.target.value = "";
         }}
@@ -433,7 +473,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
         multiple
         hidden
         onChange={(event) => {
-          addImages([...event.target.files]);
+          addImages([...event.target.files!]);
           event.target.value = "";
         }}
       />
@@ -470,14 +510,26 @@ export function BoardEditor({ store, sync, user, local = null }) {
           <LabelEditor
             key={editing.element.id}
             element={editing.element}
-            middle={pathMiddle(connectorPath(drawnElement(elements, editing.element.id) ?? editing.element))}
+            middle={pathMiddle(
+              connectorPath((drawnElement(elements, editing.element.id) as Connector | undefined) ?? editing.element),
+            )}
             viewport={viewport}
             onCommit={commitText}
           />
         ) : editing.element.type === "sticky" ? (
-          <NoteEditor key={editing.element.id} element={edited} viewport={viewport} onCommit={commitText} />
+          <NoteEditor
+            key={editing.element.id}
+            element={edited as StickyElement}
+            viewport={viewport}
+            onCommit={commitText}
+          />
         ) : (
-          <TextEditor key={editing.element.id} element={edited} viewport={viewport} onCommit={commitText} />
+          <TextEditor
+            key={editing.element.id}
+            element={edited as TextElement}
+            viewport={viewport}
+            onCommit={commitText}
+          />
         ))}
 
       {/* Top left: back to boards, title */}
@@ -494,7 +546,7 @@ export function BoardEditor({ store, sync, user, local = null }) {
           board={board}
           rename={renameBoard}
           readOnly={readOnly}
-          onRenamed={(updated) => setMeta((current) => ({ ...current, ...updated }))}
+          onRenamed={(updated) => setMeta((current) => ({ ...current, ...updated }) as BoardMeta)}
         />
       </div>
 
