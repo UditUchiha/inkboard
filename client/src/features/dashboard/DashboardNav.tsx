@@ -3,10 +3,13 @@ import { Plus } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "../../components/Button";
 import { SECTIONS } from "./sections";
+import type { SectionId } from "./sections";
 
-export const sectionPath = (id) => (id === "all" ? "/boards" : `/boards?show=${id}`);
+export const sectionPath = (id: SectionId) => (id === "all" ? "/boards" : `/boards?show=${id}`);
 
-function NavLink({ section, active, count }) {
+type NavLinkProps = { section: (typeof SECTIONS)[number]; active: boolean; count: number };
+
+function NavLink({ section, active, count }: NavLinkProps) {
   const Icon = section.icon;
   return (
     <li className="max-md:shrink-0">
@@ -29,7 +32,15 @@ function NavLink({ section, active, count }) {
 }
 
 /** Where to look: a sidebar on wide screens, a scrolling row of pills on phones. */
-export function DashboardNav({ activeId, counts, onCreate, creating }) {
+type DashboardNavProps = {
+  activeId: SectionId;
+  /** How many boards each place holds. */
+  counts: Record<SectionId, number>;
+  onCreate: () => void;
+  creating: boolean;
+};
+
+export function DashboardNav({ activeId, counts, onCreate, creating }: DashboardNavProps) {
   const groups = [
     SECTIONS.filter((section) => section.group === "boards"),
     SECTIONS.filter((section) => section.group === "tidy"),

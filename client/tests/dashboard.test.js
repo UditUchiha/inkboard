@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compareBoards, daysLeft, isMember, SECTIONS } from "../src/features/dashboard/sections.js";
+import { compareBoards, daysLeft, isMember, SECTIONS } from "../src/features/dashboard/sections.ts";
 
 const board = (overrides) => ({
   id: "x",

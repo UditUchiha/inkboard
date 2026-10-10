@@ -4,11 +4,12 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { timeAgo } from "../lib/format";
 import { useMinute } from "../lib/useMinute";
+import type { NotificationItem as Notification } from "../lib/api";
 import { describeNotification, notificationLink, useNotifications } from "../providers/NotificationsProvider";
 import { Avatar } from "./Avatar";
 import { Menu, useCloseMenu } from "./Menu";
 
-function NotificationItem({ item }) {
+function NotificationItem({ item }: { item: Notification }) {
   const navigate = useNavigate();
   const closeMenu = useCloseMenu();
   useMinute();
@@ -49,11 +50,14 @@ function NotificationItem({ item }) {
  * the page body, which would end the menu's arrow-key handling. So when it goes away while focused, `onLostFocus`
  * is told, and the menu puts focus back on one of its items.
  */
-function ShowOlderItem({ loading, onClick, onLostFocus }) {
-  const ref = useRef(null);
+type ShowOlderItemProps = { loading: boolean; onClick: () => void; onLostFocus: () => void };
+
+function ShowOlderItem({ loading, onClick, onLostFocus }: ShowOlderItemProps) {
+  const ref = useRef<HTMLButtonElement>(null);
   const lost = useRef(onLostFocus);
   lost.current = onLostFocus;
-  useLayoutEffect(() => {
+  // The cleanup returns what its check gives (false, or nothing), so it is typed as a plain function.
+  useLayoutEffect((): (() => void) => {
     const button = ref.current;
     return () => document.activeElement === button && lost.current();
   }, []);
@@ -75,16 +79,16 @@ function ShowOlderItem({ loading, onClick, onLostFocus }) {
 }
 
 // Opening the menu shows what is new; closing it (or leaving the page with it open) counts everything as seen.
-export function NotificationsMenu({ className }) {
+export function NotificationsMenu({ className }: { className?: string }) {
   const { items, unread, more, loadingMore, markAllRead, loadMore } = useNotifications();
-  const listRef = useRef(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const refocus = useRef(false);
 
   // Once the list has its new items, focus the last one (the end of what was just loaded) if the button had focus.
   useEffect(() => {
     if (!refocus.current) return;
     refocus.current = false;
-    listRef.current?.querySelector('li:last-child [role="menuitem"]')?.focus();
+    listRef.current?.querySelector<HTMLElement>('li:last-child [role="menuitem"]')?.focus();
   });
 
   return (

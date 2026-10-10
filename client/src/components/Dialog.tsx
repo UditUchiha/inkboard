@@ -1,17 +1,29 @@
 import clsx from "clsx";
 import { X } from "lucide-react";
 import { useEffect, useId, useRef } from "react";
+import type { ReactNode } from "react";
 import { Button, IconButton } from "./Button";
+import type { ButtonVariant } from "./Button";
+
+type DialogProps = {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  description?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+};
 
 // Built on the native <dialog>, which handles focus trapping and Escape.
-export function Dialog({ open, onClose, title, description, children, className }) {
-  const ref = useRef(null);
+export function Dialog({ open, onClose, title, description, children, className }: DialogProps) {
+  const ref = useRef<HTMLDialogElement>(null);
   const pressedBackdrop = useRef(false);
   const titleId = useId();
   const descriptionId = useId();
 
   useEffect(() => {
-    const dialog = ref.current;
+    // The dialog element is always rendered, so it is there once effects run.
+    const dialog = ref.current!;
     if (open && !dialog.open) dialog.showModal();
     if (!open && dialog.open) dialog.close();
   }, [open]);
@@ -54,7 +66,27 @@ export function Dialog({ open, onClose, title, description, children, className 
   );
 }
 
-export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel, busy, tone = "danger" }) {
+type ConfirmDialogProps = {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: ReactNode;
+  description?: ReactNode;
+  confirmLabel: ReactNode;
+  busy?: boolean;
+  tone?: ButtonVariant;
+};
+
+export function ConfirmDialog({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  description,
+  confirmLabel,
+  busy,
+  tone = "danger",
+}: ConfirmDialogProps) {
   return (
     <Dialog open={open} onClose={onClose} title={title} description={description}>
       <div className="flex justify-end gap-2">

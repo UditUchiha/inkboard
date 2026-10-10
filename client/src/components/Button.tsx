@@ -1,5 +1,7 @@
 import clsx from "clsx";
 import { LoaderCircle } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { ComponentPropsWithoutRef } from "react";
 import { Link } from "react-router";
 
 const VARIANTS = {
@@ -15,7 +17,12 @@ const SIZES = {
   lg: "h-12 gap-2 px-6 text-base",
 };
 
-export const buttonClass = ({ variant = "primary", size = "md", className } = {}) =>
+/** How a button looks, whatever it is made of. */
+export type ButtonVariant = keyof typeof VARIANTS;
+type ButtonSize = keyof typeof SIZES;
+type ButtonStyle = { variant?: ButtonVariant; size?: ButtonSize; className?: string };
+
+export const buttonClass = ({ variant = "primary", size = "md", className }: ButtonStyle = {}) =>
   clsx(
     "inline-flex shrink-0 items-center justify-center rounded-lg font-medium whitespace-nowrap transition-colors disabled:opacity-55",
     VARIANTS[variant],
@@ -23,7 +30,9 @@ export const buttonClass = ({ variant = "primary", size = "md", className } = {}
     className,
   );
 
-export function ButtonLink({ variant, size, icon: Icon, className, children, ...props }) {
+type ButtonLinkProps = ButtonStyle & { icon?: LucideIcon } & ComponentPropsWithoutRef<typeof Link>;
+
+export function ButtonLink({ variant, size, icon: Icon, className, children, ...props }: ButtonLinkProps) {
   return (
     <Link className={buttonClass({ variant, size, className })} {...props}>
       {Icon && <Icon className="size-4" aria-hidden />}
@@ -31,6 +40,8 @@ export function ButtonLink({ variant, size, icon: Icon, className, children, ...
     </Link>
   );
 }
+
+type ButtonProps = ButtonStyle & { loading?: boolean; icon?: LucideIcon } & ComponentPropsWithoutRef<"button">;
 
 export function Button({
   variant = "primary",
@@ -42,7 +53,7 @@ export function Button({
   type = "button",
   disabled,
   ...props
-}) {
+}: ButtonProps) {
   return (
     <button type={type} disabled={disabled || loading} className={buttonClass({ variant, size, className })} {...props}>
       {loading ? (
@@ -55,7 +66,14 @@ export function Button({
   );
 }
 
-export function IconButton({ label, icon: Icon, active = false, className, size = "md", ...props }) {
+type IconButtonProps = {
+  label: string;
+  icon: LucideIcon;
+  active?: boolean;
+  size?: "sm" | "md";
+} & ComponentPropsWithoutRef<"button">;
+
+export function IconButton({ label, icon: Icon, active = false, className, size = "md", ...props }: IconButtonProps) {
   return (
     <button
       type="button"

@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
+import type { ComponentType } from "react";
 import { API_URL } from "../config";
 import { toast } from "sonner";
 import { api } from "../lib/api";
 import { startSignIn } from "../lib/signIn";
 import { buttonClass } from "./Button";
 
-export function GoogleIcon({ className }) {
+type IconProps = { className?: string };
+
+export function GoogleIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden>
       <path
@@ -22,7 +25,7 @@ export function GoogleIcon({ className }) {
   );
 }
 
-export function GitHubIcon({ className }) {
+export function GitHubIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
       <path d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2.2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5Z" />
@@ -30,18 +33,30 @@ export function GitHubIcon({ className }) {
   );
 }
 
-export const PROVIDER_ICONS = { google: GoogleIcon, github: GitHubIcon };
+export const PROVIDER_ICONS: Record<string, ComponentType<IconProps> | undefined> = {
+  google: GoogleIcon,
+  github: GitHubIcon,
+};
+
+/** A sign-in provider the server has set up. */
+export type AuthProviderInfo = { id: string; label: string };
+
+/** What the server answers when asked how people can sign in. */
+type ProvidersResponse = { providers: AuthProviderInfo[]; email?: boolean };
+
+type AuthOptions = { providers: AuthProviderInfo[]; email: boolean };
 
 // The list rarely changes, so it's fetched once per page load.
-let providersRequest = null;
+let providersRequest: Promise<AuthOptions> | null = null;
 
 // What the server offers for signing in: Google and GitHub (when set up), and
 // whether email (verification, password reset) is on. Loaded once per page load.
 function useAuthOptions() {
-  const [options, setOptions] = useState({ providers: [], email: false });
+  const [options, setOptions] = useState<AuthOptions>({ providers: [], email: false });
   useEffect(() => {
     let active = true;
-    providersRequest ??= api.listProviders().then(
+    // listProviders doesn't say what it answers with yet, so its answer is described here.
+    providersRequest ??= (api.listProviders() as Promise<ProvidersResponse>).then(
       (data) => ({ providers: data.providers, email: Boolean(data.email) }),
       () => {
         providersRequest = null;
@@ -62,16 +77,18 @@ export const useOAuthProviders = () => useAuthOptions().providers;
 export const useEmailEnabled = () => useAuthOptions().email;
 
 // `bind` is the hash from startSignIn: the server needs it to tie the end of the sign-in to this tab.
-export const oauthStartUrl = (provider, next, bind) =>
+export const oauthStartUrl = (provider: string, next: string | null | undefined, bind: string) =>
   `${API_URL}/api/auth/oauth/${provider}?bind=${encodeURIComponent(bind)}${next ? `&next=${encodeURIComponent(next)}` : ""}`;
 
 /** "Continue with Google / GitHub", for whichever providers the server has set up. */
-export function OAuthButtons({ next, className }) {
+type OAuthButtonsProps = { next?: string | null; className?: string };
+
+export function OAuthButtons({ next, className }: OAuthButtonsProps) {
   const providers = useOAuthProviders();
   if (providers.length === 0) return null;
 
   // Makes the tab's `bind` first (see lib/signIn.ts), so what comes back can only sign in this tab.
-  async function start(provider) {
+  async function start(provider: string) {
     const bind = await startSignIn();
     if (!bind) {
       toast.error("Your browser won't let this tab keep a sign-in going. Allow site storage and try again.");

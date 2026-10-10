@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { isView } from "../src/features/dashboard/sections.js";
-import { fillPreviews } from "../src/features/dashboard/useBoards.js";
-import { readStored, writeStored } from "../src/features/dashboard/useStoredState.js";
+import { isView } from "../src/features/dashboard/sections.ts";
+import { fillPreviews } from "../src/features/dashboard/useBoards.ts";
+import { readStored, writeStored } from "../src/features/dashboard/useStoredState.ts";
 import { isChunkLoadError, reloadOnce, resetReloadOnce, withReload } from "../src/lib/chunkReload.ts";
 import { contrastWithWhite, PEOPLE_COLORS, personColor, readableColor } from "../src/lib/format.ts";
 import { mergeNotifications, withNewestPage } from "../src/lib/notifications.ts";

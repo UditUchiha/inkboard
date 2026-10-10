@@ -680,7 +680,7 @@ describe("arrowheads on elbow routes", () => {
 
 describe("built-in templates", () => {
   it("draw their arrows attached to shapes, with every connector field set", async () => {
-    const { BUILTIN_TEMPLATES } = await import("../src/features/templates/builtin.js");
+    const { BUILTIN_TEMPLATES } = await import("../src/features/templates/builtin.ts");
     const { cleanElement } = await import("@inkboard/shared/element-rules");
     for (const template of BUILTIN_TEMPLATES) {
       const elements = template.build();

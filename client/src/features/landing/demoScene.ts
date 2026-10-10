@@ -1,10 +1,20 @@
+import type { Element as BoardElement, Point, ShapeElement, TextElement } from "@inkboard/shared/types";
+
 // The sketch shown on the landing page, in a 640 × 440 coordinate space.
 export const SCENE_WIDTH = 640;
 export const SCENE_HEIGHT = 440;
 
 const INK = "#16213a";
 
-const shape = (id, type, x1, y1, x2, y2, extra = {}) => ({
+const shape = (
+  id: string,
+  type: ShapeElement["type"],
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  extra: Partial<Pick<ShapeElement, "fill">> = {},
+): ShapeElement => ({
   id,
   type,
   seed: id.length * 7919 + x1,
@@ -19,7 +29,14 @@ const shape = (id, type, x1, y1, x2, y2, extra = {}) => ({
   ...extra,
 });
 
-const text = (id, x1, y1, value, fontSize = 30, extra = {}) => ({
+const text = (
+  id: string,
+  x1: number,
+  y1: number,
+  value: string,
+  fontSize = 30,
+  extra: Partial<Pick<TextElement, "stroke">> = {},
+): TextElement => ({
   id,
   type: "text",
   x1,
@@ -31,7 +48,7 @@ const text = (id, x1, y1, value, fontSize = 30, extra = {}) => ({
   ...extra,
 });
 
-export const DEMO_ELEMENTS = [
+export const DEMO_ELEMENTS: BoardElement[] = [
   text("title", 44, 30, "Launch plan", 40),
   shape("research", "rectangle", 56, 122, 222, 202, { fill: "#a5d8ff" }),
   text("research-label", 92, 144, "Research"),
@@ -61,7 +78,7 @@ export const DEMO_ELEMENTS = [
 
 // A loose, slightly wobbly loop around "Ship it", drawn live by a collaborator.
 export function circleStroke() {
-  const points = [];
+  const points: Point[] = [];
   const cx = 392;
   const cy = 336;
   const steps = 84;
@@ -74,7 +91,11 @@ export function circleStroke() {
   return points;
 }
 
-export const COLLABORATORS = [
+/** Someone drawing on the demo: the name and color of their cursor, and where it waits once they are done. */
+export type Collaborator = { name: string; color: string; rest?: { x: number; y: number } };
+
+// Maya draws the loop, so she has no resting place; Sam only waits, so his is always there.
+export const COLLABORATORS: [Collaborator, Collaborator & Required<Pick<Collaborator, "rest">>] = [
   { name: "Maya", color: "#c2410c" },
   { name: "Sam", color: "#1971c2", rest: { x: 232, y: 96 } },
 ];

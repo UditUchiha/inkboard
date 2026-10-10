@@ -3,6 +3,7 @@ import { MailCheck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { api } from "../lib/api";
+import type { ApiError } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { Button } from "./Button";
 import { useEmailEnabled } from "./OAuthButtons";
@@ -11,7 +12,7 @@ import { useEmailEnabled } from "./OAuthButtons";
  * Asks someone who hasn't verified their email to do so, with a way to get a
  * new link. Shows nothing once the address is verified, or while email isn't set up.
  */
-export function VerifyEmailNotice({ className }) {
+export function VerifyEmailNotice({ className }: { className?: string }) {
   const { user } = useAuth();
   const emailEnabled = useEmailEnabled();
   const [sending, setSending] = useState(false);
@@ -21,9 +22,11 @@ export function VerifyEmailNotice({ className }) {
     setSending(true);
     try {
       await api.resendVerification();
-      toast.success(`We sent a new link to ${user.email}.`);
+      // The check above returned for no user; a function declaration doesn't keep that narrowing.
+      toast.success(`We sent a new link to ${user!.email}.`);
     } catch (error) {
-      toast.error(error.message);
+      // Requests only fail with an ApiError.
+      toast.error((error as ApiError).message);
     } finally {
       setSending(false);
     }

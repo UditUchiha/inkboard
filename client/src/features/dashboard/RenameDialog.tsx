@@ -1,10 +1,23 @@
 import { useEffect, useState } from "react";
+import type { SubmitEvent } from "react";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { TextField } from "../../components/Field";
 import { api } from "../../lib/api";
+import type { ApiError } from "../../lib/api";
+import type { BoardSummary } from "./sections";
 
-export function RenameDialog({ board, onClose, onRenamed }) {
+// What the server answers a rename with, of which the dashboard keeps the new title and time.
+type RenamedBoard = Pick<BoardSummary, "id" | "title" | "updatedAt">;
+
+type RenameDialogProps = {
+  /** The board being renamed; the dialog is open while there is one. */
+  board: BoardSummary | null;
+  onClose: () => void;
+  onRenamed: (board: RenamedBoard) => void;
+};
+
+export function RenameDialog({ board, onClose, onRenamed }: RenameDialogProps) {
   const [title, setTitle] = useState(board?.title ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -14,15 +27,17 @@ export function RenameDialog({ board, onClose, onRenamed }) {
     setError("");
   }, [board]);
 
-  async function submit(event) {
+  async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     try {
-      const { board: updated } = await api.renameBoard(board.id, title);
+      // The form can only be sent while the dialog is open, which is while there is a board. renameBoard doesn't
+      // say what it answers with yet.
+      const { board: updated } = (await api.renameBoard(board!.id, title)) as { board: RenamedBoard };
       onRenamed(updated);
       onClose();
     } catch (renameError) {
-      setError(renameError.message);
+      setError((renameError as ApiError).message); // requests only fail with an ApiError
     } finally {
       setSaving(false);
     }

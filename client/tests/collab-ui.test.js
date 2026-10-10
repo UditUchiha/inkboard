@@ -4,8 +4,8 @@ import { describeElement } from "../src/features/board/elementLabels.js";
 import { activeMentions, findMentions, isComposing, splitMentions } from "../src/features/board/mentions.js";
 import { focusAfterClose } from "../src/features/board/popoverFocus.js";
 import { titleToSave } from "../src/features/board/titleEdit.js";
-import { DEFAULT_SORT, isSort, isView } from "../src/features/dashboard/sections.js";
-import { readStored } from "../src/features/dashboard/useStoredState.js";
+import { DEFAULT_SORT, isSort, isView } from "../src/features/dashboard/sections.ts";
+import { readStored } from "../src/features/dashboard/useStoredState.ts";
 import { colorFor, initials, PEOPLE_COLORS, personColor, timeAgo } from "../src/lib/format.ts";
 import { mergeNotifications, unreadIds } from "../src/lib/notifications.ts";
 

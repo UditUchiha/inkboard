@@ -1,10 +1,14 @@
 import { LoaderCircle, WifiOff } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import { Navigate, useLocation, useSearchParams } from "react-router";
 import { loginPathFor, safeNext } from "../lib/signInErrors";
 import { useAuth } from "../providers/AuthProvider";
 import { Button } from "./Button";
 
-export function FullPageMessage({ icon: Icon, title, children, action }) {
+type FullPageMessageProps = { icon?: LucideIcon; title: ReactNode; children?: ReactNode; action?: ReactNode };
+
+export function FullPageMessage({ icon: Icon, title, children, action }: FullPageMessageProps) {
   return (
     <main className="graph-paper grid min-h-dvh place-items-center px-4">
       <div className="max-w-md text-center">
@@ -17,7 +21,7 @@ export function FullPageMessage({ icon: Icon, title, children, action }) {
   );
 }
 
-export function FullPageLoader({ label = "Loading" }) {
+export function FullPageLoader({ label = "Loading" }: { label?: string }) {
   return (
     <div className="graph-paper grid min-h-dvh place-items-center" role="status">
       <div className="flex items-center gap-2 text-graphite">
@@ -29,7 +33,7 @@ export function FullPageLoader({ label = "Loading" }) {
 }
 
 /** Sends signed-out visitors to the login page, unless `optional` lets them through as guests. */
-export function RequireAuth({ children, optional = false }) {
+export function RequireAuth({ children, optional = false }: { children?: ReactNode; optional?: boolean }) {
   const { status, retry } = useAuth();
   const location = useLocation();
 
@@ -52,7 +56,7 @@ export function RequireAuth({ children, optional = false }) {
 }
 
 /** Login and sign-up pages: once signed in, continue to where the person was headed. */
-export function GuestOnly({ children }) {
+export function GuestOnly({ children }: { children?: ReactNode }) {
   const { status } = useAuth();
   const [params] = useSearchParams();
   if (status === "authenticated") return <Navigate to={safeNext(params.get("next"))} replace />;

@@ -1,14 +1,25 @@
 import clsx from "clsx";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Avatar } from "../../components/Avatar";
 import { timeAgo } from "../../lib/format";
 import { useMinute } from "../../lib/useMinute";
 import { BoardMenu, RoleBadge, StarButton } from "./BoardParts";
+import type { BoardActions } from "./BoardParts";
 import { daysLeft, isMember, SORT_KEYS } from "./sections";
+import type { BoardSummary, Sort, SortKey } from "./sections";
 
-function SortHeader({ id, sort, onSort, children, className }) {
+type SortHeaderProps = {
+  id: SortKey;
+  sort: Sort;
+  onSort: (key: SortKey) => void;
+  children?: ReactNode;
+  className?: string;
+};
+
+function SortHeader({ id, sort, onSort, children, className }: SortHeaderProps) {
   const active = sort.key === id;
   const Arrow = sort.dir === "asc" ? ArrowUp : ArrowDown;
   return (
@@ -29,9 +40,30 @@ function SortHeader({ id, sort, onSort, children, className }) {
   );
 }
 
+type BoardTableProps = {
+  boards: BoardSummary[];
+  trashed?: boolean;
+  sort: Sort;
+  onSort: (key: SortKey) => void;
+  /** The ids of the boards whose checkbox is ticked. */
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onToggleAll: () => void;
+  actions: BoardActions;
+};
+
 /** The list view: one row per board, with checkboxes for acting on several at once. */
-export function BoardTable({ boards, trashed = false, sort, onSort, selected, onToggle, onToggleAll, actions }) {
-  const allRef = useRef(null);
+export function BoardTable({
+  boards,
+  trashed = false,
+  sort,
+  onSort,
+  selected,
+  onToggle,
+  onToggleAll,
+  actions,
+}: BoardTableProps) {
+  const allRef = useRef<HTMLInputElement>(null);
   useMinute();
   const chosen = boards.filter((board) => selected.has(board.id)).length;
 
@@ -88,7 +120,8 @@ export function BoardTable({ boards, trashed = false, sort, onSort, selected, on
         <tbody className="divide-y divide-rule">
           {boards.map((board) => {
             const isSelected = selected.has(board.id);
-            const left = trashed ? daysLeft(board.purgeAt) : 0;
+            // A board in the trash has both dates; `trashed` says the list is the trash.
+            const left = trashed ? daysLeft(board.purgeAt!) : 0;
             return (
               <tr
                 key={board.id}
@@ -136,7 +169,7 @@ export function BoardTable({ boards, trashed = false, sort, onSort, selected, on
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap text-graphite">
                   {trashed
-                    ? timeAgo(board.deletedAt)
+                    ? timeAgo(board.deletedAt!)
                     : timeAgo(dateKey === "opened" ? (board.lastOpenedAt ?? board.updatedAt) : board.updatedAt)}
                 </td>
                 <td className="py-1 pr-3">

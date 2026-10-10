@@ -1,5 +1,14 @@
 import { Component } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { isChunkLoadError } from "../lib/chunkReload";
+
+// React hands over whatever was thrown; it is an Error in practice, which is all the fallback and isChunkLoadError read.
+type ErrorBoundaryProps = {
+  children?: ReactNode;
+  fallback: (details: { error: Error; reset: () => void }) => ReactNode;
+};
+
+type ErrorBoundaryState = { error: Error | null };
 
 /**
  * Catches an error thrown while drawing anything below it, so one bad element
@@ -7,14 +16,14 @@ import { isChunkLoadError } from "../lib/chunkReload";
  * draws the message; `reset` tries to draw the children again (or reloads the page,
  * when what failed was downloading the app's code).
  */
-export class ErrorBoundary extends Component {
-  state = { error: null };
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  override state: ErrorBoundaryState = { error: null };
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
-  componentDidCatch(error, info) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(error, info.componentStack);
   }
 
@@ -25,7 +34,7 @@ export class ErrorBoundary extends Component {
     else this.setState({ error: null });
   };
 
-  render() {
+  override render() {
     const { error } = this.state;
     if (!error) return this.props.children;
     return this.props.fallback({ error, reset: this.reset });
@@ -33,7 +42,9 @@ export class ErrorBoundary extends Component {
 }
 
 /** The message for a whole page that failed (it uses no router or theme, which may be what failed). */
-export function PageCrashed({ reset }) {
+type CrashedProps = { reset: () => void };
+
+export function PageCrashed({ reset }: CrashedProps) {
   return (
     <div className="grid min-h-dvh place-items-center bg-surface px-4 text-ink">
       <div className="grid max-w-md gap-4 text-center">
@@ -59,7 +70,7 @@ export function PageCrashed({ reset }) {
 }
 
 /** The message in place of a board that couldn't be drawn; the rest of the editor keeps working. */
-export function BoardCrashed({ reset }) {
+export function BoardCrashed({ reset }: CrashedProps) {
   return (
     <div className="absolute inset-0 grid place-items-center bg-surface px-4 text-ink">
       <div className="grid max-w-md gap-3 text-center">
