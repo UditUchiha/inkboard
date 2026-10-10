@@ -1,10 +1,20 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { TextField } from "../../components/Field";
+import type { ApiError } from "../../lib/api";
+
+type SaveTemplateDialogProps = {
+  open: boolean;
+  onClose: () => void;
+  defaultTitle: string;
+  // Saves the template under the name; it rejects with what to tell the person if it can't.
+  onSave: (title: string) => Promise<void>;
+};
 
 /** Names a template made from the board as it is now. */
-export function SaveTemplateDialog({ open, onClose, defaultTitle, onSave }) {
+export function SaveTemplateDialog({ open, onClose, defaultTitle, onSave }: SaveTemplateDialogProps) {
   const [title, setTitle] = useState(defaultTitle);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -16,14 +26,14 @@ export function SaveTemplateDialog({ open, onClose, defaultTitle, onSave }) {
     }
   }, [open, defaultTitle]);
 
-  async function submit(event) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     try {
       await onSave(title.trim());
       onClose();
     } catch (saveError) {
-      setError(saveError.message);
+      setError((saveError as ApiError).message); // requests only fail with an ApiError
     } finally {
       setSaving(false);
     }

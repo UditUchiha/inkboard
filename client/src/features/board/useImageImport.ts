@@ -1,13 +1,38 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import { useCallback, useEffect, useRef } from "react";
+import type { RefObject } from "react";
 import { toast } from "sonner";
+import type { Socket } from "socket.io-client";
 import { BoardFileError, dataUrlToBlob, isBoardFile, placeElements, readBoardFile } from "./boardFile";
+import type { ParsedBoardFile } from "./boardFile";
 import { MAX_ELEMENTS_PER_BOARD } from "./constants";
+import type { ToolId } from "./constants";
 import { isTypingTarget } from "./domTargets";
 import { createImage } from "./elements";
 import { toWorld } from "./geometry";
+import type { Size, Viewport, XY } from "./geometry";
 import { ImageError, isImageFile, placementSize, prepareImage, primeImage, uploadImage } from "./images";
+import type { BoardStore } from "./store";
 
 const MAX_IMAGES_AT_ONCE = 10;
+
+/** What the screen shows now, which is where a picture lands. */
+export type ImportView = { viewport: Viewport; canvasSize: Size };
+
+/** What useImageImport takes. `local` is set for a board kept in the browser, which has nowhere to keep pictures. */
+type ImageImportOptions = {
+  store: BoardStore;
+  socket: Socket | null;
+  boardId: string;
+  local: unknown;
+  readOnly: boolean;
+  view: RefObject<ImportView>;
+  setTool: (tool: ToolId) => void;
+  setSelectedId: (id: string | null) => void;
+};
+
+/** What the editor gets to call: adding pictures, and importing a board file. */
+export type ImageImport = ReturnType<typeof useImageImport>;
 
 /**
  * Putting pictures and board files on the board: from the toolbar and menu (`addImages`,
@@ -15,11 +40,20 @@ const MAX_IMAGES_AT_ONCE = 10;
  * to `{ viewport, canvasSize }`, so a picture lands where the screen is now, not where it was
  * when the upload started. `setTool` and `setSelectedId` select what was added.
  */
-export function useImageImport({ store, socket, boardId, local, readOnly, view, setTool, setSelectedId }) {
+export function useImageImport({
+  store,
+  socket,
+  boardId,
+  local,
+  readOnly,
+  view,
+  setTool,
+  setSelectedId,
+}: ImageImportOptions) {
   // Adds pictures to the board: shrinks and uploads each, then places it where it
   // was dropped, or in the middle of the screen. Each one is a single undo step.
   const addImages = useCallback(
-    async (files, dropPoint = null) => {
+    async (files: File[], dropPoint: XY | null = null) => {
       if (local) {
         toast("Save this board to your account to add images.");
         return;
@@ -64,8 +98,8 @@ export function useImageImport({ store, socket, boardId, local, readOnly, view, 
   // the screen, as one undo step. Its pictures are uploaded again so they
   // belong to this board.
   const importBoardFile = useCallback(
-    async (file) => {
-      let parsed;
+    async (file: File) => {
+      let parsed: ParsedBoardFile;
       try {
         parsed = await readBoardFile(file);
       } catch (error) {
@@ -80,8 +114,8 @@ export function useImageImport({ store, socket, boardId, local, readOnly, view, 
       }
 
       const progress = toast.loading(`Importing ${file.name}…`);
-      const uploaded = new Map(); // image id in the file -> id on this board
-      const failures = []; // why pictures couldn't be added
+      const uploaded = new Map<string, string>(); // image id in the file -> id on this board
+      const failures: string[] = []; // why pictures couldn't be added
       const wanted = new Set(
         parsed.elements.filter((element) => element.type === "image").map((element) => element.imageId),
       );
@@ -107,9 +141,10 @@ export function useImageImport({ store, socket, boardId, local, readOnly, view, 
         }
       }
 
-      const kept = parsed.elements.flatMap((element) => {
+      const kept = parsed.elements.flatMap((element): BoardElement[] => {
         if (element.type !== "image") return [element];
-        return uploaded.has(element.imageId) ? [{ ...element, imageId: uploaded.get(element.imageId) }] : [];
+        // The assertion: `has` has just said the id is there.
+        return uploaded.has(element.imageId) ? [{ ...element, imageId: uploaded.get(element.imageId)! }] : [];
       });
       const missing = parsed.elements.length - kept.length; // pictures that couldn't be added
       const why = local ? "Save this board to your account to import pictures." : (failures[0] ?? "");
@@ -120,7 +155,7 @@ export function useImageImport({ store, socket, boardId, local, readOnly, view, 
 
       const { viewport: vp, canvasSize: size } = view.current;
       const center = { x: -vp.x + size.width / vp.zoom / 2, y: -vp.y + size.height / vp.zoom / 2 };
-      let placed;
+      let placed: BoardElement[];
       try {
         placed = placeElements(kept, center);
         store.commit({ undo: { remove: placed.map((element) => element.id) }, redo: { upsert: placed } });
@@ -131,7 +166,7 @@ export function useImageImport({ store, socket, boardId, local, readOnly, view, 
       setTool("select");
       setSelectedId(null);
       const added = `Added ${placed.length} ${placed.length === 1 ? "element" : "elements"} from ${file.name}`;
-      const left = [];
+      const left: string[] = [];
       if (missing > 0)
         left.push(`${missing} ${missing === 1 ? "picture" : "pictures"} couldn't be added. ${why}`.trim());
       if (parsed.skipped > 0) {
@@ -149,20 +184,22 @@ export function useImageImport({ store, socket, boardId, local, readOnly, view, 
   const addImagesRef = useRef(addImages);
   addImagesRef.current = addImages;
   useEffect(() => {
-    const imagesIn = (list) => [...(list ?? [])].filter(isImageFile);
-    const blocked = (event) => isTypingTarget(event.target) || document.querySelector("dialog[open]");
+    const imagesIn = (list: FileList | null | undefined) => [...(list ?? [])].filter(isImageFile);
+    const blocked = (event: Event) => isTypingTarget(event.target) || document.querySelector("dialog[open]");
 
-    const onPaste = (event) => {
+    const onPaste = (event: ClipboardEvent) => {
       const files = imagesIn(event.clipboardData?.files);
       if (readOnly || files.length === 0 || blocked(event)) return;
       event.preventDefault();
       addImagesRef.current(files);
     };
-    const carriesFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes("Files");
-    const onDragOver = (event) => {
+    // A drag that carries files has a `dataTransfer`, which the predicate says for the checks below.
+    const carriesFiles = (event: DragEvent): event is DragEvent & { dataTransfer: DataTransfer } =>
+      [...(event.dataTransfer?.types ?? [])].includes("Files");
+    const onDragOver = (event: DragEvent) => {
       if (carriesFiles(event)) event.preventDefault();
     };
-    const onDrop = (event) => {
+    const onDrop = (event: DragEvent) => {
       if (!carriesFiles(event)) return;
       // Left alone, the browser opens a dropped file in the tab, leaving the board,
       // so this happens even for people who can only view it.

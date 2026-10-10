@@ -54,7 +54,7 @@ register(
 );
 
 const { render, unmount } = await import("react");
-const { useBoardSync } = await import("../src/features/board/useBoardSync.js");
+const { useBoardSync } = await import("../src/features/board/useBoardSync.ts");
 const { createBoardStore } = await import("../src/features/board/store.ts");
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

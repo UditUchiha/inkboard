@@ -2,12 +2,20 @@ import { Dialog } from "../../components/Dialog";
 import { COMMENT_TOOL, NUMBERED_TOOLS, TOOLS } from "./constants";
 
 // `navigator.platform` is deprecated; the user agent data (or, failing that, the user agent) says it as well.
-const platform = typeof navigator === "undefined" ? "" : (navigator.userAgentData?.platform ?? navigator.userAgent);
+// The cast: TypeScript's DOM types don't have userAgentData yet, which only some browsers offer.
+const platform =
+  typeof navigator === "undefined"
+    ? ""
+    : ((navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData?.platform ??
+      navigator.userAgent);
 const isMac = /Mac|iPhone|iPad/.test(platform);
 const MOD = isMac ? "⌘" : "Ctrl";
 
+// What something does and the keys that do it, each shown on a key cap.
+type Action = { label: string; keys: string[] };
+
 // What anyone can do, including people who can only view the board.
-const VIEW_ACTIONS = [
+const VIEW_ACTIONS: Action[] = [
   { label: "Pan while held", keys: ["Space"] },
   { label: "Zoom in / out", keys: [MOD, "+ / −"] },
   { label: "Reset zoom", keys: [MOD, "0"] },
@@ -17,7 +25,7 @@ const VIEW_ACTIONS = [
 ];
 
 // What needs the right to edit.
-const EDIT_ACTIONS = [
+const EDIT_ACTIONS: Action[] = [
   { label: "Undo", keys: [MOD, "Z"] },
   { label: "Redo", keys: [MOD, "Shift", "Z"] },
   { label: "Redo (alternative)", keys: [MOD, "Y"] },
@@ -39,7 +47,7 @@ const EDIT_ACTIONS = [
   { label: "Move a frame and everything in it", keys: ["Drag the frame"] },
 ];
 
-function Keys({ keys }) {
+function Keys({ keys }: { keys: string[] }) {
   return (
     <span className="flex shrink-0 gap-1">
       {keys.map((key, index) => (
@@ -54,8 +62,10 @@ function Keys({ keys }) {
   );
 }
 
+type ShortcutsDialogProps = { open: boolean; onClose: () => void; readOnly?: boolean; canComment?: boolean };
+
 /** `readOnly`: the person can only look, so only what looking needs is listed. `canComment` adds the comment tool. */
-export function ShortcutsDialog({ open, onClose, readOnly = false, canComment = false }) {
+export function ShortcutsDialog({ open, onClose, readOnly = false, canComment = false }: ShortcutsDialogProps) {
   const tools = canComment ? [...TOOLS, COMMENT_TOOL] : TOOLS;
   const actions = readOnly ? VIEW_ACTIONS : [...EDIT_ACTIONS, ...VIEW_ACTIONS];
   return (

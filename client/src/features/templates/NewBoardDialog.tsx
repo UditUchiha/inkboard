@@ -63,7 +63,6 @@ function BuiltinChoice({ template, disabled, onChoose }: BuiltinChoiceProps) {
       disabled={disabled}
       onClick={() => onChoose({ title: template.title, elements })}
     >
-      {/* @ts-expect-error BoardPreview is still JavaScript, and what is inferred for it makes `children` required. */}
       <BoardPreview elements={elements} className="aspect-[16/10]" padding={10} />
     </Choice>
   );
@@ -176,7 +175,6 @@ export function NewBoardDialog({ open, onClose, onCreate, busy = false }: NewBoa
                   )
                 }
               >
-                {/* @ts-expect-error BoardPreview is still JavaScript, and what is inferred for it makes `children` required. */}
                 <BoardPreview elements={template.preview ?? []} className="aspect-[16/10]" padding={10} />
               </Choice>
             ))}
