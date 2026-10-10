@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
+import { TEMPLATE_LIMITS } from "../src/controllers/template.controller.js";
+import { Board } from "../src/models/board.model.js";
+import { Notification } from "../src/models/notification.model.js";
+import { Template } from "../src/models/template.model.js";
+import { Thread } from "../src/models/thread.model.js";
 import { Version } from "../src/models/version.model.js";
+import { elementBytes, MAX_ELEMENT_BYTES } from "../src/realtime/operations.js";
+import { BOARD_LIMITS } from "../src/services/boards.js";
 import { pruneVersions, recordVersion, VERSION_LIMITS } from "../src/services/versions.js";
-import { eventually, rect, settle, startServer, upsert } from "./helpers.js";
+import { eventually, rect, roundTrip, startServer, upsert } from "./helpers.js";
 
 let app;
 before(async () => {
@@ -85,7 +92,11 @@ describe("version history", () => {
     const { owner, id } = await team();
     const save = (label) => app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label } });
     await save("first");
-    await settle(20);
+    // Two saves in the same millisecond would have no order, so the first is dated a minute back.
+    await Version.collection.updateOne(
+      { board: new mongoose.Types.ObjectId(id), label: "first" },
+      { $set: { createdAt: new Date(Date.now() - 60_000) } },
+    );
     await save("second");
     const { data } = await app.request(`/boards/${id}/versions`, { user: owner });
     assert.deepEqual(
@@ -155,11 +166,40 @@ describe("version history", () => {
       },
       { message: "an automatic version" },
     );
-    await settle();
+    // The checkpoint is decided when the first change arrives, so all three changes have had their say by now.
     assert.equal(autos.length, 1);
     assert.equal(autos[0].elementCount, 1, "it holds the board as it was before the burst");
     const { data } = await app.request(`/boards/${id}/versions`, { user: owner });
     assert.equal(data.versions.filter((version) => version.kind === "auto").length, 1);
+  });
+
+  it("logs when an autosave is skipped because saved versions fill the history, instead of stopping silently", async () => {
+    const { owner, id } = await team();
+    await withVersionLimits({ bytes: 400_000 }, async () => {
+      await recordVersion(id, drawing(300_000), { kind: "named", label: "Big", author: owner.id });
+      // Long enough ago that a checkpoint is due, and a board that can't fit beside the saved version.
+      await Version.collection.updateOne(
+        { board: new mongoose.Types.ObjectId(id) },
+        { $set: { createdAt: new Date(0) } },
+      );
+      await Board.updateOne({ _id: id }, { $set: { elements: drawing(200_000, "now") } });
+
+      const warn = console.warn;
+      const warnings = [];
+      console.warn = (...args) => warnings.push(args.join(" "));
+      try {
+        const client = await app.connect(owner);
+        await client.join(id);
+        await client.op(id, upsert(rect("a")));
+        await eventually(() => warnings.length > 0, { message: "a warning about the skipped autosave" });
+        await client.op(id, upsert(rect("b")));
+      } finally {
+        console.warn = warn;
+      }
+      assert.equal(warnings.length, 1);
+      assert.match(warnings[0], new RegExp(`board ${id}.*no room`));
+      assert.equal(await Version.countDocuments({ board: id, kind: "auto" }), 0);
+    });
   });
 
   it("keeps only the newest automatic versions but never prunes named ones", async () => {
@@ -170,7 +210,7 @@ describe("version history", () => {
     assert.equal(await Version.countDocuments({ board: id, kind: "named" }), 1);
   });
 
-  it("trims the oldest autosaves to keep a board's history within its space, but always keeps the newest few", async () => {
+  it("trims the oldest autosaves to keep a board's history within its space, the newest going last", async () => {
     const { owner, id } = await team();
     await withVersionLimits({ bytes: 500_000 }, async () => {
       await recordVersion(id, drawing(200_000), { kind: "named", label: "Big keeper", author: owner.id });
@@ -184,10 +224,16 @@ describe("version history", () => {
       assert.equal(autos[0].elements[0].id, "e7", "the newest are the ones kept");
       assert.equal(await Version.countDocuments({ board: id, kind: "named" }), 1);
 
-      // Even far over budget, the newest three autosaves stay.
-      for (let index = 0; index < 3; index += 1)
-        await recordVersion(id, drawing(400_000, `big${index}`), { kind: "auto" });
-      assert.equal(await Version.countDocuments({ board: id, kind: "auto" }), 3);
+      // The budget holds even for big autosaves: a newer one pushes the older few out, and one
+      // that can't fit beside the saved version is skipped rather than kept over budget.
+      await recordVersion(id, drawing(250_000, "big"), { kind: "auto" });
+      const left = await Version.find({ board: id, kind: "auto" }).lean();
+      assert.deepEqual(
+        left.map((version) => version.elements[0].id),
+        ["big"],
+      );
+      assert.equal(await recordVersion(id, drawing(400_000, "huge"), { kind: "auto" }), null);
+      assert.equal(await Version.countDocuments({ board: id, kind: "auto" }), 1);
     });
   });
 
@@ -217,6 +263,68 @@ describe("version history", () => {
     assert.ok(measured.bytes > 5_000, `measured ${measured.bytes} bytes`);
   });
 
+  it("lists every version a board can keep, not just the newest hundred", async () => {
+    const { owner, id } = await team();
+    await Version.insertMany(
+      Array.from({ length: 105 }, (_, index) => ({ board: id, kind: "named", label: `V${index}`, elements: [] })),
+    );
+    const { data } = await app.request(`/boards/${id}/versions`, { user: owner });
+    assert.equal(data.versions.length, 105);
+  });
+
+  it("holds saved versions to the count even when the saves arrive at the same moment", async () => {
+    const { owner, id } = await team();
+    const save = (label) => app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label } });
+    await withVersionLimits({ named: 2 }, async () => {
+      const results = await Promise.all(["a", "b", "c", "d", "e"].map(save));
+      assert.equal(results.filter((result) => result.status === 201).length, 2);
+      assert.equal(await Version.countDocuments({ board: id, kind: "named" }), 2);
+    });
+  });
+
+  it("makes room for a saved version by dropping autosaves, and refuses only when saved versions alone fill the space", async () => {
+    const { owner, id } = await team();
+    const save = (label) => app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label } });
+    await withVersionLimits({ bytes: 500_000 }, async () => {
+      for (let index = 0; index < 3; index += 1)
+        await recordVersion(id, drawing(100_000, `a${index}`), { kind: "auto" });
+      await Board.updateOne({ _id: id }, { $set: { elements: drawing(150_000) } });
+      // No saved version yet, and the autosaves (which nobody can delete) are in the way: they give way.
+      assert.equal((await save("one")).status, 201); // 300k of autosaves + 150k
+      assert.equal((await save("two")).status, 201); // 300k + 300k is over 500k: the oldest autosave goes
+      const autos = await Version.find({ board: id, kind: "auto" }).sort({ createdAt: -1 }).lean();
+      assert.equal(autos[0].elements[0].id, "a2", "the newest autosave is kept while it fits");
+      assert.equal((await save("three")).status, 201); // 450k of saved versions
+      const refused = await save("does not fit"); // 600k of saved versions
+      assert.equal(refused.status, 400);
+      assert.match(refused.data.error, /saved versions use up its history space.*Delete an older saved version/);
+      assert.equal(await Version.countDocuments({ board: id, kind: "named" }), 3);
+    });
+  });
+
+  it("measures old versions the way new ones are measured", async () => {
+    const { id } = await team();
+    const elements = drawing(10_000);
+    const old = await Version.collection.insertOne({
+      board: new mongoose.Types.ObjectId(id),
+      kind: "auto",
+      elements,
+      elementCount: 1,
+      createdAt: new Date(0),
+    });
+    await pruneVersions(id);
+    const { bytes } = await recordVersion(id, elements, { kind: "auto" });
+    assert.equal((await Version.findById(old.insertedId).lean()).bytes, bytes);
+  });
+
+  it("refuses a name that isn't text", async () => {
+    const { owner, id } = await team();
+    for (const label of [{ a: 1 }, 5, ["x"]]) {
+      const result = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label } });
+      assert.equal(result.status, 400);
+    }
+  });
+
   it("refuses a new saved version when there are too many, or no room, and explains why", async () => {
     const { owner, id } = await team();
     const save = (label) => app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label } });
@@ -230,7 +338,7 @@ describe("version history", () => {
     await withVersionLimits({ bytes: 1 }, async () => {
       const refused = await save("too big");
       assert.equal(refused.status, 400);
-      assert.match(refused.data.error, /used up their space/);
+      assert.match(refused.data.error, /saved versions use up its history space/);
     });
   });
 
@@ -373,6 +481,79 @@ describe("comments", () => {
     );
   });
 
+  it("doesn't tell people who can no longer open the board about replies, or show them its comments", async () => {
+    const { owner, editor, id } = await team();
+    const { data } = await comment(editor, id, { x: 0, y: 0, body: "private plans" });
+    const reply = (body) =>
+      app.request(`/boards/${id}/threads/${data.thread.id}/messages`, { method: "POST", user: owner, body: { body } });
+    assert.equal((await reply("first")).status, 201);
+    assert.equal((await app.request("/notifications", { user: editor })).data.notifications.length, 2); // invite, reply
+
+    assert.equal(
+      (await app.request(`/boards/${id}/collaborators/${editor.id}`, { method: "DELETE", user: owner })).status,
+      200,
+    );
+    assert.equal((await reply("secret follow-up")).status, 201);
+
+    const seen = (await app.request("/notifications", { user: editor })).data;
+    assert.deepEqual(seen.notifications, [], "nothing about a board they can't open, not even its title");
+    assert.equal(seen.unread, 0);
+    assert.equal(await Notification.countDocuments({ user: editor.id, excerpt: /secret/ }), 0);
+  });
+
+  it("still tells people who can open the board through its link", async () => {
+    const { owner, editor, id } = await team();
+    const { data } = await comment(editor, id, { x: 0, y: 0, body: "hello" });
+    await setLink(owner, id, "view");
+    await app.request(`/boards/${id}/collaborators/${editor.id}`, { method: "DELETE", user: owner });
+    await app.request(`/boards/${id}/threads/${data.thread.id}/messages`, {
+      method: "POST",
+      user: owner,
+      body: { body: "reply" },
+    });
+    const types = (await app.request("/notifications", { user: editor })).data.notifications.map((n) => n.type);
+    assert.ok(types.includes("reply"));
+  });
+
+  it("keeps a thread's message count, position and text within bounds", async () => {
+    const { owner, id } = await team();
+    for (const body of [
+      { x: 1e9, y: 0, body: "far away" },
+      { x: "12", y: 0, body: "text, not a number" },
+      { x: 0, y: 0, body: { not: "text" } },
+      { x: 0, y: 0, body: ["x"] },
+    ]) {
+      assert.equal((await comment(owner, id, body)).status, 400, JSON.stringify(body));
+    }
+    const { data } = await comment(owner, id, { x: 0, y: 0, body: "ok" });
+    const url = `/boards/${id}/threads/${data.thread.id}`;
+    assert.equal((await app.request(url, { method: "PATCH", user: owner, body: { x: 1e9 } })).status, 400);
+
+    await Thread.updateOne(
+      { _id: data.thread.id },
+      { $set: { messages: Array.from({ length: 200 }, () => ({ author: owner.id, body: "again" })) } },
+    );
+    const full = await app.request(`${url}/messages`, { method: "POST", user: owner, body: { body: "one too many" } });
+    assert.equal(full.status, 400);
+    assert.match(full.data.error, /200 messages/);
+  });
+
+  it("shows the same one-line excerpt for a new thread as for a reply", async () => {
+    const { owner, editor, id } = await team();
+    await comment(editor, id, { x: 0, y: 0, body: "line one\n\n   line   two", mentions: [owner.id] });
+    const [mention] = (await app.request("/notifications", { user: owner })).data.notifications;
+    assert.equal(mention.excerpt, "line one line two");
+  });
+
+  it("takes a thread's notifications away when the thread is deleted", async () => {
+    const { owner, editor, id } = await team();
+    const { data } = await comment(editor, id, { x: 0, y: 0, body: "look", mentions: [owner.id] });
+    assert.equal((await app.request("/notifications", { user: owner })).data.unread, 1);
+    await app.request(`/boards/${id}/threads/${data.thread.id}`, { method: "DELETE", user: editor });
+    assert.equal(await Notification.countDocuments({ thread: data.thread.id }), 0);
+    assert.equal((await app.request("/notifications", { user: owner })).data.unread, 0);
+  });
+
   it("reopens a resolved thread on reply, and lets editors resolve or move it", async () => {
     const { owner, editor, id } = await team();
     const { data } = await comment(editor, id, { x: 0, y: 0, body: "todo" });
@@ -414,7 +595,7 @@ describe("comments", () => {
 
     await comment(editor, id, { x: 5, y: 5, body: "live" });
     await eventually(() => signedIn.of("thread:upsert").length === 1, { message: "the live comment" });
-    await settle();
+    await roundTrip(guest);
     assert.equal(guest.of("thread:upsert").length, 0);
 
     const thread = signedIn.last("thread:upsert");
@@ -466,6 +647,41 @@ describe("notifications", () => {
     assert.equal((await app.request("/notifications", { user: person })).data.unread, 0);
   });
 
+  it("aren't piled up when the same person is invited again before the first one is read", async () => {
+    const owner = await app.signUp("Owner");
+    const person = await app.signUp("Person");
+    const id = await app.createBoard(owner, "Again and again");
+    for (let round = 0; round < 3; round += 1) {
+      await invite(owner, id, person);
+      await app.request(`/boards/${id}/collaborators/${person.id}`, { method: "DELETE", user: owner });
+    }
+    await invite(owner, id, person);
+    const { data } = await app.request("/notifications", { user: person });
+    assert.equal(data.notifications.length, 1);
+    assert.equal(data.unread, 1);
+  });
+
+  it("are listed thirty at a time, newest first, and count only what the list can show", async () => {
+    const person = await app.signUp("Person");
+    for (let index = 0; index < 32; index += 1) {
+      const owner = await app.signUp("Inviter");
+      await invite(owner, await app.createBoard(owner, `Board ${index}`), person);
+    }
+    const first = (await app.request("/notifications", { user: person })).data;
+    assert.equal(first.notifications.length, 30);
+    assert.equal(first.more, true);
+    assert.equal(first.unread, 32);
+    assert.equal(first.notifications[0].board.title, "Board 31");
+
+    const last = first.notifications.at(-1).id;
+    const second = (await app.request(`/notifications?before=${last}`, { user: person })).data;
+    assert.deepEqual(
+      second.notifications.map((n) => n.board.title),
+      ["Board 1", "Board 0"],
+    );
+    assert.equal(second.more, false);
+  });
+
   it("stay private to each person and drop out when their board is trashed", async () => {
     const owner = await app.signUp("Owner");
     const person = await app.signUp("Person");
@@ -492,7 +708,7 @@ describe("templates", () => {
     const made = await save(owner, id, "  Retro ");
     assert.equal(made.status, 201);
     assert.equal(made.data.template.title, "Retro");
-    assert.equal(made.data.template.elements.length, 2);
+    assert.equal(made.data.template.elementCount, 2);
     assert.equal((await app.request("/templates", { user: owner })).data.templates.length, 1);
 
     const fromTemplate = await app.request("/boards", {
@@ -506,6 +722,145 @@ describe("templates", () => {
       fromTemplate.data.board.elements.map((element) => element.id),
       ["t1", "t2"],
     );
+  });
+
+  it("are listed as light previews, without their drawings", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    const client = await app.connect(owner);
+    await client.join(id);
+    await client.op(id, upsert(rect("a"), rect("b")));
+    const made = await save(owner, id, "Light");
+
+    const [listed] = (await app.request("/templates", { user: owner })).data.templates;
+    assert.equal(listed.id, made.data.template.id);
+    assert.equal(listed.elementCount, 2);
+    assert.deepEqual(
+      listed.preview.map((element) => element.id),
+      ["a", "b"],
+    );
+    assert.equal(listed.elements, undefined);
+    assert.equal(made.data.template.elements, undefined);
+  });
+
+  it("saved before previews existed get theirs the first time they're listed", async () => {
+    const owner = await app.signUp("Owner");
+    const old = await Template.collection.insertOne({
+      owner: new mongoose.Types.ObjectId(owner.id),
+      title: "Old",
+      elements: [rect("x"), rect("y"), rect("z")],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const [listed] = (await app.request("/templates", { user: owner })).data.templates;
+    assert.equal(listed.elementCount, 3);
+    assert.equal(listed.preview.length, 3);
+    const stored = await Template.collection.findOne({ _id: old.insertedId });
+    assert.equal(stored.elementCount, 3, "and it is kept, so this happens once");
+  });
+
+  it("take their name from a long board title, cut to fit", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner, "T".repeat(75));
+    const client = await app.connect(owner);
+    await client.join(id);
+    await client.op(id, upsert(rect("z")));
+    const made = await save(owner, id);
+    assert.equal(made.status, 201);
+    assert.equal(made.data.template.title, "T".repeat(60));
+    assert.equal((await save(owner, id, { not: "text" })).status, 400);
+  });
+
+  it("let go of arrows that were attached to a picture they left out", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    const client = await app.connect(owner);
+    await client.join(id);
+    const imageId = "a".repeat(32);
+    await client.op(
+      id,
+      upsert(
+        rect("box"),
+        { id: "pic", type: "image", imageId, x1: 300, y1: 0, x2: 400, y2: 100 },
+        {
+          id: "arrow",
+          type: "arrow",
+          x1: 100,
+          y1: 30,
+          x2: 300,
+          y2: 50,
+          stroke: "#16213a",
+          strokeWidth: 2.5,
+          startId: "box",
+          startAnchor: "right",
+          endId: "pic",
+          endAnchor: "left",
+        },
+      ),
+    );
+    const made = await save(owner, id, "Arrows");
+    assert.equal(made.status, 201);
+    const stored = await Template.findById(made.data.template.id).lean();
+    const arrow = stored.elements.find((element) => element.id === "arrow");
+    assert.equal(arrow.startId, "box", "still attached to the box that stayed");
+    assert.equal(arrow.endId, undefined);
+    assert.equal(arrow.endAnchor, undefined);
+    assert.equal(arrow.x2, 300, "and still drawn where it ended");
+  });
+
+  it("refuse a board too big to keep, however many are saved", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    await Board.updateOne({ _id: id }, { $set: { elements: drawing(300_000) } });
+    const saved = { ...TEMPLATE_LIMITS };
+    try {
+      Object.assign(TEMPLATE_LIMITS, { bytes: 100_000 });
+      const refused = await save(owner, id, "Huge");
+      assert.equal(refused.status, 400);
+      assert.match(refused.data.error, /too big/);
+      Object.assign(TEMPLATE_LIMITS, { bytes: 1_000_000 });
+      assert.equal((await save(owner, id, "Fits")).status, 201);
+    } finally {
+      Object.assign(TEMPLATE_LIMITS, saved);
+    }
+  });
+
+  it("only keep elements a board could hold: invalid or repeated ones, and ones too big to store, are left out", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    const huge = {
+      id: "huge",
+      type: "pen",
+      points: Array.from({ length: 40_000 }, (_, i) => [i + 0.25, i + 0.5, 0.5]),
+      pressure: false,
+      stroke: "#16213a",
+      penSize: 8,
+    };
+    await Board.updateOne(
+      { _id: id },
+      { $set: { elements: [rect("ok"), { id: "bad", type: "unknown" }, rect("ok"), huge, null] } },
+    );
+    const made = await save(owner, id, "Clean");
+    assert.equal(made.status, 201);
+    const stored = await Template.findById(made.data.template.id).lean();
+    assert.equal(stored.elements.filter((element) => element.id === "ok").length, 1);
+    assert.ok(stored.elements.every((element) => element.id !== "bad"));
+    assert.ok(stored.elements.every((element) => elementBytes(element) <= MAX_ELEMENT_BYTES));
+  });
+
+  it("stay within the cap when saves arrive at the same moment", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    await Board.updateOne({ _id: id }, { $set: { elements: [rect("z")] } });
+    const saved = { ...TEMPLATE_LIMITS };
+    try {
+      Object.assign(TEMPLATE_LIMITS, { count: 2 });
+      const results = await Promise.all(["a", "b", "c", "d", "e"].map((title) => save(owner, id, title)));
+      assert.equal(results.filter((result) => result.status === 201).length, 2);
+      assert.equal(await Template.countDocuments({ owner: owner.id }), 2);
+    } finally {
+      Object.assign(TEMPLATE_LIMITS, saved);
+    }
   });
 
   it("refuse an empty board, a long name, or a board you can't change", async () => {
@@ -568,6 +923,48 @@ describe("creating boards", () => {
     );
   });
 
+  it("limits how many boards one person has, trashed ones included", async () => {
+    const owner = await app.signUp("Owner");
+    const other = await app.signUp("Other");
+    const create = (user) => app.request("/boards", { method: "POST", user, body: {} });
+    const saved = { ...BOARD_LIMITS };
+    try {
+      Object.assign(BOARD_LIMITS, { perOwner: 2 });
+      const first = await create(owner);
+      assert.equal(first.status, 201);
+      assert.equal((await create(owner)).status, 201);
+      const refused = await create(owner);
+      assert.equal(refused.status, 400);
+      assert.match(refused.data.error, /2 boards/);
+
+      await app.request(`/boards/${first.data.board.id}`, { method: "DELETE", user: owner });
+      assert.equal((await create(owner)).status, 400, "a board in the trash still takes its place");
+      await app.request(`/boards/${first.data.board.id}/permanent`, { method: "DELETE", user: owner });
+      assert.equal((await create(owner)).status, 201, "erasing it makes room");
+      assert.equal((await create(other)).status, 201, "and it is per person");
+    } finally {
+      Object.assign(BOARD_LIMITS, saved);
+    }
+  });
+
+  it("limits the space one person's boards take, counting what a new board starts with", async () => {
+    const owner = await app.signUp("Owner");
+    const saved = { ...BOARD_LIMITS };
+    try {
+      Object.assign(BOARD_LIMITS, { ownerBytes: 400_000 });
+      const create = (elements) =>
+        app.request("/boards", { method: "POST", user: owner, body: { elements, title: "Big" } });
+      assert.equal((await create(drawing(150_000, "a"))).status, 201);
+      assert.equal((await create(drawing(150_000, "b"))).status, 201);
+      const refused = await create(drawing(150_000, "c"));
+      assert.equal(refused.status, 400);
+      assert.match(refused.data.error, /used up their space/);
+      assert.equal((await app.request("/boards", { method: "POST", user: owner, body: {} })).status, 201);
+    } finally {
+      Object.assign(BOARD_LIMITS, saved);
+    }
+  });
+
   it("falls back to a default title and rejects a very long one", async () => {
     const owner = await app.signUp("Owner");
     assert.equal(
@@ -578,5 +975,16 @@ describe("creating boards", () => {
       (await app.request("/boards", { method: "POST", user: owner, body: { title: "x".repeat(81) } })).status,
       400,
     );
+  });
+
+  it("takes a title only as text, never as an object turned into words", async () => {
+    const owner = await app.signUp("Owner");
+    for (const title of [{ a: 1 }, ["x"], 5]) {
+      assert.equal((await app.request("/boards", { method: "POST", user: owner, body: { title } })).status, 400);
+    }
+    const id = await app.createBoard(owner);
+    const rename = (title) => app.request(`/boards/${id}`, { method: "PATCH", user: owner, body: { title } });
+    assert.equal((await rename({ a: 1 })).status, 400);
+    assert.equal((await rename("Fine")).status, 200);
   });
 });

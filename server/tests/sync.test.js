@@ -1,9 +1,12 @@
+import { eventually, rect, remove, roundTrip, startServer, upsert } from "./helpers.js"; // first: it sets up the environment
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { applyOperation, groupStamps, withStamps } from "@inkboard/shared/board-merge";
+import mongoose from "mongoose";
 import { Board } from "../src/models/board.model.js";
 import {
   elementBytes,
+  holdPiece,
   MAX_BOARD_BYTES,
   MAX_ELEMENT_BYTES,
   MAX_ELEMENTS_PER_BOARD,
@@ -14,7 +17,6 @@ import {
 } from "../src/realtime/operations.js";
 import { readRemoved, REMOVED_LIMITS } from "../src/realtime/sessions.js";
 import { flushAllSessions } from "../src/realtime/index.js";
-import { eventually, rect, remove, settle, startServer, upsert } from "./helpers.js";
 
 let app;
 before(async () => {
@@ -49,7 +51,7 @@ describe("live drawing", () => {
       received.op.upsert.map((element) => element.id),
       ["one", "two"],
     );
-    await settle();
+    await roundTrip(a);
     assert.equal(a.of("board:op").length, 0);
   });
 
@@ -84,23 +86,28 @@ describe("live drawing", () => {
     const { owner, id, a } = await pair();
     const otherId = await app.createBoard(owner, "Other");
     const loner = await app.connect(owner);
-    assert.deepEqual(await loner.op(id, upsert(rect("no-join"))), { ok: false });
-    assert.deepEqual(await a.op(otherId, upsert(rect("wrong-room"))), { ok: false });
-    await settle();
+    assert.deepEqual(await loner.op(id, upsert(rect("no-join"))), { ok: false, reason: "noSession" });
+    assert.deepEqual(await a.op(otherId, upsert(rect("wrong-room"))), { ok: false, reason: "noSession" });
+    await flushAllSessions(); // whatever was going to be saved
     assert.equal((await Board.findById(id).lean()).elements.length, 0);
   });
 
   it("drops malformed elements and empty operations", async () => {
     const { id, a, b } = await pair();
-    assert.deepEqual(await a.op(id, { upsert: [], remove: [] }), { ok: false });
-    assert.deepEqual(await a.op(id, null), { ok: false });
-    assert.deepEqual(await a.op(id, "nonsense"), { ok: false });
-    assert.deepEqual(await a.op(id, upsert({ id: "x", type: "not-a-shape" }, { type: "pen" }, null, 5)), { ok: false });
+    assert.deepEqual(await a.op(id, { upsert: [], remove: [] }), { ok: false, reason: "invalid" });
+    assert.deepEqual(await a.op(id, null), { ok: false, reason: "invalid" });
+    assert.deepEqual(await a.op(id, "nonsense"), { ok: false, reason: "invalid" });
+    assert.deepEqual(await a.op(id, upsert({ id: "x", type: "not-a-shape" }, { type: "pen" }, null, 5)), {
+      ok: false,
+      reason: "invalid",
+    });
 
+    await a.op(id, upsert(rect("gone")));
+    await eventually(() => b.of("board:op").length === 1, { message: "the first element" });
     assert.deepEqual(await a.op(id, { upsert: [rect("good"), { id: "", type: "pen" }], remove: ["", 7, "gone"] }), {
       ok: true,
     });
-    const received = await eventually(() => b.of("board:op")[0], { message: "the sanitised operation" });
+    const received = await eventually(() => b.of("board:op")[1], { message: "the sanitised operation" });
     assert.deepEqual(
       received.op.upsert.map((element) => element.id),
       ["good"],
@@ -110,7 +117,7 @@ describe("live drawing", () => {
       received.op.remove.map((removal) => removal.id),
       ["gone"],
     );
-    assert.equal(received.op.remove[0].version, 1);
+    assert.equal(received.op.remove[0].version, 2, "one past the element it removes");
   });
 });
 
@@ -138,10 +145,7 @@ describe("changes that cross", () => {
     assert.deepEqual([saved.x1, saved.x2, saved.stroke], [500, 600, "#e03131"]);
 
     // Each screen: its own change, plus what it was sent.
-    await eventually(() => a.of("board:op").length === 1 || b.of("board:op").length === 2, {
-      message: "the second change passed on",
-    });
-    await settle();
+    await Promise.all([roundTrip(a), roundTrip(b)]); // everything the server passed on has arrived
     const screen = (own, client) =>
       client.of("board:op").reduce((board, { op }) => applyOperation(board, op), applyOperation([start], upsert(own)));
     assert.deepEqual(screen(moved, a), [saved]);
@@ -388,8 +392,8 @@ describe("saving", () => {
 
   it("moves the board's last-modified time forward when it saves", async () => {
     const { id, a } = await pair();
-    const before = (await Board.findById(id).lean()).updatedAt;
-    await settle(30);
+    const before = new Date(Date.now() - 60_000);
+    await Board.collection.updateOne({ _id: new mongoose.Types.ObjectId(id) }, { $set: { updatedAt: before } });
     await a.op(id, upsert(rect("touch")));
     await eventually(async () => (await Board.findById(id).lean()).updatedAt > before, {
       message: "updatedAt to move",
@@ -471,14 +475,15 @@ describe("size limits", () => {
 
   it("accepts a long, ordinary freehand stroke", async () => {
     const { id, guest } = await guestOnEditableLink();
-    assert.deepEqual(await guest.op(id, upsert(stroke("long", 100_000))), { ok: true });
+    assert.equal((await guest.op(id, upsert(stroke("long", 100_000)))).ok, true);
   });
 
   it("rejects a single oversized element, and nobody else sees or saves it", async () => {
     const { id, guest, watcher } = await guestOnEditableLink();
     const result = await guest.op(id, upsert(rect("small"), stroke("huge", MAX_ELEMENT_BYTES + 50_000)));
-    assert.deepEqual(result, { ok: false, tooLarge: true });
-    await settle();
+    assert.deepEqual(result, { ok: false, reason: "tooLarge", tooLarge: true });
+    await roundTrip(watcher);
+    await flushAllSessions();
     assert.equal(watcher.of("board:op").length, 0, "the whole operation was refused, including the small element");
     assert.equal((await Board.findById(id).lean()).elements.length, 0);
   });
@@ -492,8 +497,8 @@ describe("size limits", () => {
       id,
       upsert({ ...stroke("gone", MAX_ELEMENT_BYTES + 50_000), version: 2, versionNonce: 0 }),
     );
-    assert.deepEqual(result, { ok: false, tooLarge: true });
-    await settle();
+    assert.deepEqual(result, { ok: false, reason: "tooLarge", tooLarge: true });
+    await roundTrip(watcher);
     assert.equal(watcher.of("board:op").length, 2, "nobody is sent it");
   });
 
@@ -510,7 +515,7 @@ describe("size limits", () => {
         break;
       }
     }
-    assert.deepEqual(refused, { ok: false, tooLarge: true });
+    assert.deepEqual(refused, { ok: false, reason: "tooLarge", tooLarge: true });
     assert.ok(accepted > 10, "a good amount fits");
 
     // Everyone else's work still saves: nothing was left in a state the database refuses.
@@ -571,7 +576,7 @@ describe("moving between boards", () => {
     await mover.join(second);
 
     await watcher.op(first, upsert(rect("on-first")));
-    await settle();
+    await roundTrip(mover);
     assert.equal(mover.of("board:op").length, 0);
   });
 });
@@ -596,7 +601,7 @@ describe("cursors and views", () => {
     a.socket.emit("viewport", { x: 1, y: 2, zoom: 1.5, width: 800, height: 600 });
     const view = await eventually(() => b.of("viewport")[0], { message: "the valid view" });
     assert.equal(view.zoom, 1.5);
-    await settle();
+    await roundTrip(b);
     assert.equal(b.of("viewport").length, 1);
   });
 });
@@ -669,6 +674,8 @@ describe("operation rules", () => {
     assert.deepEqual(sanitizeOperation({ upsert: [rect("ok")], remove: ["a"] }), {
       upsert: [rect("ok")],
       remove: [{ id: "a" }],
+      changed: [],
+      refused: [],
     });
     assert.deepEqual(
       sanitizeOperation({
@@ -682,5 +689,64 @@ describe("operation rules", () => {
       [{ id: "b", version: 3, versionNonce: 9 }, { id: "c" }, { id: "d" }],
     );
     assert.equal(sanitizeOperation({ upsert: "x", remove: 5 }), null);
+  });
+});
+
+describe("a change sent in pieces", () => {
+  const piece = (client, boardId, op, group) =>
+    new Promise((resolve) => client.socket.emit("board:op", { boardId, op, group }, resolve));
+
+  it("takes effect only when the last piece arrives, all together", async () => {
+    const { id, a, b } = await pair({ sync: SYNC_FORMAT });
+    const group = (index) => ({ id: "g1", index, total: 3 });
+    assert.deepEqual(await piece(a, id, upsert(rect("p1")), group(0)), { ok: true });
+    assert.deepEqual(await piece(a, id, upsert(rect("p2")), group(1)), { ok: true });
+    await roundTrip(b);
+    assert.equal(b.of("board:op").length, 0, "nothing is shown to others while the group is incomplete");
+    assert.equal((await piece(a, id, upsert(rect("p3")), group(2))).ok, true);
+    const received = await eventually(() => b.of("board:op")[0], { message: "the whole change" });
+    assert.deepEqual(received.op.upsert.map((element) => element.id).sort(), ["p1", "p2", "p3"]);
+  });
+
+  it("discards the whole group when a piece is refused or out of order", async () => {
+    const { id, a, b } = await pair({ sync: SYNC_FORMAT });
+    await piece(a, id, upsert(rect("q1")), { id: "g2", index: 0, total: 3 });
+    const skipped = await piece(a, id, upsert(rect("q3")), { id: "g2", index: 2, total: 3 });
+    assert.deepEqual(skipped, { ok: false, reason: "invalid" });
+    // The group is gone: a later piece 1 has nothing to join.
+    assert.deepEqual(await piece(a, id, upsert(rect("q2")), { id: "g2", index: 1, total: 3 }), {
+      ok: false,
+      reason: "invalid",
+    });
+    await roundTrip(b);
+    await flushAllSessions();
+    assert.equal(b.of("board:op").length, 0);
+    assert.deepEqual(await stored(id), []);
+  });
+
+  it("forgets a group when the connection leaves the board", async () => {
+    const { id, a, b } = await pair({ sync: SYNC_FORMAT });
+    await piece(a, id, upsert(rect("r1")), { id: "g3", index: 0, total: 2 });
+    a.leave(); // the server forgets what the socket held as soon as it gets this, before it reads the join
+    await a.join(id, { sync: SYNC_FORMAT });
+    assert.equal((await piece(a, id, upsert(rect("r2")), { id: "g3", index: 1, total: 2 })).ok, false);
+    await roundTrip(b);
+    assert.equal(b.of("board:op").length, 0);
+  });
+});
+
+describe("holdPiece", () => {
+  it("joins pieces in order and refuses everything else", () => {
+    const op = (id) => ({ upsert: [rect(id)], remove: [] });
+    const first = holdPiece(null, { id: "x", index: 0, total: 2 }, op("a"));
+    assert.ok(first.held && !first.op);
+    assert.deepEqual(
+      holdPiece(first.held, { id: "x", index: 1, total: 2 }, op("b")).op.upsert.map((element) => element.id),
+      ["a", "b"],
+    );
+    assert.equal(holdPiece(first.held, { id: "other", index: 1, total: 2 }, op("b")).error, "invalid");
+    assert.equal(holdPiece(null, { id: "x", index: 1, total: 2 }, op("b")).error, "invalid");
+    assert.equal(holdPiece(null, { id: "x", index: 0, total: 1 }, op("b")).error, "invalid");
+    assert.equal(holdPiece(null, { id: "x", index: 0, total: 2 }, null).error, "invalid");
   });
 });
