@@ -31,7 +31,7 @@ An element stores its newest stamp as `version` / `versionNonce`, and lists only
 
 ## What the browser stamps
 
-The store ([`store.js`](../client/src/features/board/store.js)) stamps only the groups a change actually changed, compared with the element it was made from (its **base**), and takes every other group from the element as it is now:
+The store ([`store.js`](../client/src/features/board/store.ts)) stamps only the groups a change actually changed, compared with the element it was made from (its **base**), and takes every other group from the element as it is now:
 
 - a step of a drag is compared with the step before it;
 - a commit (`{ undo, redo }`) is compared with its other side, so undoing a move puts the shape back but keeps a color someone else picked since;

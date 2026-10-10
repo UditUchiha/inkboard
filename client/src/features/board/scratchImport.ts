@@ -1,5 +1,9 @@
 import { stampOf } from "@inkboard/shared/board-merge";
+import type { Element as BoardElement, Effect } from "@inkboard/shared/types";
+import type { Socket } from "socket.io-client";
+import type { CreateBoardInput } from "../../lib/api";
 import { SYNC_FORMAT } from "./constants";
+import type { Scratch } from "./scratch";
 import { toOperations } from "./store";
 
 // Turning a guest's scratch board into a real board. Creating a board over HTTP
@@ -10,17 +14,34 @@ const FIRST_REQUEST_BYTES = 1_200_000;
 const REPLY_TIMEOUT_MS = 20_000;
 const CONNECT_TIMEOUT_MS = 10_000;
 
+/** The board that importing made, of which only the id is read. */
+export type ImportedBoard = { id: string };
+
+/** What importScratch takes: the drawing, how to make a board and reach the server, and what an earlier try made. */
+export type ImportOptions = {
+  scratch: Scratch;
+  createBoard: (input: CreateBoardInput) => Promise<unknown>;
+  socket: Socket;
+  created?: ImportedBoard | null;
+  onCreated?: (board: ImportedBoard) => void;
+};
+
+// What the server answers to an event: whether it went through, and when joining a board, what it holds.
+type Reply = { ok?: boolean; status?: number; board?: { elements?: BoardElement[] } };
+
 export class ImportError extends Error {}
 
 // The board an earlier try made is gone (deleted meanwhile): a new one is made instead.
 class BoardGone extends Error {}
 
-const ask = (socket, event, payload) =>
+const ask = (socket: Socket, event: string, payload: unknown): Promise<Reply | null> =>
   new Promise((resolve) => {
-    socket.timeout(REPLY_TIMEOUT_MS).emit(event, payload, (error, response) => resolve(error ? null : response));
+    socket
+      .timeout(REPLY_TIMEOUT_MS)
+      .emit(event, payload, (error: Error | null, response: Reply) => resolve(error ? null : response));
   });
 
-function connected(socket) {
+function connected(socket: Socket): Promise<void> {
   if (socket.connected) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -37,7 +58,12 @@ function connected(socket) {
 
 // Sends `operations` to the board. With `keep` (the ids in the drawing), elements the board has that
 // the drawing doesn't any more (removed since an earlier try uploaded them) are removed too.
-async function sendPieces(socket, boardId, operations, keep = null) {
+async function sendPieces(
+  socket: Socket,
+  boardId: string,
+  operations: Effect[],
+  keep: Set<string> | null = null,
+): Promise<void> {
   await connected(socket);
   const joined = await ask(socket, "board:join", { boardId, sync: SYNC_FORMAT });
   if (joined?.status === 404) throw new BoardGone();
@@ -62,7 +88,13 @@ async function sendPieces(socket, boardId, operations, keep = null) {
  * `created` is a board an earlier try already made: it's filled in rather than
  * making another. `onCreated(board)` is told when one is made.
  */
-export async function importScratch({ scratch, createBoard, socket, created = null, onCreated = () => {} }) {
+export async function importScratch({
+  scratch,
+  createBoard,
+  socket,
+  created = null,
+  onCreated = () => {},
+}: ImportOptions): Promise<ImportedBoard> {
   const operations = toOperations(
     new Map(scratch.elements.map((element) => [element.id, element])),
     FIRST_REQUEST_BYTES,
@@ -79,7 +111,10 @@ export async function importScratch({ scratch, createBoard, socket, created = nu
     }
   }
   const [first, ...rest] = operations;
-  const { board } = await createBoard({ title: scratch.title, elements: first?.upsert ?? [] });
+  // The cast: the API says nothing of what it answers with, and it is the board that was made.
+  const { board } = (await createBoard({ title: scratch.title, elements: first?.upsert ?? [] })) as {
+    board: ImportedBoard;
+  };
   onCreated(board);
   if (rest.length > 0) await sendPieces(socket, board.id, rest);
   return board;

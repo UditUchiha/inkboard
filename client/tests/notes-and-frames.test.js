@@ -18,7 +18,7 @@ import {
 } from "../src/features/board/elements.ts";
 import { LINE_HEIGHT } from "../src/features/board/constants.ts";
 import { layoutNote, MIN_NOTE_FONT_SIZE, NOTE_PADDING, wrapLines } from "../src/features/board/notes.ts";
-import { loadCanvasFonts } from "../src/features/board/renderer.js";
+import { loadCanvasFonts } from "../src/features/board/renderer.ts";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in makes every character `perCharacter` wide.
 let perCharacter = 10;

@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 const { createImage, duplicate, getBounds, hitTest, translate } = await import("../src/features/board/elements.ts");
 const { getSelectionBox, resizeElement, rotateElement } = await import("../src/features/board/transform.ts");
-const { fitWithin, isImageFile, placementSize } = await import("../src/features/board/images.js");
+const { fitWithin, isImageFile, placementSize } = await import("../src/features/board/images.ts");
 
 const near = (actual, expected, message) =>
   assert.ok(Math.abs(actual - expected) <= 1e-6, `${message}: expected ${expected}, got ${actual}`);
@@ -147,7 +147,7 @@ describe("the picture cache", () => {
     let now = 1_000_000;
     Date.now = () => now;
     try {
-      const { getImage } = await import("../src/features/board/images.js");
+      const { getImage } = await import("../src/features/board/images.ts");
       const id = "c".repeat(32);
       const fail = () => created.at(-1).onerror();
       getImage(id);
@@ -176,7 +176,7 @@ describe("the picture cache", () => {
   it("does not keep every picture it has ever shown", async () => {
     globalThis.Image = FakeImage;
     try {
-      const { getImage } = await import("../src/features/board/images.js");
+      const { getImage } = await import("../src/features/board/images.ts");
       const first = "d".repeat(32);
       getImage(first);
       created.at(-1).onload();
@@ -198,7 +198,7 @@ describe("the picture cache", () => {
     let now = 5_000_000;
     Date.now = () => now;
     try {
-      const { MAX_CACHED, getImage, showingImages } = await import("../src/features/board/images.js");
+      const { MAX_CACHED, getImage, showingImages } = await import("../src/features/board/images.ts");
       const canvas = { isConnected: true };
       let ids = Array.from({ length: MAX_CACHED + 50 }, (_, index) => `shown-${index}`);
       const missing = "9".repeat(32);
@@ -247,7 +247,7 @@ describe("the picture cache", () => {
 
 describe("canvases kept on show", () => {
   it("are dropped once they leave the page or are released, even while the cache is small", async () => {
-    const { showingImages, releaseImages, canvasesShowing } = await import("../src/features/board/images.js");
+    const { showingImages, releaseImages, canvasesShowing } = await import("../src/features/board/images.ts");
     const ids = new Set(["a".repeat(32)]);
     const base = canvasesShowing();
     const onPage = { isConnected: true };

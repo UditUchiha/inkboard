@@ -55,7 +55,7 @@ register(
 
 const { render, unmount } = await import("react");
 const { useBoardSync } = await import("../src/features/board/useBoardSync.js");
-const { createBoardStore } = await import("../src/features/board/store.js");
+const { createBoardStore } = await import("../src/features/board/store.ts");
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const rect = (id) => ({ id, type: "rectangle", x1: 0, y1: 0, x2: 10, y2: 10, stroke: "#000000", fill: null });

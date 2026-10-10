@@ -16,6 +16,19 @@ import {
 import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/board-order";
 import { withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
+import type {
+  Element as BoardElement,
+  Effect,
+  Fields,
+  FieldGroup,
+  GroupStamps,
+  MaybeStamped,
+  Operation,
+  Removal,
+  Stamp,
+  Tombstones,
+} from "@inkboard/shared/types";
+import type { ConnectorChange } from "./connectors";
 
 // Every change to a board is an operation: { upsert: Element[], remove: Removal[] }.
 // The rules for taking one in, the same in the browser and on the server, are
@@ -32,13 +45,80 @@ import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
 
 export { applyOperation };
 
-export const newVersionNonce = () => Math.floor(Math.random() * 2 ** 31);
+/** A change waiting to be sent: an element as it now is, or the removal of one (see toOperation). */
+export type PendingChange = (BoardElement & { removal?: undefined }) | { removal: Effect["remove"][number] };
 
-const versionOf = (stamped) => stampOf(stamped).version;
-const removalOf = (entry) => (typeof entry === "string" ? { id: entry } : entry);
+/** What a person's edit is recorded as in history: the steps that undo it and redo it, and what they were made from. */
+export type HistoryEntry = {
+  undo?: Operation;
+  redo?: Operation;
+  // The elements the undo and the redo step were made from, where that isn't the board as it is (see stamp).
+  undoBase?: readonly BoardElement[];
+  redoBase?: readonly BoardElement[];
+};
+
+/** A step in history: its entry, the key that lets a run of like edits share one step, and when it was last added to. */
+export type HistoryStep = HistoryEntry & { mergeKey?: string | undefined; at: number };
+
+/** Options for recording an edit: edits with the same `mergeKey` close together become one step in history. */
+export type RecordOptions = { mergeKey?: string | undefined };
+
+/** What the store shows to a screen: the board's elements, and whether there is something to undo or redo. */
+export type BoardSnapshot = { elements: BoardElement[]; canUndo: boolean; canRedo: boolean };
+
+/** Told of each change made here once it is stamped, to be sent to everyone else. */
+export type Broadcaster = (op: Effect) => void;
+
+/** What the server answered to a change sent from here (see reconcile). */
+export type Reconciliation = {
+  cleaned?: readonly BoardElement[];
+  dropped?: readonly string[];
+  sent?: ReadonlyMap<string, Stamp>;
+};
+
+/** What createBoardStore takes: how the editor lets connectors go, and the board's size limit (see there). */
+export type BoardStoreOptions = {
+  release?: (elements: BoardElement[], ids: Set<string>) => ConnectorChange[];
+  maxElements?: number;
+  onFull?: (count: number) => void;
+};
+
+/** A board's elements and local undo history, with the changes made here and by others merged in. */
+export type BoardStore = {
+  /** For React's useSyncExternalStore: calls `listener` after every change, until what it returns is called. */
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): BoardSnapshot;
+  /** Identifies the latest step in history, for telling whether anything has been done since. */
+  historyMark(): HistoryStep | undefined;
+  getElements(): BoardElement[];
+  getElement(id: string): BoardElement | undefined;
+  /** Sets who is told of each stamped change made here. */
+  setBroadcaster(fn: Broadcaster): void;
+  /** Replaces everything and forgets history (first load). */
+  load(next: BoardElement[], removed?: unknown): void;
+  /** Reconnected: the board as the server has it, with `unsent` on top. History is kept. */
+  rejoin(next: BoardElement[], unsent?: Operation, removed?: unknown): void;
+  /** Applies a collaborator's change. */
+  applyRemote(op: Operation): void;
+  /** Shows what the server stored, where it differs from what was sent. */
+  reconcile(reply: Reconciliation): void;
+  /** A live, in-progress change, not in history. Returns the connectors it let go of. */
+  apply(op: Operation, options?: { base?: readonly BoardElement[] }): ConnectorChange[];
+  /** Adds a finished change to history (its redo state is already applied). */
+  record(entry: HistoryEntry, options?: RecordOptions): void;
+  /** Applies a change and adds it to history in one step. */
+  commit(entry: HistoryEntry, options?: RecordOptions): void;
+  undo(): void;
+  redo(): void;
+};
+
+export const newVersionNonce = (): number => Math.floor(Math.random() * 2 ** 31);
+
+const versionOf = (stamped?: MaybeStamped | null): number => stampOf(stamped).version;
+const removalOf = (entry: Removal | string): Removal => (typeof entry === "string" ? { id: entry } : entry);
 
 // Whether `a` and `b` differ in any field of `group`.
-const differs = (a, b, group) =>
+const differs = (a: Fields, b: Fields, group: FieldGroup): boolean =>
   FIELD_GROUPS[group].some((field) => field in a !== field in b || a[field] !== b[field]);
 
 /**
@@ -47,15 +127,17 @@ const differs = (a, b, group) =>
  * of the change) or the stamp the server's copy has (the same change, which it only cleaned). A group
  * that someone else's change has replaced since has a newer stamp, and stays as it is.
  */
-function mergeServerCopy(element, theirs, sent) {
+function mergeServerCopy(element: BoardElement, theirs: BoardElement, sent: Stamp | undefined): BoardElement {
   const mine = groupStamps(element);
   const server = groupStamps(theirs);
-  const same = (a, b) => Boolean(a && b) && compareStamps(a, b) === 0;
-  const fields = { id: element.id };
-  const stamps = {};
+  // The assertions: Boolean(a && b) has checked that both are there, which TypeScript doesn't follow.
+  const same = (a: Stamp | undefined, b: Stamp | undefined) => Boolean(a && b) && compareStamps(a!, b!) === 0;
+  const fields: Fields = { id: element.id };
+  const stamps: GroupStamps = {};
   let taken = 0;
   let kept = 0;
-  for (const group of new Set([...Object.keys(mine), ...Object.keys(server)])) {
+  // The cast: Object.keys gives strings, and these are the keys of a GroupStamps, which are groups.
+  for (const group of new Set([...Object.keys(mine), ...Object.keys(server)] as FieldGroup[])) {
     const take = server[group] && (!mine[group] || same(mine[group], server[group]) || same(mine[group], sent));
     copyGroup(fields, take ? theirs : element, group);
     stamps[group] = take ? server[group] : mine[group];
@@ -68,8 +150,8 @@ function mergeServerCopy(element, theirs, sent) {
 }
 
 /** Changes waiting to be sent (id -> element, or { removal }) as one operation. */
-export function toOperation(pending) {
-  const op = { upsert: [], remove: [] };
+export function toOperation(pending: ReadonlyMap<string, PendingChange>): Effect {
+  const op: Effect = { upsert: [], remove: [] };
   for (const [, value] of pending) {
     if (value.removal) op.remove.push(value.removal);
     else op.upsert.push(value);
@@ -90,9 +172,10 @@ const MAX_BURIED_CHARS = 4_000_000;
 const MAX_TOMBSTONES = MAX_REMOVALS_REMEMBERED;
 
 /** Tombstones from the stamps the server sends with a board: [{ id, version, versionNonce }]. */
-function tombstonesFrom(removed) {
-  const tombstones = new Map();
-  for (const entry of Array.isArray(removed) ? removed : []) {
+function tombstonesFrom(removed: unknown): Tombstones {
+  const tombstones: Tombstones = new Map();
+  // The cast: what the server sends is checked below, entry by entry.
+  for (const entry of (Array.isArray(removed) ? removed : []) as (MaybeStamped & { id?: unknown })[]) {
     if (typeof entry?.id === "string" && isStamped(entry)) tombstones.set(entry.id, stampOf(entry));
   }
   return tombstones;
@@ -110,25 +193,29 @@ function tombstonesFrom(removed) {
 //
 // `maxElements` is how many elements the board may hold: a change that would
 // add more leaves the extra ones out, and `onFull(count)` says how many.
-export function createBoardStore({ release = () => [], maxElements = Infinity, onFull = () => {} } = {}) {
-  let elements = [];
-  let index = null; // element id -> element, made when first asked for after `elements` changed
-  let tombstones = new Map(); // removed element id -> { version, versionNonce, element }
-  let buried = new Map(); // removed element id -> size of the data its tombstone keeps, oldest first
+export function createBoardStore({
+  release = () => [],
+  maxElements = Infinity,
+  onFull = () => {},
+}: BoardStoreOptions = {}): BoardStore {
+  let elements: BoardElement[] = [];
+  let index: Map<string, BoardElement> | null = null; // element id -> element, made when first asked for after `elements` changed
+  let tombstones: Tombstones = new Map(); // removed element id -> { version, versionNonce, element }
+  let buried = new Map<string, number>(); // removed element id -> size of the data its tombstone keeps, oldest first
   let buriedChars = 0;
   // The version of each removal made here (id -> version, latest last). Bringing an element back
   // (an undo) is stamped past the removal it undoes from this, even once its tombstone is forgotten:
   // stamped no newer, it would lose to the removal on the server, while showing here.
-  let removedHere = new Map();
-  let undoStack = [];
-  let redoStack = [];
-  let snapshot = { elements, canUndo: false, canRedo: false };
-  let broadcast = () => {};
-  const listeners = new Set();
+  let removedHere = new Map<string, number>();
+  let undoStack: HistoryStep[] = [];
+  let redoStack: HistoryStep[] = [];
+  let snapshot: BoardSnapshot = { elements, canUndo: false, canRedo: false };
+  let broadcast: Broadcaster = () => {};
+  const listeners = new Set<() => void>();
 
   const byId = () => (index ??= new Map(elements.map((element) => [element.id, element])));
 
-  function setElements(next) {
+  function setElements(next: BoardElement[]) {
     elements = next;
     index = null;
   }
@@ -147,15 +234,16 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
   // without a field has no say in it when copies merge (see mergeElement). So
   // fields an element's kind always has are filled in first (see withDefaults):
   // undoing a label on an arrow that had none sends an empty one, not none.
-  function stamp(op, base = []) {
+  function stamp(op: Operation, base: readonly BoardElement[] = []): Effect | null {
     const upsert = (op.upsert ?? []).map(withDefaults);
     const remove = (op.remove ?? []).map(removalOf);
     const ids = new Set([...upsert.map((element) => element.id), ...remove.map((removal) => removal.id)]);
-    const current = new Map();
-    for (const id of ids) if (byId().has(id)) current.set(id, byId().get(id));
+    const current = new Map<string, BoardElement>();
+    // The assertion: `has` has just said the element is there.
+    for (const id of ids) if (byId().has(id)) current.set(id, byId().get(id)!);
     const before = new Map(base.map((element) => [element.id, withDefaults(element)]));
     // One version past the newest this element has had here, with a new nonce.
-    const next = (id, ...also) => ({
+    const next = (id: string, ...also: MaybeStamped[]): Stamp => ({
       // Never past MAX_VERSION: a version beyond it is refused by everyone else.
       version: Math.min(
         MAX_VERSION,
@@ -170,7 +258,7 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
     });
     let top = topKey(elements);
 
-    const stamped = { upsert: [], remove: remove.map((removal) => ({ id: removal.id, ...next(removal.id) })) };
+    const stamped: Effect = { upsert: [], remove: remove.map((removal) => ({ id: removal.id, ...next(removal.id) })) };
     for (const removal of stamped.remove) {
       removedHere.delete(removal.id);
       removedHere.set(removal.id, removal.version);
@@ -211,7 +299,7 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
   }
 
   // Takes in an operation (see board-merge.js), keeping the data tombstones hold within MAX_BURIED_CHARS.
-  function take(op) {
+  function take(op: Operation) {
     // The plan works from the index (rather than building one) and commitPlan brings it up to date.
     const plan = planOperation(elements, op, tombstones, { index: byId() });
     elements = commitPlan(plan, tombstones).elements;
@@ -226,7 +314,8 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
     }
     for (const [id, size] of buried) {
       if (buriedChars <= MAX_BURIED_CHARS) break;
-      const { element: _data, ...stamp } = tombstones.get(id);
+      // The assertion: an id in `buried` has a tombstone, which is where its size was taken from.
+      const { element: _data, ...stamp } = tombstones.get(id)!;
       tombstones.set(id, stamp);
       buried.delete(id);
       buriedChars -= size;
@@ -240,7 +329,7 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
   }
 
   // The server's copy is the reference: its tombstones (stamps) replace ours.
-  function startRemoved(removed) {
+  function startRemoved(removed: unknown) {
     tombstones = tombstonesFrom(removed);
     buried = new Map();
     buriedChars = 0;
@@ -250,7 +339,7 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
   // attached to them, where they're drawn (see connectors.js), unless it
   // changes those connectors itself. Otherwise they'd jump back to where they
   // were first drawn. Returns `op` with them, and them: [{ before, after }].
-  function withReleases(op) {
+  function withReleases(op: Operation): { op: Operation; released: ConnectorChange[] } {
     const removing = new Set((op.remove ?? []).map((entry) => removalOf(entry).id));
     if (removing.size === 0) return { op, released: [] };
     const changing = new Set((op.upsert ?? []).map((element) => element.id));
@@ -260,17 +349,18 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
   }
 
   // `op` without the new elements that don't fit on the board.
-  function withinLimit(op) {
+  function withinLimit(op: Operation): Operation {
     const room = maxElements - elements.length;
     const added = (op.upsert ?? []).filter((element) => !byId().has(element.id));
     if (added.length <= room) return op;
     const refused = new Set(added.slice(Math.max(0, room)).map((element) => element.id));
     onFull(refused.size);
-    return { ...op, upsert: op.upsert.filter((element) => !refused.has(element.id)) };
+    // The assertion: `added` came from `op.upsert`, so there is one.
+    return { ...op, upsert: op.upsert!.filter((element) => !refused.has(element.id)) };
   }
 
   // Returns the connectors it let go of (see withReleases).
-  function apply(op, { base } = {}) {
+  function apply(op: Operation, { base }: { base?: readonly BoardElement[] } = {}): ConnectorChange[] {
     const { op: full, released } = withReleases(withinLimit(op));
     const stamped = stamp(full, base);
     if (stamped) {
@@ -287,13 +377,18 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
   // put back from the state they were let go into (`undoBase` / `redoBase`),
   // so going back changes only what letting go changed, not a label or color
   // someone gave them since.
-  function attachingBack(entry, step, released) {
+  function attachingBack<Entry extends HistoryEntry>(
+    entry: Entry,
+    step: "undo" | "redo",
+    released: ConnectorChange[],
+  ): Entry {
     if (released.length === 0) return entry;
     const other = step === "undo" ? "redo" : "undo";
     const ids = new Set(released.map(({ before }) => before.id));
     const kept = (entry[other]?.upsert ?? []).filter((element) => !ids.has(element.id)); // from a step before
     const upsert = [...kept, ...released.map(({ before }) => before)];
-    const baseKey = `${other}Base`;
+    // The const: the key is `undoBase` or `redoBase`, not just any string.
+    const baseKey = `${other}Base` as const;
     const base = [
       ...(entry[baseKey] ?? []).filter((element) => !ids.has(element.id)),
       ...released.map(({ after }) => after),
@@ -305,7 +400,7 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
   // or removed again. An element a step puts back is the exception when the
   // step it reverses (or, for a new shape, the step itself) is what removed it:
   // those ids are `revived`.
-  function stillApplies(step = {}, revived = []) {
+  function stillApplies(step: Operation = {}, revived: readonly (Removal | string)[] = []): Operation {
     const live = byId();
     const back = new Set(revived.map((entry) => removalOf(entry).id));
     return {
@@ -315,9 +410,9 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
     };
   }
 
-  const hasChanges = (op = {}) => (op.upsert?.length ?? 0) + (op.remove?.length ?? 0) > 0;
+  const hasChanges = (op: Operation = {}) => (op.upsert?.length ?? 0) + (op.remove?.length ?? 0) > 0;
 
-  function record(entry, { mergeKey } = {}) {
+  function record(entry: HistoryEntry, { mergeKey }: RecordOptions = {}) {
     const last = undoStack.at(-1);
     const now = Date.now();
     if (mergeKey && last?.mergeKey === mergeKey && now - last.at < MERGE_WINDOW_MS) {
@@ -443,7 +538,7 @@ export function createBoardStore({ release = () => [], maxElements = Infinity, o
   };
 }
 
-export function useBoardSnapshot(store) {
+export function useBoardSnapshot(store: BoardStore): BoardSnapshot {
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
@@ -454,19 +549,25 @@ export function useBoardSnapshot(store) {
 export const MAX_OPERATION_BYTES = 1_000_000;
 
 // A safe over-estimate of an element's size as JSON: points and text are what make one big.
-const roughSize = (value) =>
-  1500 + (value.points?.length ?? 0) * 50 + ((value.text?.length ?? 0) + (value.name?.length ?? 0)) * 6;
+// (A removal has none of them, and nor have most elements.)
+const roughSize = (value: {
+  id?: string;
+  removal?: unknown;
+  points?: readonly unknown[];
+  text?: string;
+  name?: string;
+}) => 1500 + (value.points?.length ?? 0) * 50 + ((value.text?.length ?? 0) + (value.name?.length ?? 0)) * 6;
 
 /** `pending` (id -> element, or { removal }) as operations of at most about `maxBytes` each. */
-export function toOperations(pending, maxBytes = MAX_OPERATION_BYTES) {
+export function toOperations(pending: ReadonlyMap<string, PendingChange>, maxBytes = MAX_OPERATION_BYTES): Effect[] {
   // Measuring every change (this runs every 40 ms while someone draws) is only
   // needed when a rough estimate says they might not fit in one piece.
   let estimate = 0;
   for (const [, value] of pending) estimate += roughSize(value);
   const measure = estimate > maxBytes / 2;
 
-  const operations = [];
-  let op = { upsert: [], remove: [] };
+  const operations: Effect[] = [];
+  let op: Effect = { upsert: [], remove: [] };
   let bytes = 0;
   for (const [, value] of pending) {
     const size = measure ? JSON.stringify(value).length : roughSize(value);

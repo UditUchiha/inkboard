@@ -1,7 +1,9 @@
 import { cleanElement } from "@inkboard/shared/element-rules";
+import type { Element as BoardElement } from "@inkboard/shared/types";
 import { MAX_ELEMENTS_PER_BOARD } from "./constants";
 import { copyGroup } from "./connectors";
 import { getSceneBounds } from "./elements";
+import type { XY } from "./geometry";
 
 // A board saved as a file (.inkboard.json): its elements, plus the pictures on
 // it as data URLs so the file stands on its own. Importing adds the elements to
@@ -15,13 +17,49 @@ export const BOARD_FILE_EXTENSION = ".inkboard.json";
 // A board file is mostly its pictures; the pictures' own limit is 25 MB each.
 export const MAX_BOARD_FILE_BYTES = 100_000_000;
 
+/** A board file as written: the elements, and the pictures by image id as data URLs. */
+export type BoardFile = {
+  type: typeof BOARD_FILE_TYPE;
+  version: number;
+  title: string;
+  exportedAt: string;
+  elements: BoardElement[];
+  images: Record<string, string>;
+};
+
+/** What reading a board file gives: its elements cleaned, its pictures, and how many elements were left out. */
+export type ParsedBoardFile = {
+  title: string;
+  elements: BoardElement[];
+  pictures: Map<string, string>;
+  skipped: number;
+};
+
+// What JSON.parse of a file's text may give before it is checked: any part can be missing or wrong.
+type RawBoardFile = {
+  type?: unknown;
+  version?: unknown;
+  title?: unknown;
+  elements?: unknown;
+  images?: Record<string, unknown> | null;
+} | null;
+
 /** A problem with a board file that can be shown to the person as it is. */
 export class BoardFileError extends Error {}
 
-export const isBoardFile = (file) => /\.json$/i.test(file?.name ?? "") || file?.type === "application/json";
+export const isBoardFile = (file: { name?: string; type?: string } | null | undefined): boolean =>
+  /\.json$/i.test(file?.name ?? "") || file?.type === "application/json";
 
 /** The file's contents for a board's `elements`, with `pictures` mapping image ids to data URLs. */
-export function makeBoardFile({ title, elements, pictures = new Map() }) {
+export function makeBoardFile({
+  title,
+  elements,
+  pictures = new Map(),
+}: {
+  title: string;
+  elements: BoardElement[];
+  pictures?: Map<string, string>;
+}): BoardFile {
   const used = new Set(elements.filter((element) => element.type === "image").map((element) => element.imageId));
   return {
     type: BOARD_FILE_TYPE,
@@ -34,8 +72,8 @@ export function makeBoardFile({ title, elements, pictures = new Map() }) {
 }
 
 /** Reads a board file's text. Returns `{ title, elements, pictures, skipped }` or throws a BoardFileError. */
-export function parseBoardFile(text) {
-  let data;
+export function parseBoardFile(text: string): ParsedBoardFile {
+  let data: RawBoardFile;
   try {
     data = JSON.parse(text);
   } catch {
@@ -54,7 +92,8 @@ export function parseBoardFile(text) {
   }
   // Every element goes through the rules the server applies to what it stores, so the
   // board shows what the server will keep, and nothing in the file can break drawing.
-  const elements = data.elements.map(cleanElement).filter(Boolean);
+  // The cast: filter(Boolean) leaves only the elements there are, which TypeScript doesn't see.
+  const elements = data.elements.map(cleanElement).filter(Boolean) as BoardElement[];
   if (elements.length === 0) {
     throw new BoardFileError(
       data.elements.length === 0
@@ -63,7 +102,7 @@ export function parseBoardFile(text) {
     );
   }
 
-  const pictures = new Map();
+  const pictures = new Map<string, string>();
   for (const [id, url] of Object.entries(data.images ?? {})) {
     if (typeof url === "string" && url.startsWith("data:image/")) pictures.set(id, url);
   }
@@ -76,7 +115,7 @@ export function parseBoardFile(text) {
 }
 
 /** Reads a file someone picked as a board file (see parseBoardFile). */
-export async function readBoardFile(file) {
+export async function readBoardFile(file: File): Promise<ParsedBoardFile> {
   if (file.size > MAX_BOARD_FILE_BYTES) {
     throw new BoardFileError(`That file is too big to import (over ${MAX_BOARD_FILE_BYTES / 1_000_000} MB).`);
   }
@@ -87,11 +126,11 @@ export async function readBoardFile(file) {
  * The bytes of a data URL as a Blob. This is done by hand rather than with
  * `fetch(url)`, which the page's content security policy doesn't allow for data URLs.
  */
-export function dataUrlToBlob(url) {
+export function dataUrlToBlob(url: string): Blob {
   const match = /^data:([^,;]*)([^,]*),/.exec(url);
   if (!match) throw new BoardFileError("A picture in that file is damaged.");
   const body = url.slice(match[0].length);
-  let bytes;
+  let bytes: Uint8Array<ArrayBuffer>;
   if (match[2].endsWith(";base64")) {
     const binary = atob(body);
     bytes = new Uint8Array(binary.length);
@@ -106,7 +145,7 @@ export function dataUrlToBlob(url) {
  * Copies of `elements` with new ids, moved so that together they're centred
  * on `center` (board coordinates), keeping their layout and order.
  */
-export function placeElements(elements, center) {
+export function placeElements(elements: BoardElement[], center: XY): BoardElement[] {
   const bounds = getSceneBounds(elements);
   const dx = bounds ? center.x - (bounds.x + bounds.width / 2) : 0;
   const dy = bounds ? center.y - (bounds.y + bounds.height / 2) : 0;

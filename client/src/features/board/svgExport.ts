@@ -1,3 +1,12 @@
+import type {
+  Element as BoardElement,
+  Font,
+  FrameElement,
+  ImageElement,
+  ShapeElement,
+  StickyElement,
+  TextElement,
+} from "@inkboard/shared/types";
 import {
   FONTS,
   fontKey,
@@ -11,6 +20,7 @@ import {
 import { isConnector, resolveConnectors } from "./connectors";
 import { canRotate, connectorLabel, frameLabel, getBounds, getLocalBounds, inDrawOrder, isFrame } from "./elements";
 import { expandRect, normalizeRect, rectCenter, unionRects } from "./geometry";
+import type { Rect } from "./geometry";
 import { noteLayout } from "./notes";
 import { penOutline, shapePaths } from "./renderer";
 
@@ -20,30 +30,44 @@ import { penOutline, shapePaths } from "./renderer";
 
 export const SVG_PADDING = 32;
 
-const XML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" };
+/** Where each font's baseline sits, as a share of its size (see measureBaselines); fonts not measured have none. */
+export type Baselines = Partial<Record<Font, number>>;
+
+/** What buildSvg takes besides the board: pictures by image id (as data URLs), CSS to embed, baselines and a background. */
+export type SvgOptions = {
+  images?: ReadonlyMap<string, string>;
+  fontFaces?: string;
+  baselines?: Baselines;
+  background?: string | null;
+};
+
+// What an element's SVG is made with: the pictures, the baselines and the ids of what it defines for itself.
+type SvgParts = { images: ReadonlyMap<string, string>; baselines: Baselines; ids: { clip: string; shadow: string } };
+
+const XML_ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" };
 // Characters XML 1.0 can't hold at all, even escaped (a vertical tab pasted from Word, say, or half an emoji),
 // would make the file unreadable.
 const NOT_XML =
   // eslint-disable-next-line no-control-regex -- matching control characters is the point
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
-const xml = (value) =>
+const xml = (value: string): string =>
   String(value)
     .replace(NOT_XML, "")
     .replace(/[&<>"']/g, (char) => XML_ESCAPES[char]);
-const num = (value) => String(Math.round(value * 100) / 100);
+const num = (value: number): string => String(Math.round(value * 100) / 100);
 
 // Where a line's alphabetic baseline sits below the top of its text, as a share
 // of the font size. The canvas draws text from the top of the em box; SVG
 // places it by its baseline. Measured in the browser by `measureBaselines`.
 const FALLBACK_BASELINE = 0.8;
 
-function turned(element, inner) {
+function turned(element: BoardElement, inner: string): string {
   if (!canRotate(element) || !element.angle) return inner;
   const { x, y } = rectCenter(getLocalBounds(element));
   return `<g transform="rotate(${num((element.angle * 180) / Math.PI)} ${num(x)} ${num(y)})">${inner}</g>`;
 }
 
-function textSvg(element, baselines) {
+function textSvg(element: TextElement, baselines: Baselines): string {
   const font = fontKey(element.font);
   const family = FONTS[font].family;
   const lineHeight = element.fontSize * LINE_HEIGHT;
@@ -61,7 +85,7 @@ function textSvg(element, baselines) {
 }
 
 // `shadowId` names the filter that gives the note the soft shadow the canvas draws (see drawNote).
-function noteSvg(element, baselines, shadowId) {
+function noteSvg(element: StickyElement, baselines: Baselines, shadowId: string): string {
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   const layout = noteLayout(element);
   const font = fontKey(element.font);
@@ -87,18 +111,18 @@ function noteSvg(element, baselines, shadowId) {
   ].join("");
 }
 
-const frameSvg = (element) => {
+const frameSvg = (element: FrameElement): string => {
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   return `<rect x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}" fill="${FRAME_FILL}" stroke="${FRAME_BORDER}" stroke-width="1"/>`;
 };
 
-function frameNameSvg(element, baselines) {
+function frameNameSvg(element: FrameElement, baselines: Baselines): string {
   const label = frameLabel(element);
   const baseline = label.bottom - FRAME_LABEL_SIZE + (baselines.sans ?? FALLBACK_BASELINE) * FRAME_LABEL_SIZE;
   return `<text x="${num(label.x)}" y="${num(baseline)}" font-family="${xml(FONTS.sans.family)}" font-size="${FRAME_LABEL_SIZE}" font-weight="500" fill="${FRAME_LABEL_COLOR}" xml:space="preserve">${xml(label.text)}</text>`;
 }
 
-function pictureSvg(element, images) {
+function pictureSvg(element: ImageElement, images: ReadonlyMap<string, string>): string {
   const { x, y, width, height } = normalizeRect(element.x1, element.y1, element.x2, element.y2);
   const box = `x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}"`;
   const href = images.get(element.imageId);
@@ -106,7 +130,7 @@ function pictureSvg(element, images) {
   return `<image ${box} preserveAspectRatio="none" xlink:href="${xml(href)}"/>`;
 }
 
-const shapeSvg = (element) =>
+const shapeSvg = (element: ShapeElement): string =>
   shapePaths(element)
     .map(
       (path) =>
@@ -116,11 +140,11 @@ const shapeSvg = (element) =>
 
 // A line or arrow broken around its label (clipped to everything but the
 // label's box, named `clipId`), and the label, as the canvas draws them.
-function connectorSvg(element, baselines, clipId) {
+function connectorSvg(element: ShapeElement, baselines: Baselines, clipId: string): string {
   const label = connectorLabel(element);
   if (!label) return shapeSvg(element);
   const around = expandRect(getBounds(element), 8);
-  const rect = ({ x, y, width, height }) => `M${num(x)} ${num(y)}h${num(width)}v${num(height)}h${num(-width)}Z`;
+  const rect = ({ x, y, width, height }: Rect) => `M${num(x)} ${num(y)}h${num(width)}v${num(height)}h${num(-width)}Z`;
   const font = fontKey(element.font);
   const lineHeight = label.fontSize * LINE_HEIGHT;
   const top = label.y + (label.height - label.lines.length * lineHeight) / 2 + (lineHeight - label.fontSize) / 2;
@@ -139,7 +163,7 @@ function connectorSvg(element, baselines, clipId) {
   ].join("");
 }
 
-function elementSvg(element, { images, baselines, ids }) {
+function elementSvg(element: BoardElement, { images, baselines, ids }: SvgParts): string {
   switch (element.type) {
     case "pen":
       return `<path d="${penOutline(element)}" fill="${xml(element.stroke)}"/>`;
@@ -164,7 +188,10 @@ function elementSvg(element, { images, baselines, ids }) {
  * `images` maps image ids to data URLs, `fontFaces` is CSS (@font-face rules)
  * to embed, and `baselines` gives each font's baseline as a share of its size.
  */
-export function buildSvg(board, { images = new Map(), fontFaces = "", baselines = {}, background = "#ffffff" } = {}) {
+export function buildSvg(
+  board: BoardElement[],
+  { images = new Map(), fontFaces = "", baselines = {}, background = "#ffffff" }: SvgOptions = {},
+): string | null {
   const elements = resolveConnectors(board);
   const bounds = unionRects(elements.map(getBounds));
   if (!bounds) return null;
@@ -202,8 +229,8 @@ export function buildSvg(board, { images = new Map(), fontFaces = "", baselines 
 }
 
 /** Text fonts used by `elements`, by key (see FONTS). Frame names are in the sans font. */
-export function fontsUsed(elements) {
-  const fonts = new Set();
+export function fontsUsed(elements: BoardElement[]): Set<Font> {
+  const fonts = new Set<Font>();
   for (const element of elements) {
     const written = element.type === "text" || element.type === "sticky" || isConnector(element);
     if (written && element.text) fonts.add(fontKey(element.font));

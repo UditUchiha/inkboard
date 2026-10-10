@@ -9,6 +9,6 @@ export const MIN_SCALE = 0.05; // below this a picture of the board would show n
 export class ExportError extends Error {}
 
 /** How much to scale a board of `width` x `height` units: twice for sharpness, less to stay inside what a canvas can be. */
-export function exportScale(width, height) {
+export function exportScale(width: number, height: number): number {
   return Math.min(2, MAX_DIMENSION / width, MAX_DIMENSION / height, Math.sqrt(MAX_PIXELS / (width * height)));
 }
