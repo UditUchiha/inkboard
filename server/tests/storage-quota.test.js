@@ -3,8 +3,8 @@ import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
 import { Board } from "../src/models/board.model.ts";
 import { Version } from "../src/models/version.model.ts";
-import { BOARD_LIMITS, drawingBytes, ownerBytes, roomLeft } from "../src/services/boards.js";
-import { recordVersion } from "../src/services/versions.js";
+import { BOARD_LIMITS, drawingBytes, ownerBytes, roomLeft } from "../src/services/boards.ts";
+import { recordVersion } from "../src/services/versions.ts";
 import { startServer } from "./helpers.js";
 
 let app;

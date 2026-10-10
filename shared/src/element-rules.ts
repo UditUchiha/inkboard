@@ -283,10 +283,10 @@ export function cleanElement(element: unknown): Element | null {
     // TURNABLE_TYPES says which types may have an angle, but only for `clean.type`, not for `clean` itself.
     (clean as { angle?: number }).angle = element.angle;
   }
-  // Where it sits in the stack (see shared/src/board-order.js).
+  // Where it sits in the stack (see shared/src/board-order.ts).
   if (isOrderKey(element.index)) clean.index = element.index;
   // Which edit of the element, and of each group of its properties, this is
-  // (see shared/src/board-merge.js). Brought into shape: `version` is the newest
+  // (see shared/src/board-merge.ts). Brought into shape: `version` is the newest
   // stamp and `stamps` lists only older ones. One that isn't a version (past
   // MAX_VERSION, say) is dropped, and the change is stamped as the newest edit.
   if (isVersion(element.version)) {

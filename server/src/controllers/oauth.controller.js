@@ -13,7 +13,7 @@ import {
 } from "../lib/tokens.ts";
 import { OAUTH_PROVIDERS, User } from "../models/user.model.ts";
 import { refreshUser } from "../realtime/index.js";
-import { emailConfigured } from "../services/email.js";
+import { emailConfigured } from "../services/email.ts";
 
 // Sign-in with Google or GitHub uses the authorization-code flow:
 //   1. The app makes a random `bind` value, keeps it in the tab (sessionStorage) and sends the
@@ -204,7 +204,7 @@ function failSignIn(req, res, code, to, provider, next) {
 export function listProviders(req, res) {
   res.json({
     providers: enabledProviders().map((name) => ({ id: name, label: PROVIDERS[name].label })),
-    // Whether email verification and password reset are on (see services/email.js).
+    // Whether email verification and password reset are on (see services/email.ts).
     email: emailConfigured(),
   });
 }

@@ -1,5 +1,5 @@
 import { Board } from "../models/board.model.ts";
-import { destroyBoard } from "./boards.js";
+import { destroyBoard } from "./boards.ts";
 
 // How long a deleted board stays in the trash before it's erased for good.
 export const TRASH_DAYS = 30;
@@ -10,7 +10,9 @@ const SWEEP_INTERVAL_MS = 6 * 3600 * 1000;
 // branch is answered from an index (deletedAt's, and the partial one on purgingAt, which `$type`
 // matches exactly), so the sweep doesn't read every board's drawing. Exported for the test that
 // checks that.
-export const expiredBoards = (cutoff) => ({
+export const expiredBoards = (
+  cutoff: Date,
+): { $or: [{ deletedAt: { $ne: null; $lt: Date } }, { purgingAt: { $type: "date" } }] } => ({
   $or: [{ deletedAt: { $ne: null, $lt: cutoff } }, { purgingAt: { $type: "date" } }],
 });
 
@@ -31,7 +33,7 @@ export function startTrashSweeper() {
   const sweep = () =>
     purgeExpiredTrash()
       .then((count) => count > 0 && console.log(`Deleted ${count} board(s) from the trash for good.`))
-      .catch((error) => console.error(`Trash cleanup failed: ${error.message}`));
+      .catch((error: Error) => console.error(`Trash cleanup failed: ${error.message}`));
   sweep();
   return setInterval(sweep, SWEEP_INTERVAL_MS).unref();
 }

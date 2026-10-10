@@ -19,7 +19,7 @@ import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
 
 // Every change to a board is an operation: { upsert: Element[], remove: Removal[] }.
 // The rules for taking one in, the same in the browser and on the server, are
-// in shared/src/board-merge.js: each group of an element's properties (its
+// in shared/src/board-merge.ts: each group of an element's properties (its
 // shape, its color, its text, …) carries the stamp of its latest change, the
 // newest stamp wins group by group, and removed elements leave a tombstone.
 // So everyone ends up with the same board whatever order changes arrive in.

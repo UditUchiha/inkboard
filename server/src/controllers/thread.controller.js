@@ -13,8 +13,8 @@ import {
   PERSON_FIELDS,
   roleOf,
   serializePerson,
-} from "../services/boards.js";
-import { notify } from "../services/notifications.js";
+} from "../services/boards.ts";
+import { notify } from "../services/notifications.ts";
 
 // Comment threads pinned to the canvas. Anyone signed in who can open the board
 // can read them; people who can edit it can comment. Members can be @mentioned.

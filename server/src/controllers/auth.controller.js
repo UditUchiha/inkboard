@@ -11,8 +11,8 @@ import {
   redeemSecret,
   sendPasswordResetEmail,
   sendVerificationEmail,
-} from "../services/account-emails.js";
-import { emailConfigured } from "../services/email.js";
+} from "../services/account-emails.ts";
+import { emailConfigured } from "../services/email.ts";
 
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const ACCOUNT_FIELDS = "+password +googleId +githubId";

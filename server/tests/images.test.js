@@ -5,9 +5,9 @@ import { eventually, rect, remove, startServer, upsert } from "./helpers.js";
 
 const { env } = await import("../src/config/env.ts");
 
-const { imageBytes } = await import("../src/services/image-storage.js");
+const { imageBytes } = await import("../src/services/image-storage.ts");
 const { forgetRecentUploads, IMAGE_LIMITS, sweepsSettled, sweepUnusedImages } =
-  await import("../src/services/images.js");
+  await import("../src/services/images.ts");
 
 let app;
 before(async () => {

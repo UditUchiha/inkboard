@@ -12,8 +12,8 @@ import {
   PERSON_FIELDS,
   serializePerson,
   withRoom,
-} from "../services/boards.js";
-import { recordVersion, VERSION_LIMITS } from "../services/versions.js";
+} from "../services/boards.ts";
+import { recordVersion, VERSION_LIMITS } from "../services/versions.ts";
 
 // Version history is for members (the owner and invited editors).
 

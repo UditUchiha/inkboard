@@ -553,7 +553,7 @@ export function translate(element, dx, dy) {
 /**
  * The stacking key that moves `element` to the "front" or "back" of the board,
  * or a step "forward" or "backward" past the next element it overlaps (see
- * shared/src/board-order.js). Null when there's nowhere to move it.
+ * shared/src/board-order.ts). Null when there's nowhere to move it.
  * Frames are drawn beneath everything else, so they only move among frames,
  * and everything else among everything but frames.
  */

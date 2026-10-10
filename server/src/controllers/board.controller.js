@@ -20,11 +20,11 @@ import {
   serializeListed,
   serializeMeta,
   withRoom,
-} from "../services/boards.js";
-import { emailConfigured } from "../services/email.js";
-import { notify } from "../services/notifications.js";
-import { boardPreviews } from "../services/previews.js";
-import { TRASH_DAYS } from "../services/trash.js";
+} from "../services/boards.ts";
+import { emailConfigured } from "../services/email.ts";
+import { notify } from "../services/notifications.ts";
+import { boardPreviews } from "../services/previews.ts";
+import { TRASH_DAYS } from "../services/trash.ts";
 
 const DAY_MS = 24 * 3600 * 1000;
 

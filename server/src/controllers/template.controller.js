@@ -2,8 +2,8 @@ import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
 import { Template } from "../models/template.model.ts";
 import { sanitizeElements } from "../realtime/operations.js";
-import { currentElements, drawingBytes, findBoardForMember, withRoom } from "../services/boards.js";
-import { previewElements } from "../services/previews.js";
+import { currentElements, drawingBytes, findBoardForMember, withRoom } from "../services/boards.ts";
+import { previewElements } from "../services/previews.ts";
 
 // Templates outlive boards and the free database holds 512 MB for everyone, so each one is
 // kept small and each person keeps only so many. Tests lower these.

@@ -13,7 +13,7 @@ import {
   SYNC_FORMAT,
 } from "../src/realtime/operations.js";
 import { flushAllSessions } from "../src/realtime/index.js";
-import { BOARD_LIMITS } from "../src/services/boards.js";
+import { BOARD_LIMITS } from "../src/services/boards.ts";
 
 let app;
 before(async () => {

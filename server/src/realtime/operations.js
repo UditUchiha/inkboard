@@ -16,10 +16,10 @@ import { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT } from "@inkboard/shared/limits";
 import mongoose from "mongoose";
 
 // Boards change through operations: { upsert: Element[], remove: Removal[] },
-// taken in by the rules in shared/src/board-merge.js, which the browser applies
-// too. Each element is checked and cleaned first (see shared/src/element-rules.js).
+// taken in by the rules in shared/src/board-merge.ts, which the browser applies
+// too. Each element is checked and cleaned first (see shared/src/element-rules.ts).
 
-// Shared with the browser (shared/src/limits.js); re-exported for the rest of the server.
+// Shared with the browser (shared/src/limits.ts); re-exported for the rest of the server.
 export { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT };
 
 // MongoDB refuses documents over 16 MB, and a board is one document. Without

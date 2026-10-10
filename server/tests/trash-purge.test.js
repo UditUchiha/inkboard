@@ -4,8 +4,8 @@ import { Board } from "../src/models/board.model.ts";
 import { Thread } from "../src/models/thread.model.ts";
 import { User } from "../src/models/user.model.ts";
 import { Version } from "../src/models/version.model.ts";
-import { destroyBoard } from "../src/services/boards.js";
-import { expiredBoards, purgeExpiredTrash } from "../src/services/trash.js";
+import { destroyBoard } from "../src/services/boards.ts";
+import { expiredBoards, purgeExpiredTrash } from "../src/services/trash.ts";
 import { startServer } from "./helpers.js";
 
 let app;

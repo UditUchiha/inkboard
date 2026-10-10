@@ -46,7 +46,7 @@ browser                                   server                         MongoDB
 | Longest side after shrinking | 2000 px | same |
 | Files up to 400 KB and 2000 px | uploaded untouched | same |
 | Small copy for thumbnails | 400 px, at most 200 KB | same, and `IMAGE_LIMITS.small` on the server |
-| One stored image | 2 MB, at most 4096 px on a side | `shared/src/limits.js` (the browser shrinks to fit under it), applied in `server/src/services/images.js` |
+| One stored image | 2 MB, at most 4096 px on a side | `shared/src/limits.ts` (the browser shrinks to fit under it), applied in `server/src/services/images.ts` |
 | Images per board | 25 MB | same (`IMAGE_LIMITS`) |
 | Images across all the boards one account owns, whoever added them | 100 MB (20 MB while the account's email address is unconfirmed, once email is set up) | same |
 | Images in the whole app | 300 MB | same |
@@ -66,7 +66,7 @@ Animated GIFs are drawn as a still picture, because the board is a canvas.
 
 ## The alternatives, for later
 
-The server talks to storage through the functions in `server/src/services/image-storage.js`: `putImage`, `openImage`, `imageBytes`, `listImages`, `deleteImages` and `deleteBoardImages`. The limits and the sweep in `images.js` only use those. Moving to another service means rewriting that one file. Boards and saved images do not change, because elements only hold the id.
+The server talks to storage through the functions in `server/src/services/image-storage.ts`: `putImage`, `openImage`, `imageBytes`, `listImages`, `deleteImages` and `deleteBoardImages`. The limits and the sweep in `images.js` only use those. Moving to another service means rewriting that one file. Boards and saved images do not change, because elements only hold the id.
 
 ### Cloudflare R2
 

@@ -2,7 +2,7 @@
 
 Everyone on a board edits their own copy straight away and sends the change. Changes reach the server, and from it everyone else, in different orders, so two people can change the same thing at the same moment. The rules below make sure that **everyone who has seen the same changes has the same board**, whatever order they arrived in. In the literature this is a state-based **CRDT**: a map of last-writer-wins registers, with tombstones for removed entries. It's close to what Excalidraw does, with property-level merging added.
 
-The rules live in one place, [`shared/src/board-merge.js`](../shared/src/board-merge.js), which the browser and the server both import, so they can't drift apart. Stacking order is in [`shared/src/board-order.js`](../shared/src/board-order.js).
+The rules live in one place, [`shared/src/board-merge.ts`](../shared/src/board-merge.ts), which the browser and the server both import, so they can't drift apart. Stacking order is in [`shared/src/board-order.ts`](../shared/src/board-order.ts).
 
 ## Changes and stamps
 
@@ -56,7 +56,7 @@ Each element has an `index`, a string key from [fractional indexing](https://obs
 
 For each `board:op` the server ([`realtime/index.js`](../server/src/realtime/index.js)) first checks the sender's rate (a burst of 100, then 40 a second; cursors and views have their own, lower limits), then:
 
-1. **cleans** the elements ([`element-rules.js`](../shared/src/element-rules.js));
+1. **cleans** the elements ([`element-rules.ts`](../shared/src/element-rules.ts));
 2. **prepares** the operation (`prepareOperation`): gives new elements without a key a place on top, replaces a stamp that's more than a million versions ahead of what the board has for that element (a forged one would put the element out of reach of every later change) by one for the newest edit, and handles browsers still running an older app, which say so by not sending `sync: 2` when they join. Their elements are taken whole at their version, and ones without a version are stamped as the newest edit;
 3. **plans** it with the shared rules, without changing anything (`planOperation`);
 4. **checks sizes** against what would actually change (`admit`), including changes to removed elements, each of which must fit as an element;

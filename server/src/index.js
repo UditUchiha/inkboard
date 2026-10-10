@@ -4,10 +4,10 @@ import { createApp } from "./app.js";
 import { connectDatabase } from "./config/db.ts";
 import { env } from "./config/env.ts";
 import { attachRealtime, closeRealtime } from "./realtime/index.js";
-import { verifyAccountsMadeByProviders } from "./services/account-emails.js";
-import { emailConfigured } from "./services/email.js";
-import { startImageSweeper } from "./services/images.js";
-import { startTrashSweeper } from "./services/trash.js";
+import { verifyAccountsMadeByProviders } from "./services/account-emails.ts";
+import { emailConfigured } from "./services/email.ts";
+import { startImageSweeper } from "./services/images.ts";
+import { startTrashSweeper } from "./services/trash.ts";
 
 const app = createApp();
 const server = http.createServer(app);

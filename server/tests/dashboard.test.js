@@ -6,9 +6,9 @@ import { Board } from "../src/models/board.model.ts";
 import { BoardState } from "../src/models/board-state.model.ts";
 import { Thread } from "../src/models/thread.model.ts";
 import { Version } from "../src/models/version.model.ts";
-import { destroyBoard } from "../src/services/boards.js";
-import { PREVIEW_CACHE_LIMITS, previewCacheSize } from "../src/services/previews.js";
-import { purgeExpiredTrash, TRASH_DAYS } from "../src/services/trash.js";
+import { destroyBoard } from "../src/services/boards.ts";
+import { PREVIEW_CACHE_LIMITS, previewCacheSize } from "../src/services/previews.ts";
+import { purgeExpiredTrash, TRASH_DAYS } from "../src/services/trash.ts";
 import { eventually, rect, startServer, upsert } from "./helpers.js";
 
 let app;

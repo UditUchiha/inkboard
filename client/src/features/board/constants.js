@@ -17,7 +17,7 @@ export const TOOLS = [
 // Only offered to signed-in people who can edit the board. It has no number key.
 export const COMMENT_TOOL = { id: "comment", label: "Comment", key: "c" };
 
-// The board limit and the merge-rules version are the server's too (shared/src/limits.js).
+// The board limit and the merge-rules version are the server's too (shared/src/limits.ts).
 export { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT } from "@inkboard/shared/limits";
 
 // A pen stroke longer than this carries on as a new one: each step of a stroke
