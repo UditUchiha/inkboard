@@ -28,7 +28,7 @@ for (const key of [
 const { createApp } = await import("../src/app.ts");
 const { signToken } = await import("../src/lib/tokens.ts");
 const { User } = await import("../src/models/user.model.ts");
-const { attachRealtime, flushAllSessions } = await import("../src/realtime/index.js");
+const { attachRealtime, flushAllSessions } = await import("../src/realtime/index.ts");
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

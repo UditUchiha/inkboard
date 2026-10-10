@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
 import { Template } from "../models/template.model.ts";
-import { sanitizeElements } from "../realtime/operations.js";
+import { sanitizeElements } from "../realtime/operations.ts";
 import { currentElements, drawingBytes, findBoardForMember, withRoom } from "../services/boards.ts";
 import { previewElements } from "../services/previews.ts";
 

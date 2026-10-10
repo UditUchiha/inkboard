@@ -15,7 +15,7 @@ import {
 import type { TokenClaims } from "../lib/tokens.ts";
 import { OAUTH_PROVIDERS, User } from "../models/user.model.ts";
 import type { OAuthProvider, UserDoc } from "../models/user.model.ts";
-import { refreshUser } from "../realtime/index.js";
+import { refreshUser } from "../realtime/index.ts";
 import { emailConfigured } from "../services/email.ts";
 
 // Sign-in with Google or GitHub uses the authorization-code flow:

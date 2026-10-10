@@ -4,15 +4,15 @@ import { after, before, describe, it } from "node:test";
 import { applyOperation } from "@inkboard/shared/board-merge";
 import mongoose from "mongoose";
 import { Board } from "../src/models/board.model.ts";
-import { heldGroupBytes } from "../src/realtime/index.js";
+import { heldGroupBytes } from "../src/realtime/index.ts";
 import {
   holdPiece,
   isOversized,
   MAX_ELEMENTS_PER_BOARD,
   restoreOver,
   SYNC_FORMAT,
-} from "../src/realtime/operations.js";
-import { flushAllSessions } from "../src/realtime/index.js";
+} from "../src/realtime/operations.ts";
+import { flushAllSessions } from "../src/realtime/index.ts";
 import { BOARD_LIMITS } from "../src/services/boards.ts";
 
 let app;

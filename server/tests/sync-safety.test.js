@@ -4,9 +4,9 @@ import { after, before, describe, it } from "node:test";
 import { MAX_VERSION } from "@inkboard/shared/board-merge";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
 import { Board } from "../src/models/board.model.ts";
-import { flushAllSessions } from "../src/realtime/index.js";
-import { MAX_BOARD_BYTES, MAX_ELEMENTS_PER_BOARD, sanitizeElements, SYNC_FORMAT } from "../src/realtime/operations.js";
-import { LIMITS } from "../src/realtime/rate-limit.js";
+import { flushAllSessions } from "../src/realtime/index.ts";
+import { MAX_BOARD_BYTES, MAX_ELEMENTS_PER_BOARD, sanitizeElements, SYNC_FORMAT } from "../src/realtime/operations.ts";
+import { LIMITS } from "../src/realtime/rate-limit.ts";
 
 let app;
 before(async () => {

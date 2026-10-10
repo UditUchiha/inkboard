@@ -5,7 +5,7 @@ import { keyedQueue } from "../lib/keyed-queue.ts";
 import { Board } from "../models/board.model.ts";
 import { User } from "../models/user.model.ts";
 import { Version } from "../models/version.model.ts";
-import { getSession } from "../realtime/sessions.js";
+import { getSession } from "../realtime/sessions.ts";
 import { emailConfigured } from "./email.ts";
 import type { ObjectIdLike } from "./boards.ts";
 import { deleteImages, imageBytes, listImages, putImage } from "./image-storage.ts";

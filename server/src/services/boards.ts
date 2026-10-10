@@ -9,7 +9,7 @@ import { Notification } from "../models/notification.model.ts";
 import { Template } from "../models/template.model.ts";
 import { Thread } from "../models/thread.model.ts";
 import type { UserDoc } from "../models/user.model.ts";
-import { getSession } from "../realtime/sessions.js";
+import { getSession } from "../realtime/sessions.ts";
 import { deleteBoardImages } from "./image-storage.ts";
 import { removeVersions, savedVersionBytes } from "./versions.ts";
 

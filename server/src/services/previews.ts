@@ -1,7 +1,7 @@
 import type { Element, Fields, PenElement, Point } from "@inkboard/shared/types";
 import type { Types } from "mongoose";
 import { Board } from "../models/board.model.ts";
-import { getSession } from "../realtime/sessions.js";
+import { getSession } from "../realtime/sessions.ts";
 import type { BoardDoc } from "./boards.ts";
 
 // Dashboard cards draw each board from a slimmed-down copy of its elements, so a

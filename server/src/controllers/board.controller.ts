@@ -6,8 +6,8 @@ import { BoardState } from "../models/board-state.model.ts";
 import { Board, LINK_ACCESS } from "../models/board.model.ts";
 import { Template } from "../models/template.model.ts";
 import { User } from "../models/user.model.ts";
-import { sanitizeElements } from "../realtime/operations.js";
-import { closeBoard, notifyMetaChanged, syncAccess } from "../realtime/index.js";
+import { sanitizeElements } from "../realtime/operations.ts";
+import { closeBoard, notifyMetaChanged, syncAccess } from "../realtime/index.ts";
 import {
   currentElements,
   destroyBoard,

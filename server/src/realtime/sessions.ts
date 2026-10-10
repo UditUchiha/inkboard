@@ -2,10 +2,12 @@ import { commitPlan } from "@inkboard/shared/board-merge";
 import { inStackOrder } from "@inkboard/shared/board-order";
 import { withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
+import type { Effect, Element, Plan, Stamp, Tombstone, Tombstones } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import { Board } from "../models/board.model.ts";
+import type { ObjectIdLike } from "../services/boards.ts";
 import { lastVersionTime, recordVersion } from "../services/versions.ts";
-import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.js";
+import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.ts";
 
 // Boards that are open in at least one browser live in memory, so every
 // stroke can be broadcast immediately. Changes are written to MongoDB shortly
@@ -18,7 +20,7 @@ const BASE_PERSIST_DELAY_MS = 250;
 const MAX_PERSIST_DELAY_MS = 5000;
 const BYTES_PER_EXTRA_MS = 4000;
 
-const persistDelay = (session) =>
+const persistDelay = (session: Session) =>
   Math.min(MAX_PERSIST_DELAY_MS, BASE_PERSIST_DELAY_MS + Math.round(session.bytes / BYTES_PER_EXTRA_MS));
 
 // Before the first change after a quiet spell of this long, the board is saved
@@ -26,14 +28,55 @@ const persistDelay = (session) =>
 const CHECKPOINT_INTERVAL_MS = 10 * 60 * 1000;
 const SKIP_WARNING_INTERVAL_MS = 60 * 60 * 1000;
 
-const sessions = new Map();
+/**
+ * A board that is open in memory (see the comment at the top of this file). Everything the server
+ * knows about the board while people are on it, and where it stands with saving.
+ */
+export interface Session {
+  boardId: string;
+  // Whose space the board takes (see ownerRoom in index.ts), or null for a board without one.
+  owner: string | null;
+  // The board's elements in stack order.
+  elements: Element[];
+  // The elements by id, which updateSession keeps up to date.
+  index: Map<string, Element>;
+  // The bytes each element takes (see measure and admit), and the total of them.
+  sizes: Map<string, number>;
+  bytes: number;
+  // Removed elements: the stamp each was removed with (and its last data, while within MAX_BURIED_BYTES),
+  // the time it was removed, and how many bytes of data the tombstones keep, oldest first.
+  tombstones: Tombstones;
+  removedAt: Map<string, number>;
+  buried: Map<string, number>;
+  buriedBytes: number;
+  // Changes not saved yet, the save (or its retry) that's due, and the save in progress.
+  dirty: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+  saving: Promise<void> | null;
+  // Everyone has left: it goes once it's saved, unless someone opens it first.
+  closing: boolean;
+  // Forgotten without saving what was left (see discardSession).
+  discarded: boolean;
+  // When the board's newest saved version was made (null until the lookup in openSession finishes),
+  // and when the log last said a checkpoint was skipped.
+  lastVersionAt: number | null;
+  skipWarnedAt: number | null;
+}
 
-export function getSession(boardId) {
+// A tombstone as it is saved with a board (see removedList): the stamp of the removal and when it happened.
+type SavedRemoval = Stamp & { id: string; at: number };
+
+/** A tombstone as a browser hears of it when it opens a board. */
+export type RemovedStamp = Stamp & { id: string };
+
+const sessions = new Map<string, Session>();
+
+export function getSession(boardId: string) {
   return sessions.get(boardId);
 }
 
 // Boards being opened right now, so people who open one together share a single read.
-const opening = new Map();
+const opening = new Map<string, Promise<Session>>();
 
 /**
  * The open board `boardId`, opened from the database (with its saved tombstones)
@@ -42,7 +85,7 @@ const opening = new Map();
  * last saw. Whoever calls this must join the board in the same turn they get the
  * session (see enterBoard in index.js), or it could be closed before they do.
  */
-export function acquireSession(boardId) {
+export function acquireSession(boardId: string): Promise<Session> {
   const open = sessions.get(boardId);
   if (open) return Promise.resolve(open);
   let pending = opening.get(boardId);
@@ -62,7 +105,7 @@ export function acquireSession(boardId) {
  * after `acquireSession`, in the same turn, and acquire again when it says no:
  * the session was closed (and saved) in between.
  */
-export function holdSession(session) {
+export function holdSession(session: Session) {
   if (sessions.get(session.boardId) !== session) return false;
   session.closing = false;
   return true;
@@ -70,7 +113,10 @@ export function holdSession(session) {
 
 // How big each element is, and the total, so a board can't outgrow what the database can store.
 // Also the elements by id, which updateSession keeps up to date.
-function measure(session) {
+// A session as openSession makes it, before it is measured.
+type Unmeasured = Omit<Session, "index" | "sizes" | "bytes"> & Partial<Pick<Session, "index" | "sizes" | "bytes">>;
+
+function measure(session: Unmeasured): asserts session is Session {
   session.index = new Map(session.elements.map((element) => [element.id, element]));
   session.sizes = new Map(session.elements.map((element) => [element.id, elementBytes(element)]));
   session.bytes = [...session.sizes.values()].reduce((sum, size) => sum + size, 0);
@@ -85,7 +131,12 @@ function measure(session) {
  * must fit as an element, since it's passed on and could come back. When it fits,
  * the board's size tracking is updated, so call updateSession with the same change next.
  */
-export function admit(session, op, buried = [], room = Infinity) {
+export function admit(
+  session: Session,
+  op: Effect,
+  buried: Element[] = [],
+  room = Infinity,
+): "element" | "board" | "owner" | null {
   if (buried.some((element) => elementBytes(element) > MAX_ELEMENT_BYTES)) return "element";
   const updates = new Map(op.upsert.map((element) => [element.id, elementBytes(element)]));
   const removals = new Set(op.remove.map((removal) => removal.id).filter((id) => !updates.has(id)));
@@ -118,11 +169,11 @@ const MAX_BURIED_BYTES = MAX_BOARD_BYTES;
 export const REMOVED_LIMITS = { ageMs: 30 * 24 * 3600 * 1000, count: MAX_ELEMENTS_PER_BOARD };
 const MAX_REMOVED_IN_MEMORY = MAX_REMOVALS_REMEMBERED;
 
-const isStampNumber = (value, max = Number.MAX_SAFE_INTEGER) =>
+const isStampNumber = (value: number, max = Number.MAX_SAFE_INTEGER) =>
   Number.isSafeInteger(value) && value >= 0 && value <= max;
 
 /** Saved tombstones (`removed` on a board) as a session keeps them, leaving out any for elements on the board. */
-export function readRemoved(removed, elements) {
+export function readRemoved(removed: SavedRemoval[] | undefined, elements: Element[]) {
   const live = new Set(elements.map((element) => element.id));
   const cutoff = Date.now() - REMOVED_LIMITS.ageMs;
   const entries = (Array.isArray(removed) ? removed : [])
@@ -144,17 +195,18 @@ export function readRemoved(removed, elements) {
 }
 
 // The session's tombstones as they're saved, oldest first: the newest ones, within the age limit.
-function removedList(session) {
+function removedList(session: Session) {
   const cutoff = Date.now() - REMOVED_LIMITS.ageMs;
   const recent = [...session.removedAt].filter(([, at]) => at > cutoff).slice(-REMOVED_LIMITS.count);
   return recent.map(([id, at]) => {
-    const { version, versionNonce } = session.tombstones.get(id);
+    // Tombstones and removedAt are set and cleared together.
+    const { version, versionNonce } = session.tombstones.get(id)!;
     return { id, version, versionNonce, at };
   });
 }
 
 // Lets the oldest tombstones go when an open board has more than it should keep.
-function trimRemoved(session) {
+function trimRemoved(session: Session) {
   let excess = session.removedAt.size - MAX_REMOVED_IN_MEMORY;
   for (const id of session.removedAt.keys()) {
     if (excess-- <= 0) break;
@@ -163,11 +215,11 @@ function trimRemoved(session) {
 }
 
 /** The stamps of a board's tombstones, for a browser opening it: [{ id, version, versionNonce }]. */
-export function removedStamps(tombstones) {
+export function removedStamps(tombstones: Tombstones): RemovedStamp[] {
   return [...tombstones].map(([id, { version, versionNonce }]) => ({ id, version, versionNonce }));
 }
 
-function forget(session, id) {
+function forget(session: Session, id: string) {
   session.tombstones.delete(id);
   session.removedAt.delete(id);
   session.buriedBytes -= session.buried.get(id) ?? 0;
@@ -175,11 +227,16 @@ function forget(session, id) {
 }
 
 // Opens the board `boardId` with `elements` and its saved tombstones (`removed`).
-function openSession(boardId, elements, removed = [], owner = null) {
+function openSession(
+  boardId: string,
+  elements: Element[],
+  removed: SavedRemoval[] = [],
+  owner: ObjectIdLike | null = null,
+): Session {
   // A board saved before elements had places in the stack gets them now, in the order it was saved,
   // and elements saved before they had every field their kind has now get those (see withDefaults).
   const ordered = inStackOrder(elements.map(withDefaults));
-  const session = {
+  const session: Unmeasured = {
     boardId,
     owner: owner ? String(owner) : null, // whose space the board takes (see ownerRoom in index.js)
     elements: ordered,
@@ -204,7 +261,7 @@ function openSession(boardId, elements, removed = [], owner = null) {
   return session;
 }
 
-function checkpoint(session) {
+function checkpoint(session: Session) {
   // Unknown until the lookup in openSession finishes; skip rather than guess.
   if (session.lastVersionAt === null) return;
   if (Date.now() - session.lastVersionAt < CHECKPOINT_INTERVAL_MS) return;
@@ -212,13 +269,13 @@ function checkpoint(session) {
   session.lastVersionAt = Date.now();
   recordVersion(session.boardId, session.elements)
     .then((version) => version === null && warnCheckpointSkipped(session))
-    .catch((error) => console.error(`Could not save a version of board ${session.boardId}: ${error.message}`));
+    .catch((error: Error) => console.error(`Could not save a version of board ${session.boardId}: ${error.message}`));
 }
 
 // A skipped autosave means the board's saved versions leave no room for one (see recordVersion),
 // so history quietly stops growing until someone deletes a saved version. Say so in the log, but
 // no more than once an hour per board, not at every checkpoint.
-function warnCheckpointSkipped(session) {
+function warnCheckpointSkipped(session: Session) {
   const now = Date.now();
   if (now - (session.skipWarnedAt ?? 0) < SKIP_WARNING_INTERVAL_MS) return;
   session.skipWarnedAt = now;
@@ -231,7 +288,7 @@ function warnCheckpointSkipped(session) {
  * Carries out a plan (see planOperation) on an open board. Returns the ids of
  * new elements left out because the board has as many as it can hold.
  */
-export function updateSession(session, plan) {
+export function updateSession(session: Session, plan: Plan): string[] {
   const changes = plan.shown.size > 0 || plan.hidden.size > 0;
   if (changes) checkpoint(session);
   // (The plan was made with session.index, which this brings up to date.)
@@ -256,7 +313,7 @@ export function updateSession(session, plan) {
 }
 
 // Keeps count of the data tombstones hold, and lets the oldest go past MAX_BURIED_BYTES.
-function bury(session, graves) {
+function bury(session: Session, graves: Iterable<readonly [string, Tombstone | null]>) {
   for (const [id, tombstone] of graves) {
     session.buriedBytes -= session.buried.get(id) ?? 0;
     session.buried.delete(id);
@@ -268,7 +325,8 @@ function bury(session, graves) {
   }
   for (const [id, bytes] of session.buried) {
     if (session.buriedBytes <= MAX_BURIED_BYTES) break;
-    const { element: _data, ...stamp } = session.tombstones.get(id);
+    // Only tombstones that hold data are in `buried`.
+    const { element: _data, ...stamp } = session.tombstones.get(id)!;
     session.tombstones.set(id, stamp);
     session.buried.delete(id);
     session.buriedBytes -= bytes;
@@ -276,7 +334,7 @@ function bury(session, graves) {
 }
 
 // After a restore: tombstones the restore cleared are forgotten, and new ones dated now.
-function dateRestored(removedAt, before, tombstones, now) {
+function dateRestored(removedAt: Map<string, number>, before: Set<string>, tombstones: Tombstones, now: number) {
   for (const id of removedAt.keys()) if (!tombstones.has(id)) removedAt.delete(id);
   for (const id of tombstones.keys()) if (!before.has(id)) removedAt.set(id, now);
 }
@@ -285,7 +343,7 @@ function dateRestored(removedAt, before, tombstones, now) {
  * Puts `snapshot` (an earlier version) back on an open board, stamped as the
  * newest edit (see restoreOver). Returns the board's elements as restored.
  */
-export function resetSession(session, snapshot) {
+export function resetSession(session: Session, snapshot: Element[]): Element[] {
   const now = Date.now();
   const before = new Set(session.tombstones.keys());
   const { elements, tombstones } = restoreOver(session.elements, session.tombstones, snapshot);
@@ -304,7 +362,7 @@ export function resetSession(session, snapshot) {
   return elements;
 }
 
-function markDirty(session) {
+function markDirty(session: Session) {
   session.dirty = true;
   session.timer ??= setTimeout(() => persist(session), persistDelay(session));
 }
@@ -315,8 +373,8 @@ function markDirty(session) {
  * older copy can't land after a newer one: changes made during a save are
  * written by the next round of the same save, and callers share the one promise.
  */
-function persist(session) {
-  clearTimeout(session.timer);
+function persist(session: Session) {
+  clearTimeout(session.timer!); // clearTimeout does nothing for null, which Node's types leave out
   session.timer = null;
   session.saving ??= save(session).finally(() => {
     session.saving = null;
@@ -324,7 +382,7 @@ function persist(session) {
   return session.saving;
 }
 
-async function save(session) {
+async function save(session: Session) {
   while (session.dirty && !session.discarded) {
     session.dirty = false;
     try {
@@ -344,7 +402,8 @@ async function save(session) {
         },
       );
     } catch (error) {
-      console.error(`Could not save board ${session.boardId}: ${error.message}`);
+      // The driver rejects with Error objects.
+      console.error(`Could not save board ${session.boardId}: ${(error as Error).message}`);
       session.dirty = true;
       if (!session.discarded) session.timer ??= setTimeout(() => persist(session), MAX_PERSIST_DELAY_MS);
       return;
@@ -355,7 +414,7 @@ async function save(session) {
 }
 
 /** Saves the board and lets it go from memory, unless someone opens it again first (see holdSession). */
-export async function closeSession(boardId) {
+export async function closeSession(boardId: string) {
   const session = sessions.get(boardId);
   if (!session) return;
   session.closing = true;
@@ -363,11 +422,11 @@ export async function closeSession(boardId) {
 }
 
 /** Forgets the board without saving what's left, for a board that's gone. */
-export function discardSession(boardId) {
+export function discardSession(boardId: string) {
   const session = sessions.get(boardId);
   if (!session) return;
   session.discarded = true;
-  clearTimeout(session.timer);
+  clearTimeout(session.timer!); // as in persist
   session.timer = null;
   sessions.delete(boardId);
 }
