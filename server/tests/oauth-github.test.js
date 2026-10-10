@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 
-const { env } = await import("../src/config/env.js");
-const { signToken } = await import("../src/lib/tokens.js");
-const { User } = await import("../src/models/user.model.js");
+const { env } = await import("../src/config/env.ts");
+const { signToken } = await import("../src/lib/tokens.ts");
+const { User } = await import("../src/models/user.model.ts");
 
 // "Continue with Google" has its own tests (auth-security.test.js). GitHub answers differently: it
 // takes a second request for the addresses, and an address only counts when it is verified.

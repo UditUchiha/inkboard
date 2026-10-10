@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    // While the server moves over, its .ts files import JavaScript ones, whose types are inferred, not checked.
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["src"]
+}

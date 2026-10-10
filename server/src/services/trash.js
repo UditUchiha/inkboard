@@ -1,4 +1,4 @@
-import { Board } from "../models/board.model.js";
+import { Board } from "../models/board.model.ts";
 import { destroyBoard } from "./boards.js";
 
 // How long a deleted board stays in the trash before it's erased for good.

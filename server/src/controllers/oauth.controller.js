@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import { env } from "../config/env.js";
-import { apiUrlFor, clientUrlFor } from "../lib/app-url.js";
-import { HttpError } from "../lib/http-error.js";
+import { env } from "../config/env.ts";
+import { apiUrlFor, clientUrlFor } from "../lib/app-url.ts";
+import { HttpError } from "../lib/http-error.ts";
 import {
   OAUTH_CONNECT,
   OAUTH_LINK,
@@ -10,8 +10,8 @@ import {
   signPurposeToken,
   signToken,
   verifyPurposeToken,
-} from "../lib/tokens.js";
-import { OAUTH_PROVIDERS, User } from "../models/user.model.js";
+} from "../lib/tokens.ts";
+import { OAUTH_PROVIDERS, User } from "../models/user.model.ts";
 import { refreshUser } from "../realtime/index.js";
 import { emailConfigured } from "../services/email.js";
 

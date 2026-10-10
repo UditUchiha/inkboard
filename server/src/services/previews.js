@@ -1,4 +1,4 @@
-import { Board } from "../models/board.model.js";
+import { Board } from "../models/board.model.ts";
 import { getSession } from "../realtime/sessions.js";
 
 // Dashboard cards draw each board from a slimmed-down copy of its elements, so a

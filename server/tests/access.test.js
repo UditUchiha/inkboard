@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { Board } from "../src/models/board.model.js";
-import { Notification } from "../src/models/notification.model.js";
+import { Board } from "../src/models/board.model.ts";
+import { Notification } from "../src/models/notification.model.ts";
 import { findBoardForMember } from "../src/services/boards.js";
 import { eventually, rect, roundTrip, startServer, upsert } from "./helpers.js";
 

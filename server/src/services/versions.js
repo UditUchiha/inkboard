@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
-import { HttpError } from "../lib/http-error.js";
-import { keyedQueue } from "../lib/keyed-queue.js";
-import { Board } from "../models/board.model.js";
-import { Version } from "../models/version.model.js";
+import { HttpError } from "../lib/http-error.ts";
+import { keyedQueue } from "../lib/keyed-queue.ts";
+import { Board } from "../models/board.model.ts";
+import { Version } from "../models/version.model.ts";
 
 // Every version is a full copy of the board (up to 12 MB), and the free
 // database holds 512 MB for everything, so each board's history has a budget.

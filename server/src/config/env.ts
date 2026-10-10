@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import type { SignOptions } from "jsonwebtoken";
 
 // Load server/.env when present. Variables already set in the environment win.
 try {
@@ -16,7 +17,7 @@ const isLocal = mode === "development" || mode === "test";
 const MIN_SECRET_BYTES = 32;
 const DEV_SECRET = "local-development-secret";
 
-function required(name, devFallback) {
+function required(name: string, devFallback: string) {
   const value = process.env[name] || (isProduction ? undefined : devFallback);
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
@@ -45,10 +46,14 @@ function signingSecret() {
   return secret || DEV_SECRET;
 }
 
+/** How long a token lasts: seconds, or text such as "7d" (see jsonwebtoken's `expiresIn`). */
+export type TokenLifetime = NonNullable<SignOptions["expiresIn"]>;
+
 // A bare number such as "3600" would be read by jsonwebtoken as milliseconds; it means seconds.
-function lifetime(value) {
+function lifetime(value: string | undefined): TokenLifetime {
   const text = (value ?? "").trim() || "7d";
-  return /^\d+$/.test(text) ? Number(text) : text;
+  // jsonwebtoken checks the text's format itself (and throws when signing if it's wrong); the type can't say that.
+  return /^\d+$/.test(text) ? Number(text) : (text as TokenLifetime);
 }
 
 // How many proxies sit between the internet and this server, for the client address
@@ -59,7 +64,7 @@ function trustProxy() {
   return /^\d+$/.test(value) ? Number(value) : value === "true" ? true : value === "false" ? false : value;
 }
 
-function list(value) {
+function list(value: string | undefined) {
   return (value ?? "")
     .split(",")
     .map((item) => item.trim())
@@ -83,7 +88,7 @@ export const env = {
       : ["http://localhost:5173"],
   // Where people open the app: the address sign-in sends them back to and email links point at.
   // Only what APP_URL says. Without it, the address each request came in on is used (see
-  // lib/app-url.js), which is what keeps sign-in working on a custom domain.
+  // lib/app-url.ts), which is what keeps sign-in working on a custom domain.
   appUrl: (process.env.APP_URL ?? "").replace(/\/$/, ""),
   // The service's own address on Render (onrender.com), when it also serves the app (no CLIENT_ORIGIN).
   // Only for email links when APP_URL isn't set: it's a fixed address, unlike the Host header, but it
@@ -129,7 +134,7 @@ if (isProduction && env.email.brevoApiKey && env.email.from && !env.appUrl) {
   );
 }
 
-function oauthClient(prefix) {
+function oauthClient(prefix: string) {
   const clientId = process.env[`${prefix}_CLIENT_ID`];
   const clientSecret = process.env[`${prefix}_CLIENT_SECRET`];
   return clientId && clientSecret ? { clientId, clientSecret } : null;

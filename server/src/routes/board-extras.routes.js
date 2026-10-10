@@ -15,8 +15,8 @@ import {
   restoreVersion,
   saveVersion,
 } from "../controllers/version.controller.js";
-import { requireAuth } from "../middleware/auth.js";
-import { limitPerUser } from "../middleware/user-limit.js";
+import { requireAuth } from "../middleware/auth.ts";
+import { limitPerUser } from "../middleware/user-limit.ts";
 
 // Every comment can notify people, so they are rationed.
 const commenting = limitPerUser({

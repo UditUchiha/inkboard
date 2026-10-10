@@ -1,7 +1,7 @@
 import { rect, startServer, upsert } from "./helpers.js"; // first: it sets up the environment
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { Board } from "../src/models/board.model.js";
+import { Board } from "../src/models/board.model.ts";
 import { closeRealtime } from "../src/realtime/index.js";
 import { SYNC_FORMAT } from "../src/realtime/operations.js";
 

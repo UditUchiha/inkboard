@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import type { InferSchemaType, Model } from "mongoose";
+import type { Element } from "@inkboard/shared/types";
 
 const { ObjectId, Mixed } = mongoose.Schema.Types;
 
@@ -25,4 +27,7 @@ versionSchema.index({ board: 1, createdAt: -1 });
 // Adding up the space a board's saved versions (or an owner's boards') take reads only this index.
 versionSchema.index({ board: 1, kind: 1, bytes: 1 });
 
-export const Version = mongoose.model("Version", versionSchema);
+// Mongoose can only infer `elements` as `any[]` from Mixed, so the type says what is stored in it.
+type VersionFields = Omit<InferSchemaType<typeof versionSchema>, "elements"> & { elements: Element[] };
+
+export const Version = mongoose.model<VersionFields, Model<VersionFields>>("Version", versionSchema);

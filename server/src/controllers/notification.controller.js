@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import { Board } from "../models/board.model.js";
-import { Notification } from "../models/notification.model.js";
+import { Board } from "../models/board.model.ts";
+import { Notification } from "../models/notification.model.ts";
 import { PERSON_FIELDS, roleOf } from "../services/boards.js";
 import { serializeNotification } from "../services/notifications.js";
 

@@ -1,4 +1,6 @@
 import mongoose from "mongoose";
+import type { InferSchemaType, Model } from "mongoose";
+import type { Element } from "@inkboard/shared/types";
 
 const { ObjectId, Mixed } = mongoose.Schema.Types;
 
@@ -22,4 +24,7 @@ const templateSchema = new mongoose.Schema(
 // Adding up an owner's space reads only this index, not the templates.
 templateSchema.index({ owner: 1, bytes: 1 });
 
-export const Template = mongoose.model("Template", templateSchema);
+// Mongoose can only infer `elements` as `any[]` from Mixed, so the type says what is stored in it.
+type TemplateFields = Omit<InferSchemaType<typeof templateSchema>, "elements"> & { elements: Element[] };
+
+export const Template = mongoose.model<TemplateFields, Model<TemplateFields>>("Template", templateSchema);

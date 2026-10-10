@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
-import { HttpError } from "../lib/http-error.js";
-import { BoardState } from "../models/board-state.model.js";
-import { Board, LINK_ACCESS } from "../models/board.model.js";
-import { Template } from "../models/template.model.js";
-import { User } from "../models/user.model.js";
+import { HttpError } from "../lib/http-error.ts";
+import { BoardState } from "../models/board-state.model.ts";
+import { Board, LINK_ACCESS } from "../models/board.model.ts";
+import { Template } from "../models/template.model.ts";
+import { User } from "../models/user.model.ts";
 import { sanitizeElements } from "../realtime/operations.js";
 import { closeBoard, notifyMetaChanged, syncAccess } from "../realtime/index.js";
 import {

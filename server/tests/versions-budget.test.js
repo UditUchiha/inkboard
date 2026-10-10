@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { Board } from "../src/models/board.model.js";
-import { Version } from "../src/models/version.model.js";
+import { Board } from "../src/models/board.model.ts";
+import { Version } from "../src/models/version.model.ts";
 import { destroyBoard } from "../src/services/boards.js";
 import { recordVersion, VERSION_LIMITS } from "../src/services/versions.js";
 import { startServer } from "./helpers.js";

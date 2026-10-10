@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
-import { HttpError } from "../lib/http-error.js";
-import { keyedQueue } from "../lib/keyed-queue.js";
-import { BoardState } from "../models/board-state.model.js";
-import { Board } from "../models/board.model.js";
-import { Notification } from "../models/notification.model.js";
-import { Template } from "../models/template.model.js";
-import { Thread } from "../models/thread.model.js";
+import { HttpError } from "../lib/http-error.ts";
+import { keyedQueue } from "../lib/keyed-queue.ts";
+import { BoardState } from "../models/board-state.model.ts";
+import { Board } from "../models/board.model.ts";
+import { Notification } from "../models/notification.model.ts";
+import { Template } from "../models/template.model.ts";
+import { Thread } from "../models/thread.model.ts";
 import { getSession } from "../realtime/sessions.js";
 import { deleteBoardImages } from "./image-storage.js";
 import { removeVersions, savedVersionBytes } from "./versions.js";

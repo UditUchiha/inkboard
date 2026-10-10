@@ -8,8 +8,8 @@
  *   await saving(userId, async () => { ...check, then write... });
  */
 export function keyedQueue() {
-  const tails = new Map();
-  return (key, task) => {
+  const tails = new Map<unknown, Promise<unknown>>();
+  return <Result>(key: unknown, task: () => Result | PromiseLike<Result>): Promise<Result> => {
     const run = (tails.get(key) ?? Promise.resolve()).then(task);
     const tail = run.catch(() => {});
     tails.set(key, tail);

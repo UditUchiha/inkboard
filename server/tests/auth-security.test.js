@@ -9,13 +9,13 @@ import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { eventually, startServer } from "./helpers.js";
 
-const { env } = await import("../src/config/env.js");
+const { env } = await import("../src/config/env.ts");
 const { createApp } = await import("../src/app.js");
-const { errorHandler } = await import("../src/middleware/error-handler.js");
+const { errorHandler } = await import("../src/middleware/error-handler.ts");
 const { OAUTH_LINK, OAUTH_LOGIN, OAUTH_STATE, SESSION, signPurposeToken, signToken } =
-  await import("../src/lib/tokens.js");
-const { EmailToken } = await import("../src/models/email-token.model.js");
-const { User } = await import("../src/models/user.model.js");
+  await import("../src/lib/tokens.ts");
+const { EmailToken } = await import("../src/models/email-token.model.ts");
+const { User } = await import("../src/models/user.model.ts");
 const { RESERVED_FOR_RESETS, emailsSentToday, outbox } = await import("../src/services/email.js");
 const { sendPasswordResetEmail, sendVerificationEmail } = await import("../src/services/account-emails.js");
 
@@ -807,7 +807,7 @@ describe("passwords", () => {
   describe("the wait that hides bcrypt accounts from failed logins", () => {
     // A timer with a made-up clock, a made-up bcrypt check (`measurements`, one per call) and no real waiting.
     async function timerWith(measurements) {
-      const { createCheckTimer } = await import("../src/lib/passwords.js");
+      const { createCheckTimer } = await import("../src/lib/passwords.ts");
       const clock = { ms: 1_000_000 };
       const waits = [];
       let taken = 0;

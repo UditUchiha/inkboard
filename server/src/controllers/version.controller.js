@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
-import { HttpError } from "../lib/http-error.js";
-import { User } from "../models/user.model.js";
-import { Version } from "../models/version.model.js";
+import { HttpError } from "../lib/http-error.ts";
+import { User } from "../models/user.model.ts";
+import { Version } from "../models/version.model.ts";
 import { replaceElements } from "../realtime/index.js";
 import {
   currentElements,

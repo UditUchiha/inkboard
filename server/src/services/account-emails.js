@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import mongoose from "mongoose";
-import { EmailToken } from "../models/email-token.model.js";
-import { User } from "../models/user.model.js";
+import { EmailToken } from "../models/email-token.model.ts";
+import { User } from "../models/user.model.ts";
 import { sendEmail } from "./email.js";
 
 // Emails about someone's account: a link to verify their address, and a link

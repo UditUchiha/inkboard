@@ -3,7 +3,7 @@ import { inStackOrder } from "@inkboard/shared/board-order";
 import { withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
 import mongoose from "mongoose";
-import { Board } from "../models/board.model.js";
+import { Board } from "../models/board.model.ts";
 import { lastVersionTime, recordVersion } from "../services/versions.js";
 import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.js";
 

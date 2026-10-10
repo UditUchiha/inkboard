@@ -1,8 +1,8 @@
 import { cutText } from "@inkboard/shared/element-rules";
 import { Server } from "socket.io";
-import { env } from "../config/env.js";
-import { keyedQueue } from "../lib/keyed-queue.js";
-import { userForToken } from "../lib/tokens.js";
+import { env } from "../config/env.ts";
+import { keyedQueue } from "../lib/keyed-queue.ts";
+import { userForToken } from "../lib/tokens.ts";
 import {
   canEdit,
   findBoardForViewing,

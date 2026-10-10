@@ -3,12 +3,12 @@ import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-// config/env.js reads the environment once, when it's first imported, so each case
+// config/env.ts reads the environment once, when it's first imported, so each case
 // loads it in a fresh process with exactly the variables given.
-const envModule = fileURLToPath(new URL("../src/config/env.js", import.meta.url)).replaceAll("\\", "/");
+const envModule = fileURLToPath(new URL("../src/config/env.ts", import.meta.url)).replaceAll("\\", "/");
 const SECRET = "s".repeat(48);
 
-const appUrlModule = fileURLToPath(new URL("../src/lib/app-url.js", import.meta.url)).replaceAll("\\", "/");
+const appUrlModule = fileURLToPath(new URL("../src/lib/app-url.ts", import.meta.url)).replaceAll("\\", "/");
 
 // `script` runs with `env` loaded and whatever it logs last is the answer; by default that's `env` itself.
 function load(variables, script = "console.log(JSON.stringify(env));") {
@@ -82,7 +82,7 @@ describe("how long a login lasts (L11)", () => {
   });
 });
 
-// What lib/app-url.js makes of a request that came in on `host` (and, optionally, from `origin`).
+// What lib/app-url.ts makes of a request that came in on `host` (and, optionally, from `origin`).
 function urlsFor(variables, { host = "ink.example.test", origin } = {}) {
   const script = `
     const { apiUrlFor, clientUrlFor, emailLinkUrlFor } = await import("file:///${appUrlModule}");
