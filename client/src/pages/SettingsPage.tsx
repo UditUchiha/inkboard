@@ -134,7 +134,7 @@ function ProfileSection() {
 }
 
 // Connecting a provider leaves the app for the provider's site and comes back to Settings. What comes back is
-// only accepted with the `bind` value kept here, in this tab, when it asked (see oauth.controller.js), so a
+// only accepted with the `bind` value kept here, in this tab, when it asked (see oauth.controller.ts), so a
 // connect link made by someone else can't attach this person's Google or GitHub to that someone's account.
 const CONNECTING_KEY = "inkboard.connecting";
 

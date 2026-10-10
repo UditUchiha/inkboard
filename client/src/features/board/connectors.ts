@@ -36,7 +36,7 @@ type DrawnBox = Rect & { turned: TurnedRect };
 // drawn at the side's middle. One dropped on the shape itself floats: a
 // straight connector aims at the shape's middle and stops just short of its
 // outline; a curved or elbow one leaves from the middle of the side facing the
-// other end (see routes.js for the paths themselves).
+// other end (see routes.ts for the paths themselves).
 
 export const CONNECTABLE_TYPES = new Set<BoardElement["type"]>(["rectangle", "ellipse", "sticky", "image", "text"]);
 export const CONNECT_GAP = 6; // between an attached end and its shape's outline
@@ -168,7 +168,7 @@ function drawConnector(connector: Connector, from: Connectable | null, to: Conne
     start: start ? { x: start.dx, y: start.dy } : null,
     end: end ? { x: end.dx, y: end.dy } : null,
   };
-  // The shapes' boxes, which an elbow goes round, and for a turned shape the shape itself (see routes.js).
+  // The shapes' boxes, which an elbow goes round, and for a turned shape the shape itself (see routes.ts).
   const boxOf = (target: Connectable | null) => target && { ...getBounds(target), turned: getFrame(target) };
   const boxes = { start: boxOf(from), end: boxOf(to) };
   // The same object while nothing moves, so what's drawn from it stays cached.

@@ -92,8 +92,7 @@ export default function DemoBoard() {
     canvas.width = Math.round(size.width * dpr);
     canvas.height = Math.round(size.height * dpr);
     const elements = [...DEMO_ELEMENTS, ...(progress > 0 ? [loopElement(loopCount)] : []), ...doodles];
-    // renderScene is still JavaScript, and what is inferred for it makes its optional settings required.
-    renderScene(canvas, { elements, viewport: { x: 0, y: 0, zoom: scale }, dpr } as Parameters<typeof renderScene>[1]);
+    renderScene(canvas, { elements, viewport: { x: 0, y: 0, zoom: scale }, dpr });
   }, [size, scale, loopCount, progress, doodles, fontsReady]);
 
   // The canvas lets a finger scroll the page up and down (touch-pan-y) and draw otherwise: a stroke that turns
@@ -126,7 +125,7 @@ export default function DemoBoard() {
     if (event.button !== 0) return;
     canvasRef.current.setPointerCapture(event.pointerId);
     penStroke.current = event.pointerType === "pen";
-    // createElement is still JavaScript, so what it makes is told here: a "pen" is a pen stroke.
+    // The cast: createElement is typed as making any element, but a "pen" is a pen stroke.
     const element = createElement("pen", toScene(event), VISITOR_STYLE) as PenElement;
     drawing.current = element.id;
     setDoodles((current) => [...current, element]);

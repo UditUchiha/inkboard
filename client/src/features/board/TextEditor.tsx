@@ -119,7 +119,7 @@ export type NoteEditorProps = EditorProps & { element: StickyElement };
 
 /**
  * Edits a sticky note's text in place: the note itself, with its text wrapped
- * and sized as the canvas will draw it (see notes.js).
+ * and sized as the canvas will draw it (see notes.ts).
  */
 export function NoteEditor({ element, viewport, onCommit }: NoteEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text, onCommit, { finishes: finishesText });

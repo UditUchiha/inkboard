@@ -44,7 +44,6 @@ import {
 import type { HeldPointer, Size, Viewport, XY } from "./geometry";
 import { imagesVersion, subscribeImages } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
-import type { RenderOptions } from "./renderer";
 import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
 import { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } from "./transform";
@@ -236,9 +235,7 @@ export function BoardCanvas({
       dark: theme === "dark",
       screenLabels: true,
       connectTargetId: hint.outline,
-      // The cast: RenderOptions says a side is always given, but with none (a shape under the pointer, not
-      // one of its dots) no dot is lit, which is how it is drawn.
-      dots: hint.dots as RenderOptions["dots"],
+      dots: hint.dots,
     });
   }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme, hint]);
 

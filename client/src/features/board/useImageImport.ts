@@ -94,7 +94,7 @@ export function useImageImport({
     [local, socket, boardId, store, view, setTool, setSelectedId],
   );
 
-  // Adds what's in a board file (see boardFile.js) to this board, centred on
+  // Adds what's in a board file (see boardFile.ts) to this board, centred on
   // the screen, as one undo step. Its pictures are uploaded again so they
   // belong to this board.
   const importBoardFile = useCallback(

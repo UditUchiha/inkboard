@@ -9,13 +9,7 @@ import { createEditorStore } from "../features/board/editorStore";
 import { useBoardSync } from "../features/board/useBoardSync";
 import { useAuth } from "../providers/AuthProvider";
 
-// Where opening a board has got to (see useBoardSync, which is still JavaScript and so doesn't say).
-type BoardPhase = { name: string; status?: number; message?: string; wasViewer?: boolean };
-
-// What this page reads of a board's details.
-type BoardMeta = { title: string };
-
-type OpenBoardProps = { boardId: string | undefined };
+type OpenBoardProps = { boardId: string };
 
 const backToBoards = <ButtonLink to="/boards">Go to your boards</ButtonLink>;
 const goHome = <ButtonLink to="/">Go home</ButtonLink>;
@@ -25,7 +19,8 @@ export default function BoardPage() {
   // Going from one board to another (a notification's Open button, back and forward)
   // keeps this page mounted. Keyed, each board gets its own editor and sync state, so
   // edits not sent yet can't end up on the other board, nor can its title, role or view.
-  return <OpenBoard key={boardId} boardId={boardId} />;
+  // The assertion: the router types a parameter as possibly missing, but this page's route always has one.
+  return <OpenBoard key={boardId} boardId={boardId!} />;
 }
 
 function OpenBoard({ boardId }: OpenBoardProps) {
@@ -36,14 +31,13 @@ function OpenBoard({ boardId }: OpenBoardProps) {
   const sync = useBoardSync(boardId, store);
 
   useEffect(() => {
-    // useBoardSync starts its meta as null, so its type is never inside this check.
-    document.title = sync.meta ? `${(sync.meta as BoardMeta).title} · ${APP_NAME}` : APP_NAME;
+    document.title = sync.meta ? `${sync.meta.title} · ${APP_NAME}` : APP_NAME;
     return () => {
       document.title = APP_NAME;
     };
   }, [sync.meta]);
 
-  const { phase }: { phase: BoardPhase } = sync;
+  const { phase } = sync;
 
   if (phase.name === "error") {
     if (phase.status === 401) {
