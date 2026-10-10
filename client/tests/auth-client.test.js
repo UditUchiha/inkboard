@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { api, setAuthToken, setUnauthorizedHandler } from "../src/lib/api.js";
-import { formColor } from "../src/lib/profileColor.js";
-import { logoutPlan, tokenUserId } from "../src/lib/session.js";
-import { completeSignIn, hashBind, startSignIn } from "../src/lib/signIn.js";
+import { api, setAuthToken, setUnauthorizedHandler } from "../src/lib/api.ts";
+import { formColor } from "../src/lib/profileColor.ts";
+import { logoutPlan, tokenUserId } from "../src/lib/session.ts";
+import { completeSignIn, hashBind, startSignIn } from "../src/lib/signIn.ts";
 import {
   isProvider,
   loginPathFor,
@@ -12,8 +12,8 @@ import {
   providerLabel,
   safeNext,
   signInErrorMessage,
-} from "../src/lib/signInErrors.js";
-import { verifyView } from "../src/lib/verifyLink.js";
+} from "../src/lib/signInErrors.ts";
+import { verifyView } from "../src/lib/verifyLink.ts";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {

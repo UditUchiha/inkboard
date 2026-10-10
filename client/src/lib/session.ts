@@ -6,10 +6,10 @@
  * The account id (`sub`) inside a login token, or null if it isn't one. The signature isn't checked: this
  * is only for telling whether two tokens are for the same person, and the server checks every token it gets.
  */
-export function tokenUserId(token) {
+export function tokenUserId(token: string) {
   try {
     const payload = token.split(".")[1].replaceAll("-", "+").replaceAll("_", "/");
-    const { sub } = JSON.parse(atob(payload));
+    const { sub }: { sub?: unknown } = JSON.parse(atob(payload));
     return typeof sub === "string" ? sub : null;
   } catch {
     return null;
@@ -29,7 +29,15 @@ export function tokenUserId(token) {
  * `clearStored` is only true when the stored token is this tab's own (or there is none): a login that
  * isn't this tab's isn't ours to remove, so another tab keeps its login.
  */
-export function logoutPlan({ own, stored, explicit }) {
+export function logoutPlan({
+  own,
+  stored,
+  explicit,
+}: {
+  own: string | null;
+  stored: string | null;
+  explicit: boolean;
+}) {
   const newer = stored && stored !== own ? stored : null;
   const sameAccount =
     newer !== null && own != null && tokenUserId(newer) !== null && tokenUserId(newer) === tokenUserId(own);

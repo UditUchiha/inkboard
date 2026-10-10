@@ -1,11 +1,29 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { api, setAuthToken, setUnauthorizedHandler } from "../lib/api";
+import type { AccountUser, ApiError, LoginInput, RegisterInput, Session } from "../lib/api";
 import { logoutPlan } from "../lib/session";
 
 const TOKEN_KEY = "inkboard.token";
 
+/** "loading" while the account is fetched, "offline" when it couldn't be, "anonymous" with no login. */
+export type AuthStatus = "loading" | "anonymous" | "authenticated" | "offline";
+
+/** What `useAuth()` gives: the account (once loaded) and what can be done with the login. */
+export type AuthValue = {
+  user: AccountUser | null;
+  token: string | null;
+  status: AuthStatus;
+  login: (input: LoginInput) => Promise<void>;
+  register: (input: RegisterInput) => Promise<void>;
+  startSession: (session: Session) => void;
+  updateUser: Dispatch<SetStateAction<AccountUser | null>>;
+  logout: () => void;
+  retry: () => void;
+};
+
 // Exported for tests, which render pages with an account in a state of their choosing.
-export const AuthContext = createContext(null);
+export const AuthContext = createContext<AuthValue | null>(null);
 
 function readToken() {
   try {
@@ -15,7 +33,7 @@ function readToken() {
   }
 }
 
-function writeToken(token) {
+function writeToken(token: string | null) {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else localStorage.removeItem(TOKEN_KEY);
@@ -24,10 +42,12 @@ function writeToken(token) {
   }
 }
 
-export function AuthProvider({ children }) {
+type AuthProviderProps = { children: ReactNode };
+
+export function AuthProvider({ children }: AuthProviderProps) {
   const [token, setToken] = useState(readToken);
-  const [user, setUser] = useState(null);
-  const [status, setStatus] = useState(token ? "loading" : "anonymous");
+  const [user, setUser] = useState<AccountUser | null>(null);
+  const [status, setStatus] = useState<AuthStatus>(token ? "loading" : "anonymous");
   const [attempt, setAttempt] = useState(0);
 
   setAuthToken(token);
@@ -39,7 +59,7 @@ export function AuthProvider({ children }) {
   // choosing to log out: this tab then ends up logged out, whatever another tab has stored. When the
   // server refused this tab's token instead, a newer login for the same account that another tab just
   // stored (after a password change, say) is followed rather than lost.
-  const endSession = useCallback((explicit) => {
+  const endSession = useCallback((explicit: boolean) => {
     const { adopt, clearStored } = logoutPlan({ own: tokenRef.current, stored: readToken(), explicit });
     if (clearStored) writeToken(null);
     setAuthToken(adopt);
@@ -57,7 +77,7 @@ export function AuthProvider({ children }) {
   // Logging in or out in another tab changes the stored token (the `storage` event only fires in the
   // other tabs). Follow it, so this tab neither keeps a login that was ended nor keeps using an old one.
   useEffect(() => {
-    function onStorage(event) {
+    function onStorage(event: StorageEvent) {
       if (event.key !== TOKEN_KEY || event.newValue === token) return;
       setAuthToken(event.newValue);
       setToken(event.newValue);
@@ -78,7 +98,8 @@ export function AuthProvider({ children }) {
         setUser(me);
         setStatus("authenticated");
       })
-      .catch((error) => {
+      // `api.me` only ever rejects with an ApiError.
+      .catch((error: ApiError) => {
         if (!active) return;
         if (error.status === 401) sessionRefused();
         else setStatus("offline");
@@ -93,7 +114,7 @@ export function AuthProvider({ children }) {
     setAttempt((count) => count + 1);
   }, []);
 
-  const startSession = useCallback(({ token: nextToken, user: nextUser }) => {
+  const startSession = useCallback(({ token: nextToken, user: nextUser }: Session) => {
     writeToken(nextToken);
     setAuthToken(nextToken);
     setToken(nextToken);
@@ -101,7 +122,7 @@ export function AuthProvider({ children }) {
     setStatus("authenticated");
   }, []);
 
-  const value = useMemo(
+  const value = useMemo<AuthValue>(
     () => ({
       user,
       token,

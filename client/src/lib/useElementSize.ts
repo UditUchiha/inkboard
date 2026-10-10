@@ -1,6 +1,7 @@
 import { useLayoutEffect, useState } from "react";
+import type { RefObject } from "react";
 
-export function useElementSize(ref) {
+export function useElementSize(ref: RefObject<Element | null>) {
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useLayoutEffect(() => {

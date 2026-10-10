@@ -9,8 +9,8 @@ import { MemoryRouter } from "react-router";
 // here is what a page shows for a given state, and what the provider's callbacks do when called. The
 // decisions behind them are pure functions with their own tests (see auth-client.test.js).
 register("./jsx-hooks.js", import.meta.url);
-const { api } = await import("../src/lib/api.js");
-const { AuthContext, AuthProvider, useAuth } = await import("../src/providers/AuthProvider.jsx");
+const { api } = await import("../src/lib/api.ts");
+const { AuthContext, AuthProvider, useAuth } = await import("../src/providers/AuthProvider.tsx");
 const { default: OAuthCallbackPage } = await import("../src/pages/OAuthCallbackPage.jsx");
 const { VerifyEmailPage } = await import("../src/pages/AuthPages.jsx");
 

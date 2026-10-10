@@ -17,12 +17,15 @@ const ANIMALS = [
   "Wombat",
 ];
 
-let cached = null;
+// What the guest is called and identified by.
+export type Guest = { id: string; name: string };
+
+let cached: Guest | null = null;
 
 const randomId = () =>
   `g_${[...crypto.getRandomValues(new Uint8Array(12))].map((n) => (n % 36).toString(36)).join("")}`;
 
-function save(guest) {
+function save(guest: Guest) {
   cached = guest;
   try {
     localStorage.setItem(GUEST_KEY, JSON.stringify(guest));
@@ -31,10 +34,11 @@ function save(guest) {
   }
 }
 
-export function getGuest() {
+export function getGuest(): Guest {
   if (cached) return cached;
   try {
-    const stored = JSON.parse(localStorage.getItem(GUEST_KEY) ?? "null");
+    // Checked below before it's used.
+    const stored: Guest | null = JSON.parse(localStorage.getItem(GUEST_KEY) ?? "null");
     if (stored?.id && stored?.name) {
       cached = stored;
       return cached;
@@ -43,10 +47,11 @@ export function getGuest() {
     // Fall through and make a new identity.
   }
   save({ id: randomId(), name: `Guest ${ANIMALS[Math.floor(Math.random() * ANIMALS.length)]}` });
-  return cached;
+  // `save` just set it (TypeScript doesn't see that through the call).
+  return cached!;
 }
 
-export function setGuestName(name) {
+export function setGuestName(name: string) {
   const clean = name.trim().replace(/\s+/g, " ").slice(0, 40) || "Guest";
   save({ ...getGuest(), name: clean });
   return clean;
