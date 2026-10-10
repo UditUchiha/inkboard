@@ -39,7 +39,7 @@ function Cursor({ person, x, y, scale, glide = false }) {
  * The landing page's live board: a pre-drawn sketch, a collaborator who
  * circles part of it, and a pen the visitor can draw with.
  */
-export function DemoBoard() {
+export default function DemoBoard() {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const size = useElementSize(containerRef);
@@ -47,6 +47,7 @@ export function DemoBoard() {
   const [progress, setProgress] = useState(0);
   const [doodles, setDoodles] = useState([]);
   const drawing = useRef(null);
+  const penStroke = useRef(false); // whether what is being drawn is a pen's
 
   const scale = size.width / SCENE_WIDTH;
 
@@ -88,6 +89,27 @@ export function DemoBoard() {
     renderScene(canvas, { elements, viewport: { x: 0, y: 0, zoom: scale }, dpr });
   }, [size, scale, loopCount, progress, doodles, fontsReady]);
 
+  // The canvas lets a finger scroll the page up and down (touch-pan-y) and draw otherwise: a stroke that turns
+  // into a scroll is cancelled by the browser (and dropped, see cancelDrawing). But Chromium holds a pen to
+  // that as well, so a pen stroke down the demo would scroll instead of drawing. A pen hovering over it (most
+  // do before they touch) turns that off until it leaves; one that lands without hovering (an Apple Pencil)
+  // is held to it by the touchmoves it sends, which don't scroll while a pen stroke is being drawn.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const holdStill = (event) => {
+      if (penStroke.current && event.cancelable) event.preventDefault();
+    };
+    canvas.addEventListener("touchmove", holdStill, { passive: false });
+    return () => canvas.removeEventListener("touchmove", holdStill);
+  }, []);
+
+  const penOver = (event) => {
+    if (event.pointerType === "pen") canvasRef.current.style.touchAction = "none";
+  };
+  const penGone = (event) => {
+    if (event.pointerType === "pen") canvasRef.current.style.touchAction = "";
+  };
+
   const toScene = (event) => {
     const rect = canvasRef.current.getBoundingClientRect();
     return { x: (event.clientX - rect.left) / scale, y: (event.clientY - rect.top) / scale };
@@ -96,6 +118,7 @@ export function DemoBoard() {
   function onPointerDown(event) {
     if (event.button !== 0) return;
     canvasRef.current.setPointerCapture(event.pointerId);
+    penStroke.current = event.pointerType === "pen";
     const element = createElement("pen", toScene(event), VISITOR_STYLE);
     drawing.current = element.id;
     setDoodles((current) => [...current, element]);
@@ -113,6 +136,14 @@ export function DemoBoard() {
 
   const stopDrawing = () => {
     drawing.current = null;
+    penStroke.current = false;
+  };
+
+  // A stroke the browser took over (a finger that began scrolling the page) isn't a drawing: the dot it began with goes.
+  const cancelDrawing = () => {
+    const id = drawing.current;
+    stopDrawing();
+    if (id) setDoodles((current) => current.filter((element) => element.id !== id));
   };
 
   const tip = LOOP[loopCount - 1];
@@ -127,11 +158,13 @@ export function DemoBoard() {
       >
         <canvas
           ref={canvasRef}
-          className="canvas-ink absolute inset-0 h-full w-full cursor-crosshair touch-none"
+          className="canvas-ink absolute inset-0 h-full w-full cursor-crosshair touch-pan-y"
+          onPointerEnter={penOver}
+          onPointerLeave={penGone}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={stopDrawing}
-          onPointerCancel={stopDrawing}
+          onPointerCancel={cancelDrawing}
           aria-label="Sample board you can draw on"
         />
         {size.width > 0 && (

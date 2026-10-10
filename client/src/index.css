@@ -23,6 +23,8 @@
   --marker: #ffd84d;
   --signal: #2d5bff;
   --danger: #c93a32;
+  --danger-solid: #c93a32; /* behind white text: 5.1:1 */
+  --danger-solid-hover: #b0302a; /* darker, so white text only gains contrast: 6.4:1 */
   --on-ink: #f6f8fb;
   color-scheme: light;
 }
@@ -40,6 +42,8 @@
   --marker: #ffd84d;
   --signal: #8aa6ff;
   --danger: #ff7a70;
+  --danger-solid: #c93a32;
+  --danger-solid-hover: #b0302a;
   --on-ink: #121b2e;
   color-scheme: dark;
 }
@@ -60,6 +64,8 @@
   --color-marker: var(--marker);
   --color-signal: var(--signal);
   --color-danger: var(--danger);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-solid-hover: var(--danger-solid-hover);
   --color-on-ink: var(--on-ink);
 }
 
@@ -89,6 +95,14 @@
   ::selection {
     background: color-mix(in oklab, var(--marker) 70%, transparent);
     color: #16213a;
+  }
+
+  /* The board page zooms the board itself (BoardCanvas adds the class while it's open): a pinch over its
+     toolbar or panels mustn't zoom the browser page too. Fingers still scroll the panels; other pages can
+     still be pinch-zoomed. */
+  html.board-page,
+  html.board-page body {
+    touch-action: pan-x pan-y;
   }
 
   button {

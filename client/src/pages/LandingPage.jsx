@@ -1,10 +1,24 @@
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { Link } from "react-router";
 import { ButtonLink } from "../components/Button";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Logo } from "../components/Logo";
 import { APP_NAME } from "../config";
-import { DemoBoard } from "../features/landing/DemoBoard";
+import { SCENE_HEIGHT, SCENE_WIDTH } from "../features/landing/demoScene";
+import { lazyPage } from "../lib/chunkReload";
 import { useAuth } from "../providers/AuthProvider";
+
+// The sample board brings the whole renderer with it, so it loads after the page itself.
+const DemoBoard = lazyPage(() => import("../features/landing/DemoBoard"));
+
+function DemoPaper() {
+  return (
+    <div
+      className="graph-paper rounded-xl border border-rule [--cell:20px]"
+      style={{ aspectRatio: `${SCENE_WIDTH} / ${SCENE_HEIGHT}` }}
+    />
+  );
+}
 
 const FEATURES = [
   {
@@ -105,7 +119,12 @@ export default function LandingPage() {
               )}
             </div>
           </div>
-          <DemoBoard />
+          {/* The sample board is decoration: if it can't load, the empty paper stays and the page still works. */}
+          <ErrorBoundary fallback={DemoPaper}>
+            <Suspense fallback={<DemoPaper />}>
+              <DemoBoard />
+            </Suspense>
+          </ErrorBoundary>
         </section>
 
         <section aria-labelledby="features-heading" className="border-t border-rule bg-surface">

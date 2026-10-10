@@ -75,6 +75,6 @@ export function circleStroke() {
 }
 
 export const COLLABORATORS = [
-  { name: "Maya", color: "#e8590c" },
+  { name: "Maya", color: "#c2410c" },
   { name: "Sam", color: "#1971c2", rest: { x: 232, y: 96 } },
 ];

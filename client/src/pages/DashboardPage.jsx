@@ -13,12 +13,24 @@ import { BoardCard } from "../features/dashboard/BoardCard";
 import { BoardTable } from "../features/dashboard/BoardTable";
 import { DashboardNav } from "../features/dashboard/DashboardNav";
 import { RenameDialog } from "../features/dashboard/RenameDialog";
-import { compareBoards, isMember, SECTIONS, SORT_KEYS } from "../features/dashboard/sections";
+import {
+  compareBoards,
+  DEFAULT_SORT,
+  isMember,
+  isSort,
+  isView,
+  SECTIONS,
+  SORT_KEYS,
+} from "../features/dashboard/sections";
 import { useBoards } from "../features/dashboard/useBoards";
 import { useStoredState } from "../features/dashboard/useStoredState";
 import { NewBoardDialog } from "../features/templates/NewBoardDialog";
 import { api } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
+
+// How many boards are drawn at first, and added by each "Show more": every card downloads a preview
+// of its board, so a person with hundreds of boards loads them a page at a time.
+const PAGE_SIZE = 48;
 
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-x-6 gap-y-8";
 
@@ -92,6 +104,7 @@ function SortMenu({ sort, onChange }) {
 function BulkBar({ section, picked, actions, onClear }) {
   const owned = picked.every((board) => board.role === "owner");
   const members = picked.every(isMember);
+  const allStarred = picked.every((board) => board.starred);
   const trash = section.id === "trash";
   const archived = section.id === "archived";
   return (
@@ -122,7 +135,7 @@ function BulkBar({ section, picked, actions, onClear }) {
             title={members ? undefined : "Only people invited to a board can star it"}
             onClick={() => actions.starAll(picked)}
           >
-            Star
+            {allStarred ? "Unstar" : "Star"}
           </Button>
           <Button size="sm" variant="secondary" onClick={() => actions.archive(picked, !archived)}>
             {archived ? "Unarchive" : "Archive"}
@@ -153,9 +166,10 @@ export default function DashboardPage() {
   const section = SECTIONS.find((item) => item.id === params.get("show")) ?? SECTIONS[0];
   const inTrash = section.id === "trash";
 
-  const { boards, trash, loadError, patch, drop, refresh } = useBoards();
-  const [view, setView] = useStoredState("inkboard.dashboard.view", "grid");
-  const [sort, setSort] = useStoredState("inkboard.dashboard.sort", { key: "modified", dir: "desc" });
+  const { boards, trash, loadError, patch, drop, refresh, loadPreviews } = useBoards();
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [view, setView] = useStoredState("inkboard.dashboard.view", "grid", isView);
+  const [sort, setSort] = useStoredState("inkboard.dashboard.sort", DEFAULT_SORT, isSort);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(() => new Set());
   const [creating, setCreating] = useState(false);
@@ -187,6 +201,7 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => setSelected(new Set()), [section.id, query, view]);
+  useEffect(() => setLimit(PAGE_SIZE), [section.id, query, sort]);
 
   const counts = useMemo(
     () =>
@@ -208,7 +223,13 @@ export default function DashboardPage() {
     return inTrash ? found : found.sort(compareBoards(sort));
   }, [boards, trash, inTrash, section, query, sort]);
 
-  const picked = visible.filter((board) => selected.has(board.id));
+  const shown = useMemo(() => visible.slice(0, limit), [visible, limit]);
+  const picked = shown.filter((board) => selected.has(board.id));
+
+  // Only the boards on screen get their previews, and only as cards: the list view draws none.
+  useEffect(() => {
+    if (view === "grid") loadPreviews(shown);
+  }, [shown, view, loadPreviews]);
 
   // Every change shows up at once; if the server refuses it, it's put back and the person is told.
   const actions = {
@@ -245,7 +266,7 @@ export default function DashboardPage() {
       setSelected(new Set());
       const results = await Promise.allSettled(list.map((board) => api.starBoard(board.id, starred)));
       results.forEach((result, index) => {
-        if (result.status === "rejected") patch([list[index].id], { starred: !starred });
+        if (result.status === "rejected") patch([list[index].id], { starred: list[index].starred }); // what it was before
       });
       if (results.some((result) => result.status === "rejected")) toast.error("Some boards couldn't be updated.");
     },
@@ -456,7 +477,7 @@ export default function DashboardPage() {
                   <BulkBar section={section} picked={picked} actions={actions} onClear={() => setSelected(new Set())} />
                 )}
                 <BoardTable
-                  boards={visible}
+                  boards={shown}
                   trashed={inTrash}
                   sort={sort}
                   onSort={(key) =>
@@ -475,9 +496,7 @@ export default function DashboardPage() {
                     })
                   }
                   onToggleAll={() =>
-                    setSelected(
-                      picked.length === visible.length ? new Set() : new Set(visible.map((board) => board.id)),
-                    )
+                    setSelected(picked.length === shown.length ? new Set() : new Set(shown.map((board) => board.id)))
                   }
                   actions={actions}
                 />
@@ -486,22 +505,24 @@ export default function DashboardPage() {
 
             {visible.length > 0 && view === "grid" && (
               <ul className={GRID}>
-                {visible.map((board) => (
+                {shown.map((board) => (
                   <BoardCard key={board.id} board={board} trashed={inTrash} actions={actions} />
                 ))}
               </ul>
+            )}
+
+            {visible.length > shown.length && (
+              <div className="mt-8 flex justify-center">
+                <Button variant="secondary" onClick={() => setLimit((current) => current + PAGE_SIZE)}>
+                  Show more ({visible.length - shown.length} more)
+                </Button>
+              </div>
             )}
           </div>
         </main>
       </div>
 
-      <NewBoardDialog
-        open={choosing}
-        onClose={() => setChoosing(false)}
-        onCreate={createBoard}
-        busy={creating}
-        signedIn
-      />
+      <NewBoardDialog open={choosing} onClose={() => setChoosing(false)} onCreate={createBoard} busy={creating} />
       <RenameDialog
         board={renaming}
         onClose={() => setRenaming(null)}
