@@ -76,6 +76,7 @@ export type TestSuggestReply = {
   ok: boolean;
   reason?: SuggestionRefusal["reason"];
   suggestions?: Suggestion[];
+  withdrawn?: string[];
   dropped?: string[];
   full?: "board" | "author";
 };
