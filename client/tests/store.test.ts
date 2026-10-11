@@ -1,28 +1,33 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { FIELD_GROUPS, MAX_VERSION } from "@inkboard/shared/board-merge";
+import type { Effect, Element, ShapeElement, StackMove, Tombstones } from "@inkboard/shared/types";
+import type { Style } from "../src/features/board/constants.ts";
 import { createElement, createImage, createNote, duplicate, stackKey } from "../src/features/board/elements.ts";
 import { applyOperation, createBoardStore } from "../src/features/board/store.ts";
+import type { BoardStore } from "../src/features/board/store.ts";
 
-const rect = (id, x = 0) => ({
-  id,
-  type: "rectangle",
-  x1: x,
-  y1: 0,
-  x2: x + 10,
-  y2: 10,
-  stroke: "#000000",
-  fill: null,
-});
-const ids = (store) => store.getElements().map((element) => element.id);
-const stamped = (element, version, versionNonce = 0) => ({ ...element, version, versionNonce });
+const rect = (id: string, x = 0): ShapeElement =>
+  ({
+    id,
+    type: "rectangle",
+    x1: x,
+    y1: 0,
+    x2: x + 10,
+    y2: 10,
+    stroke: "#000000",
+    fill: null,
+  }) as unknown as ShapeElement;
+const ids = (store: BoardStore) => store.getElements().map((element: Element) => element.id);
+const stamped = <T extends Element>(element: T, version: number, versionNonce = 0): T =>
+  ({ ...element, version, versionNonce }) as unknown as T;
 
 /** Two stores that pass every change straight to each other, like two people on a board. */
 function pair() {
   const [a, b] = [createBoardStore(), createBoardStore()];
-  const outbox = { a: [], b: [] };
-  a.setBroadcaster((op) => outbox.a.push(op));
-  b.setBroadcaster((op) => outbox.b.push(op));
+  const outbox: { a: Effect[]; b: Effect[] } = { a: [], b: [] };
+  a.setBroadcaster((op: Effect) => outbox.a.push(op));
+  b.setBroadcaster((op: Effect) => outbox.b.push(op));
   const deliver = () => {
     for (const op of outbox.a.splice(0)) b.applyRemote(op);
     for (const op of outbox.b.splice(0)) a.applyRemote(op);
@@ -37,10 +42,10 @@ describe("applyOperation", () => {
       remove: [{ id: "b", version: 2, versionNonce: 0 }],
     });
     assert.deepEqual(
-      next.map((element) => element.id),
+      next.map((element: Element) => element.id),
       ["a", "c"],
     );
-    assert.equal(next[0].x1, 5);
+    assert.equal((next[0] as ShapeElement).x1, 5);
   });
 
   it("returns the same array when there is nothing to do", () => {
@@ -88,25 +93,25 @@ describe("a board store", () => {
     const store = createBoardStore();
     store.apply({ upsert: [rect("a", 0)] });
     for (const x of [1, 2, 3]) {
-      const current = store.getElement("a");
+      const current = store.getElement("a") as ShapeElement;
       store.commit({ undo: { upsert: [current] }, redo: { upsert: [{ ...current, x1: x }] } }, { mergeKey: "nudge:a" });
     }
-    assert.equal(store.getElements()[0].x1, 3);
+    assert.equal((store.getElements()[0] as ShapeElement).x1, 3);
     store.undo();
-    assert.equal(store.getElements()[0].x1, 0, "one undo reverts the whole nudge");
+    assert.equal((store.getElements()[0] as ShapeElement).x1, 0, "one undo reverts the whole nudge");
     assert.equal(store.getSnapshot().canUndo, false);
   });
 
   it("tells the broadcaster about every live change, including undo", () => {
     const store = createBoardStore();
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     store.commit({ undo: { remove: ["a"] }, redo: { upsert: [rect("a")] } });
     store.undo();
     assert.equal(sent.length, 2);
     assert.deepEqual(sent[1].upsert, []);
     assert.deepEqual(
-      sent[1].remove.map((removal) => [removal.id, removal.version]),
+      sent[1].remove.map((removal: { id: string; version: number }) => [removal.id, removal.version]),
       [["a", 2]],
       "the undo is the element's second edit",
     );
@@ -114,8 +119,8 @@ describe("a board store", () => {
 
   it("doesn't broadcast changes that came from collaborators, the first load or a reconnect", () => {
     const store = createBoardStore();
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     store.load([rect("loaded")]);
     store.applyRemote({ upsert: [stamped(rect("remote"), 1)], remove: [] });
     store.rejoin([rect("rejoined")]);
@@ -124,10 +129,10 @@ describe("a board store", () => {
 
   it("doesn't broadcast a change that changes nothing", () => {
     const store = createBoardStore();
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     store.apply({ upsert: [rect("a")] });
-    const current = store.getElement("a");
+    const current = store.getElement("a")!;
     store.commit({ undo: { upsert: [current] }, redo: { upsert: [{ ...current }] } });
     assert.equal(sent.length, 1);
   });
@@ -135,7 +140,7 @@ describe("a board store", () => {
   it("load forgets history, while a reconnect keeps it and puts unsent changes on top of the server's board", () => {
     const store = createBoardStore();
     store.commit({ undo: { remove: ["a"] }, redo: { upsert: [rect("a")] } });
-    const unsent = { upsert: [store.getElement("a")], remove: [] };
+    const unsent = { upsert: [store.getElement("a")!], remove: [] };
 
     store.rejoin([{ ...stamped(rect("server-side"), 1), index: "a0" }], unsent);
     assert.equal(store.getSnapshot().canUndo, true);
@@ -148,37 +153,37 @@ describe("a board store", () => {
 
   it("undoes a removal after a reconnect: the undo wins over the removal, and the element goes back where it was", () => {
     const store = createBoardStore();
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     for (const id of ["a", "b", "c"]) store.commit({ undo: { remove: [id] }, redo: { upsert: [rect(id)] } });
-    const a = store.getElement("a");
+    const a = store.getElement("a")!;
     store.commit({ undo: { upsert: [a] }, redo: { remove: ["a"] } });
-    const [removal] = sent.at(-1).remove;
+    const [removal] = sent.at(-1)!.remove;
 
     // The server has the removal; the connection drops and comes back.
     const server = store.getElements();
     store.rejoin(server, undefined, [removal]);
     store.undo();
-    const [back] = sent.at(-1).upsert;
-    assert.ok(back.version > removal.version, "stamped past the removal, so the server takes it too");
+    const [back] = sent.at(-1)!.upsert;
+    assert.ok(back.version! > removal.version, "stamped past the removal, so the server takes it too");
     assert.deepEqual(ids(store), ["a", "b", "c"]);
-    const tombstones = new Map([["a", { version: removal.version, versionNonce: removal.versionNonce }]]);
+    const tombstones: Tombstones = new Map([["a", { version: removal.version, versionNonce: removal.versionNonce }]]);
     assert.deepEqual(
-      applyOperation(server, sent.at(-1), tombstones).map((element) => element.id),
+      applyOperation(server, sent.at(-1)!, tombstones).map((element: Element) => element.id),
       ["a", "b", "c"],
     );
   });
 
   it("keeps something removed while this screen was offline removed, even with an unsent change to it", () => {
     const store = createBoardStore();
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     store.load([{ ...stamped(rect("x"), 1), index: "a0" }]);
-    const x = store.getElement("x");
+    const x = store.getElement("x") as ShapeElement;
     store.commit({ undo: { upsert: [x] }, redo: { upsert: [{ ...x, stroke: "#ff0000" }] } });
 
     // Meanwhile someone else removed it, after the version this change was made from.
-    store.rejoin([], sent.at(-1), [{ id: "x", version: 5, versionNonce: 0 }]);
+    store.rejoin([], sent.at(-1)!, [{ id: "x", version: 5, versionNonce: 0 }]);
     assert.deepEqual(ids(store), []);
   });
 
@@ -216,7 +221,7 @@ describe("stacking order", () => {
   it("puts an element brought back by undo where it was, not on top", () => {
     const store = createBoardStore();
     for (const id of ["a", "b", "c"]) store.commit({ undo: { remove: [id] }, redo: { upsert: [rect(id)] } });
-    const a = store.getElement("a");
+    const a = store.getElement("a")!;
     store.commit({ undo: { upsert: [a] }, redo: { remove: ["a"] } });
     assert.deepEqual(ids(store), ["b", "c"]);
     store.undo();
@@ -232,8 +237,8 @@ describe("stacking order", () => {
   });
 
   /** Moves element `id` in the stack the way the editor does: one undo step changing only its key. */
-  function moveInStack(store, id, where) {
-    const element = store.getElement(id);
+  function moveInStack(store: BoardStore, id: string, where: StackMove) {
+    const element = store.getElement(id)!;
     const index = stackKey(store.getElements(), element, where);
     if (index) store.commit({ undo: { upsert: [element] }, redo: { upsert: [{ ...element, index }] } });
     return index;
@@ -260,7 +265,7 @@ describe("stacking order", () => {
       ["a", 0],
       ["far", 500],
       ["b", 5],
-    ]) {
+    ] as const) {
       store.commit({ undo: { remove: [id] }, redo: { upsert: [{ ...rect(id, x), strokeWidth: 2 }] } });
     }
     moveInStack(store, "a", "forward");
@@ -273,19 +278,19 @@ describe("stacking order", () => {
     for (const id of ["x", "y"]) a.commit({ undo: { remove: [id] }, redo: { upsert: [rect(id)] } });
     deliver();
     moveInStack(a, "x", "front");
-    const fromB = b.getElement("x");
+    const fromB = b.getElement("x") as ShapeElement;
     b.commit({ undo: { upsert: [fromB] }, redo: { upsert: [{ ...fromB, stroke: "#ff0000" }] } });
     deliver();
     for (const store of [a, b]) {
       assert.deepEqual(ids(store), ["y", "x"]);
-      assert.equal(store.getElement("x").stroke, "#ff0000");
+      assert.equal((store.getElement("x") as ShapeElement).stroke, "#ff0000");
     }
 
     a.undo();
     deliver();
     for (const store of [a, b]) {
       assert.deepEqual(ids(store), ["x", "y"], "the reorder is undone");
-      assert.equal(store.getElement("x").stroke, "#ff0000", "the other person's color stays");
+      assert.equal((store.getElement("x") as ShapeElement).stroke, "#ff0000", "the other person's color stays");
     }
   });
 });
@@ -300,65 +305,65 @@ describe("changes that cross", () => {
 
   it("keep both a move and a recolor made at the same time", () => {
     const { a, b, deliver } = shared();
-    const fromA = a.getElement("s");
+    const fromA = a.getElement("s") as ShapeElement;
     a.commit({ undo: { upsert: [fromA] }, redo: { upsert: [{ ...fromA, x1: 50, x2: 60 }] } });
-    const fromB = b.getElement("s");
+    const fromB = b.getElement("s") as ShapeElement;
     b.commit({ undo: { upsert: [fromB] }, redo: { upsert: [{ ...fromB, stroke: "#ff0000" }] } });
     deliver();
     for (const store of [a, b]) {
-      assert.equal(store.getElement("s").x1, 50, "the move is kept");
-      assert.equal(store.getElement("s").stroke, "#ff0000", "and so is the color");
+      assert.equal((store.getElement("s") as ShapeElement).x1, 50, "the move is kept");
+      assert.equal((store.getElement("s") as ShapeElement).stroke, "#ff0000", "and so is the color");
     }
     assert.deepEqual(a.getElement("s"), b.getElement("s"));
   });
 
   it("keep a recolor made while someone is still dragging", () => {
     const { a, b, deliver } = shared();
-    const original = a.getElement("s");
-    let previous = null;
+    const original = a.getElement("s") as ShapeElement;
+    let previous: ShapeElement | null = null;
     for (const dx of [10, 20, 30]) {
-      const moved = { ...original, x1: original.x1 + dx, x2: original.x2 + dx };
+      const moved: ShapeElement = { ...original, x1: original.x1 + dx, x2: original.x2 + dx };
       a.apply({ upsert: [moved] }, { base: [previous ?? original] });
       previous = moved;
       if (dx === 10) {
-        const fromB = b.getElement("s");
+        const fromB = b.getElement("s") as ShapeElement;
         b.commit({ undo: { upsert: [fromB] }, redo: { upsert: [{ ...fromB, stroke: "#00ff00" }] } });
       }
       deliver();
     }
-    a.record({ undo: { upsert: [original] }, redo: { upsert: [previous] } });
+    a.record({ undo: { upsert: [original] }, redo: { upsert: [previous!] } });
     deliver();
     for (const store of [a, b]) {
-      assert.equal(store.getElement("s").x1, 30);
-      assert.equal(store.getElement("s").stroke, "#00ff00");
+      assert.equal((store.getElement("s") as ShapeElement).x1, 30);
+      assert.equal((store.getElement("s") as ShapeElement).stroke, "#00ff00");
     }
   });
 
   it("let an undo put back only what it changed", () => {
     const { a, b, deliver } = shared();
-    const before = a.getElement("s");
+    const before = a.getElement("s") as ShapeElement;
     a.commit({ undo: { upsert: [before] }, redo: { upsert: [{ ...before, x1: 99, x2: 109 }] } });
     deliver();
-    const fromB = b.getElement("s");
+    const fromB = b.getElement("s") as ShapeElement;
     b.commit({ undo: { upsert: [fromB] }, redo: { upsert: [{ ...fromB, fill: "#0000ff" }] } });
     deliver();
 
     a.undo();
     deliver();
     for (const store of [a, b]) {
-      assert.equal(store.getElement("s").x1, 0, "the move is undone");
-      assert.equal(store.getElement("s").fill, "#0000ff", "the other person's fill stays");
+      assert.equal((store.getElement("s") as ShapeElement).x1, 0, "the move is undone");
+      assert.equal((store.getElement("s") as ShapeElement).fill, "#0000ff", "the other person's fill stays");
     }
   });
 
   it("pick one winner for both people when they change the same thing", () => {
     const { a, b, deliver } = shared();
-    const fromA = a.getElement("s");
+    const fromA = a.getElement("s") as ShapeElement;
     a.commit({ undo: { upsert: [fromA] }, redo: { upsert: [{ ...fromA, stroke: "#111111" }] } });
-    const fromB = b.getElement("s");
+    const fromB = b.getElement("s") as ShapeElement;
     b.commit({ undo: { upsert: [fromB] }, redo: { upsert: [{ ...fromB, stroke: "#222222" }] } });
     deliver();
-    assert.equal(a.getElement("s").stroke, b.getElement("s").stroke);
+    assert.equal((a.getElement("s") as ShapeElement).stroke, (b.getElement("s") as ShapeElement).stroke);
   });
 });
 
@@ -373,9 +378,9 @@ describe("property groups", () => {
       fontSize: 32,
       font: "hand",
       noteFill: "#ffec99",
-    };
+    } as unknown as Style;
     const grouped = new Set(Object.values(FIELD_GROUPS).flat());
-    const kinds = ["pen", "text", "line", "arrow", "rectangle", "ellipse", "frame"].map((type) =>
+    const kinds = (["pen", "text", "line", "arrow", "rectangle", "ellipse", "frame"] as const).map((type) =>
       createElement(type, { x: 0, y: 0 }, style, 0.5),
     );
     for (const element of [
@@ -395,24 +400,24 @@ describe("what the server answers to a change", () => {
   it("shows an element as the server stored it, unless it changed since", () => {
     const store = createBoardStore();
     store.commit({ undo: { remove: ["a", "b"] }, redo: { upsert: [rect("a"), rect("b")] } });
-    const [a, b] = store.getElements();
+    const [a, b] = store.getElements() as ShapeElement[];
     store.reconcile({
       cleaned: [
         { ...a, stroke: "#111111" },
         { ...b, stroke: "#222222" },
       ],
     });
-    assert.equal(store.getElement("a").stroke, "#111111");
-    assert.equal(store.getElement("b").stroke, "#222222");
+    assert.equal((store.getElement("a") as ShapeElement).stroke, "#111111");
+    assert.equal((store.getElement("b") as ShapeElement).stroke, "#222222");
 
     store.commit({
-      undo: { upsert: [store.getElement("b")] },
-      redo: { upsert: [{ ...store.getElement("b"), x1: 5 }] },
+      undo: { upsert: [store.getElement("b")!] },
+      redo: { upsert: [{ ...(store.getElement("b") as ShapeElement), x1: 5 }] },
     });
     // An older version of b: its move is the change since, and stays.
     store.reconcile({ cleaned: [{ ...b, x1: 0, stroke: "#222222" }] });
-    assert.equal(store.getElement("b").stroke, "#222222");
-    assert.equal(store.getElement("b").x1, 5);
+    assert.equal((store.getElement("b") as ShapeElement).stroke, "#222222");
+    assert.equal((store.getElement("b") as ShapeElement).x1, 5);
   });
 
   it("takes away the elements the server refused because the board is full", () => {
@@ -426,20 +431,20 @@ describe("what the server answers to a change", () => {
 
 describe("the element limit", () => {
   it("leaves out new elements past maxElements and says how many", () => {
-    const refused = [];
-    const store = createBoardStore({ maxElements: 2, onFull: (count) => refused.push(count) });
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const refused: number[] = [];
+    const store = createBoardStore({ maxElements: 2, onFull: (count: number) => refused.push(count) });
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     store.commit({ undo: { remove: ["a", "b", "c"] }, redo: { upsert: [rect("a"), rect("b"), rect("c")] } });
     assert.deepEqual(ids(store), ["a", "b"]);
     assert.deepEqual(refused, [1]);
     assert.deepEqual(
-      sent[0].upsert.map((element) => element.id),
+      sent[0].upsert.map((element: Element) => element.id),
       ["a", "b"],
     );
     // Changing what is there is always fine.
-    store.apply({ upsert: [{ ...store.getElement("a"), x1: 5 }] });
-    assert.equal(store.getElement("a").x1, 5);
+    store.apply({ upsert: [{ ...(store.getElement("a") as ShapeElement), x1: 5 }] });
+    assert.equal((store.getElement("a") as ShapeElement).x1, 5);
     assert.deepEqual(refused, [1]);
   });
 });
@@ -448,13 +453,13 @@ describe("looking elements up", () => {
   it("finds elements by id after every kind of change", () => {
     const store = createBoardStore();
     store.load([stamped(rect("a"), 1)]);
-    assert.equal(store.getElement("a").id, "a");
+    assert.equal(store.getElement("a")!.id, "a");
     store.applyRemote({ upsert: [stamped(rect("b"), 1)], remove: [{ id: "a", version: 2, versionNonce: 0 }] });
     assert.equal(store.getElement("a"), undefined);
-    assert.equal(store.getElement("b").id, "b");
+    assert.equal(store.getElement("b")!.id, "b");
     store.rejoin([stamped(rect("c"), 1)]);
     assert.equal(store.getElement("b"), undefined);
-    assert.equal(store.getElement("c").id, "c");
+    assert.equal(store.getElement("c")!.id, "c");
   });
 });
 
@@ -468,10 +473,10 @@ describe("changes to what someone else has removed", () => {
 
   it("do not bring it back: not an edit made from what it was, not an undo of a move", () => {
     const { a, b, deliver } = shared();
-    const s = a.getElement("s");
+    const s = a.getElement("s") as ShapeElement;
     a.commit({ undo: { upsert: [s] }, redo: { upsert: [{ ...s, x1: 50, x2: 60 }] } });
     deliver();
-    b.commit({ undo: { upsert: [b.getElement("s")] }, redo: { remove: ["s"] } });
+    b.commit({ undo: { upsert: [b.getElement("s")!] }, redo: { remove: ["s"] } });
     deliver();
     assert.deepEqual(ids(a), []);
 
@@ -490,7 +495,7 @@ describe("changes to what someone else has removed", () => {
 
   it("still let undo put back what the step itself removed, and redo what it made", () => {
     const { a, b, deliver } = shared();
-    a.commit({ undo: { upsert: [a.getElement("s")] }, redo: { remove: ["s"] } });
+    a.commit({ undo: { upsert: [a.getElement("s")!] }, redo: { remove: ["s"] } });
     deliver();
     a.undo();
     deliver();
@@ -505,15 +510,15 @@ describe("changes to what someone else has removed", () => {
 describe("a store's stamps", () => {
   it("never go past the largest version others accept", () => {
     const store = createBoardStore();
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     store.load([{ ...stamped(rect("a"), MAX_VERSION - 1), index: "a0" }]);
     for (const stroke of ["#111111", "#222222", "#333333"]) {
-      const a = store.getElement("a");
+      const a = store.getElement("a") as ShapeElement;
       store.commit({ undo: { upsert: [a] }, redo: { upsert: [{ ...a, stroke }] } });
     }
     assert.ok(sent.length > 0);
-    assert.ok(sent.every((op) => op.upsert.every((element) => element.version <= MAX_VERSION)));
+    assert.ok(sent.every((op: Effect) => op.upsert.every((element: Element) => element.version! <= MAX_VERSION)));
   });
 });
 
@@ -532,52 +537,60 @@ describe("history marks", () => {
 
 describe("lines and arrows saved before they had every field", () => {
   // As boards saved them before every line and arrow had a label, a route, a label font and arrowheads.
-  const oldArrow = () => ({
-    ...stamped(rect("c"), 3, 7),
-    type: "arrow",
-    seed: 1,
-    strokeWidth: 2.5,
-    sketchy: true,
-    index: "a0",
-  });
+  const oldArrow = (): ShapeElement =>
+    ({
+      ...stamped(rect("c"), 3, 7),
+      type: "arrow",
+      seed: 1,
+      strokeWidth: 2.5,
+      sketchy: true,
+      index: "a0",
+    }) as unknown as ShapeElement;
 
   it("can have a label, a route and a start head undone back to none, here and for everyone", () => {
     const store = createBoardStore();
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     store.load([oldArrow()]);
-    const before = store.getElement("c");
+    const before = store.getElement("c") as ShapeElement;
     store.commit({
       undo: { upsert: [before] },
-      redo: { upsert: [{ ...before, text: "yes", route: "elbow", startHead: true }] },
+      redo: { upsert: [{ ...before, text: "yes", route: "elbow" as const, startHead: true }] },
     });
     store.undo();
-    const after = store.getElement("c");
+    const after = store.getElement("c") as ShapeElement;
     assert.deepEqual([after.text, after.route, after.startHead], ["", "straight", false]);
     // Someone else, or the server, who had the arrow as it was saved.
-    let elsewhere = [oldArrow()];
+    let elsewhere: Element[] = [oldArrow()];
     for (const op of sent) elsewhere = applyOperation(elsewhere, op);
-    assert.deepEqual([elsewhere[0].text, elsewhere[0].route, elsewhere[0].startHead], ["", "straight", false]);
+    assert.deepEqual(
+      [
+        (elsewhere[0] as ShapeElement).text,
+        (elsewhere[0] as ShapeElement).route,
+        (elsewhere[0] as ShapeElement).startHead,
+      ],
+      ["", "straight", false],
+    );
   });
 });
 
 describe("undoing a removal", () => {
   it("stamps the element newer than the removal, even once the board forgot the removal", () => {
     const store = createBoardStore();
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     store.load([{ ...stamped(rect("a"), 5), index: "a0" }]);
-    const a = store.getElement("a");
+    const a = store.getElement("a")!;
     store.commit({ undo: { upsert: [a] }, redo: { remove: ["a"] } });
-    const removal = sent.at(-1).remove[0];
+    const removal = sent.at(-1)!.remove[0];
     // Reconnected: the server's list of removals doesn't have it (it sends what it still keeps).
     store.rejoin([], { upsert: [], remove: [] }, []);
     store.undo();
-    const back = sent.at(-1).upsert[0];
-    assert.ok(back.version > removal.version, `${back.version} after ${removal.version}`);
-    const tombstones = new Map([["a", { version: removal.version, versionNonce: removal.versionNonce }]]);
+    const back = sent.at(-1)!.upsert[0];
+    assert.ok(back.version! > removal.version, `${back.version} after ${removal.version}`);
+    const tombstones: Tombstones = new Map([["a", { version: removal.version, versionNonce: removal.versionNonce }]]);
     assert.deepEqual(
-      applyOperation([], { upsert: [back] }, tombstones).map((element) => element.id),
+      applyOperation([], { upsert: [back] }, tombstones).map((element: Element) => element.id),
       ["a"],
       "the server, which still has the removal, brings it back too",
     );
@@ -588,36 +601,42 @@ describe("a change the server refused", () => {
   it("puts back the server's copy of an element it has, older than what was sent", () => {
     const store = createBoardStore();
     store.load([{ ...stamped(rect("a"), 2), index: "a0" }]);
-    const stored = store.getElement("a");
+    const stored = store.getElement("a") as ShapeElement;
     store.commit({ undo: { upsert: [stored] }, redo: { upsert: [{ ...stored, x2: 99 }] } });
-    const sent = store.getElement("a");
+    const sent = store.getElement("a")!;
     store.reconcile({
       cleaned: [stored],
-      sent: new Map([["a", { version: sent.version, versionNonce: sent.versionNonce }]]),
+      sent: new Map([["a", { version: sent.version!, versionNonce: sent.versionNonce! }]]),
     });
-    assert.equal(store.getElement("a").x2, 10);
+    assert.equal((store.getElement("a") as ShapeElement).x2, 10);
   });
 
   it("keeps a group someone else changed since, while putting back the groups that were sent", () => {
     const store = createBoardStore();
     store.load([{ ...stamped(rect("a"), 3), index: "a0" }]);
-    const stored = store.getElement("a");
+    const stored = store.getElement("a") as ShapeElement;
     // Moved here (stroke keeps its older stamp), and the server hands its own copy back.
     store.commit({ undo: { upsert: [stored] }, redo: { upsert: [{ ...stored, x2: 99 }] } });
-    const sent = store.getElement("a");
+    const sent = store.getElement("a")!;
     // Someone's recolor is merged in before the reply: newer than the stroke it replaces, not than the move.
     store.applyRemote({
       upsert: [
-        { ...stored, stroke: "#ff0000", version: sent.version, versionNonce: 2 ** 31 - 1, stamps: { shape: [0, 0] } },
+        {
+          ...stored,
+          stroke: "#ff0000",
+          version: sent.version,
+          versionNonce: 2 ** 31 - 1,
+          stamps: { shape: [0, 0] },
+        } as unknown as ShapeElement,
       ],
       remove: [],
     });
-    assert.equal(store.getElement("a").stroke, "#ff0000");
+    assert.equal((store.getElement("a") as ShapeElement).stroke, "#ff0000");
     store.reconcile({
       cleaned: [stored],
-      sent: new Map([["a", { version: sent.version, versionNonce: sent.versionNonce }]]),
+      sent: new Map([["a", { version: sent.version!, versionNonce: sent.versionNonce! }]]),
     });
-    assert.equal(store.getElement("a").x2, 10, "the refused move is put back");
-    assert.equal(store.getElement("a").stroke, "#ff0000", "the recolor isn't undone with it");
+    assert.equal((store.getElement("a") as ShapeElement).x2, 10, "the refused move is put back");
+    assert.equal((store.getElement("a") as ShapeElement).stroke, "#ff0000", "the recolor isn't undone with it");
   });
 });

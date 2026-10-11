@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { FrameElement, StickyElement } from "@inkboard/shared/types";
 
 // Text is measured with a canvas, which Node doesn't have: every character is 10 units wide.
-globalThis.document ??= {
-  createElement: () => ({ getContext: () => ({ font: "", measureText: (text) => ({ width: text.length * 10 }) }) }),
+(globalThis as unknown as { document: unknown }).document ??= {
+  createElement: () => ({
+    getContext: () => ({ font: "", measureText: (text: string) => ({ width: text.length * 10 }) }),
+  }),
 };
 
 const { copyOffset } = await import("../src/features/board/placement.ts");
@@ -11,7 +14,15 @@ const { copyGroup } = await import("../src/features/board/connectors.ts");
 const { getSceneBounds } = await import("../src/features/board/elements.ts");
 const { rectsOverlap } = await import("../src/features/board/geometry.ts");
 
-const frame = (id, x1, y1, x2, y2) => ({ id, type: "frame", x1, y1, x2, y2, name: "" });
+const frame = (id: string, x1: number, y1: number, x2: number, y2: number): FrameElement => ({
+  id,
+  type: "frame",
+  x1,
+  y1,
+  x2,
+  y2,
+  name: "",
+});
 
 describe("where a copy of a frame goes", () => {
   it("goes to the right when that is free", () => {
@@ -21,23 +32,23 @@ describe("where a copy of a frame goes", () => {
 
   it("does not land on the next column of a row of frames", () => {
     const columns = [frame("a", 0, 0, 300, 400), frame("b", 340, 0, 640, 400), frame("c", 680, 0, 980, 400)];
-    const [dx, dy] = copyOffset(columns, [columns[0]]);
-    const [copy] = copyGroup(columns, [columns[0]], dx, dy);
+    const [dx, dy] = copyOffset(columns, [columns[0]!])!;
+    const [copy] = copyGroup(columns, [columns[0]!], dx, dy);
     for (const other of columns) {
-      assert.equal(rectsOverlap(getSceneBounds([copy]), getSceneBounds([other])), false, `overlaps ${other.id}`);
+      assert.equal(rectsOverlap(getSceneBounds([copy!])!, getSceneBounds([other])!), false, `overlaps ${other.id}`);
     }
   });
 
   it("goes below when there is no room beside", () => {
     const row = [frame("a", 0, 0, 300, 200), frame("b", 340, 0, 640, 200), frame("c", -340, 0, -40, 200)];
-    const [dx, dy] = copyOffset(row, [row[0]]);
+    const [dx, dy] = copyOffset(row, [row[0]!])!;
     assert.equal(dx, 0);
     assert.ok(dy > 200, `moved down by ${dy}`);
   });
 
   it("takes what is inside the frame into account", () => {
     const outer = frame("a", 0, 0, 300, 200);
-    const note = {
+    const note: StickyElement = {
       id: "n",
       type: "sticky",
       x1: 250,
@@ -48,9 +59,9 @@ describe("where a copy of a frame goes", () => {
       fill: "#ffec99",
       font: "hand",
     };
-    const [dx, dy] = copyOffset([outer, note], [outer, note]);
+    const [dx, dy] = copyOffset([outer, note], [outer, note])!;
     const [copy] = copyGroup([outer, note], [outer, note], dx, dy);
-    assert.equal(rectsOverlap(getSceneBounds([copy]), getSceneBounds([outer, note])), false);
+    assert.equal(rectsOverlap(getSceneBounds([copy!])!, getSceneBounds([outer, note])!), false);
   });
 });
 

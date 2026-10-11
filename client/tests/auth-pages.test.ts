@@ -4,6 +4,8 @@ import { beforeEach, describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
+import type { AccountUser } from "../src/lib/api.ts";
+import type { AuthStatus, AuthValue } from "../src/providers/AuthProvider.tsx";
 
 // These tests render the auth provider and pages to HTML (no browser; effects don't run), so what's checked
 // here is what a page shows for a given state, and what the provider's callbacks do when called. The
@@ -19,16 +21,16 @@ const realFetch = globalThis.fetch;
 
 // The browser's localStorage, shared by every tab of the app (here, one tab and whatever the test plays).
 function fakeStorage() {
-  const items = new Map();
+  const items = new Map<string, string>();
   return {
-    getItem: (key) => items.get(key) ?? null,
-    setItem: (key, value) => items.set(key, String(value)),
-    removeItem: (key) => items.delete(key),
-  };
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: (key: string, value: unknown) => items.set(key, String(value)),
+    removeItem: (key: string) => items.delete(key),
+  } as unknown as Storage;
 }
 
 // A login token for account `sub`: only the payload matters to the app, which doesn't check signatures.
-const loginFor = (sub, version = 1) =>
+const loginFor = (sub: string, version = 1) =>
   `h.${Buffer.from(JSON.stringify({ sub, v: version })).toString("base64url")}.signature`;
 
 beforeEach(() => {
@@ -39,7 +41,7 @@ beforeEach(() => {
 
 // Renders an AuthProvider and hands back what it gives the app.
 function renderAuth() {
-  let auth;
+  let auth!: ReturnType<typeof useAuth>;
   function Grab() {
     auth = useAuth();
     return null;
@@ -50,11 +52,11 @@ function renderAuth() {
 
 // The login this tab makes its requests with now (null for none), seen as the server would see it.
 async function tabLogin() {
-  let sent;
-  globalThis.fetch = async (url, init) => {
-    sent = init.headers.Authorization ?? null;
+  let sent!: string | null;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    sent = (init!.headers as Record<string, string>).Authorization ?? null;
     return new Response("{}");
-  };
+  }) as typeof globalThis.fetch;
   await api.me();
   return sent?.replace("Bearer ", "") ?? null;
 }
@@ -97,8 +99,9 @@ describe("logging out a tab (L30)", () => {
 
 describe("the Google and GitHub sign-in callback (M7)", () => {
   const renderCallback = (hash = "#code=a-code&next=%2Fboard%2Fabc") => {
+    // @ts-expect-error mocking window.location for node
     globalThis.window = { location: { hash, pathname: "/auth/callback" } };
-    const value = { status: "anonymous", startSession: () => {} };
+    const value = { status: "anonymous", startSession: () => {} } as unknown as AuthValue;
     return renderToStaticMarkup(createElement(AuthContext.Provider, { value }, createElement(OAuthCallbackPage)));
   };
 
@@ -108,8 +111,12 @@ describe("the Google and GitHub sign-in callback (M7)", () => {
 });
 
 describe("the page behind a verification link", () => {
-  const render = ({ status = "authenticated", user = { email: "ana@example.test" }, search = "?token=abc" }) => {
-    const value = { status, user, updateUser: () => {}, logout: () => {}, retry: () => {} };
+  const render = ({
+    status = "authenticated" as AuthStatus,
+    user = { email: "ana@example.test" } as unknown as AccountUser | null,
+    search = "?token=abc",
+  }) => {
+    const value = { status, user, updateUser: () => {}, logout: () => {}, retry: () => {} } as unknown as AuthValue;
     return renderToStaticMarkup(
       createElement(
         MemoryRouter,

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { FIELD_GROUPS } from "@inkboard/shared/board-merge";
+import type { Effect, Element, FrameElement, ShapeElement, Side, TextElement } from "@inkboard/shared/types";
 import {
   CONNECT_GAP,
   DOT_CORE,
@@ -20,6 +21,8 @@ import {
   releaseFrom,
   resolveConnectors,
 } from "../src/features/board/connectors.ts";
+import type { Connectable } from "../src/features/board/connectors.ts";
+import type { Style } from "../src/features/board/constants.ts";
 import {
   arrowHeads,
   connectorLabel,
@@ -30,38 +33,55 @@ import {
   getSceneBounds,
   hitTest,
 } from "../src/features/board/elements.ts";
+import type { Connector } from "../src/features/board/elements.ts";
 import { ELBOW_GAP, connectorPath, pathMiddle } from "../src/features/board/routes.ts";
 import { createBoardStore } from "../src/features/board/store.ts";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in measures 10 units a character.
 const measuringDocument = {
-  createElement: () => ({ getContext: () => ({ measureText: (value) => ({ width: value.length * 10 }) }) }),
+  createElement: () => ({ getContext: () => ({ measureText: (value: string) => ({ width: value.length * 10 }) }) }),
 };
-globalThis.document ??= measuringDocument;
+globalThis.document ??= measuringDocument as unknown as Document;
 
-const shape = (id, x1, y1, x2, y2, type = "rectangle", extra = {}) => ({
-  id,
-  type,
-  seed: 1,
-  x1,
-  y1,
-  x2,
-  y2,
-  stroke: "#000000",
-  fill: null,
-  strokeWidth: 2,
-  sketchy: false,
-  ...extra,
-});
-const arrow = (id, startId, endId, extra = {}) => ({
-  ...shape(id, 0, 0, 10, 10, "arrow"),
-  ...(startId ? { startId } : {}),
-  ...(endId ? { endId } : {}),
-  ...extra,
-});
-const near = (actual, expected, message) =>
+const shape = (
+  id: string,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  type = "rectangle",
+  extra: Record<string, unknown> = {},
+): ShapeElement =>
+  ({
+    id,
+    type,
+    seed: 1,
+    x1,
+    y1,
+    x2,
+    y2,
+    stroke: "#000000",
+    fill: null,
+    strokeWidth: 2,
+    sketchy: false,
+    ...extra,
+  }) as unknown as ShapeElement;
+const arrow = (
+  id: string,
+  startId?: string | null,
+  endId?: string | null,
+  extra: Record<string, unknown> = {},
+): Connector =>
+  ({
+    ...shape(id, 0, 0, 10, 10, "arrow"),
+    ...(startId ? { startId } : {}),
+    ...(endId ? { endId } : {}),
+    ...extra,
+  }) as unknown as Connector;
+const near = (actual: number, expected: number, message?: string) =>
   assert.ok(Math.abs(actual - expected) < 1e-6, `${message ?? ""} ${actual} ≈ ${expected}`);
-const byId = (elements, id) => elements.find((element) => element.id === id);
+const byId = (elements: Element[], id: string) =>
+  elements.find((element: Element) => element.id === id) as ShapeElement;
 
 // Two boxes side by side, 100 wide, with 200 between them, and an arrow from one to the other.
 const board = () => [shape("a", 0, 0, 100, 100), shape("b", 300, 0, 400, 100), arrow("link", "a", "b")];
@@ -122,26 +142,26 @@ describe("attached connector ends", () => {
 
   it("count where they're drawn for picking, frames and the board's bounds", () => {
     const elements = [
-      { id: "f", type: "frame", x1: -50, y1: -50, x2: 450, y2: 150, name: "" },
+      { id: "f", type: "frame", x1: -50, y1: -50, x2: 450, y2: 150, name: "" } as unknown as FrameElement,
       ...board(),
       { ...arrow("far", "a", null), x2: 50, y2: 2000 },
     ];
-    assert.equal(elementAt(elements, 200, 50, 2).id, "link", "picked along its drawn line");
+    assert.equal(elementAt(elements, 200, 50, 2)!.id, "link", "picked along its drawn line");
     assert.deepEqual(
-      frameContents(elements, elements[0]).map((element) => element.id),
+      frameContents(elements, elements[0] as FrameElement).map((element: Element) => element.id),
       ["a", "b", "link"],
       "the arrow drawn between the boxes is in the frame",
     );
-    assert.ok(getSceneBounds(board()).x >= -1, "bounds from drawn ends, not stored ones");
+    assert.ok(getSceneBounds(board())!.x >= -1, "bounds from drawn ends, not stored ones");
   });
 });
 
 describe("attaching ends", () => {
   it("finds the topmost shape under a point, inside it as well as on its edge", () => {
     const elements = [shape("a", 0, 0, 100, 100), shape("b", 50, 50, 150, 150), arrow("x", null, null)];
-    assert.equal(connectTargetAt(elements, { x: 75, y: 75 }, 2).id, "b");
-    assert.equal(connectTargetAt(elements, { x: 20, y: 20 }, 2).id, "a");
-    assert.equal(connectTargetAt(elements, { x: 75, y: 75 }, 2, { except: "b" }).id, "a");
+    assert.equal(connectTargetAt(elements, { x: 75, y: 75 }, 2)!.id, "b");
+    assert.equal(connectTargetAt(elements, { x: 20, y: 20 }, 2)!.id, "a");
+    assert.equal(connectTargetAt(elements, { x: 75, y: 75 }, 2, { except: "b" })!.id, "a");
     assert.equal(connectTargetAt(elements, { x: 500, y: 500 }, 2), null);
     const circle = [shape("c", 0, 0, 100, 100, "ellipse")];
     assert.equal(connectTargetAt(circle, { x: 3, y: 3 }, 2), null, "outside the ellipse, inside its box");
@@ -150,34 +170,35 @@ describe("attaching ends", () => {
   it("prefer a shape to the label sitting on it, and take text where there's no shape", () => {
     // Text is measured with a canvas; a stand-in measures 10 units a character.
     const realDocument = globalThis.document;
-    globalThis.document = measuringDocument;
+    globalThis.document = measuringDocument as unknown as Document;
     try {
-      const label = (id, x) => ({
-        id,
-        type: "text",
-        x1: x,
-        y1: 10,
-        text: "Hi",
-        stroke: "#000",
-        fontSize: 20,
-        font: "hand",
-      });
+      const label = (id: string, x: number): TextElement =>
+        ({
+          id,
+          type: "text",
+          x1: x,
+          y1: 10,
+          text: "Hi",
+          stroke: "#000",
+          fontSize: 20,
+          font: "hand",
+        }) as unknown as TextElement;
       const elements = [shape("a", 0, 0, 100, 100), label("on-shape", 10), label("alone", 500)];
-      assert.equal(connectTargetAt(elements, { x: 15, y: 15 }, 2).id, "a");
-      assert.equal(connectTargetAt(elements, { x: 505, y: 15 }, 2).id, "alone");
+      assert.equal(connectTargetAt(elements, { x: 15, y: 15 }, 2)!.id, "a");
+      assert.equal(connectTargetAt(elements, { x: 505, y: 15 }, 2)!.id, "alone");
       // An arrow from "a" let go over a's own label doesn't attach to the label.
       assert.equal(connectTargetAt(elements, { x: 15, y: 15 }, 2, { except: "a" }), null);
-      assert.equal(connectTargetAt(elements, { x: 505, y: 15 }, 2, { except: "a" }).id, "alone");
+      assert.equal(connectTargetAt(elements, { x: 505, y: 15 }, 2, { except: "a" })!.id, "alone");
     } finally {
       globalThis.document = realDocument;
     }
   });
 
   it("sets or clears one end", () => {
-    const attached = attachEnd(arrow("x", null, null), "end", { id: "b" });
+    const attached = attachEnd(arrow("x", null, null), "end", { id: "b" } as unknown as Connectable);
     assert.equal(attached.endId, "b");
     assert.equal("endId" in attachEnd(attached, "end", null), false);
-    assert.equal(attachEnd(attached, "start", { id: "a" }).endId, "b");
+    assert.equal(attachEnd(attached, "start", { id: "a" } as unknown as Connectable).endId, "b");
   });
 
   it("are kept in one property group with the ends, so they merge together", () => {
@@ -190,7 +211,7 @@ describe("moving, copying and removing with connectors", () => {
     const elements = board();
     const [alone] = readyToMove(elements, [byId(elements, "link")]);
     assert.equal("startId" in alone || "endId" in alone, false);
-    near(alone.x1, 100 + EDGE);
+    near((alone as ShapeElement).x1, 100 + EDGE);
     const together = moveGroup(elements, elements, 10, 0);
     const link = byId(together, "link");
     assert.equal(link.startId, "a");
@@ -200,14 +221,14 @@ describe("moving, copying and removing with connectors", () => {
   it("copies a group with its connectors attached to the copies", () => {
     const elements = board();
     const copies = copyGroup(elements, elements, 0, 500);
-    const [a, b, link] = copies;
+    const [a, b, link] = copies as [ShapeElement, ShapeElement, Connector];
     assert.equal(link.startId, a.id);
     assert.equal(link.endId, b.id);
     assert.ok(![a.id, b.id, link.id].some((id) => ["a", "b", "link"].includes(id)));
     const [loneCopy] = copyGroup(elements, [byId(elements, "link")], 16, 16);
     assert.equal("startId" in loneCopy, false, "a connector copied alone is let go");
     const sameLook = copyGroup(elements, elements, 0, 0, { sameLook: true });
-    assert.equal(sameLook[0].seed, elements[0].seed);
+    assert.equal((sameLook[0] as ShapeElement).seed, elements[0].seed);
   });
 
   it("leaves connectors where they're drawn when their shape is removed", () => {
@@ -222,25 +243,25 @@ describe("moving, copying and removing with connectors", () => {
 
   it("lets go of connectors whenever a change here removes their shape, and attaches them again on undo", () => {
     const store = createBoardStore({ release: releaseFrom });
-    const sent = [];
-    store.setBroadcaster((op) => sent.push(op));
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
     const start = board();
-    store.commit({ undo: { remove: start.map((element) => element.id) }, redo: { upsert: start } });
+    store.commit({ undo: { remove: start.map((element: Element) => element.id) }, redo: { upsert: start } });
     // Removed the way emptying a text does: a plain removal.
-    store.commit({ undo: { upsert: [store.getElement("b")] }, redo: { remove: ["b"] } });
-    const loose = store.getElement("link");
+    store.commit({ undo: { upsert: [store.getElement("b")!] }, redo: { remove: ["b"] } });
+    const loose = store.getElement("link") as ShapeElement;
     assert.equal("endId" in loose, false);
     near(loose.x2, 300 - EDGE, "left where it was drawn");
     assert.ok(
-      sent.at(-1).upsert.some((element) => element.id === "link"),
+      sent.at(-1)!.upsert.some((element: Element) => element.id === "link"),
       "sent in the same change",
     );
     store.undo();
-    assert.equal(store.getElement("link").endId, "b");
+    assert.equal((store.getElement("link") as ShapeElement).endId, "b");
     store.redo();
-    assert.equal("endId" in store.getElement("link"), false);
+    assert.equal("endId" in (store.getElement("link") as ShapeElement), false);
     store.undo();
-    assert.equal(store.getElement("link").endId, "b");
+    assert.equal((store.getElement("link") as ShapeElement).endId, "b");
   });
 
   it("lets go of connectors when undoing brings their shape's removal, and attaches them again on redo", () => {
@@ -250,33 +271,34 @@ describe("moving, copying and removing with connectors", () => {
     store.commit({ undo: { remove: ["b"] }, redo: { upsert: [b] } });
     for (let round = 0; round < 2; round += 1) {
       store.undo();
-      const loose = store.getElement("link");
+      const loose = store.getElement("link") as ShapeElement;
       assert.equal("endId" in loose, false);
       assert.equal(loose.startId, "a");
       near(loose.x2, 300 - EDGE);
       store.redo();
-      assert.equal(store.getElement("link").endId, "b", "attached again");
+      assert.equal((store.getElement("link") as ShapeElement).endId, "b", "attached again");
     }
   });
 
   it("follow a shape moved by someone else, on both screens, without either touching the arrow", () => {
     const [here, there] = [createBoardStore(), createBoardStore()];
-    here.setBroadcaster((op) => there.applyRemote(op));
-    there.setBroadcaster((op) => here.applyRemote(op));
+    here.setBroadcaster((op: Effect) => there.applyRemote(op));
+    there.setBroadcaster((op: Effect) => here.applyRemote(op));
     const start = board();
-    here.commit({ undo: { remove: start.map((element) => element.id) }, redo: { upsert: start } });
-    const b = there.getElement("b");
+    here.commit({ undo: { remove: start.map((element: Element) => element.id) }, redo: { upsert: start } });
+    const b = there.getElement("b") as ShapeElement;
     there.commit({ undo: { upsert: [b] }, redo: { upsert: [{ ...b, y1: 300, y2: 400 }] } });
     for (const store of [here, there]) {
       const drawn = byId(resolveConnectors(store.getElements()), "link");
       assert.ok(drawn.y2 > 250, "the arrow's end went down with the box");
-      assert.equal(store.getElement("link").y2, 10, "the stored arrow didn't change");
+      assert.equal((store.getElement("link") as ShapeElement).y2, 10, "the stored arrow didn't change");
     }
   });
 });
 
 // Each segment of a polyline, as [dx, dy].
-const segments = (points) => points.slice(1).map((point, i) => [point.x - points[i].x, point.y - points[i].y]);
+const segments = (points: { x: number; y: number }[]) =>
+  points.slice(1).map((point, i) => [point.x - points[i].x, point.y - points[i].y]);
 
 describe("connection dots and pinned ends", () => {
   it("pin an end to the middle of a side, turned with its shape", () => {
@@ -302,7 +324,7 @@ describe("connection dots and pinned ends", () => {
     const dots = connectionDots(elements[0], 1);
     near(dots.right.x, 100 + DOT_GAP + 1, "outside the outline and its stroke");
     near(connectionDots(elements[0], 2).right.x, 100 + DOT_GAP / 2 + 1, "the same distance on screen when zoomed in");
-    const at = (x, y) => connectionAt(elements, { x, y }, { zoom: 1, tolerance: 6 });
+    const at = (x: number, y: number) => connectionAt(elements, { x, y }, { zoom: 1, tolerance: 6 });
     assert.deepEqual(at(dots.right.x, 53), { target: elements[0], side: "right" });
     assert.deepEqual(at(50, 50), { target: elements[0], side: null }, "on the shape: floating");
     assert.deepEqual(at(50, dots.bottom.y + 2), { target: elements[0], side: "bottom" });
@@ -315,9 +337,13 @@ describe("connection dots and pinned ends", () => {
   });
 
   it("sets and clears the pinned side with the end, and lets go of both together", () => {
-    const pinned = attachEnd(arrow("x", null, null), "end", { id: "b" }, "left");
+    const pinned = attachEnd(arrow("x", null, null), "end", { id: "b" } as unknown as Connectable, "left");
     assert.equal(pinned.endAnchor, "left");
-    assert.equal("endAnchor" in attachEnd(pinned, "end", { id: "c" }), false, "dropped on a shape: floating");
+    assert.equal(
+      "endAnchor" in attachEnd(pinned, "end", { id: "c" } as unknown as Connectable),
+      false,
+      "dropped on a shape: floating",
+    );
     const loose = attachEnd(pinned, "end", null);
     assert.equal("endId" in loose || "endAnchor" in loose, false);
     const [change] = releaseFrom([shape("b", 300, 0, 400, 100), pinned], new Set(["b"]));
@@ -338,8 +364,12 @@ describe("connection dots and pinned ends", () => {
 });
 
 describe("connector paths", () => {
-  const boxes = (b, extra) => [shape("a", 0, 0, 100, 100), b, arrow("link", "a", "b", extra)];
-  const pathOf = (elements) => connectorPath(byId(resolveConnectors(elements), "link"));
+  const boxes = (b: ShapeElement, extra?: Record<string, unknown>) => [
+    shape("a", 0, 0, 100, 100),
+    b,
+    arrow("link", "a", "b", extra),
+  ];
+  const pathOf = (elements: Element[]) => connectorPath(byId(resolveConnectors(elements), "link"));
 
   it("are one segment when straight", () => {
     assert.equal(connectorPath(arrow("x", null, null)).points.length, 2);
@@ -352,7 +382,7 @@ describe("connector paths", () => {
     for (const [dx, dy] of segments(points)) assert.ok(Math.abs(dx) < 1e-6 || Math.abs(dy) < 1e-6);
     const steps = segments(points);
     assert.ok(steps[0][0] > 0, "leaves to the right");
-    assert.ok(steps.at(-1)[0] > 0, "arrives moving right, into the left side");
+    assert.ok(steps.at(-1)![0] > 0, "arrives moving right, into the left side");
   });
 
   it("go round rather than back through a shape", () => {
@@ -366,7 +396,7 @@ describe("connector paths", () => {
       assert.ok(ax * bx + ay * by >= -1e-6, "never turns straight back");
     }
     assert.ok(steps[0][0] >= ELBOW_GAP - 1e-6, "runs out of the side before turning");
-    assert.ok(steps.at(-1)[0] >= ELBOW_GAP - 1e-6, "and straight into the other");
+    assert.ok(steps.at(-1)![0] >= ELBOW_GAP - 1e-6, "and straight into the other");
   });
 
   it("curve out of each end's side and into the other's", () => {
@@ -381,7 +411,7 @@ describe("connector paths", () => {
 
   it("aim free elbow ends along whichever way is further", () => {
     const free = { ...arrow("x", null, null, { route: "elbow" }), x2: 200, y2: 100 };
-    const { points } = connectorPath(free);
+    const { points } = connectorPath(free as unknown as Connector);
     assert.deepEqual(
       points.map(({ x, y }) => [x, y]),
       [
@@ -390,29 +420,40 @@ describe("connector paths", () => {
         [200, 100],
       ],
     );
-    assert.deepEqual(pathMiddle(connectorPath(free)), { x: 150, y: 0 });
+    assert.deepEqual(pathMiddle(connectorPath(free as unknown as Connector)), { x: 150, y: 0 });
   });
 
   it("are what new lines and arrows take from the style, with arrowheads at one end or both", () => {
-    const style = { stroke: "#000", strokeWidth: 2, sketchy: false, route: "curved", startHead: true, font: "sans" };
-    const made = createElement("arrow", { x: 0, y: 0 }, style);
+    const style = {
+      stroke: "#000",
+      strokeWidth: 2,
+      sketchy: false,
+      route: "curved" as const,
+      startHead: true,
+      font: "sans" as const,
+    };
+    const made = createElement("arrow", { x: 0, y: 0 }, style as unknown as Style) as ShapeElement;
     assert.equal(made.route, "curved");
     assert.equal(made.startHead, true);
     assert.equal(made.font, "sans");
-    assert.equal("startHead" in createElement("line", { x: 0, y: 0 }, style), false, "lines have no heads");
-    for (const field of ["route", "startHead"]) assert.deepEqual(FIELD_GROUPS[field], [field]);
+    assert.equal(
+      "startHead" in createElement("line", { x: 0, y: 0 }, style as unknown as Style),
+      false,
+      "lines have no heads",
+    );
+    for (const field of ["route", "startHead"] as const) assert.deepEqual(FIELD_GROUPS[field], [field]);
     for (const field of ["startAnchor", "endAnchor"]) assert.ok(FIELD_GROUPS.shape.includes(field));
   });
 });
 
 describe("connector labels", () => {
-  const labelled = { ...arrow("x", null, null), x2: 200, y2: 0, text: "Go", font: "hand" };
+  const labelled = { ...arrow("x", null, null), x2: 200, y2: 0, text: "Go", font: "hand" as const };
 
   it("sit halfway along, in a box the line leaves a gap around", () => {
     const label = connectorLabel(labelled);
     // 2 characters at 10 units each, a line at 20 × 1.25, with 4 to spare all round.
     assert.deepEqual(
-      { x: label.x, y: label.y, width: label.width, height: label.height },
+      { x: label!.x, y: label!.y, width: label!.width, height: label!.height },
       { x: 86, y: -16.5, width: 28, height: 33 },
     );
     assert.equal(connectorLabel({ ...labelled, text: "" }), null);
@@ -427,10 +468,10 @@ describe("connector labels", () => {
 
 describe("elbow routes", () => {
   const A = shape("a", 0, 0, 100, 100);
-  const pathOf = (b, extra) =>
+  const pathOf = (b: ShapeElement, extra?: Record<string, unknown>) =>
     connectorPath(byId(resolveConnectors([A, b, arrow("link", "a", "b", { route: "elbow", ...extra })]), "link"));
   // Whether any segment of `points` runs through the inside of `box`.
-  const crosses = (points, box) =>
+  const crosses = (points: { x: number; y: number }[], box: ShapeElement) =>
     points.some((point, i) => {
       if (i === 0) return false;
       const [x0, x1] = [Math.min(points[i - 1].x, point.x), Math.max(points[i - 1].x, point.x)];
@@ -444,7 +485,7 @@ describe("elbow routes", () => {
       ["right side to right side", shape("b", 300, 200, 400, 300), "right", "right"],
       ["top to bottom of a box below", shape("b", 20, 300, 80, 400), "top", "bottom"],
       ["left side to a box on the right", shape("b", 300, 20, 400, 80), "left", "right"],
-    ];
+    ] as const;
     for (const [name, b, startAnchor, endAnchor] of cases) {
       const { points } = pathOf(b, { startAnchor, endAnchor });
       assert.equal(crosses(points, A), false, `${name}: not through the first box`);
@@ -454,7 +495,7 @@ describe("elbow routes", () => {
   });
 
   it("avoid both boxes wherever they sit and whichever sides they join", () => {
-    const sides = ["top", "right", "bottom", "left"];
+    const sides: Side[] = ["top", "right", "bottom", "left"];
     for (const [x, y] of [
       [300, 0],
       [300, 200],
@@ -488,7 +529,7 @@ describe("elbow routes", () => {
     );
     const { points } = connectorPath(drawn);
     // Each segment checked against the turned square: its corners are (50, -20.7), (120.7, 50), (50, 120.7), (-20.7, 50).
-    const inside = ({ x, y }) => Math.abs(x - 50) + Math.abs(y - 50) < 50 * Math.SQRT2 - 1e-6;
+    const inside = ({ x, y }: { x: number; y: number }) => Math.abs(x - 50) + Math.abs(y - 50) < 50 * Math.SQRT2 - 1e-6;
     for (let i = 1; i < points.length; i += 1) {
       for (let step = 0; step <= 50; step += 1) {
         const t = step / 50;
@@ -525,7 +566,15 @@ describe("curved connector bounds", () => {
   });
 
   it("count a curved arrow inside a frame when the curve is, though its control points are not", () => {
-    const frame = { id: "f", type: "frame", x1: -50, y1: -50, x2: curveX + 20, y2: 450, name: "" };
+    const frame = {
+      id: "f",
+      type: "frame",
+      x1: -50,
+      y1: -50,
+      x2: curveX + 20,
+      y2: 450,
+      name: "",
+    } as unknown as FrameElement;
     assert.ok(controlsX > frame.x2, "the control points stick out of the frame");
     assert.ok(frameContents([...elements, frame], frame).some((element) => element.id === "link"));
   });
@@ -550,7 +599,7 @@ describe("grabbing a connection dot", () => {
   });
 
   it("is not taken away by a frame the shape sits in", () => {
-    const frame = { id: "f", type: "frame", x1: -200, y1: -200, x2: 400, y2: 400, name: "" };
+    const frame = { id: "f", type: "frame", x1: -200, y1: -200, x2: 400, y2: 400, name: "" } as unknown as FrameElement;
     assert.equal(dotGrab([frame, a], dot, options)?.side, "top");
   });
 
@@ -615,26 +664,26 @@ describe("connection dots shown with the select tool", () => {
 describe("undoing a delete that let go of connectors", () => {
   it("puts back the connector's ends, but not an older label or color over someone else's change", () => {
     const [here, there] = [createBoardStore({ release: releaseFrom }), createBoardStore({ release: releaseFrom })];
-    here.setBroadcaster((op) => there.applyRemote(op));
-    there.setBroadcaster((op) => here.applyRemote(op));
+    here.setBroadcaster((op: Effect) => there.applyRemote(op));
+    there.setBroadcaster((op: Effect) => here.applyRemote(op));
     const start = board();
-    here.commit({ undo: { remove: start.map((element) => element.id) }, redo: { upsert: start } });
+    here.commit({ undo: { remove: start.map((element: Element) => element.id) }, redo: { upsert: start } });
 
-    here.commit({ undo: { upsert: [here.getElement("b")] }, redo: { remove: ["b"] } });
-    const link = there.getElement("link");
+    here.commit({ undo: { upsert: [here.getElement("b")!] }, redo: { remove: ["b"] } });
+    const link = there.getElement("link") as ShapeElement;
     there.commit({ undo: { upsert: [link] }, redo: { upsert: [{ ...link, text: "Yes", stroke: "#ff0000" }] } });
 
     here.undo();
     for (const store of [here, there]) {
-      const back = store.getElement("link");
+      const back = store.getElement("link") as ShapeElement;
       assert.equal(back.endId, "b", "attached to the shape again");
       assert.equal(back.text, "Yes", "the label stays");
       assert.equal(back.stroke, "#ff0000", "and so does the color");
     }
     here.redo();
     for (const store of [here, there]) {
-      assert.equal("endId" in store.getElement("link"), false);
-      assert.equal(store.getElement("link").text, "Yes");
+      assert.equal("endId" in (store.getElement("link") as ShapeElement), false);
+      assert.equal((store.getElement("link") as ShapeElement).text, "Yes");
     }
   });
 });
@@ -653,11 +702,11 @@ describe("arrowheads on elbow routes", () => {
     });
     const drawn = byId(resolveConnectors([target, { ...bold, x1: 0, y1: 60 }]), "link");
     const { points } = connectorPath(drawn);
-    const run = Math.hypot(points.at(-1).x - points.at(-2).x, points.at(-1).y - points.at(-2).y);
+    const run = Math.hypot(points.at(-1)!.x - points.at(-2)!.x, points.at(-1)!.y - points.at(-2)!.y);
     assert.ok(run < 44, `a short last run, ${run}`);
     const [endHead] = arrowHeads(drawn);
     for (const [x, y] of endHead) {
-      assert.ok(Math.hypot(x - points.at(-1).x, y - points.at(-1).y) <= run + 1e-6, "barbs stay within the run");
+      assert.ok(Math.hypot(x - points.at(-1)!.x, y - points.at(-1)!.y) <= run + 1e-6, "barbs stay within the run");
     }
     // An end just beside the bend still has a head, half a full one, pointing along its run.
     const beside = byId(
@@ -668,7 +717,7 @@ describe("arrowheads on elbow routes", () => {
       "link",
     );
     const shortRun = connectorPath(beside).points;
-    assert.ok(Math.abs(shortRun.at(-1).y - shortRun.at(-2).y) < 1, "a run of next to nothing");
+    assert.ok(Math.abs(shortRun.at(-1)!.y - shortRun.at(-2)!.y) < 1, "a run of next to nothing");
     const [shortHead] = arrowHeads(beside);
     near(Math.hypot(shortHead[0][0] - shortHead[1][0], shortHead[0][1] - shortHead[1][1]), 10);
     // Along a straight path the head is as long as ever.
@@ -692,14 +741,17 @@ describe("built-in templates", () => {
       }
       // No loose pieces: a flowchart or brainstorm connector joins two shapes.
       if (template.id === "flowchart" || template.id === "brainstorm") {
-        for (const element of elements.filter((each) => each.type === "arrow" || each.type === "line")) {
-          assert.ok(element.startId && element.endId, `${template.id}: every connector is attached at both ends`);
+        for (const element of elements.filter((each: Element) => each.type === "arrow" || each.type === "line")) {
+          assert.ok(
+            (element as ShapeElement).startId && (element as ShapeElement).endId,
+            `${template.id}: every connector is attached at both ends`,
+          );
         }
       }
     }
-    const flowchart = BUILTIN_TEMPLATES.find((template) => template.id === "flowchart");
+    const flowchart = BUILTIN_TEMPLATES.find((template) => template.id === "flowchart")!;
     assert.equal(
-      flowchart.build().filter((element) => element.type === "arrow").length,
+      flowchart.build().filter((element: Element) => element.type === "arrow").length,
       4,
       "three steps and the way back",
     );

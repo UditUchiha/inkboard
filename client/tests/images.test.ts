@@ -1,23 +1,25 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { ImageElement } from "@inkboard/shared/types";
 
 const { createImage, duplicate, getBounds, hitTest, translate } = await import("../src/features/board/elements.ts");
 const { getSelectionBox, resizeElement, rotateElement } = await import("../src/features/board/transform.ts");
 const { fitWithin, isImageFile, placementSize } = await import("../src/features/board/images.ts");
 
-const near = (actual, expected, message) =>
+const near = (actual: number, expected: number, message: string) =>
   assert.ok(Math.abs(actual - expected) <= 1e-6, `${message}: expected ${expected}, got ${actual}`);
 
-const picture = (overrides = {}) => ({
-  id: "pic",
-  type: "image",
-  imageId: "a".repeat(32),
-  x1: 100,
-  y1: 50,
-  x2: 300,
-  y2: 150,
-  ...overrides,
-});
+const picture = (overrides: Record<string, unknown> = {}): ImageElement =>
+  ({
+    id: "pic",
+    type: "image",
+    imageId: "a".repeat(32),
+    x1: 100,
+    y1: 50,
+    x2: 300,
+    y2: 150,
+    ...overrides,
+  }) as unknown as ImageElement;
 
 describe("shrinking a picture before upload", () => {
   it("scales the longer side down to the limit and keeps the proportions", () => {
@@ -90,9 +92,9 @@ describe("pictures as board elements", () => {
   });
 
   it("moves and duplicates without losing which image it shows", () => {
-    const moved = translate(picture(), 10, -5);
+    const moved = translate(picture(), 10, -5) as ImageElement;
     assert.deepEqual([moved.x1, moved.y1, moved.x2, moved.y2], [110, 45, 310, 145]);
-    const copy = duplicate(picture());
+    const copy = duplicate(picture()) as ImageElement;
     assert.notEqual(copy.id, "pic");
     assert.equal(copy.imageId, "a".repeat(32));
     assert.ok(!("seed" in copy));
@@ -107,7 +109,7 @@ describe("resizing and turning a picture", () => {
 
   it("keeps its proportions when dragged by a corner, even without Shift", () => {
     // Drag the bottom right corner well to the right, and only a little down.
-    const next = resizeElement(picture(), "se", { x: 500, y: 160 });
+    const next = resizeElement(picture(), "se", { x: 500, y: 160 }) as ImageElement;
     assert.deepEqual([next.x1, next.y1], [100, 50], "the opposite corner stays put");
     const width = next.x2 - next.x1;
     const height = next.y2 - next.y1;
@@ -116,14 +118,14 @@ describe("resizing and turning a picture", () => {
   });
 
   it("stretches when dragged by a side", () => {
-    const next = resizeElement(picture(), "e", { x: 500, y: 999 });
+    const next = resizeElement(picture(), "e", { x: 500, y: 999 }) as ImageElement;
     assert.deepEqual([next.x1, next.y1, next.y2], [100, 50, 150]);
     near(next.x2, 500, "right edge");
   });
 
   it("turns and keeps everything else about it", () => {
-    const next = rotateElement(picture(), { x: 200, y: 0 }, { x: 300, y: 100 });
-    near(next.angle, Math.PI / 2, "angle");
+    const next = rotateElement(picture(), { x: 200, y: 0 }, { x: 300, y: 100 }) as ImageElement;
+    near(next.angle!, Math.PI / 2, "angle");
     assert.equal(next.imageId, "a".repeat(32));
   });
 });
@@ -133,23 +135,26 @@ const nextTick = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe("the picture cache", () => {
   const originalImage = globalThis.Image;
   const originalNow = Date.now;
-  const created = [];
+  const created: FakeImage[] = [];
 
   // A browser Image that never loads by itself: the test decides when it fails.
   class FakeImage {
+    declare src: string;
+    declare onload: () => void;
+    declare onerror: () => void;
     constructor() {
       created.push(this);
     }
   }
 
   it("asks again for a missing picture less and less often", async () => {
-    globalThis.Image = FakeImage;
+    globalThis.Image = FakeImage as unknown as typeof Image;
     let now = 1_000_000;
     Date.now = () => now;
     try {
       const { getImage } = await import("../src/features/board/images.ts");
       const id = "c".repeat(32);
-      const fail = () => created.at(-1).onerror();
+      const fail = () => created.at(-1)!.onerror();
       getImage(id);
       fail();
       const requests = () => created.length;
@@ -174,15 +179,15 @@ describe("the picture cache", () => {
   });
 
   it("does not keep every picture it has ever shown", async () => {
-    globalThis.Image = FakeImage;
+    globalThis.Image = FakeImage as unknown as typeof Image;
     try {
       const { getImage } = await import("../src/features/board/images.ts");
       const first = "d".repeat(32);
       getImage(first);
-      created.at(-1).onload();
+      created.at(-1)!.onload();
       for (let index = 0; index < 400; index += 1) {
         getImage(index.toString(16).padStart(32, "0"));
-        created.at(-1).onload();
+        created.at(-1)!.onload();
       }
       await nextTick(); // dropping waits for whatever is being drawn
       const before = created.length;
@@ -194,20 +199,20 @@ describe("the picture cache", () => {
   });
 
   it("keeps every picture a canvas is showing, however many, so none keeps being fetched again", async () => {
-    globalThis.Image = FakeImage;
+    globalThis.Image = FakeImage as unknown as typeof Image;
     let now = 5_000_000;
     Date.now = () => now;
     try {
       const { MAX_CACHED, getImage, showingImages } = await import("../src/features/board/images.ts");
       const canvas = { isConnected: true };
-      let ids = Array.from({ length: MAX_CACHED + 50 }, (_, index) => `shown-${index}`);
+      let ids = Array.from({ length: MAX_CACHED + 50 }, (_, index: number) => `shown-${index}`);
       const missing = "9".repeat(32);
       // Draws every picture, as the renderer does, and says which were shown; loads whatever it asked for
       // (but the missing one).
       const draw = () => {
         const from = created.length;
         for (const id of ids) getImage(id);
-        showingImages(canvas, new Set(ids));
+        showingImages(canvas as unknown as HTMLCanvasElement, new Set(ids));
         const asked = created.slice(from);
         for (const image of asked) (image.src.includes(missing) ? image.onerror : image.onload)();
         return asked.length;
@@ -233,10 +238,10 @@ describe("the picture cache", () => {
       // A canvas taken off the page lets go of its pictures.
       canvas.isConnected = false;
       getImage("a".repeat(31) + "b");
-      created.at(-1).onload();
+      created.at(-1)!.onload();
       await nextTick();
       const before = created.length;
-      getImage(ids[0]);
+      getImage(ids[0]!);
       assert.equal(created.length, before + 1, "the oldest is dropped once nothing shows it");
     } finally {
       globalThis.Image = originalImage;
@@ -251,19 +256,19 @@ describe("canvases kept on show", () => {
     const ids = new Set(["a".repeat(32)]);
     const base = canvasesShowing();
     const onPage = { isConnected: true };
-    showingImages(onPage, ids);
+    showingImages(onPage as unknown as HTMLCanvasElement, ids);
     const gone = { isConnected: true };
-    showingImages(gone, ids, { small: true });
+    showingImages(gone as unknown as HTMLCanvasElement, ids, { small: true });
     gone.isConnected = false; // a card unmounted without telling anyone
     const offscreen = { isConnected: false }; // an export's canvas, never on the page
-    showingImages(offscreen, ids);
+    showingImages(offscreen as unknown as HTMLCanvasElement, ids);
     // Another canvas drawing sweeps what has left the page.
     const other = { isConnected: true };
-    showingImages(other, ids);
+    showingImages(other as unknown as HTMLCanvasElement, ids);
     assert.equal(canvasesShowing(), base + 2, "only the two on the page are kept");
-    releaseImages(onPage);
+    releaseImages(onPage as unknown as HTMLCanvasElement);
     assert.equal(canvasesShowing(), base + 1, "a released canvas is dropped at once");
-    releaseImages(other);
+    releaseImages(other as unknown as HTMLCanvasElement);
     assert.equal(canvasesShowing(), base);
   });
 });
