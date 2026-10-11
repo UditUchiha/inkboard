@@ -45,7 +45,7 @@ import { RemoteCursors } from "./RemoteCursors";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
-import { SyncStatus, ViewOnlyNotice } from "./StatusPanels";
+import { SuggestingNotice, SyncStatus, ViewOnlyNotice } from "./StatusPanels";
 import { connectorPath, pathMiddle } from "./routes";
 import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
@@ -120,6 +120,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [draft, setDraft] = useState<XY | null>(null); // where a new comment is being written
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  // A notification about suggestions links to ?suggestions, which opens them (also when the board is open already).
+  const linkedSuggestions = new URLSearchParams(location.search).has("suggestions");
+  useEffect(() => {
+    if (linkedSuggestions) setSuggestionsOpen(true);
+  }, [linkedSuggestions, location.key]);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
@@ -601,8 +606,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         />
       </div>
 
-      {/* Tools: top centre on wide screens, bottom on phones. Viewers get a notice instead. */}
-      <div className="absolute inset-x-3 bottom-3 flex justify-center md:inset-x-auto md:top-3 md:bottom-auto md:left-1/2 md:-translate-x-1/2">
+      {/* Tools: top centre on wide screens, bottom on phones. Viewers get a notice instead, and suggesters one too. */}
+      <div className="absolute inset-x-3 bottom-3 flex flex-col-reverse items-center gap-2 md:inset-x-auto md:top-3 md:bottom-auto md:left-1/2 md:-translate-x-1/2 md:flex-col">
         {readOnly ? (
           <ViewOnlyNotice
             signedIn={Boolean(user)}
@@ -617,6 +622,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
             className="max-md:max-w-full max-md:overflow-x-auto"
           />
         )}
+        {suggesting && <SuggestingNotice />}
       </div>
 
       {/* Top right: people, share, menu */}
