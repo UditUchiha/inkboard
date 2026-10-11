@@ -277,6 +277,18 @@ export default function DashboardPage() {
       }
     },
 
+    async makeCopy(board: BoardSummary) {
+      try {
+        const { board: copy } = await api.copyBoard(board.id);
+        refresh();
+        toast.success(`Made “${copy.title}”`, {
+          action: { label: "Open", onClick: () => navigate(`/board/${copy.id}`) },
+        });
+      } catch (error) {
+        toast.error(errorMessage(error));
+      }
+    },
+
     async toggleStar(board: BoardSummary) {
       const starred = !board.starred;
       patch([board.id], { starred });

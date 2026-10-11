@@ -16,7 +16,7 @@ import { Button, IconButton } from "../../components/Button";
 import { ConfirmDialog } from "../../components/Dialog";
 import { BoardCrashed, ErrorBoundary } from "../../components/ErrorBoundary";
 import { LogoMark } from "../../components/Logo";
-import { api } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
 import type { AccountUser, BoardMeta } from "../../lib/api";
 import { getGuest } from "../../lib/guest";
 import { BoardCanvas } from "./BoardCanvas";
@@ -463,6 +463,17 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
 
   const followed = others.find((person) => person.socketId === followingId);
 
+  // Opens the new copy, which is the person's own board.
+  async function makeCopy() {
+    try {
+      const { board: copy } = await api.copyBoard(board.id);
+      navigate(`/board/${copy.id}`);
+      toast.success("This is your copy. Changes here don't change the original.");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
   async function saveCurrentAsTemplate(title: string) {
     await api.saveTemplate(board.id, title);
     toast.success("Template saved. Find it when you start a new board.");
@@ -671,6 +682,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           isEmpty={elements.length === 0}
           onExport={exportAs}
           onImportFile={() => boardFileInput.current?.click()}
+          onCopy={makeCopy}
           onHistory={() => {
             setSuggestionsOpen(false);
             setHistoryOpen(true);

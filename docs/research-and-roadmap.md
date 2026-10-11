@@ -137,7 +137,7 @@ Excalidraw's feel plus **real accounts, per-board roles and revocable links, wit
 
 ### Cheap polish ideas, ranked by value
 
-1. "Make a copy" for viewers and editors (Figma's "duplicate to drafts"; Notion enables duplication by default). Turns a dead-end view link into a growth path.
+1. "Make a copy" for viewers and editors (Figma's "duplicate to drafts"; Notion enables duplication by default). Turns a dead-end view link into a growth path (done).
 2. Request-access and request-edit flows that notify the owner (Drive and Notion do this).
 3. Show "Erases in N days" on trash cards, with "Delete forever" and "Empty trash" (done in our dashboard).
 4. A one-click "Leave board" for invited editors (Overleaf forces trash first).
@@ -363,7 +363,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] **Headline differentiator: suggest-mode links** (built 2026-10-11, see [suggest-mode.md](suggest-mode.md)): a share link whose holders' additions, changes and removals become suggestions over the board, which the owner and editors accept or reject; guests can suggest, and the owner is notified
 - [x] Notify collaborators when an owner trashes a board: a notification that leads to the dashboard, taken back if the board is restored
 - [ ] Link password and expiry (S-M); request-access flow (S-M)
-- [ ] "Make a copy" for viewers and editors (S)
+- [x] "Make a copy" for anyone signed in who can open a board: from the board menu or the dashboard, with its own copies of the pictures (so it survives the original being deleted), and without comments, history, suggestions or people
 - [ ] Reactions and comment pins for link viewers (S-M)
 
 ### P2: growth and niches

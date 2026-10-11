@@ -2,6 +2,7 @@ import clsx from "clsx";
 import {
   Archive,
   ArchiveRestore,
+  Copy,
   DoorOpen,
   Ellipsis,
   ExternalLink,
@@ -23,6 +24,7 @@ export type BoardActions = {
   askLeave: (board: BoardSummary) => void;
   askPurge: (boards: BoardSummary[]) => void;
   copyLink: (board: BoardSummary) => void;
+  makeCopy: (board: BoardSummary) => void;
   toggleStar: (board: BoardSummary) => void;
   archive: (boards: BoardSummary[], archived: boolean) => void;
   trash: (boards: BoardSummary[]) => void;
@@ -107,6 +109,9 @@ export function BoardMenu({ board, trashed = false, actions }: BoardMenuProps) {
           </MenuItem>
           <MenuItem icon={Link2} onSelect={() => actions.copyLink(board)}>
             Copy link
+          </MenuItem>
+          <MenuItem icon={Copy} onSelect={() => actions.makeCopy(board)}>
+            Make a copy
           </MenuItem>
           {member && (
             <MenuItem icon={PencilLine} onSelect={() => actions.rename(board)}>

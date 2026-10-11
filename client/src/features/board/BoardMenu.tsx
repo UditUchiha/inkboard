@@ -1,6 +1,7 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
 import {
   Check,
+  Copy,
   Download,
   Ellipsis,
   FileCode2,
@@ -41,6 +42,7 @@ export type BoardMenuProps = {
   isEmpty: boolean;
   onExport: (exporter: Exporter) => void;
   onImportFile: () => void;
+  onCopy: () => void;
   onHistory: () => void;
   onTemplate: () => void;
   onToggleComments: () => void;
@@ -49,8 +51,8 @@ export type BoardMenuProps = {
 };
 
 /**
- * The "..." menu at the top right: export, import, history, templates, comments,
- * shortcuts, theme and clearing the board.
+ * The "..." menu at the top right: export, import, making a copy, history, templates,
+ * comments, shortcuts, theme and clearing the board.
  */
 export function BoardMenu({
   user,
@@ -62,6 +64,7 @@ export function BoardMenu({
   isEmpty,
   onExport,
   onImportFile,
+  onCopy,
   onHistory,
   onTemplate,
   onToggleComments,
@@ -93,6 +96,12 @@ export function BoardMenu({
         </MenuItem>
       )}
       <MenuSeparator />
+      {/* Anyone signed in who can open the board can copy it to their own boards, viewers too. */}
+      {user && !local && (
+        <MenuItem icon={Copy} onSelect={onCopy}>
+          Make a copy
+        </MenuItem>
+      )}
       {isMember && !local && (
         <>
           <MenuItem icon={History} onSelect={onHistory}>

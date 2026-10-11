@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   addCollaborator,
   archiveBoards,
+  copyBoard,
   createBoard,
   deleteBoard,
   emptyTrash,
@@ -49,6 +50,7 @@ router.patch("/:boardId", renameBoard);
 router.delete("/:boardId", deleteBoard);
 router.patch("/:boardId/link-access", setLinkAccess);
 router.put("/:boardId/star", starBoard);
+router.post("/:boardId/copy", makingBoards, copyBoard);
 router.post("/:boardId/restore", restoreBoard);
 router.delete("/:boardId/permanent", purgeBoard);
 router.delete("/:boardId/state", forgetBoard);

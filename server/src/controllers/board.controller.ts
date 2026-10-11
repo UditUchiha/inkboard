@@ -27,6 +27,9 @@ import {
 } from "../services/boards.ts";
 import type { BoardDoc, PopulatedMembers } from "../services/boards.ts";
 import { emailConfigured } from "../services/email.ts";
+import { deleteImages } from "../services/image-storage.ts";
+import { copyBoardImages } from "../services/images.ts";
+import type { ImageLimit } from "../services/images.ts";
 import { notify } from "../services/notifications.ts";
 import { boardPreviews } from "../services/previews.ts";
 import { TRASH_DAYS } from "../services/trash.ts";
@@ -139,6 +142,52 @@ export async function createBoard(
   res
     .status(201)
     .json({ board: serializeBoard(board as typeof board & PopulatedMembers, req.userId) } satisfies Api.BoardReply);
+}
+
+// Why a copy's pictures didn't fit in its new owner's space.
+const COPY_FULL: Record<ImageLimit, string> = {
+  board: "This board has more pictures than a board can hold, so it can't be copied.",
+  owner:
+    "Your boards are out of image space, so this board's pictures don't fit. Remove pictures you don't need and try again.",
+  total: "Image storage is full for now, so this board's pictures can't be copied. Try again later.",
+};
+
+/**
+ * Makes a copy of a board for the person asking, who owns the copy: the drawing as people see it right now, with
+ * its own copies of the pictures (so it keeps them when the original is deleted), but none of the board's comments,
+ * history, suggestions or people. Anyone signed in who can open the board can copy it, viewers too.
+ */
+export async function copyBoard(req: BoardRequest, res: Response) {
+  const source = await findBoardForViewing(req.params.boardId, req.userId);
+  const elements = structuredClone(await currentElements(source._id));
+  const imageIds = [...new Set(elements.flatMap((element) => (element.type === "image" ? [element.imageId] : [])))];
+  const id = new mongoose.Types.ObjectId();
+  // `requireAuth` has set `userId` by now, which the types can't know.
+  const owner = req.userId!;
+  const board = await withRoom(owner, { board: true, bytes: drawingBytes(elements) }, async () => {
+    const copied = imageIds.length
+      ? await copyBoardImages({ from: source._id, to: id, ids: imageIds, owner, uploadedBy: owner })
+      : { copies: new Map<string, string>() };
+    if ("full" in copied) {
+      const verify = copied.unverified ? " Confirm your email address (see Settings) to get more room." : "";
+      throw new HttpError(400, COPY_FULL[copied.full] + verify);
+    }
+    for (const element of elements) {
+      if (element.type === "image") element.imageId = copied.copies.get(element.imageId) ?? element.imageId;
+    }
+    const title = `Copy of ${source.title}`.slice(0, 80).trim();
+    try {
+      return await Board.create({ _id: id, title, owner, elements, bytes: drawingBytes(elements) });
+    } catch (error) {
+      await deleteImages([...copied.copies.values()]);
+      throw error;
+    }
+  });
+  await board.populate(populateMembers);
+  // As in createBoard, `populate` fills in the owner and collaborators, which the types can't see.
+  res
+    .status(201)
+    .json({ board: serializeBoard(board as typeof board & PopulatedMembers, owner) } satisfies Api.BoardReply);
 }
 
 export async function getBoard(req: BoardRequest, res: Response) {
