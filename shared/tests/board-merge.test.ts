@@ -12,9 +12,10 @@ import {
   supersedes,
   withStamps,
 } from "../src/board-merge.ts";
+import type { Element, Fields, GroupStamps, Operation, ShapeElement, Stamp, Tombstone } from "../src/types.ts";
 
 // A small seeded generator, so a failure can be reproduced from its seed.
-function random(seed) {
+function random(seed: number) {
   let state = seed >>> 0;
   return () => {
     state = (state * 1664525 + 1013904223) >>> 0;
@@ -22,21 +23,22 @@ function random(seed) {
   };
 }
 
-const rect = (id, fields = {}) => ({
-  id,
-  type: "rectangle",
-  x1: 0,
-  y1: 0,
-  x2: 10,
-  y2: 10,
-  stroke: "#000000",
-  fill: null,
-  index: "a0",
-  ...fields,
-});
-const at = (version, versionNonce = 0) => ({ version, versionNonce });
-const everyGroup = (element, stamp) =>
-  withStamps(element, Object.fromEntries(Object.keys(groupStamps(element)).map((group) => [group, stamp])));
+const rect = (id: string, fields: Record<string, unknown> = {}) =>
+  ({
+    id,
+    type: "rectangle",
+    x1: 0,
+    y1: 0,
+    x2: 10,
+    y2: 10,
+    stroke: "#000000",
+    fill: null,
+    index: "a0",
+    ...fields,
+  }) as unknown as ShapeElement;
+const at = (version: number, versionNonce: number = 0): Stamp => ({ version, versionNonce });
+const everyGroup = <T extends Element>(element: T, stamp: Stamp): T =>
+  withStamps(element, Object.fromEntries(Object.keys(groupStamps(element)).map((group) => [group, stamp]))) as T;
 
 describe("stamps", () => {
   it("count the higher version as newer, and for the same version the lower nonce", () => {
@@ -69,7 +71,10 @@ describe("merging two copies of an element", () => {
   it("keeps each group from the copy that changed it last", () => {
     const moved = withStamps({ ...base, x1: 50, x2: 60 }, { ...groupStamps(base), shape: at(2, 4) });
     const recolored = withStamps({ ...base, stroke: "#ff0000" }, { ...groupStamps(base), stroke: at(2, 8) });
-    for (const merged of [mergeElement(moved, recolored), mergeElement(recolored, moved)]) {
+    for (const merged of [
+      mergeElement(moved, recolored) as ShapeElement,
+      mergeElement(recolored, moved) as ShapeElement,
+    ]) {
       assert.equal(merged.x1, 50);
       assert.equal(merged.x2, 60);
       assert.equal(merged.stroke, "#ff0000");
@@ -82,7 +87,7 @@ describe("merging two copies of an element", () => {
   it("never mixes the fields of one group from two copies", () => {
     const one = withStamps({ ...base, x1: -5, y1: -5 }, { ...groupStamps(base), shape: at(2, 1) });
     const two = withStamps({ ...base, x2: 99, y2: 99 }, { ...groupStamps(base), shape: at(2, 2) });
-    const merged = mergeElement(two, one);
+    const merged = mergeElement(two, one) as ShapeElement;
     assert.deepEqual([merged.x1, merged.y1, merged.x2, merged.y2], [-5, -5, 10, 10]);
   });
 
@@ -95,14 +100,17 @@ describe("merging two copies of an element", () => {
 
   it("keeps a group the newer copy doesn't have at all, such as a label on a connector that was only moved", () => {
     // A connector made without a label, moved by one person while another labels it (and the other way round).
-    const arrow = { ...rect("c"), type: "arrow", x2: 80, y2: 0 };
+    const arrow = { ...rect("c"), type: "arrow" as const, x2: 80, y2: 0 };
     const plain = everyGroup(arrow, at(1, 9));
     const labelled = withStamps(
       { ...plain, text: "yes", font: "hand", route: "elbow" },
       { ...groupStamps(plain), text: at(2, 1), font: at(2, 1), route: at(2, 1) },
     );
     const dragged = withStamps({ ...plain, x2: 200 }, { ...groupStamps(plain), shape: at(3, 5) });
-    for (const merged of [mergeElement(labelled, dragged), mergeElement(dragged, labelled)]) {
+    for (const merged of [
+      mergeElement(labelled, dragged) as ShapeElement,
+      mergeElement(dragged, labelled) as ShapeElement,
+    ]) {
       assert.equal(merged.x2, 200);
       assert.deepEqual([merged.text, merged.font, merged.route], ["yes", "hand", "elbow"]);
     }
@@ -110,9 +118,9 @@ describe("merging two copies of an element", () => {
   });
 
   it("clears a field set to an empty value, since leaving it out says nothing", () => {
-    const labelled = everyGroup({ ...rect("c"), type: "arrow", text: "yes" }, at(1, 9));
+    const labelled = everyGroup({ ...rect("c"), type: "arrow" as const, text: "yes" }, at(1, 9));
     const cleared = withStamps({ ...labelled, text: "" }, { ...groupStamps(labelled), text: at(2) });
-    assert.equal(mergeElement(labelled, cleared).text, "");
+    assert.equal((mergeElement(labelled, cleared) as ShapeElement).text, "");
   });
 
   it("drops fields the winning copy doesn't have, like an angle that was reset", () => {
@@ -126,14 +134,14 @@ describe("removals of elements nobody has seen", () => {
   const removal = { id: "ghost", version: 5, versionNonce: 0 };
 
   it("are remembered by default, so the element stays gone if it turns up late", () => {
-    const tombstones = new Map();
+    const tombstones = new Map<string, Tombstone>();
     applyOperation([], { upsert: [], remove: [removal] }, tombstones);
     assert.deepEqual([...tombstones.keys()], ["ghost"]);
     assert.deepEqual(applyOperation([], { upsert: [everyGroup(rect("ghost"), at(2))], remove: [] }, tombstones), []);
   });
 
   it("can be left out, so made-up ids don't fill a board's memory", () => {
-    const tombstones = new Map([["known", { ...at(1) }]]);
+    const tombstones = new Map<string, Tombstone>([["known", { ...at(1) }]]);
     const plan = planOperation([], { upsert: [], remove: [removal, { id: "known", ...at(4) }] }, tombstones, {
       remember: false,
     });
@@ -153,12 +161,13 @@ describe("keeping an index of the elements by id", () => {
     const { elements } = commitPlan(plan, new Map());
     assert.deepEqual(elements, applyOperation(board, op, new Map()));
     assert.deepEqual([...index.keys()].sort(), ["a", "c"]);
-    assert.equal(index.get("a").x1, 7);
+    assert.equal((index.get("a") as ShapeElement).x1, 7);
   });
 
   it("adds new elements on top without sorting, and still sorts those that go lower, or a removal and return", () => {
     const board = [everyGroup(rect("a", { index: "a1" }), at(1)), everyGroup(rect("b", { index: "a2" }), at(1))];
-    const sorted = (elements) => [...elements].sort((x, y) => (x.index < y.index ? -1 : x.index > y.index ? 1 : 0));
+    const sorted = (elements: Element[]) =>
+      [...elements].sort((x, y) => (x.index! < y.index! ? -1 : x.index! > y.index! ? 1 : 0));
     const onTop = applyOperation(board, {
       upsert: [everyGroup(rect("c", { index: "a3" }), at(1)), everyGroup(rect("d", { index: "a4" }), at(1))],
     });
@@ -180,7 +189,7 @@ describe("keeping an index of the elements by id", () => {
       upsert: [everyGroup(rect("a", { index: "a1", x1: 3 }), at(3))],
     });
     assert.deepEqual(
-      back.map((element) => [element.id, element.x1]),
+      back.map((element) => [element.id, (element as ShapeElement).x1]),
       [
         ["a", 3],
         ["b", 0],
@@ -189,7 +198,7 @@ describe("keeping an index of the elements by id", () => {
   });
 
   it("leaves out new elements past the cap", () => {
-    const index = new Map();
+    const index = new Map<string, Element>();
     const plan = planOperation([], { upsert: [everyGroup(rect("x"), at(1))], remove: [] }, new Map(), { index });
     commitPlan(plan, new Map(), { limit: 0 });
     assert.equal(index.size, 0);
@@ -217,15 +226,15 @@ describe("applying operations", () => {
   });
 
   it("hides a removed element, keeps it out against older changes, and brings it back for newer ones", () => {
-    const tombstones = new Map();
+    const tombstones = new Map<string, Tombstone>();
     let board = applyOperation([], { upsert: [everyGroup(rect("a"), at(1))] }, tombstones);
     board = applyOperation(board, { remove: [{ id: "a", ...at(3) }] }, tombstones);
     assert.deepEqual(board, []);
     board = applyOperation(board, { upsert: [everyGroup(rect("a", { x1: 7 }), at(2))] }, tombstones);
     assert.deepEqual(board, [], "an edit made before the removal");
-    assert.equal(tombstones.get("a").element.x1, 7, "is remembered, though");
+    assert.equal((tombstones.get("a")!.element as ShapeElement).x1, 7, "is remembered, though");
     board = applyOperation(board, { upsert: [everyGroup(rect("a", { x1: 8 }), at(4))] }, tombstones);
-    assert.equal(board[0].x1, 8);
+    assert.equal((board[0] as ShapeElement).x1, 8);
     assert.equal(tombstones.has("a"), false);
   });
 
@@ -240,12 +249,18 @@ describe("applying operations", () => {
 
   it("don't change the board or elements they were given", () => {
     const start = Object.freeze([Object.freeze(everyGroup(rect("a"), at(1)))]);
-    const tombstones = new Map();
+    const tombstones = new Map<string, Tombstone>();
     assert.doesNotThrow(() =>
-      applyOperation(start, { upsert: [everyGroup(rect("a", { x1: 4 }), at(2))], remove: [] }, tombstones),
+      applyOperation(
+        start as unknown as Element[],
+        { upsert: [everyGroup(rect("a", { x1: 4 }), at(2))], remove: [] },
+        tombstones,
+      ),
     );
-    assert.doesNotThrow(() => applyOperation(start, { remove: [{ id: "a", ...at(9) }] }, tombstones));
-    assert.equal(start[0].x1, 0);
+    assert.doesNotThrow(() =>
+      applyOperation(start as unknown as Element[], { remove: [{ id: "a", ...at(9) }] }, tombstones),
+    );
+    assert.equal((start[0] as ShapeElement).x1, 0);
   });
 
   it("report what changed: merged elements, and removals that took effect", () => {
@@ -284,12 +299,12 @@ describe("applying operations", () => {
   });
 
   it("pass on a change to a removed element with its removal, so a screen that never saw the removal keeps it hidden", () => {
-    const tombstones = new Map();
+    const tombstones = new Map<string, Tombstone>();
     let board = applyOperation([], { upsert: [everyGroup(rect("a"), at(1))] }, tombstones);
     board = applyOperation(board, { remove: [{ id: "a", ...at(3) }] }, tombstones);
     const effect = effectOf(planOperation(board, { upsert: [everyGroup(rect("a", { x1: 7 }), at(2))] }, tombstones));
     assert.deepEqual(
-      effect.upsert.map((element) => element.x1),
+      effect.upsert.map((element) => (element as ShapeElement).x1),
       [7],
       "the change is passed on",
     );
@@ -298,7 +313,7 @@ describe("applying operations", () => {
   });
 
   it("keeps an element removed when it's left out at the limit on its way back", () => {
-    const tombstones = new Map();
+    const tombstones = new Map<string, Tombstone>();
     let board = applyOperation([], { upsert: [everyGroup(rect("a"), at(1))] }, tombstones);
     board = applyOperation(board, { remove: [{ id: "a", ...at(2) }] }, tombstones);
     board = applyOperation(board, { upsert: [everyGroup(rect("b", { index: "a1" }), at(1))] }, tombstones);
@@ -318,26 +333,26 @@ describe("applying operations", () => {
 describe("whatever order changes arrive in", () => {
   const IDS = ["a", "b", "c"];
   const GROUP_FIELDS = {
-    shape: (n) => ({ x1: n, y1: -n, x2: n + 10, y2: n + 5 }),
-    stroke: (n) => ({ stroke: `#${String(n).padStart(6, "0")}` }),
-    fill: (n) => ({ fill: n % 2 ? null : `#${String(n).padStart(6, "0")}` }),
-    index: (n) => ({ index: `a${"0123456789"[n % 10]}` }),
+    shape: (n: number) => ({ x1: n, y1: -n, x2: n + 10, y2: n + 5 }),
+    stroke: (n: number) => ({ stroke: `#${String(n).padStart(6, "0")}` }),
+    fill: (n: number) => ({ fill: n % 2 ? null : `#${String(n).padStart(6, "0")}` }),
+    index: (n: number) => ({ index: `a${"0123456789"[n % 10]}` }),
   };
 
-  function changes(next) {
+  function changes(next: () => number) {
     let nonce = 0;
     const stamp = () => at(1 + Math.floor(next() * 6), (nonce += 1));
-    const list = [];
+    const list: Operation[] = [];
     for (let i = 0; i < 14; i += 1) {
-      const id = IDS[Math.floor(next() * IDS.length)];
+      const id = IDS[Math.floor(next() * IDS.length)]!;
       if (next() < 0.25) {
         list.push({ remove: [{ id, ...stamp() }] });
         continue;
       }
       // A copy of the element in which each group was last written by some change.
-      const stamps = {};
-      let fields = rect(id);
-      for (const group of Object.keys(GROUP_FIELDS)) {
+      const stamps: GroupStamps = {};
+      let fields: Fields = rect(id);
+      for (const group of Object.keys(GROUP_FIELDS) as (keyof typeof GROUP_FIELDS)[]) {
         const s = stamp();
         stamps[group] = s;
         fields = { ...fields, ...GROUP_FIELDS[group](s.versionNonce) };
@@ -347,18 +362,18 @@ describe("whatever order changes arrive in", () => {
     return list;
   }
 
-  function shuffled(list, next) {
+  function shuffled<T>(list: T[], next: () => number) {
     const copy = [...list];
     for (let i = copy.length - 1; i > 0; i -= 1) {
       const j = Math.floor(next() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
+      [copy[i], copy[j]] = [copy[j]!, copy[i]!];
     }
     return copy;
   }
 
-  const play = (ops) => {
-    const tombstones = new Map();
-    return ops.reduce((board, op) => applyOperation(board, op, tombstones), []);
+  const play = (ops: Operation[]) => {
+    const tombstones = new Map<string, Tombstone>();
+    return ops.reduce((board, op) => applyOperation(board, op, tombstones), [] as Element[]);
   };
 
   it("ends with the same board, in the same stacking order (500 random sets of changes, 6 orders each)", () => {
