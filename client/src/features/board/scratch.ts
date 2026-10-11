@@ -152,6 +152,8 @@ export function useScratchBoard() {
       owner: { id: guest.id, name: guest.name, color: null, avatarUrl: null },
       collaborators: [],
       linkAccess: "restricted",
+      linkPassword: false,
+      linkExpiresAt: null,
       // Never shown for a scratch board; it was made, and last changed, in this browser.
       createdAt: CREATED_AT,
       updatedAt: CREATED_AT,
@@ -174,6 +176,8 @@ export function useScratchBoard() {
       suggestions: noSuggestions,
       resolveSuggestions: NOOP,
       withdrawSuggestions: NOOP,
+      // A scratch board has no link, so nothing to unlock.
+      unlock: () => Promise.resolve(),
       suggestedOver: NOTHING_SUGGESTED_OVER,
       online: true,
       saving: false,

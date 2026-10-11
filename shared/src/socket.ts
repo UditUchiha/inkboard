@@ -7,7 +7,7 @@
 // Like api.ts, the shapes have a `Date` where the server builds one, and what the other side receives has turned it
 // into its ISO string (see Wire in api.ts).
 
-import type { BoardMeta, BoardDetails, NotificationItem, Role, Thread } from "./api.ts";
+import type { BoardMeta, BoardDetails, LinkLock, NotificationItem, Role, Thread } from "./api.ts";
 import type { SYNC_FORMAT } from "./limits.ts";
 import type { Suggestion, SuggestionDraft } from "./suggestions.ts";
 import type { Effect, Element, Stamp } from "./types.ts";
@@ -28,6 +28,8 @@ export interface PieceGroup {
 export interface JoinPayload {
   boardId: string;
   sync: typeof SYNC_FORMAT;
+  /** The pass given for the link's password (see LinkPassReply), when it asks for one. */
+  pass?: string;
 }
 
 /** What `board:op` sends: a change to the board, or one piece of a change sent in several (then with its `group`). */
@@ -107,7 +109,7 @@ export type RemovedStamp = Stamp & { id: string };
  */
 export type JoinReply =
   | { ok: true; board: BoardDetails; removed: RemovedStamp[]; suggestions: Suggestion[] }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; error: string; locked?: LinkLock };
 
 /**
  * Why a change was refused. `tooLarge` and `readOnly` are also set where older browsers, which look for
@@ -168,6 +170,11 @@ export type Peer = Participant & { socketId: string };
 /** What an event about a board says of it: which board, so one meant for a board the browser has left can be told. */
 export interface BoardMessage {
   boardId: string;
+}
+
+/** `board:revoked`: this person can't open the board any more. `locked` says when that's the link's password or expiry. */
+export interface RevokedMessage extends BoardMessage {
+  locked?: LinkLock;
 }
 
 /** What `board:op` carries: a change someone else made. */
@@ -239,7 +246,7 @@ export interface ServerToClientEvents {
   "board:op": (message: OpMessage) => void;
   "board:meta": (meta: BoardMeta) => void;
   "board:reset": (message: ResetMessage) => void;
-  "board:revoked": (message: BoardMessage) => void;
+  "board:revoked": (message: RevokedMessage) => void;
   "board:role": (message: RoleMessage) => void;
   "board:deleted": (message: BoardMessage) => void;
   // The board's id comes second, so browsers on an older app, which expect just the list, still read it.

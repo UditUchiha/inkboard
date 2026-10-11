@@ -31,6 +31,24 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
+/**
+ * For routes guests can use too: sets `userId` (as requireAuth does) when the request comes with a valid login,
+ * and otherwise goes on without one.
+ */
+export async function optionalAuth(req: Request, res: Response, next: NextFunction) {
+  const [scheme, token] = (req.get("authorization") ?? "").split(" ");
+  if (scheme === "Bearer" && token) {
+    try {
+      const { user, issuedAt } = await userForToken(token);
+      req.userId = user.id;
+      req.loginIssuedAt = issuedAt;
+    } catch {
+      // A login that's expired or ended counts as none.
+    }
+  }
+  next();
+}
+
 /** Throws unless the person logged in recently. Use after `requireAuth`. */
 export function assertRecentLogin(req: Request) {
   // Without a login time (used without `requireAuth` before it), the login doesn't count as recent: a missing

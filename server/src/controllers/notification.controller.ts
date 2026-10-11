@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { Board } from "../models/board.model.ts";
 import { Notification } from "../models/notification.model.ts";
-import { PERSON_FIELDS, roleOf } from "../services/boards.ts";
+import { ACCESS_FIELDS, PERSON_FIELDS, roleOf } from "../services/boards.ts";
 import { serializeNotification } from "../services/notifications.ts";
 
 const PAGE_SIZE = 30;
@@ -14,9 +14,7 @@ const PAGE_SIZE = 30;
 // so they can't leak the board's title or what was said on it.
 async function visibleNotifications(userId: string | undefined) {
   const ids = await Notification.distinct("board", { user: userId });
-  const boards = await Board.find({ _id: { $in: ids }, purgingAt: null }).select(
-    "owner collaborators linkAccess deletedAt",
-  );
+  const boards = await Board.find({ _id: { $in: ids }, purgingAt: null }).select(`${ACCESS_FIELDS} deletedAt`);
   const open = boards.filter((board) => !board.deletedAt && roleOf(board, userId)).map((board) => board._id);
   const trashed = boards.filter((board) => board.deletedAt && roleOf(board, userId) === "editor").map((b) => b._id);
   return { user: userId, $or: [{ board: { $in: open } }, { type: "trashed", board: { $in: trashed } }] };

@@ -1,4 +1,4 @@
-import type { Wire } from "@inkboard/shared/api";
+import type { LinkLock, Wire } from "@inkboard/shared/api";
 import type {
   BoardMessage,
   CursorMessage,
@@ -7,6 +7,7 @@ import type {
   OpReply,
   Peer,
   ResetMessage,
+  RevokedMessage,
   RoleMessage,
   SharedView,
   SuggestionOutcome,
@@ -18,7 +19,9 @@ import type {
 import type { SuggestionDraft } from "@inkboard/shared/suggestions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { api } from "../../lib/api";
 import type { BoardMeta, Role } from "../../lib/api";
+import { readPass, savePass } from "../../lib/linkPasses";
 import { useSocket } from "../../providers/SocketProvider";
 import { SYNC_FORMAT } from "./constants";
 import { createCursorStore } from "./cursors";
@@ -66,7 +69,7 @@ export type ViewportListener = (view: ViewportMessage) => void;
 /** Where opening the board has got to. */
 export type Phase =
   | { name: "connecting" }
-  | { name: "error"; status: number; message?: string }
+  | { name: "error"; status: number; message?: string; locked?: LinkLock }
   | { name: "ready" }
   | { name: "deleted" }
   | { name: "revoked"; wasViewer: boolean };
@@ -251,11 +254,17 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     const join = () => {
       if (joining || gone) return;
       joining = true;
-      socket.emit("board:join", { boardId, sync: SYNC_FORMAT }, (response) => {
+      const pass = readPass(boardId);
+      socket.emit("board:join", { boardId, sync: SYNC_FORMAT, ...(pass && { pass }) }, (response) => {
         joining = false;
         if (!active) return;
         if (!response?.ok) {
-          setPhase({ name: "error", status: response?.status ?? 500, message: response?.error });
+          setPhase({
+            name: "error",
+            status: response?.status ?? 500,
+            message: response?.error,
+            locked: response?.locked,
+          });
           return;
         }
         const { elements, role: joinedRole, ...boardMeta } = response.board;
@@ -360,8 +369,14 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     const onViewportRequest = (payload: BoardMessage) => {
       if (!forOther(payload) && latestViewport.current) socket.volatile.emit("viewport", viewportMessage());
     };
-    const onRevoked = (payload: BoardMessage) => {
+    const onRevoked = (payload: RevokedMessage) => {
       if (forOther(payload)) return;
+      if (payload.locked) {
+        // The link's password changed, or it expired: they can open the board again once they give the new one.
+        joined.current = false;
+        setPhase({ name: "error", status: 403, locked: payload.locked });
+        return;
+      }
       leaveForGood();
       setPhase({ name: "revoked", wasViewer: !drawsOnBoard(roleRef.current) });
     };
@@ -503,6 +518,18 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     [socket, boardId, suggestions],
   );
 
+  // Gives the password the board's link asks for, keeps the pass it gets, and opens the board with it. Rejects
+  // with the server's reason (a wrong password, say), for the form to show.
+  const unlock = useCallback(
+    async (password: string) => {
+      const { pass } = await api.unlockBoard(boardId, password);
+      savePass(boardId, pass);
+      setPhase({ name: "connecting" });
+      rejoin.current();
+    },
+    [boardId],
+  );
+
   // A suggester taking back their own suggestions: the board shows without them again.
   const withdrawSuggestions = useCallback(
     (ids: string[]) => {
@@ -524,6 +551,7 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     suggestions, // a store too (see suggestions.ts)
     resolveSuggestions,
     withdrawSuggestions,
+    unlock,
     // The board as the server has it, without a suggester's own suggestions (see suggesting.ts).
     suggestedOver: suggester.board,
     online,

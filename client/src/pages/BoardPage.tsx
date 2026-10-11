@@ -1,4 +1,4 @@
-import { FileQuestion, Lock, Trash2, UserX } from "lucide-react";
+import { FileQuestion, KeyRound, Lock, TimerOff, Trash2, UserX } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { useLocation, useParams } from "react-router";
 import { ButtonLink } from "../components/Button";
@@ -6,6 +6,7 @@ import { FullPageLoader, FullPageMessage } from "../components/RouteGuards";
 import { APP_NAME } from "../config";
 import { BoardEditor } from "../features/board/BoardEditor";
 import { createEditorStore } from "../features/board/editorStore";
+import { LinkPasswordForm } from "../features/board/LinkPasswordForm";
 import { useBoardSync } from "../features/board/useBoardSync";
 import { getGuest } from "../lib/guest";
 import { useAuth } from "../providers/AuthProvider";
@@ -41,6 +42,21 @@ function OpenBoard({ boardId }: OpenBoardProps) {
   const { phase } = sync;
 
   if (phase.name === "error") {
+    if (phase.locked === "password") {
+      return (
+        <FullPageMessage icon={KeyRound} title="This board needs a password">
+          Enter the password its owner gave you with the link.
+          <LinkPasswordForm onUnlock={sync.unlock} />
+        </FullPageMessage>
+      );
+    }
+    if (phase.locked === "expired") {
+      return (
+        <FullPageMessage icon={TimerOff} title="This link has expired" action={exit}>
+          Ask the board's owner for a new link, or to invite you.
+        </FullPageMessage>
+      );
+    }
     if (phase.status === 401) {
       const next = encodeURIComponent(location.pathname + location.search);
       return (
