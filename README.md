@@ -13,12 +13,13 @@ A real-time collaborative whiteboard. Sketch with hand-drawn shapes, invite peop
 - **Hand-drawn or clean**: shapes are rendered with Rough.js. Switch any of them between a sketchy and a crisp look.
 - **Infinite canvas**: pan with the hand tool, space-drag or the scroll wheel. Zoom with Ctrl/⌘ + wheel, trackpad pinch or two fingers.
 - **Per-person undo and redo**: undoing your own change never wipes out what collaborators drew in the meantime.
-- **Sharing with levels**: invite people by email to edit, remove them, or leave a board. The owner can also let *anyone with the link* view or edit the board, with no account needed. Viewers can pan and zoom but not change anything, and nobody outside the invite list sees invitees' email addresses. Access is checked on every request and socket event, and changes apply live to people who already have the board open.
+- **Sharing with levels**: invite people by email to edit, remove them, or leave a board. The owner can also let *anyone with the link* view, suggest changes to, or edit the board, with no account needed. Viewers can pan and zoom but not change anything, and nobody outside the invite list sees invitees' email addresses. Access is checked on every request and socket event, and changes apply live to people who already have the board open.
 - **Boards dashboard**: live thumbnails, search, filters for owned and shared boards, rename and delete.
 - **Works offline briefly**: edits made while disconnected are queued and synced after reconnecting.
 - **Light and dark themes**: dark mode turns the graph paper into a blueprint.
 - **Connectors**: draw an arrow or line from one shape, note, picture or text to another and it stays attached, following them as they move, resize or turn, on everyone's screen. Hover a shape for its connection dots and drag from one to draw an arrow out of that side; drop an end on a dot to pin it there, or on the shape to let it find the nearest side. Lines are straight, curved or elbowed (right angles only), arrows can have heads at both ends, and double-clicking one (or Enter) types a label on it. Drag an end onto another shape to reconnect it, or off to let go.
 - **Sticky notes and frames**: notes (<kbd>S</kbd>) in six colors, whose writing wraps and shrinks to fit. Frames (<kbd>F</kbd>) are named white pages that hold whatever lies inside them: moving, copying or deleting a frame does the same to its contents. The Kanban and Retrospective templates are built from them.
+- **Suggest mode**: with a *suggest* link, people (guests too) draw, move, recolor and delete as usual, but each change becomes a suggestion over the board, outlined in their color, instead of changing it. The owner and editors accept or reject each person's suggestions from a label on the board or the Suggestions panel; accepting is one undoable edit that keeps whatever else changed meanwhile, and the owner is notified of new ones. See [docs/suggest-mode.md](docs/suggest-mode.md).
 - **Images**: add pictures with the toolbar button (or <kbd>I</kbd>), by pasting, or by dropping files onto the board. They are shrunk in the browser, stored in MongoDB (GridFS), and resize and turn like any shape. Accounts, invited editors and guests with an edit link can add them; see [docs/image-storage.md](docs/image-storage.md) for limits and how to move storage to Cloudflare R2 or Cloudinary.
 - **Keyboard shortcuts** for every tool and for the common actions: undo and redo, duplicate, delete, nudge, stacking order, zoom and fit (press <kbd>?</kbd> on a board for the list; there is no copy, paste or select-all of board elements yet), export to PNG or SVG, and board files (`.inkboard.json`, pictures included) to export and import again.
 
@@ -33,7 +34,7 @@ Nobody has to sign up to try Inkboard. Guests draw first; accounts keep, share a
 | | Guest | Account |
 | --- | --- | --- |
 | Draw on a board | Yes, on a scratch board kept in the browser (`/draw`) | Yes, saved to the cloud |
-| Open a shared link | View, or edit if the owner allows it, under a name they pick | Yes |
+| Open a shared link | View, suggest changes or edit, as the owner allows, under a name they pick | Yes |
 | Export to PNG or SVG, export and import board files | Yes (board-file pictures need an account) | Yes |
 | Add images | Only on a shared board with an edit link | Yes |
 | Several boards, dashboard, other devices | No | Yes |

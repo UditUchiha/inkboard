@@ -1,6 +1,6 @@
 # Suggest-mode links: design
 
-Status: **agreed, not built** (decisions taken 2026-10-11). This is the roadmap's headline differentiator (section 9A, H1 in [research-and-roadmap.md](research-and-roadmap.md)).
+Status: **built** (decisions taken and shipped 2026-10-11, PRs #24–#28). This is the roadmap's headline differentiator (section 9A, H1 in [research-and-roadmap.md](research-and-roadmap.md)).
 
 ## What it is
 
@@ -77,15 +77,15 @@ The server deletes the change and remove suggestions on an element when a board 
 
 This is the hard part. Every tool has to work for a suggester, on new elements and on the board's own, without changing the board.
 
-- **The private copy:** a suggester's editor runs on a **sandbox store**, a board store of its own, set up as the board with the author's suggestions applied: their additions added, their changes applied, their removals left out. Every tool (pen, shapes, text, notes, connectors, select, move, resize, recolor, delete) then works unchanged, and undo and redo cover the suggester's own edits.
-- **Remote changes:** other people's board operations reach the sandbox through `applyRemote`, as they reach any copy of the board. The sandbox merges them one field group at a time, so a suggester sees the live board with their own suggestions on top.
-- **Where the sandbox's changes go:** to the server as suggestions, not to `board:op`. Each element the suggester changes is compared with the board:
+- **The private copy:** a suggester's editor store *is* their private copy (as built: simpler than a separate sandbox store, with the same effect). It holds the board with the author's suggestions applied: their additions added, their changes applied, their removals left out. Every tool (pen, shapes, text, notes, connectors, select, move, resize, recolor, delete) then works unchanged, and undo and redo cover the suggester's own edits. Beside it, `client/src/features/board/suggesting.ts` keeps a second store with the board as the server has it, without their suggestions: it tells what each change is, and when one of their suggestions goes (rejected, its element removed, refused, or taken back), the copy is rebuilt from it with their remaining suggestions on top, keeping their history.
+- **Remote changes:** other people's board operations reach the copy (and the board beside it) through `applyRemote`, as they reach any copy of the board. The copy merges them one field group at a time, so a suggester sees the live board with their own suggestions on top.
+- **Where the copy's changes go:** to the server as suggestions, not to `board:op`. Each element the suggester changes is compared with the board:
   - an element that isn't on the board is an **add**
   - a board element that differs is a **change**, with the field groups that differ
   - a board element that was deleted is a **remove**
   - an element put back as the board has it **withdraws** that suggestion
 - **Connectors and frames:** moving a shape re-routes the arrows attached to it, and moving a frame moves what's in it. Each element moved that way becomes its own change suggestion. They are made in the same moment, so the panel groups them, and they're accepted together.
-- **Other people's suggestions** are drawn on the sandbox's suggestion layer like everyone else's, but they aren't in the sandbox's elements and can't be selected.
+- **Other people's suggestions** are drawn on the suggestion layer like everyone else's, but they aren't in the copy's elements and can't be selected.
 
 ### Reviewing
 
@@ -123,7 +123,7 @@ These places switch on link access or role, so each needs the new value:
 
 ## Build order
 
-Each step is its own `feat/suggest-…` branch and PR. Each leaves `main` deployable, and the link option stays hidden until the last step.
+Each step is its own `feat/suggest-…` branch and PR. Each leaves `main` deployable, and the link option stays hidden until the last step. (As built, steps 3 and 4 went in together, in #27, since the private copy handles all three kinds the same way.)
 
 1. **Server and shared types:**
    - `"suggest"`, `"suggester"`, the `Suggestion` model with its three kinds, the socket events, suggestions in the join reply

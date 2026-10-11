@@ -360,7 +360,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] **Bring to front, send to back, and step forward or backward:** buttons on the selection panel and Ctrl/⌘ + ] / [ (with Shift for front and back). A move only changes the element's stacking key, so it merges with other people's edits and undoes on its own
 - [x] **Sticky notes and frames:** notes whose writing wraps and shrinks to fit; named frames that move, copy and delete with what's inside them. The Kanban and Retrospective templates use them
 - [x] **Connectors that stay attached:** arrows and lines attach to the shapes, notes, pictures and text they start or end on, follow them on every screen, and can be reconnected by dragging an end. Connection dots on a hovered shape, straight, curved or elbow routes, arrowheads at one end or both, and labels. The Flowchart and Brainstorm templates use them
-- [ ] **Headline differentiator: suggest-mode links** (chosen 2026-10-11; design in [suggest-mode.md](suggest-mode.md))
+- [x] **Headline differentiator: suggest-mode links** (built 2026-10-11, see [suggest-mode.md](suggest-mode.md)): a share link whose holders' additions, changes and removals become suggestions over the board, which the owner and editors accept or reject; guests can suggest, and the owner is notified
 - [ ] Notify collaborators when an owner trashes a board (S)
 - [ ] Link password and expiry (S-M); request-access flow (S-M)
 - [ ] "Make a copy" for viewers and editors (S)
