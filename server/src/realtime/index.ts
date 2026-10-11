@@ -10,6 +10,7 @@ import type {
   Participant,
   PieceGroup,
   ServerToClientEvents,
+  SuggestionRefusal,
   ThreadRemoval,
 } from "@inkboard/shared/socket";
 import type { Element } from "@inkboard/shared/types";
@@ -52,10 +53,18 @@ import {
   getSession,
   holdSession,
   removedStamps,
+  markSuggestionsDirty,
   resetSession,
   updateSession,
 } from "./sessions.ts";
 import type { Session } from "./sessions.ts";
+import {
+  putSuggestions,
+  resolveSuggestions,
+  settleSuggestions,
+  suggestionList,
+  withdrawSuggestions,
+} from "./suggestions.ts";
 
 // What a browser sends. Nothing in a payload has been checked when it arrives (a browser can send anything, or
 // nothing), so the handlers get it as Untrusted: every field is unknown until the handler has looked at it, and
@@ -417,6 +426,9 @@ function takeOperation(
   if (dropped.size > 0) effect.upsert = effect.upsert.filter((element) => !dropped.has(element.id));
   if (effect.upsert.length > 0 || effect.remove.length > 0) {
     socket.to(boardId).emit("board:op", { boardId, op: effect });
+    // A suggested element now on the board was accepted; suggestions about an element that's gone go too.
+    const touched = [...effect.upsert.map((element) => element.id), ...effect.remove.map((removal) => removal.id)];
+    announceSettled(session, settleSuggestions(session.suggestions, session, touched));
   }
 
   // The sender made these changes on its own screen, so it's told where the board differs.
@@ -432,6 +444,17 @@ function takeOperation(
     ...(dropped.size > 0 ? { dropped: [...dropped] } : {}),
   });
 }
+
+// Tells everyone on the board about suggestions settleSuggestions let go of, and has the change saved.
+function announceSettled(session: Session, { accepted, gone }: { accepted: string[]; gone: string[] }) {
+  const { boardId } = session;
+  if (accepted.length > 0) io.to(boardId).emit("suggestion:delete", { boardId, ids: accepted, outcome: "accepted" });
+  if (gone.length > 0) io.to(boardId).emit("suggestion:delete", { boardId, ids: gone, outcome: "gone" });
+  if (accepted.length + gone.length > 0) markSuggestionsDirty(session);
+}
+
+const SUGGESTION_FORBIDDEN = { ok: false, reason: "forbidden" } as const;
+const SUGGESTION_INVALID = { ok: false, reason: "invalid" } as const;
 
 function handleConnection(socket: RealtimeSocket) {
   const limits: Record<string, Limiter> = Object.fromEntries(
@@ -565,6 +588,75 @@ function handleConnection(socket: RealtimeSocket) {
     if (boardId && target?.data.boardId === boardId) target.emit("viewport:request", { boardId });
   });
 
+  // Suggestions (see suggestions.ts and docs/suggest-mode.md): only a suggester makes them, anyone takes back
+  // their own, and a member accepts them (by making the change, then saying so here) or rejects them. Each
+  // counts against the same limit as a change to the board. Returns the board's open session, or null after
+  // replying why there isn't one.
+  const suggestionSession = (
+    payload: { boardId?: unknown } | null | undefined,
+    reply: (refusal: SuggestionRefusal) => void,
+  ): Session | null => {
+    let refusal: SuggestionRefusal["reason"] | null = null;
+    // isOnBoard has checked that the socket has a board.
+    const session = isOnBoard(socket, payload?.boardId) ? getSession(socket.data.boardId!) : null;
+    if (!limits.op()) refusal = "rate";
+    else if (!session) refusal = "noSession";
+    if (refusal) reply({ ok: false, reason: refusal });
+    return refusal ? null : session!;
+  };
+
+  socket.on("suggestion:put", (payload, ack) => {
+    const reply = typeof ack === "function" ? ack : () => {};
+    const session = suggestionSession(payload, reply);
+    if (!session) return;
+    if (socket.data.role !== "suggester") return reply(SUGGESTION_FORBIDDEN);
+    // The assertions: suggestionSession found a board id in the payload, so it is there.
+    const drafts = payload!.suggestions;
+    if (!Array.isArray(drafts)) return reply(SUGGESTION_INVALID);
+    const { boardId } = session;
+    const result = putSuggestions(session.suggestions, session, personOf(socket), drafts);
+    if (result.stored.length > 0) socket.to(boardId).emit("suggestion:upsert", { boardId, suggestions: result.stored });
+    if (result.withdrawn.length > 0) {
+      socket.to(boardId).emit("suggestion:delete", { boardId, ids: result.withdrawn, outcome: "withdrawn" });
+    }
+    if (result.stored.length + result.withdrawn.length > 0) markSuggestionsDirty(session);
+    reply({
+      ok: true,
+      suggestions: result.stored,
+      ...(result.dropped.length > 0 ? { dropped: result.dropped } : {}),
+      ...(result.full ? { full: result.full } : {}),
+    });
+  });
+
+  socket.on("suggestion:withdraw", (payload, ack) => {
+    const reply = typeof ack === "function" ? ack : () => {};
+    const session = suggestionSession(payload, reply);
+    if (!session) return;
+    const { boardId } = session;
+    const ids = withdrawSuggestions(session.suggestions, personOf(socket), payload!.ids);
+    if (ids.length > 0) {
+      socket.to(boardId).emit("suggestion:delete", { boardId, ids, outcome: "withdrawn" });
+      markSuggestionsDirty(session);
+    }
+    reply({ ok: true });
+  });
+
+  socket.on("suggestion:resolve", (payload, ack) => {
+    const reply = typeof ack === "function" ? ack : () => {};
+    const session = suggestionSession(payload, reply);
+    if (!session) return;
+    if (!isMemberRole(socket.data.role)) return reply(SUGGESTION_FORBIDDEN);
+    const outcome = payload!.outcome;
+    if (outcome !== "accepted" && outcome !== "rejected") return reply(SUGGESTION_INVALID);
+    const { boardId } = session;
+    const ids = resolveSuggestions(session.suggestions, payload!.ids);
+    if (ids.length > 0) {
+      socket.to(boardId).emit("suggestion:delete", { boardId, ids, outcome });
+      markSuggestionsDirty(session);
+    }
+    reply({ ok: true });
+  });
+
   socket.on("guest:rename", async (payload) => {
     if (socket.data.user) return;
     // A socket without an account was given a guest by authenticate.
@@ -604,6 +696,7 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
       ok: true,
       board: serializeBoard(board, userId, session.elements),
       removed: removedStamps(session.tombstones),
+      suggestions: suggestionList(session.suggestions),
     });
     await broadcastPresence(boardId);
   } catch (error) {
@@ -717,6 +810,8 @@ export async function replaceElements(boardId: string, snapshot: Element[], acto
     removed: removedStamps(session.tombstones),
     by: actor?.name ?? null,
   });
+  // Suggestions about elements the restore took away go, and suggested additions it brought back are on the board.
+  if (io) announceSettled(session, settleSuggestions(session.suggestions, session));
   // With nobody on it, the board goes again, saved. (Someone opening it meanwhile keeps it open.)
   if (!io?.sockets.adapter.rooms.has(boardId)) await closeSession(boardId);
   return elements;

@@ -9,6 +9,7 @@
 
 import type { BoardMeta, BoardDetails, NotificationItem, Role, Thread } from "./api.ts";
 import type { SYNC_FORMAT } from "./limits.ts";
+import type { Suggestion, SuggestionDraft } from "./suggestions.ts";
 import type { Effect, Element, Stamp } from "./types.ts";
 
 // What the browser sends
@@ -73,14 +74,40 @@ export interface RenamePayload {
   name: string;
 }
 
+/** What `suggestion:put` sends: suggestions to make, or to replace the sender's own with (see SuggestionDraft). */
+export interface SuggestionPutPayload {
+  boardId: string;
+  suggestions: SuggestionDraft[];
+}
+
+/** What `suggestion:withdraw` sends: the ids of the sender's own suggestions to take back. */
+export interface SuggestionWithdrawPayload {
+  boardId: string;
+  ids: string[];
+}
+
+/** What a member decided about suggestions. Accepting one is the member's own change to the board, sent first. */
+export type SuggestionOutcome = "accepted" | "rejected";
+
+/** What `suggestion:resolve` sends: the ids of suggestions a member accepted or rejected. */
+export interface SuggestionResolvePayload {
+  boardId: string;
+  ids: string[];
+  outcome: SuggestionOutcome;
+}
+
 // What the browser hears back
 
 /** A tombstone as a browser hears of it when it opens a board. */
 export type RemovedStamp = Stamp & { id: string };
 
-/** The reply to joining a board: the board as this person may see it, with the stamps of what was removed lately. */
+/**
+ * The reply to joining a board: the board as this person may see it, with the stamps of what was removed lately,
+ * and the suggestions open on it.
+ */
 export type JoinReply =
-  { ok: true; board: BoardDetails; removed: RemovedStamp[] } | { ok: false; status: number; error: string };
+  | { ok: true; board: BoardDetails; removed: RemovedStamp[]; suggestions: Suggestion[] }
+  | { ok: false; status: number; error: string };
 
 /**
  * Why a change was refused. `tooLarge` and `readOnly` are also set where older browsers, which look for
@@ -101,6 +128,26 @@ export type OpReply = { ok: true; cleaned?: Element[]; dropped?: string[] } | Op
 /** The reply to an image: the id it was stored under, or why it wasn't (`error` is a sentence for the person who tried). */
 export type ImageReply =
   { ok: true; id: string } | { ok: false; error?: string; readOnly?: true; tooLarge?: true; full?: ImageLimit };
+
+/**
+ * Why suggestions were refused: "rate", "noSession" (join the board first), "forbidden" (the sender may not
+ * do this on the board) or "invalid" (the payload isn't one).
+ */
+export interface SuggestionRefusal {
+  ok: false;
+  reason: "rate" | "noSession" | "forbidden" | "invalid";
+}
+
+/**
+ * The reply to `suggestion:put`: the suggestions as the board keeps them, and the element ids of drafts it
+ * left out (`dropped`): ones that aren't valid, are about an element that isn't on the board (or, for an
+ * addition, is), are someone else's, or didn't fit, in which case `full` says which limit they met.
+ */
+export type SuggestionPutReply =
+  { ok: true; suggestions: Suggestion[]; dropped?: string[]; full?: "board" | "author" } | SuggestionRefusal;
+
+/** The reply to `suggestion:withdraw` and `suggestion:resolve`: done (ids that aren't open are let be), or refused. */
+export type SuggestionReply = { ok: true } | SuggestionRefusal;
 
 // What the server sends
 
@@ -153,6 +200,21 @@ export interface ThreadRemoval {
   id: string;
 }
 
+/** What `suggestion:upsert` carries: suggestions made or changed, as the board keeps them. */
+export interface SuggestionsMessage extends BoardMessage {
+  suggestions: Suggestion[];
+}
+
+/**
+ * What `suggestion:delete` carries: the ids of suggestions that are gone, and why: a member accepted or
+ * rejected them, their author withdrew them, or what they were about is gone (removed, accepted another
+ * way, or too old).
+ */
+export interface SuggestionRemovalMessage extends BoardMessage {
+  ids: string[];
+  outcome: SuggestionOutcome | "withdrawn" | "gone";
+}
+
 // The events
 
 /** Everything a browser can send, and what it hears back. */
@@ -165,6 +227,9 @@ export interface ClientToServerEvents {
   viewport: (payload: ViewportPayload) => void;
   "viewport:request": (payload: ViewportRequestPayload) => void;
   "guest:rename": (payload: RenamePayload) => void;
+  "suggestion:put": (payload: SuggestionPutPayload, ack: (reply: SuggestionPutReply) => void) => void;
+  "suggestion:withdraw": (payload: SuggestionWithdrawPayload, ack: (reply: SuggestionReply) => void) => void;
+  "suggestion:resolve": (payload: SuggestionResolvePayload, ack: (reply: SuggestionReply) => void) => void;
 }
 
 /** What a browser is sent: changes made by others, who is there, and the board's own changes. */
@@ -184,4 +249,6 @@ export interface ServerToClientEvents {
   // A comment thread as it is listed, or the id of one that is gone.
   "thread:upsert": (thread: Thread) => void;
   "thread:delete": (thread: ThreadRemoval) => void;
+  "suggestion:upsert": (message: SuggestionsMessage) => void;
+  "suggestion:delete": (message: SuggestionRemovalMessage) => void;
 }

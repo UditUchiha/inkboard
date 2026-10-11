@@ -11,6 +11,7 @@
     "./element-rules": "./src/element-rules.ts",
     "./limits": "./src/limits.ts",
     "./socket": "./src/socket.ts",
+    "./suggestions": "./src/suggestions.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {

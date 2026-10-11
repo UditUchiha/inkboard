@@ -9,6 +9,8 @@ import { Board } from "../models/board.model.ts";
 import type { ObjectIdLike } from "../services/boards.ts";
 import { lastVersionTime, recordVersion } from "../services/versions.ts";
 import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.ts";
+import { readSuggestions, settleSuggestions, suggestionList } from "./suggestions.ts";
+import type { SuggestionState } from "./suggestions.ts";
 
 // Boards that are open in at least one browser live in memory, so every
 // stroke can be broadcast immediately. Changes are written to MongoDB shortly
@@ -50,6 +52,9 @@ export interface Session {
   removedAt: Map<string, number>;
   buried: Map<string, number>;
   buriedBytes: number;
+  // The suggestions open on the board (see suggestions.ts), and whether they have changed since they were saved.
+  suggestions: SuggestionState;
+  suggestionsDirty: boolean;
   // Changes not saved yet, the save (or its retry) that's due, and the save in progress.
   dirty: boolean;
   timer: ReturnType<typeof setTimeout> | null;
@@ -89,9 +94,9 @@ export function acquireSession(boardId: string): Promise<Session> {
   let pending = opening.get(boardId);
   if (!pending) {
     pending = Board.findById(boardId)
-      .select("elements removed owner")
+      .select("elements removed suggestions owner")
       .lean()
-      .then((saved) => openSession(boardId, saved?.elements ?? [], saved?.removed, saved?.owner))
+      .then((saved) => openSession(boardId, saved?.elements ?? [], saved?.removed, saved?.owner, saved?.suggestions))
       .finally(() => opening.delete(boardId));
     opening.set(boardId, pending);
   }
@@ -230,6 +235,7 @@ function openSession(
   elements: Element[],
   removed: SavedRemoval[] = [],
   owner: ObjectIdLike | null = null,
+  suggestions: unknown = [],
 ): Session {
   // A board saved before elements had places in the stack gets them now, in the order it was saved,
   // and elements saved before they had every field their kind has now get those (see withDefaults).
@@ -241,6 +247,8 @@ function openSession(
     ...readRemoved(removed, ordered), // tombstones (removed id -> { version, versionNonce, element }) and removedAt (id -> time)
     buried: new Map(), // removed id -> bytes of the data its tombstone keeps, oldest first
     buriedBytes: 0,
+    suggestions: readSuggestions(suggestions),
+    suggestionsDirty: false,
     dirty: false, // changes not saved yet
     timer: null, // the save (or its retry) that's due
     saving: null, // the save in progress, a promise
@@ -250,6 +258,9 @@ function openSession(
     skipWarnedAt: null, // when the log last said a checkpoint was skipped for want of room
   };
   measure(session);
+  // Suggestions the board overtook while it was closed (or that are too old) go now, before anyone sees them.
+  const settled = settleSuggestions(session.suggestions, session);
+  if (settled.accepted.length + settled.gone.length > 0) markSuggestionsDirty(session);
   sessions.set(boardId, session);
   lastVersionTime(boardId)
     .then((time) => {
@@ -365,6 +376,12 @@ function markDirty(session: Session) {
   session.timer ??= setTimeout(() => persist(session), persistDelay(session));
 }
 
+/** Notes that the board's suggestions changed, so they're saved soon (without the elements, if those haven't). */
+export function markSuggestionsDirty(session: Session) {
+  session.suggestionsDirty = true;
+  session.timer ??= setTimeout(() => persist(session), BASE_PERSIST_DELAY_MS);
+}
+
 /**
  * Saves the board, resolving once nothing is left unsaved (or a save failed,
  * which is tried again soon). Only one save runs at a time per board, so an
@@ -381,34 +398,45 @@ function persist(session: Session) {
 }
 
 async function save(session: Session) {
-  while (session.dirty && !session.discarded) {
+  while ((session.dirty || session.suggestionsDirty) && !session.discarded) {
+    const { dirty, suggestionsDirty } = session;
     session.dirty = false;
+    session.suggestionsDirty = false;
     try {
       // The plain driver is two to three times faster than Mongoose for a big array of
-      // elements, so it is used here; updatedAt is kept current by hand.
+      // elements, so it is used here; updatedAt is kept current by hand. Only what changed is
+      // written: suggestions change often while someone suggests, and don't change the board.
       await Board.collection.updateOne(
         { _id: new mongoose.Types.ObjectId(session.boardId) },
         {
           $set: {
-            elements: session.elements,
-            removed: removedList(session),
-            // What the board takes of its owner's space, measured as boards are (drawingBytes in
-            // services/boards.ts), which adds up a little differently from session.bytes.
-            bytes: mongoose.mongo.BSON.calculateObjectSize({ elements: session.elements }),
-            updatedAt: new Date(),
+            ...(dirty
+              ? {
+                  elements: session.elements,
+                  removed: removedList(session),
+                  // What the board takes of its owner's space, measured as boards are (drawingBytes in
+                  // services/boards.ts), which adds up a little differently from session.bytes.
+                  bytes: mongoose.mongo.BSON.calculateObjectSize({ elements: session.elements }),
+                  updatedAt: new Date(),
+                }
+              : {}),
+            ...(suggestionsDirty ? { suggestions: suggestionList(session.suggestions) } : {}),
           },
         },
       );
     } catch (error) {
       // The driver rejects with Error objects.
       console.error(`Could not save board ${session.boardId}: ${(error as Error).message}`);
-      session.dirty = true;
+      session.dirty ||= dirty;
+      session.suggestionsDirty ||= suggestionsDirty;
       if (!session.discarded) session.timer ??= setTimeout(() => persist(session), MAX_PERSIST_DELAY_MS);
       return;
     }
   }
   // Saved, and nobody came back to it meanwhile: it can go.
-  if (session.closing && !session.dirty && sessions.get(session.boardId) === session) sessions.delete(session.boardId);
+  if (session.closing && !session.dirty && !session.suggestionsDirty && sessions.get(session.boardId) === session) {
+    sessions.delete(session.boardId);
+  }
 }
 
 /** Saves the board and lets it go from memory, unless someone opens it again first (see holdSession). */

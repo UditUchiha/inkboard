@@ -17,6 +17,15 @@ export const IMAGE_SMALL_MAX_BYTES = 200_000; // the small copy thumbnails draw 
 export const IMAGE_MAX_SIDE = 4096; // pixels on the longer side of a picture
 export const IMAGE_SMALL_MAX_SIDE = 512; // the same, for the small copy
 
+// What a board keeps of suggestions (see docs/suggest-mode.md): how many can be open at once, on the
+// board and from one person, and how much they may take up in all, measured as elements are. They don't
+// count toward the board's own limits.
+export const MAX_SUGGESTIONS_PER_BOARD = 300;
+export const MAX_SUGGESTIONS_PER_AUTHOR = 100;
+export const MAX_SUGGESTION_BYTES = 2_000_000;
+// A suggestion nobody has accepted or rejected in this long is let go.
+export const SUGGESTION_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
+
 // How many of its latest removals an open board remembers, on the server and in each browser that has
 // it open. Each keeps a change made before the removal, and arriving after it, from bringing the
 // element back; past this many the oldest are forgotten, so a long session doesn't keep growing.
