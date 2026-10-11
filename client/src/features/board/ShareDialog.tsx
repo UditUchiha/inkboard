@@ -8,8 +8,8 @@ import { Avatar } from "../../components/Avatar";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { TextField } from "../../components/Field";
-import { api } from "../../lib/api";
-import type { ApiError, BoardMeta, LinkAccess, Person, Role } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
+import type { BoardMeta, LinkAccess, Person, Role } from "../../lib/api";
 
 // A way the link can open the board, as the dialog offers it.
 type LinkOption = { value: LinkAccess; icon: LucideIcon; title: string; detail: string };
@@ -92,7 +92,7 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
       toast.success(`Invited ${email.trim()}`);
       setEmail("");
     } catch (inviteError) {
-      setError((inviteError as ApiError).message); // requests only fail with an ApiError
+      setError(errorMessage(inviteError));
     } finally {
       setInviting(false);
     }
@@ -110,7 +110,7 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
       onBoardChange(updated);
       toast.success(`Removed ${member.name}`);
     } catch (removeError) {
-      toast.error((removeError as ApiError).message);
+      toast.error(errorMessage(removeError));
     } finally {
       setRemovingId(null);
       setConfirmingId(null);
@@ -125,7 +125,7 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
       onBoardChange(updated);
       toast.success(LINK_TOASTS[next]);
     } catch (accessError) {
-      toast.error((accessError as ApiError).message);
+      toast.error(errorMessage(accessError));
     } finally {
       setSavingAccess(false);
     }

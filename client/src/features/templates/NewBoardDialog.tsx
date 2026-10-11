@@ -5,8 +5,8 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Button, IconButton } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
-import { api } from "../../lib/api";
-import type { ApiError, CreateBoardInput, TemplateSummary } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
+import type { CreateBoardInput, TemplateSummary } from "../../lib/api";
 import { BoardPreview } from "../board/BoardPreview";
 import { BUILTIN_TEMPLATES } from "./builtin";
 import type { BuiltinTemplate } from "./builtin";
@@ -97,7 +97,7 @@ export function NewBoardDialog({ open, onClose, onCreate, busy = false }: NewBoa
       setMine((list) => list!.filter((item) => item.id !== template.id));
       toast.success(`Deleted the “${template.title}” template`);
     } catch (error) {
-      toast.error((error as ApiError).message); // requests only fail with an ApiError
+      toast.error(errorMessage(error));
     } finally {
       setDeletingId(null);
       setConfirmingId(null);

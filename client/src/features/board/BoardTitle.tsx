@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { ApiError } from "../../lib/api";
+import { errorMessage } from "../../lib/api";
 import { isComposing } from "./mentions";
 import { titleToSave } from "./titleEdit";
 
@@ -40,8 +40,7 @@ export function BoardTitle({ board, rename, onRenamed, readOnly }: BoardTitlePro
     try {
       onRenamed(await rename(next));
     } catch (error) {
-      // Whatever `rename` throws is an ApiError (it is how the server refuses).
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
       setTitle(board.title);
     }
   }

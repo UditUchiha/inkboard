@@ -5,7 +5,8 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton } from "../../components/Button";
-import type { ApiError, Person, Thread, ThreadMessage } from "../../lib/api";
+import { errorMessage } from "../../lib/api";
+import type { Person, Thread, ThreadMessage } from "../../lib/api";
 import { timeAgo } from "../../lib/format";
 import { useMinute } from "../../lib/useMinute";
 import { toScreen } from "./geometry";
@@ -145,7 +146,7 @@ function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }: Co
       setText("");
       setMentions([]);
     } catch (error) {
-      toast.error((error as ApiError).message); // requests only fail with an ApiError
+      toast.error(errorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -365,11 +366,11 @@ export function CommentsLayer({
             members={members}
             onReply={(input) => api.reply(active.id, input)}
             onResolve={(resolved) =>
-              api.setResolved(active.id, resolved).catch((error: ApiError) => toast.error(error.message))
+              api.setResolved(active.id, resolved).catch((error: unknown) => toast.error(errorMessage(error)))
             }
             onDelete={() => {
               onActive(null);
-              api.remove(active.id).catch((error: ApiError) => toast.error(error.message));
+              api.remove(active.id).catch((error: unknown) => toast.error(errorMessage(error)));
             }}
             onClose={() => onActive(null)}
           />

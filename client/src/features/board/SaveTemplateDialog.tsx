@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { TextField } from "../../components/Field";
-import type { ApiError } from "../../lib/api";
+import { errorMessage } from "../../lib/api";
 
 type SaveTemplateDialogProps = {
   open: boolean;
@@ -33,7 +33,7 @@ export function SaveTemplateDialog({ open, onClose, defaultTitle, onSave }: Save
       await onSave(title.trim());
       onClose();
     } catch (saveError) {
-      setError((saveError as ApiError).message); // requests only fail with an ApiError
+      setError(errorMessage(saveError));
     } finally {
       setSaving(false);
     }

@@ -11,8 +11,8 @@ import { PasswordField, TextField } from "../components/Field";
 import { PROVIDER_ICONS, useOAuthProviders } from "../components/OAuthButtons";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { API_URL, APP_NAME } from "../config";
-import { api } from "../lib/api";
-import type { AccountUser, ApiError } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
+import type { AccountUser } from "../lib/api";
 import { PEOPLE_COLORS, colorFor } from "../lib/format";
 import { formColor } from "../lib/profileColor";
 import { isProvider, providerLabel, signInErrorMessage } from "../lib/signInErrors";
@@ -62,8 +62,7 @@ function ProfileSection() {
       setName(updated.name);
       toast.success("Profile saved");
     } catch (saveError) {
-      // updateProfile rejects with an ApiError.
-      setError((saveError as ApiError).message);
+      setError(errorMessage(saveError));
     } finally {
       setSaving(false);
     }
@@ -189,8 +188,7 @@ function ConnectedAccounts() {
       rememberConnecting(provider, bind);
       window.location.assign(`${API_URL}${url}`);
     } catch (error) {
-      // linkProvider rejects with an ApiError.
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
       setBusy(null);
     }
   }
@@ -202,8 +200,7 @@ function ConnectedAccounts() {
       updateUser(updated);
       toast.success(`${label} disconnected`);
     } catch (error) {
-      // disconnectProvider rejects with an ApiError.
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
     } finally {
       setBusy(null);
     }
@@ -269,11 +266,10 @@ function PasswordSection() {
       setForm({ currentPassword: "", newPassword: "" });
       toast.success(user.hasPassword ? "Password changed" : "Password set");
     } catch (saveError) {
-      // changePassword rejects with an ApiError.
-      const aboutCurrent = /current password/i.test((saveError as ApiError).message);
+      const aboutCurrent = /current password/i.test(errorMessage(saveError));
       setProblem({
         field: aboutCurrent ? "currentPassword" : "newPassword",
-        message: (saveError as ApiError).message,
+        message: errorMessage(saveError),
       });
     } finally {
       setSaving(false);
@@ -332,8 +328,7 @@ function SessionsSection() {
       await api.logoutEverywhere();
       logout();
     } catch (error) {
-      // logoutEverywhere rejects with an ApiError.
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
       setBusy(false);
     }
   }
@@ -400,8 +395,7 @@ export default function SettingsPage() {
         updateUser(fresh);
         toast.success(`${providerLabel(provider)} connected`);
       })
-      // confirmProviderLink rejects with an ApiError.
-      .catch((error: ApiError) => toast.error(error.message));
+      .catch((error: unknown) => toast.error(errorMessage(error)));
   }, [updateUser]);
 
   return (

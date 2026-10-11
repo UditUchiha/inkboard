@@ -84,6 +84,14 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * What to tell the person about something a request (or the code around it) threw. A request only throws an
+ * ApiError, whose message is written for people; anything else that isn't even an Error gets a general one.
+ */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Something went wrong. Try again.";
+}
+
 let authToken: string | null = null;
 let onUnauthorized: () => void = () => {};
 
