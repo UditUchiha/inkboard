@@ -35,9 +35,11 @@ const LINK_OPTIONS: LinkOption[] = [
   },
 ];
 
+// "suggest" isn't offered above yet: suggesting is still being built (see docs/suggest-mode.md).
 const LINK_TOASTS: Record<LinkAccess, string> = {
   restricted: "Only invited people can open the link",
   view: "Anyone with the link can now view",
+  suggest: "Anyone with the link can now suggest changes",
   edit: "Anyone with the link can now edit",
 };
 
@@ -45,6 +47,7 @@ const DESCRIPTIONS: Record<Role, string> = {
   owner: "Invite people to draw with you, and choose what anyone with the link can do.",
   editor: "People you invite can draw, rename the board and see everyone's cursors.",
   contributor: "The link lets you draw on this board. Only people the owner invites can see who has access.",
+  suggester: "The link lets you suggest changes, which the owner and editors accept or reject.",
   viewer: "You can view this board. Only people the owner invites can make changes.",
 };
 

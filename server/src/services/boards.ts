@@ -92,14 +92,16 @@ export const isMember = (board: Pick<Access, "owner" | "collaborators">, userId:
 /**
  * What a person can do on a board. "owner" and "editor" (invited) are members:
  * they can change the board and see who has access. "contributor" can draw
- * because the link allows anyone to edit, and "viewer" can only look. Both of
- * those apply to anyone with the link, signed in or not. Null means no access.
- * `userId` is null for guests.
+ * because the link allows anyone to edit, "suggester" can propose changes a
+ * member accepts or rejects, and "viewer" can only look. Those three apply to
+ * anyone with the link, signed in or not. Null means no access. `userId` is
+ * null for guests.
  */
 export function roleOf(board: Access, userId: unknown): Role | null {
   if (userId && isOwner(board, userId)) return "owner";
   if (userId && isMember(board, userId)) return "editor";
   if (board.linkAccess === "edit") return "contributor";
+  if (board.linkAccess === "suggest") return "suggester";
   if (board.linkAccess === "view") return "viewer";
   return null;
 }
