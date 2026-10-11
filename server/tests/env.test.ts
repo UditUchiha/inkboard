@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import type { env as EnvType } from "../src/config/env.ts";
 
 // config/env.ts reads the environment once, when it's first imported, so each case
 // loads it in a fresh process with exactly the variables given.
@@ -11,7 +12,7 @@ const SECRET = "s".repeat(48);
 const appUrlModule = fileURLToPath(new URL("../src/lib/app-url.ts", import.meta.url)).replaceAll("\\", "/");
 
 // `script` runs with `env` loaded and whatever it logs last is the answer; by default that's `env` itself.
-function load(variables, script = "console.log(JSON.stringify(env));") {
+function load<T = typeof EnvType>(variables: Record<string, string>, script = "console.log(JSON.stringify(env));") {
   const result = spawnSync(
     process.execPath,
     ["--input-type=module", "-e", `const { env } = await import("file:///${envModule}"); ${script}`],
@@ -38,7 +39,7 @@ function load(variables, script = "console.log(JSON.stringify(env));") {
   );
   return {
     ok: result.status === 0,
-    env: result.status === 0 ? JSON.parse(result.stdout.trim().split("\n").at(-1)) : null,
+    env: (result.status === 0 ? JSON.parse(result.stdout.trim().split("\n").at(-1)!) : null) as T,
     stderr: result.stderr,
   };
 }
@@ -75,7 +76,7 @@ describe("the signing secret (M5)", () => {
 
 describe("how long a login lasts (L11)", () => {
   it("reads a bare number as seconds, and keeps units", () => {
-    const expires = (JWT_EXPIRES_IN) => load({ NODE_ENV: "test", JWT_EXPIRES_IN }).env.jwtExpiresIn;
+    const expires = (JWT_EXPIRES_IN: string) => load({ NODE_ENV: "test", JWT_EXPIRES_IN }).env.jwtExpiresIn;
     assert.equal(expires("3600"), 3600);
     assert.equal(expires("12h"), "12h");
     assert.equal(expires(""), "7d");
@@ -83,13 +84,16 @@ describe("how long a login lasts (L11)", () => {
 });
 
 // What lib/app-url.ts makes of a request that came in on `host` (and, optionally, from `origin`).
-function urlsFor(variables, { host = "ink.example.test", origin } = {}) {
+function urlsFor(
+  variables: Record<string, string>,
+  { host = "ink.example.test", origin }: { host?: string; origin?: string } = {},
+) {
   const script = `
     const { apiUrlFor, clientUrlFor, emailLinkUrlFor } = await import("file:///${appUrlModule}");
     const headers = { host: ${JSON.stringify(host)}, origin: ${JSON.stringify(origin)} };
     const req = { protocol: "https", get: (name) => headers[name.toLowerCase()] };
     console.log(JSON.stringify({ api: apiUrlFor(req), client: clientUrlFor(req), email: emailLinkUrlFor(req) }));`;
-  return load(variables, script);
+  return load<{ api: string; client: string; email: string }>(variables, script);
 }
 
 describe("links in emails (M4)", () => {

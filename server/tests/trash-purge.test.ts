@@ -1,27 +1,32 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import type { BoardSummary } from "@inkboard/shared/api";
 import { Board } from "../src/models/board.model.ts";
 import { Thread } from "../src/models/thread.model.ts";
 import { User } from "../src/models/user.model.ts";
 import { Version } from "../src/models/version.model.ts";
 import { destroyBoard } from "../src/services/boards.ts";
 import { expiredBoards, purgeExpiredTrash } from "../src/services/trash.ts";
-import { startServer } from "./helpers.js";
+import { startServer } from "./helpers.ts";
+import type { ServerInstance, TestUser } from "./helpers.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
-const trash = (user, id) => app.request(`/boards/${id}`, { method: "DELETE", user });
-const restore = (user, id) => app.request(`/boards/${id}/restore`, { method: "POST", user });
-const listTrash = async (user) => (await app.request("/boards/trash", { user })).data.boards;
+const trash = (user: TestUser, id: string) => app.request(`/boards/${id}`, { method: "DELETE", user });
+const restore = (user: TestUser, id: string) =>
+  app.request<{ error?: string }>(`/boards/${id}/restore`, { method: "POST", user });
+const listTrash = async (user: TestUser) =>
+  (await app.request<{ boards: BoardSummary[] }>("/boards/trash", { user })).data.boards;
 
 // Runs `fn` with Thread.deleteMany (one of the things erasing a board deletes) replaced by `standIn`.
-async function whileDeletingThreads(standIn, fn) {
+async function whileDeletingThreads(standIn: (del: () => unknown) => unknown, fn: () => Promise<unknown>) {
   const original = Thread.deleteMany;
-  Thread.deleteMany = (...args) => standIn(() => original.apply(Thread, args));
+  Thread.deleteMany = ((...args: Parameters<typeof original>) =>
+    standIn(() => original.apply(Thread, args))) as typeof Thread.deleteMany;
   try {
     return await fn();
   } finally {
@@ -29,7 +34,7 @@ async function whileDeletingThreads(standIn, fn) {
   }
 }
 
-async function trashedBoard() {
+async function trashedBoard(): Promise<{ owner: TestUser; id: string }> {
   const owner = await app.signUp("Owner");
   const id = await app.createBoard(owner);
   await Version.create({ board: id, kind: "named", label: "Keep", elements: [] });
@@ -40,7 +45,7 @@ async function trashedBoard() {
 describe("erasing a board for good", () => {
   it("refuses a restore that arrives while the board's contents are being deleted", async () => {
     const { owner, id } = await trashedBoard();
-    let restoring;
+    let restoring!: { status: number; data: { error?: string } };
     await whileDeletingThreads(
       async (deleteThreads) => {
         restoring = await restore(owner, id);
@@ -49,7 +54,7 @@ describe("erasing a board for good", () => {
       () => destroyBoard(id),
     );
     assert.equal(restoring.status, 409);
-    assert.match(restoring.data.error, /being deleted for good/);
+    assert.match(restoring.data.error!, /being deleted for good/);
     assert.equal(await Board.exists({ _id: id }), null, "the erase went ahead, rather than leaving a gutted board");
     assert.equal(await Version.countDocuments({ board: id }), 0);
   });
@@ -77,17 +82,21 @@ describe("erasing a board by hand", () => {
     const { owner, id } = await trashedBoard();
     // The owner restores it (in another tab) after the purge looked it up, before it is claimed.
     const original = Board.updateOne;
-    Board.updateOne = function (filter, update, ...rest) {
-      if (update?.$set?.purgingAt === undefined) return original.call(this, filter, update, ...rest);
+    Board.updateOne = function (this: unknown, filter?: unknown, update?: unknown, ...rest: unknown[]) {
+      if ((update as { $set?: { purgingAt?: unknown } })?.$set?.purgingAt === undefined)
+        return (original as Function).call(this, filter, update, ...rest);
       Board.updateOne = original;
-      return original
+      return (original as Function)
         .call(this, { _id: id }, { $set: { deletedAt: null } })
-        .then(() => original.call(this, filter, update, ...rest));
-    };
+        .then(() => (original as Function).call(this, filter, update, ...rest));
+    } as typeof Board.updateOne;
     try {
-      const purged = await app.request(`/boards/${id}/permanent`, { method: "DELETE", user: owner });
+      const purged = await app.request<{ error?: string }>(`/boards/${id}/permanent`, {
+        method: "DELETE",
+        user: owner,
+      });
       assert.equal(purged.status, 409);
-      assert.match(purged.data.error, /restored/);
+      assert.match(purged.data.error!, /restored/);
     } finally {
       Board.updateOne = original;
     }
@@ -97,8 +106,13 @@ describe("erasing a board by hand", () => {
 });
 
 describe("the trash sweep's query", () => {
+  interface ExplainPlan {
+    stage: string;
+    inputStage?: ExplainPlan;
+    inputStages?: ExplainPlan[];
+  }
   // Every stage of the winning plan, however deeply nested (an $or has one input per branch).
-  const stages = (plan) => [
+  const stages = (plan: ExplainPlan): string[] => [
     plan.stage,
     ...[plan.inputStage, ...(plan.inputStages ?? [])].flatMap((p) => (p ? stages(p) : [])),
   ];
@@ -107,7 +121,9 @@ describe("the trash sweep's query", () => {
     await Board.init(); // the indexes are built
     const owner = await app.signUp("Owner");
     await Promise.all(Array.from({ length: 30 }, () => app.createBoard(owner)));
-    const plan = await Board.find(expiredBoards(new Date())).select("_id").explain("queryPlanner");
+    const plan = (await Board.find(expiredBoards(new Date())).select("_id").explain("queryPlanner")) as unknown as {
+      queryPlanner: { winningPlan: ExplainPlan };
+    };
     const used = stages(plan.queryPlanner.winningPlan);
     assert.ok(!used.includes("COLLSCAN"), `plan: ${used.join(" > ")}`);
     assert.ok(used.includes("IXSCAN"));
@@ -137,19 +153,22 @@ describe("inviting someone", () => {
 
     // The owner trashes the board (in another tab) while the invite is looking the person up.
     const original = User.findOne;
-    User.findOne = function (filter, ...rest) {
-      if (filter?.email !== invitee.email) return original.call(this, filter, ...rest); // signing in, say
+    User.findOne = function (this: unknown, filter?: unknown, ...rest: unknown[]) {
+      if ((filter as { email?: string })?.email !== invitee.email)
+        return (original as Function).call(this, filter, ...rest); // signing in, say
       User.findOne = original;
-      return Board.updateOne({ _id: id }, { deletedAt: new Date() }).then(() => original.call(this, filter, ...rest));
-    };
+      return Board.updateOne({ _id: id }, { deletedAt: new Date() }).then(() =>
+        (original as Function).call(this, filter, ...rest),
+      );
+    } as typeof User.findOne;
     try {
-      const invited = await app.request(`/boards/${id}/collaborators`, {
+      const invited = await app.request<{ error?: string }>(`/boards/${id}/collaborators`, {
         method: "POST",
         user: owner,
         body: { email: invitee.email },
       });
       assert.equal(invited.status, 404);
-      assert.match(invited.data.error, /deleted/);
+      assert.match(invited.data.error!, /deleted/);
     } finally {
       User.findOne = original;
     }

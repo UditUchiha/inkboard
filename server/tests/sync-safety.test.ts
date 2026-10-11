@@ -1,24 +1,33 @@
-import { eventually, rect, remove, startServer, upsert } from "./helpers.js"; // first: it sets up the environment
+import { eventually, rect, remove, startServer, upsert } from "./helpers.ts"; // first: it sets up the environment
+import type { ServerInstance, TestClient, TestUser } from "./helpers.ts";
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import type { BoardReply, VersionReply } from "@inkboard/shared/api";
 import { MAX_VERSION } from "@inkboard/shared/board-merge";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
+import type { Element, Point, ShapeElement } from "@inkboard/shared/types";
 import { Board } from "../src/models/board.model.ts";
 import { flushAllSessions } from "../src/realtime/index.ts";
 import { MAX_BOARD_BYTES, MAX_ELEMENTS_PER_BOARD, sanitizeElements, SYNC_FORMAT } from "../src/realtime/operations.ts";
 import { LIMITS } from "../src/realtime/rate-limit.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
-const stored = async (boardId) => (await Board.findById(boardId).lean()).elements.map((element) => element.id);
-const ids = (elements) => elements.map((element) => element.id);
-const stamped = (element, version = 1) => ({ ...element, index: "a0", version, versionNonce: 0 });
+const stored = async (boardId: string) =>
+  (await Board.findById(boardId).lean())!.elements.map((element: { id: string }) => element.id);
+const ids = (elements: { id: string }[]) => elements.map((element) => element.id);
+const stamped = <T extends { id: string }>(element: T, version = 1) => ({
+  ...element,
+  index: "a0",
+  version,
+  versionNonce: 0,
+});
 
-async function ownerOnBoard() {
+async function ownerOnBoard(): Promise<{ owner: TestUser; id: string; client: TestClient }> {
   const owner = await app.signUp("Owner");
   const id = await app.createBoard(owner);
   const client = await app.connect(owner);
@@ -72,7 +81,7 @@ describe("joining as the last person leaves", () => {
 });
 
 describe("saving", () => {
-  const saves = (pretend) => {
+  const saves = (pretend: (original: typeof Board.collection.updateOne) => typeof Board.collection.updateOne) => {
     const original = Board.collection.updateOne;
     Board.collection.updateOne = pretend(original.bind(Board.collection));
     return () => {
@@ -84,16 +93,19 @@ describe("saving", () => {
     const { id, client } = await ownerOnBoard();
     let running = 0;
     let most = 0;
-    const restore = saves((original) => async (...args) => {
-      running += 1;
-      most = Math.max(most, running);
-      await new Promise((resolve) => setTimeout(resolve, 80));
-      try {
-        return await original(...args);
-      } finally {
-        running -= 1;
-      }
-    });
+    const restore = saves(
+      (original) =>
+        (async (...args: Parameters<typeof original>) => {
+          running += 1;
+          most = Math.max(most, running);
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          try {
+            return await original(...args);
+          } finally {
+            running -= 1;
+          }
+        }) as unknown as typeof Board.collection.updateOne,
+    );
     try {
       await client.op(id, upsert(stamped(rect("one"))));
       await eventually(() => running === 1, { message: "the first save to start" });
@@ -109,10 +121,13 @@ describe("saving", () => {
   it("keeps a board whose last save failed, for whoever opens it next, and saves it when it can", async () => {
     const { owner, id, client } = await ownerOnBoard();
     let attempts = 0;
-    const restore = saves(() => async () => {
-      attempts += 1;
-      throw new Error("the database is away");
-    });
+    const restore = saves(
+      () =>
+        (async () => {
+          attempts += 1;
+          throw new Error("the database is away");
+        }) as unknown as typeof Board.collection.updateOne,
+    );
     const log = console.error;
     console.error = () => {};
     try {
@@ -136,7 +151,7 @@ describe("restoring a version", () => {
     const { owner, id, client } = await ownerOnBoard();
     await client.op(id, upsert(stamped(rect("kept"))));
     await flushAllSessions();
-    const version = await app.request(`/boards/${id}/versions`, {
+    const version = await app.request<VersionReply>(`/boards/${id}/versions`, {
       method: "POST",
       user: owner,
       body: { label: "Start" },
@@ -163,22 +178,27 @@ describe("restoring a version", () => {
 describe("what an acknowledgement says", () => {
   it("lists elements that were refused, and gives back elements as stored where that isn't how they were sent", async () => {
     const { id, client } = await ownerOnBoard();
-    const label = { ...stamped(rect("arrow")), type: "arrow", text: "x".repeat(MAX_TEXT_LENGTH + 5), font: "hand" };
+    const label = {
+      ...stamped(rect("arrow")),
+      type: "arrow" as const,
+      text: "x".repeat(MAX_TEXT_LENGTH + 5),
+      font: "hand" as const,
+    };
     const note = {
       id: "note",
-      type: "sticky",
+      type: "sticky" as const,
       x1: 0,
       y1: 0,
       x2: 100,
       y2: 100,
       text: "y".repeat(MAX_TEXT_LENGTH + 1),
       fill: "#ffec99",
-      font: "hand",
+      font: "hand" as const,
     };
     const result = await client.op(id, upsert(label, note, rect("fine")));
     assert.equal(result.ok, true);
-    assert.deepEqual(ids(result.cleaned), ["arrow"]);
-    assert.equal(result.cleaned[0].text.length, MAX_TEXT_LENGTH);
+    assert.deepEqual(ids(result.cleaned!), ["arrow"]);
+    assert.equal((result.cleaned![0] as unknown as { text: string }).text.length, MAX_TEXT_LENGTH);
     assert.deepEqual(result.dropped, ["note"]);
   });
 
@@ -186,27 +206,27 @@ describe("what an acknowledgement says", () => {
     const { id, client } = await ownerOnBoard();
     const note = {
       id: "note",
-      type: "sticky",
+      type: "sticky" as const,
       x1: 0,
       y1: 0,
       x2: 100,
       y2: 100,
       text: "short",
       fill: "#ffec99",
-      font: "hand",
+      font: "hand" as const,
     };
     await client.op(id, upsert(stamped(note)));
     const tooLong = stamped({ ...note, text: "y".repeat(MAX_TEXT_LENGTH + 1) }, 2);
     const result = await client.op(id, upsert(tooLong, stamped(rect("with-it"))));
     assert.equal(result.ok, true);
     assert.equal(result.dropped, undefined);
-    assert.equal(result.cleaned[0].text, "short");
+    assert.equal((result.cleaned![0] as unknown as { text: string }).text, "short");
   });
 
   it("names why an operation wasn't taken, and tells a plain success from one that was changed", async () => {
     const { id, client } = await ownerOnBoard();
     assert.deepEqual(await client.op(id, upsert(stamped(rect("plain")))), { ok: true });
-    assert.equal((await client.op(id, upsert({ id: "bad", type: "pen" }))).reason, "invalid");
+    assert.equal((await client.op(id, upsert({ id: "bad", type: "pen" } as unknown as Element))).reason, "invalid");
 
     const many = Array.from({ length: MAX_ELEMENTS_PER_BOARD + 1 }, (_, n) => `m${n}`);
     assert.equal((await client.op(id, remove(...many))).reason, "tooLarge");
@@ -217,7 +237,7 @@ describe("a board that is full", () => {
   it("tells the sender which new elements it left out", async () => {
     const owner = await app.signUp("Full");
     const full = Array.from({ length: MAX_ELEMENTS_PER_BOARD }, (_, n) => rect(`e${n}`));
-    const created = await app.request("/boards", {
+    const created = await app.request<BoardReply>("/boards", {
       method: "POST",
       user: owner,
       body: { title: "Full", elements: full },
@@ -251,8 +271,8 @@ describe("a forged version", () => {
     assert.equal((await client.op(id, upsert(stamped(rect("forged"), MAX_VERSION)))).ok, true);
     assert.equal((await client.op(id, upsert(stamped({ ...rect("forged"), x1: 40 }, 2)))).ok, true);
     const seen = (await client.join(id, { sync: SYNC_FORMAT })).board;
-    assert.equal(seen.elements[0].x1, 40, "the next edit still wins");
-    assert.ok(seen.elements[0].version < 100);
+    assert.equal((seen.elements[0] as ShapeElement).x1, 40, "the next edit still wins");
+    assert.ok(seen.elements[0].version! < 100);
   });
 });
 
@@ -288,10 +308,10 @@ describe("a flood of changes", () => {
 
 describe("boards made in one request", () => {
   it("leave out strokes too big to store, and what wouldn't fit in a board", () => {
-    const stroke = (id, count) => ({
+    const stroke = (id: string, count: number) => ({
       id,
-      type: "pen",
-      points: Array.from({ length: count }, (_, n) => [n + 0.25, n + 0.5, 0.5]),
+      type: "pen" as const,
+      points: Array.from({ length: count }, (_, n): Point => [n + 0.25, n + 0.5, 0.5]),
     });
     assert.deepEqual(ids(sanitizeElements([stroke("huge", 40_000), rect("small")])), ["small"]);
 
@@ -304,8 +324,8 @@ describe("boards made in one request", () => {
 
   it("is refused over HTTP too when the one stroke is too big", async () => {
     const owner = await app.signUp("Importer");
-    const points = Array.from({ length: 45_000 }, (_, n) => [n + 0.25, n + 0.5, 0.5]);
-    const { status, data } = await app.request("/boards", {
+    const points: Point[] = Array.from({ length: 45_000 }, (_, n) => [n + 0.25, n + 0.5, 0.5]);
+    const { status, data } = await app.request<BoardReply>("/boards", {
       method: "POST",
       user: owner,
       body: { title: "Big", elements: [{ id: "huge", type: "pen", points }, rect("small")] },

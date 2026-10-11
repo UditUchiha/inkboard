@@ -1,20 +1,23 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
+import type { BoardReply, VersionReply } from "@inkboard/shared/api";
+import type { PenElement, Point } from "@inkboard/shared/types";
 import { Board } from "../src/models/board.model.ts";
 import { Version } from "../src/models/version.model.ts";
 import { BOARD_LIMITS, drawingBytes, ownerBytes, roomLeft } from "../src/services/boards.ts";
 import { recordVersion } from "../src/services/versions.ts";
-import { startServer } from "./helpers.js";
+import { startServer } from "./helpers.ts";
+import type { ServerInstance, TestUser } from "./helpers.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
 // Runs `fn` with the per-owner limits lowered.
-async function withBoardLimits(changes, fn) {
+async function withBoardLimits(changes: Partial<typeof BOARD_LIMITS>, fn: () => Promise<unknown>) {
   const saved = { ...BOARD_LIMITS };
   Object.assign(BOARD_LIMITS, changes);
   try {
@@ -25,21 +28,23 @@ async function withBoardLimits(changes, fn) {
 }
 
 // A drawing of about `bytes` as MongoDB stores it.
-const drawing = (bytes, id = "pen") => [
+const drawing = (bytes: number, id = "pen"): PenElement[] => [
   {
     id,
-    type: "pen",
-    points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i) => [i + 0.25, i + 0.5, 0.5]),
+    type: "pen" as const,
+    points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i): Point => [i + 0.25, i + 0.5, 0.5]),
     pressure: false,
     stroke: "#16213a",
     penSize: 8,
   },
 ];
 
-const create = (user, body = {}) => app.request("/boards", { method: "POST", user, body });
-const saveVersion = (user, id, label = "V") =>
-  app.request(`/boards/${id}/versions`, { method: "POST", user, body: { label } });
-const saveTemplate = (user, boardId) => app.request("/templates", { method: "POST", user, body: { boardId } });
+const create = (user: TestUser, body: Record<string, unknown> = {}) =>
+  app.request<BoardReply & { error?: string }>("/boards", { method: "POST", user, body });
+const saveVersion = (user: TestUser, id: string, label = "V") =>
+  app.request<VersionReply & { error?: string }>(`/boards/${id}/versions`, { method: "POST", user, body: { label } });
+const saveTemplate = (user: TestUser, boardId: string) =>
+  app.request<{ error?: string }>("/templates", { method: "POST", user, body: { boardId } });
 
 describe("the space one person's things take", () => {
   it("counts saved versions and templates as well as boards, and checks each of them", async () => {
@@ -51,10 +56,10 @@ describe("the space one person's things take", () => {
 
       const template = await saveTemplate(owner, id); // another 150k is over 400k
       assert.equal(template.status, 400);
-      assert.match(template.data.error, /used up their space/);
+      assert.match(template.data.error!, /used up their space/);
       const again = await saveVersion(owner, id, "Again");
       assert.equal(again.status, 400);
-      assert.match(again.data.error, /used up their space/);
+      assert.match(again.data.error!, /used up their space/);
 
       await app.request(`/boards/${id}/versions/${version.data.version.id}`, { method: "DELETE", user: owner });
       assert.equal((await saveTemplate(owner, id)).status, 201, "deleting a version made room");
@@ -70,7 +75,7 @@ describe("the space one person's things take", () => {
       await app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: editor.email } });
       const refused = await saveVersion(editor, id);
       assert.equal(refused.status, 400);
-      assert.match(refused.data.error, /owner has used up their space/);
+      assert.match(refused.data.error!, /owner has used up their space/);
     });
   });
 
@@ -105,7 +110,7 @@ describe("the space one person's things take", () => {
     const owner = await app.signUp("Owner");
     const elements = drawing(50_000);
     const created = await create(owner, { elements });
-    assert.equal((await Board.findById(created.data.board.id).lean()).bytes, drawingBytes(elements));
+    assert.equal((await Board.findById(created.data.board.id).lean())!.bytes, drawingBytes(elements));
 
     const { insertedId } = await Board.collection.insertOne({
       title: "Old",
@@ -114,7 +119,7 @@ describe("the space one person's things take", () => {
       deletedAt: null,
     });
     const total = await ownerBytes(owner.id);
-    const measured = (await Board.findById(insertedId).lean()).bytes;
+    const measured = (await Board.findById(insertedId).lean())!.bytes;
     assert.equal(measured, drawingBytes(drawing(30_000, "old")), "measured the way new boards are");
     assert.equal(total, drawingBytes(elements) + measured);
   });

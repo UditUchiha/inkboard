@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
+import type { ListedBoard, TrashedBoard } from "@inkboard/shared/api";
+import type { Element } from "@inkboard/shared/types";
 import { Board } from "../src/models/board.model.ts";
 import { BoardState } from "../src/models/board-state.model.ts";
 import { Thread } from "../src/models/thread.model.ts";
@@ -9,31 +11,34 @@ import { Version } from "../src/models/version.model.ts";
 import { destroyBoard } from "../src/services/boards.ts";
 import { PREVIEW_CACHE_LIMITS, previewCacheSize } from "../src/services/previews.ts";
 import { purgeExpiredTrash, TRASH_DAYS } from "../src/services/trash.ts";
-import { eventually, rect, startServer, upsert } from "./helpers.js";
+import { eventually, rect, startServer, upsert } from "./helpers.ts";
+import type { ServerInstance, TestUser } from "./helpers.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
-const list = async (user) => (await app.request("/boards", { user })).data.boards;
-const find = (boards, id) => boards.find((board) => board.id === id);
+const list = async (user: TestUser) => (await app.request<{ boards: ListedBoard[] }>("/boards", { user })).data.boards;
+const find = <T extends { id: string }>(boards: T[], id: string) => boards.find((board) => board.id === id);
 // What the dashboard's cards draw: previews are fetched apart from the list, for the boards on screen.
-const previews = async (user, ...ids) =>
-  (await app.request(`/boards/previews?ids=${ids.join(",")}`, { user })).data.previews;
-const previewIdsOf = async (user, id) => (await previews(user, id))[id]?.map((element) => element.id);
-const setLink = (user, id, linkAccess) =>
+const previews = async (user: TestUser, ...ids: string[]) =>
+  (await app.request<{ previews: Record<string, Element[]> }>(`/boards/previews?ids=${ids.join(",")}`, { user })).data
+    .previews;
+const previewIdsOf = async (user: TestUser, id: string) => (await previews(user, id))[id]?.map((element) => element.id);
+const setLink = (user: TestUser, id: string, linkAccess: string) =>
   app.request(`/boards/${id}/link-access`, { method: "PATCH", user, body: { linkAccess } });
-const archive = (user, ids, archived) =>
-  app.request("/boards/archive", { method: "PATCH", user, body: { ids, archived } });
-const trash = (user, id) => app.request(`/boards/${id}`, { method: "DELETE", user });
-const listTrash = async (user) => (await app.request("/boards/trash", { user })).data.boards;
-const invite = (owner, id, person) =>
+const archive = (user: TestUser, ids: string[], archived: unknown) =>
+  app.request<{ ids: string[] }>("/boards/archive", { method: "PATCH", user, body: { ids, archived } });
+const trash = (user: TestUser, id: string) => app.request(`/boards/${id}`, { method: "DELETE", user });
+const listTrash = async (user: TestUser) =>
+  (await app.request<{ boards: TrashedBoard[] }>("/boards/trash", { user })).data.boards;
+const invite = (owner: TestUser, id: string, person: TestUser) =>
   app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
 
 /** Opens the board over a socket, as a person looking at it would, then closes it. */
-async function visit(user, boardId) {
+async function visit(user: TestUser, boardId: string) {
   const client = await app.connect(user);
   const joined = await client.join(boardId);
   client.close();
@@ -47,11 +52,11 @@ describe("the board list", () => {
     const id = await app.createBoard(owner, "Mine");
 
     const [board] = await list(owner);
-    assert.equal(board.id, id);
-    assert.equal(board.role, "owner");
-    assert.equal(board.starred, false);
-    assert.equal(board.archived, false);
-    assert.equal(board.lastOpenedAt, null);
+    assert.equal(board!.id, id);
+    assert.equal(board!.role, "owner");
+    assert.equal(board!.starred, false);
+    assert.equal(board!.archived, false);
+    assert.equal(board!.lastOpenedAt, null);
   });
 
   it("includes boards the person was invited to, with their role", async () => {
@@ -61,15 +66,15 @@ describe("the board list", () => {
     await invite(owner, id, editor);
 
     const row = find(await list(editor), id);
-    assert.equal(row.role, "editor");
-    assert.equal(row.owner.email, owner.email, "members see the full details");
+    assert.equal(row!.role, "editor");
+    assert.equal(row!.owner.email, owner.email, "members see the full details");
   });
 
   it("records when someone opens a board", async () => {
     const owner = await app.signUp("Owner");
     const id = await app.createBoard(owner);
     await visit(owner, id);
-    await eventually(async () => find(await list(owner), id).lastOpenedAt, { message: "lastOpenedAt" });
+    await eventually(async () => find(await list(owner), id)!.lastOpenedAt, { message: "lastOpenedAt" });
   });
 
   it("returns the live drawing for a board that people are editing right now", async () => {
@@ -85,14 +90,15 @@ describe("the board list", () => {
     const owner = await app.signUp("Owner");
     const stranger = await app.signUp("Stranger");
     const id = await app.createBoard(owner);
-    const board = find(await list(owner), id);
-    assert.equal(board.elements, undefined);
-    assert.equal(board.preview, undefined);
+    const board: (ListedBoard & { elements?: unknown; preview?: unknown }) | undefined = find(await list(owner), id);
+    assert.equal(board!.elements, undefined);
+    assert.equal(board!.preview, undefined);
     assert.deepEqual(await previews(owner, id), { [id]: [] });
 
     // Boards the person can't open are left out; bad or too many ids are refused.
     assert.deepEqual(await previews(stranger, id), {});
-    const ask = (ids) => app.request(`/boards/previews?ids=${ids}`, { user: owner });
+    const ask = (ids: string) =>
+      app.request<{ previews: Record<string, Element[]> }>(`/boards/previews?ids=${ids}`, { user: owner });
     assert.equal((await ask("")).status, 400);
     assert.equal((await ask("not-an-id")).status, 400);
     const many = Array.from({ length: 25 }, () => new mongoose.Types.ObjectId().toString());
@@ -109,7 +115,7 @@ describe("the board list", () => {
     for (const [element, expected] of [
       ["a", ["a"]],
       ["b", ["a", "b"]],
-    ]) {
+    ] as const) {
       const client = await app.connect(owner);
       await client.join(id);
       await client.op(id, upsert(rect(element)));
@@ -160,10 +166,10 @@ describe("boards opened through a link", () => {
 
     await eventually(async () => find(await list(visitor), id), { message: "board on the visitor's dashboard" });
     const row = find(await list(visitor), id);
-    assert.equal(row.role, "viewer");
-    assert.equal(row.owner.email, undefined);
-    assert.deepEqual(row.collaborators, []);
-    assert.ok(row.lastOpenedAt);
+    assert.equal(row!.role, "viewer");
+    assert.equal(row!.owner.email, undefined);
+    assert.deepEqual(row!.collaborators, []);
+    assert.ok(row!.lastOpenedAt);
   });
 
   it("show as editable when the link allows editing", async () => {
@@ -234,11 +240,11 @@ describe("archive", () => {
     await invite(owner, id, editor);
 
     assert.equal((await archive(editor, [id], true)).status, 200);
-    assert.equal(find(await list(editor), id).archived, true);
-    assert.equal(find(await list(owner), id).archived, false, "the owner's list is untouched");
+    assert.equal(find(await list(editor), id)!.archived, true);
+    assert.equal(find(await list(owner), id)!.archived, false, "the owner's list is untouched");
 
     await archive(editor, [id], false);
-    assert.equal(find(await list(editor), id).archived, false);
+    assert.equal(find(await list(editor), id)!.archived, false);
   });
 
   it("handles several boards at once and skips ones the person can't open", async () => {
@@ -288,14 +294,15 @@ describe("stars", () => {
     await invite(owner, id, editor);
     await setLink(owner, id, "view");
 
-    const star = (user, starred) => app.request(`/boards/${id}/star`, { method: "PUT", user, body: { starred } });
+    const star = (user: TestUser, starred: boolean) =>
+      app.request(`/boards/${id}/star`, { method: "PUT", user, body: { starred } });
     assert.equal((await star(owner, true)).status, 200);
-    assert.equal(find(await list(owner), id).starred, true);
-    assert.equal(find(await list(editor), id).starred, false, "someone else's star isn't yours");
+    assert.equal(find(await list(owner), id)!.starred, true);
+    assert.equal(find(await list(editor), id)!.starred, false, "someone else's star isn't yours");
     assert.equal((await star(viewer, true)).status, 403);
 
     await star(owner, false);
-    assert.equal(find(await list(owner), id).starred, false);
+    assert.equal(find(await list(owner), id)!.starred, false);
   });
 });
 
@@ -320,12 +327,15 @@ describe("trash", () => {
     assert.equal((await (await app.connect(editor)).join(id)).status, 404);
     assert.equal((await (await app.connect(null)).join(id)).status, 404);
 
-    const row = find(await listTrash(owner), id);
+    const row = find(await listTrash(owner), id)!;
     assert.ok(row.deletedAt);
-    assert.equal(row.preview, undefined);
+    assert.equal((row as unknown as { preview?: unknown }).preview, undefined);
     assert.deepEqual(await previewIdsOf(owner, id), ["keep-me"], "the trash shows a preview, to its owner only");
     assert.deepEqual(await previews(editor, id), {});
-    assert.equal(new Date(row.purgeAt) - new Date(row.deletedAt), TRASH_DAYS * 24 * 3600 * 1000);
+    assert.equal(
+      (new Date(row.purgeAt) as unknown as number) - (new Date(row.deletedAt) as unknown as number),
+      TRASH_DAYS * 24 * 3600 * 1000,
+    );
     assert.deepEqual(
       (await app.request("/boards/trash", { user: editor })).data.boards,
       [],
@@ -411,7 +421,8 @@ describe("trash", () => {
     await trash(owner, id);
 
     const original = Thread.deleteMany;
-    Thread.deleteMany = () => Promise.reject(new Error("the database hiccupped"));
+    Thread.deleteMany = (() =>
+      Promise.reject(new Error("the database hiccupped"))) as unknown as typeof Thread.deleteMany;
     try {
       await assert.rejects(destroyBoard(id), /hiccupped/);
     } finally {
@@ -430,7 +441,7 @@ describe("responses", () => {
       { _id: id },
       { $set: { elements: Array.from({ length: 300 }, (_, index) => rect(`r${index}`, index)) } },
     );
-    const response = await new Promise((resolve, reject) => {
+    const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
       http
         .get(
           `${app.url}/api/boards/${id}`,
@@ -451,12 +462,13 @@ describe("renaming", () => {
     const id = await app.createBoard(owner, "Before");
     await setLink(owner, id, "view");
 
-    const rename = (user, title) => app.request(`/boards/${id}`, { method: "PATCH", user, body: { title } });
+    const rename = (user: TestUser, title: string) =>
+      app.request(`/boards/${id}`, { method: "PATCH", user, body: { title } });
     assert.equal((await rename(viewer, "Hacked")).status, 403);
     assert.equal((await rename(owner, "")).status, 400);
     assert.equal((await rename(owner, "x".repeat(81))).status, 400);
     const ok = await rename(owner, "After");
     assert.equal(ok.status, 200);
-    assert.equal(find(await list(owner), id).title, "After");
+    assert.equal(find(await list(owner), id)!.title, "After");
   });
 });

@@ -1,7 +1,10 @@
-import { eventually, rect, remove, roundTrip, startServer, upsert } from "./helpers.js"; // first: it sets up the environment
+import { eventually, rect, remove, roundTrip, startServer, upsert } from "./helpers.ts"; // first: it sets up the environment
+import type { ServerInstance, TestClient, TestOpReply, TestUser } from "./helpers.ts";
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { applyOperation, groupStamps, withStamps } from "@inkboard/shared/board-merge";
+import type { CursorMessage, OpMessage, RemovedStamp, ResetMessage } from "@inkboard/shared/socket";
+import type { Element, Point, ShapeElement, Stamp, Tombstone } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import { Board } from "../src/models/board.model.ts";
 import {
@@ -18,18 +21,18 @@ import {
 import { readRemoved, REMOVED_LIMITS } from "../src/realtime/sessions.ts";
 import { flushAllSessions } from "../src/realtime/index.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
-const stored = async (boardId) => (await Board.findById(boardId).lean()).elements.map((element) => element.id);
-const invite = (owner, id, person) =>
+const stored = async (boardId: string) => (await Board.findById(boardId).lean())!.elements.map((element) => element.id);
+const invite = (owner: TestUser, id: string, person: TestUser) =>
   app.request(`/boards/${id}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
 
 /** An owner and one invited editor, both on a fresh board (on an older app unless `sync` says otherwise). */
-async function pair({ sync } = {}) {
+async function pair({ sync }: { sync?: typeof SYNC_FORMAT } = {}) {
   const owner = await app.signUp("Owner");
   const editor = await app.signUp("Editor");
   const id = await app.createBoard(owner);
@@ -67,8 +70,8 @@ describe("live drawing", () => {
       joined.board.elements.map((element) => element.id),
       ["x"],
     );
-    assert.equal(joined.board.elements[0].stroke, "#ff0000");
-    assert.equal(joined.board.elements[0].x1, 50);
+    assert.equal((joined.board.elements[0] as ShapeElement).stroke, "#ff0000");
+    assert.equal((joined.board.elements[0] as ShapeElement).x1, 50);
   });
 
   it("gives someone who joins late the board as it is right now, before it is saved", async () => {
@@ -89,7 +92,7 @@ describe("live drawing", () => {
     assert.deepEqual(await loner.op(id, upsert(rect("no-join"))), { ok: false, reason: "noSession" });
     assert.deepEqual(await a.op(otherId, upsert(rect("wrong-room"))), { ok: false, reason: "noSession" });
     await flushAllSessions(); // whatever was going to be saved
-    assert.equal((await Board.findById(id).lean()).elements.length, 0);
+    assert.equal((await Board.findById(id).lean())!.elements.length, 0);
   });
 
   it("drops malformed elements and empty operations", async () => {
@@ -122,9 +125,15 @@ describe("live drawing", () => {
 });
 
 describe("changes that cross", () => {
-  const at = (version, versionNonce, extra = {}) => ({ ...rect("x"), index: "a0", version, versionNonce, ...extra });
+  const at = (version: number, versionNonce: number, extra: Record<string, unknown> = {}) => ({
+    ...rect("x"),
+    index: "a0",
+    version,
+    versionNonce,
+    ...extra,
+  });
   // `element` with the groups in `changed` stamped as a newer edit, as the current app sends it.
-  const edit = (element, changed, stamp, fields) =>
+  const edit = (element: Element, changed: string[], stamp: Stamp, fields: Record<string, unknown>) =>
     withStamps(
       { ...element, ...fields },
       { ...groupStamps(element), ...Object.fromEntries(changed.map((group) => [group, stamp])) },
@@ -141,12 +150,12 @@ describe("changes that cross", () => {
     const [fromA, fromB] = await Promise.all([a.op(id, upsert(moved)), b.op(id, upsert(recolored))]);
     assert.equal(fromA.ok && fromB.ok, true);
     await flushAllSessions();
-    const [saved] = (await Board.findById(id).lean()).elements;
+    const [saved] = (await Board.findById(id).lean())!.elements as ShapeElement[];
     assert.deepEqual([saved.x1, saved.x2, saved.stroke], [500, 600, "#e03131"]);
 
     // Each screen: its own change, plus what it was sent.
     await Promise.all([roundTrip(a), roundTrip(b)]); // everything the server passed on has arrived
-    const screen = (own, client) =>
+    const screen = (own: Element, client: TestClient) =>
       client.of("board:op").reduce((board, { op }) => applyOperation(board, op), applyOperation([start], upsert(own)));
     assert.deepEqual(screen(moved, a), [saved]);
     assert.deepEqual(screen(recolored, b), [saved]);
@@ -162,9 +171,9 @@ describe("changes that cross", () => {
     const late = edit(start, ["stroke"], { version: 2, versionNonce: 1 }, { stroke: "#2f9e44" });
     assert.equal((await b.op(id, upsert(late))).ok, true, "a color picked before the removal arrived");
     await eventually(() => a.of("board:op").length === 1, { message: "the late color reaching a" });
-    assert.equal(a.last("board:op").op.upsert[0].stroke, "#2f9e44");
+    assert.equal(((a.last("board:op") as OpMessage).op.upsert[0] as ShapeElement).stroke, "#2f9e44");
     await flushAllSessions();
-    assert.deepEqual((await Board.findById(id).lean()).elements, [], "it stays removed");
+    assert.deepEqual((await Board.findById(id).lean())!.elements, [], "it stays removed");
   });
 
   it("keep a late change to a removed element hidden on a screen that opened the board after the removal", async () => {
@@ -179,8 +188,8 @@ describe("changes that cross", () => {
     const stale = edit(start, ["stroke"], { version: 2, versionNonce: 1 }, { stroke: "#2f9e44" });
     assert.equal((await b.op(id, upsert(stale))).ok, true, "a color picked before the removal arrived");
     await eventually(() => late.of("board:op").length === 1, { message: "the late color reaching the new screen" });
-    const { op } = late.last("board:op");
-    const tombstones = new Map(joined.removed.map(({ id: removedId, ...stamp }) => [removedId, stamp]));
+    const { op } = late.last("board:op") as OpMessage;
+    const tombstones = new Map(joined.removed.map(({ id: removedId, ...stamp }) => [removedId, stamp as Tombstone]));
     assert.deepEqual(applyOperation(joined.board.elements, op, tombstones), [], "it stays hidden");
     assert.deepEqual(applyOperation([], op, new Map()), [], "even on a screen that knows nothing of the removal");
   });
@@ -197,7 +206,7 @@ describe("changes that cross", () => {
     ]);
     assert.equal(fromA.ok && fromB.ok, true);
     await flushAllSessions();
-    const saved = (await Board.findById(id).lean()).elements;
+    const saved = (await Board.findById(id).lean())!.elements;
     assert.deepEqual(saved, [at(2, 5, { stroke: "#e03131" })]);
 
     // b must have been sent a's change; a's own change needs nothing from b.
@@ -216,11 +225,11 @@ describe("changes that cross", () => {
     assert.equal((await a.op(id, { upsert: [], remove: [{ id: "x", version: 2, versionNonce: 1 }] })).ok, true);
     assert.equal((await b.op(id, upsert(at(2, 7, { x1: 300 })))).ok, true, "an edit made before seeing the removal");
     await flushAllSessions();
-    assert.deepEqual((await Board.findById(id).lean()).elements, [], "the late, older edit doesn't bring it back");
+    assert.deepEqual((await Board.findById(id).lean())!.elements, [], "the late, older edit doesn't bring it back");
 
     assert.equal((await b.op(id, upsert(at(3, 4)))).ok, true, "a newer edit (an undo, say)");
     await flushAllSessions();
-    assert.deepEqual((await Board.findById(id).lean()).elements, [at(3, 4)]);
+    assert.deepEqual((await Board.findById(id).lean())!.elements, [at(3, 4)]);
   });
 
   it("still take changes from browsers running the older app, as the newest edit", async () => {
@@ -228,7 +237,7 @@ describe("changes that cross", () => {
     await a.op(id, upsert(at(5, 0)));
     await a.op(id, upsert(rect("x")));
     await flushAllSessions();
-    const [saved] = (await Board.findById(id).lean()).elements;
+    const [saved] = (await Board.findById(id).lean())!.elements;
     assert.equal(saved.version, 6);
   });
 });
@@ -236,7 +245,7 @@ describe("changes that cross", () => {
 describe("stacking order", () => {
   it("gives a board saved before elements had places in the stack places, in the order it was saved", async () => {
     const owner = await app.signUp("Owner");
-    const { data } = await app.request("/boards", {
+    const { data } = await app.request<{ board: { id: string } }>("/boards", {
       method: "POST",
       user: owner,
       body: { elements: [rect("c"), rect("a"), rect("b")] },
@@ -261,7 +270,13 @@ describe("stacking order", () => {
 });
 
 describe("removals that outlast the board being open", () => {
-  const at = (version, versionNonce, extra = {}) => ({ ...rect("x"), index: "a0", version, versionNonce, ...extra });
+  const at = (version: number, versionNonce: number, extra: Record<string, unknown> = {}) => ({
+    ...rect("x"),
+    index: "a0",
+    version,
+    versionNonce,
+    ...extra,
+  });
 
   it("keep an edit made before a removal out, even when it arrives after everyone left", async () => {
     const { editor, id, a, b } = await pair({ sync: SYNC_FORMAT });
@@ -269,7 +284,7 @@ describe("removals that outlast the board being open", () => {
     await a.op(id, { upsert: [], remove: [{ id: "x", version: 3, versionNonce: 0 }] });
     a.close();
     b.close();
-    await eventually(async () => (await Board.findById(id).select("+removed").lean()).removed.length === 1, {
+    await eventually(async () => (await Board.findById(id).select("+removed").lean())!.removed!.length === 1, {
       message: "the removal saved",
     });
 
@@ -309,25 +324,28 @@ describe("restoring a version", () => {
     const { owner, id, a } = await pair({ sync: SYNC_FORMAT });
     await a.op(id, upsert({ ...rect("kept"), index: "a0", version: 1, versionNonce: 0 }));
     await flushAllSessions();
-    const saved = await app.request(`/boards/${id}/versions`, {
+    const saved = await app.request<{ version: { id: string } }>(`/boards/${id}/versions`, {
       method: "POST",
       user: owner,
       body: { label: "Start" },
     });
     await a.op(id, upsert({ ...rect("added"), index: "a1", version: 1, versionNonce: 0 }));
 
-    const restored = await app.request(`/boards/${id}/versions/${saved.data.version.id}/restore`, {
-      method: "POST",
-      user: owner,
-    });
+    const restored = await app.request<{ elements: Element[] }>(
+      `/boards/${id}/versions/${saved.data.version.id}/restore`,
+      {
+        method: "POST",
+        user: owner,
+      },
+    );
     assert.deepEqual(
       restored.data.elements.map((element) => element.id),
       ["kept"],
     );
-    assert.ok(restored.data.elements[0].version >= RESTORE_LEAD, "stamped well ahead");
+    assert.ok(restored.data.elements[0]!.version! >= RESTORE_LEAD, "stamped well ahead");
     await eventually(() => a.of("board:reset").length === 1, { message: "the restore reaching the screen" });
     assert.deepEqual(
-      a.last("board:reset").removed.map((removal) => removal.id),
+      (a.last("board:reset") as ResetMessage).removed.map((removal: RemovedStamp) => removal.id),
       ["added"],
       "with what it removed",
     );
@@ -336,7 +354,7 @@ describe("restoring a version", () => {
     await a.op(id, upsert({ ...rect("kept", 999), index: "a0", version: 40, versionNonce: 0 }));
     await a.op(id, upsert({ ...rect("added", 999), index: "a1", version: 40, versionNonce: 0 }));
     await flushAllSessions();
-    const [kept, ...rest] = (await Board.findById(id).lean()).elements;
+    const [kept, ...rest] = (await Board.findById(id).lean())!.elements as ShapeElement[];
     assert.equal(kept.x1, 0);
     assert.deepEqual(rest, [], "what the restore removed stays removed");
   });
@@ -348,7 +366,7 @@ describe("restoring a version", () => {
     await a.join(id, { sync: SYNC_FORMAT });
     await a.op(id, upsert({ ...rect("kept"), index: "a0", version: 1, versionNonce: 0 }));
     await flushAllSessions();
-    const saved = await app.request(`/boards/${id}/versions`, {
+    const saved = await app.request<{ version: { id: string } }>(`/boards/${id}/versions`, {
       method: "POST",
       user: owner,
       body: { label: "Start" },
@@ -358,14 +376,14 @@ describe("restoring a version", () => {
     await eventually(async () => (await stored(id)).length === 2, { message: "the board saved as everyone left" });
 
     await app.request(`/boards/${id}/versions/${saved.data.version.id}/restore`, { method: "POST", user: owner });
-    const board = await Board.findById(id).select("+removed").lean();
+    const board = (await Board.findById(id).select("+removed").lean())!;
     assert.deepEqual(
       board.elements.map((element) => element.id),
       ["kept"],
     );
-    assert.ok(board.elements[0].version >= RESTORE_LEAD);
+    assert.ok(board.elements[0]!.version! >= RESTORE_LEAD);
     assert.deepEqual(
-      board.removed.map((entry) => entry.id),
+      board.removed!.map((entry) => entry.id),
       ["added"],
     );
   });
@@ -395,7 +413,7 @@ describe("saving", () => {
     const before = new Date(Date.now() - 60_000);
     await Board.collection.updateOne({ _id: new mongoose.Types.ObjectId(id) }, { $set: { updatedAt: before } });
     await a.op(id, upsert(rect("touch")));
-    await eventually(async () => (await Board.findById(id).lean()).updatedAt > before, {
+    await eventually(async () => (await Board.findById(id).lean())!.updatedAt! > before, {
       message: "updatedAt to move",
     });
   });
@@ -440,7 +458,7 @@ describe("saving", () => {
     const returning = await app.connect(owner);
     const joined = await returning.join(id);
     assert.deepEqual(
-      joined.board.elements.map((element) => element.id),
+      joined.board.elements.map((element: Element) => element.id),
       ["persisted"],
     );
   });
@@ -449,15 +467,15 @@ describe("saving", () => {
 describe("size limits", () => {
   // A pen stroke that takes roughly `bytes` to store. Real coordinates are fractional, which
   // MongoDB stores as 8-byte numbers: about 44 bytes per point.
-  const stroke = (id, bytes) => ({
+  const stroke = (id: string, bytes: number) => ({
     id,
-    type: "pen",
-    points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i) => [i + 0.25, i + 0.5, 0.5]),
+    type: "pen" as const,
+    points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i) => [i + 0.25, i + 0.5, 0.5] as Point),
   });
 
   it("measures size the way MongoDB stores it, which is bigger than the JSON", () => {
     const element = stroke("measured", 100_000);
-    const stored = elementBytes(element);
+    const stored = elementBytes(element as unknown as Element);
     assert.ok(stored > 90_000 && stored < 115_000, `about 100 KB, got ${stored}`);
     assert.ok(stored > Buffer.byteLength(JSON.stringify(element)) * 1.5, "BSON is well over the JSON size for strokes");
   });
@@ -475,27 +493,30 @@ describe("size limits", () => {
 
   it("accepts a long, ordinary freehand stroke", async () => {
     const { id, guest } = await guestOnEditableLink();
-    assert.equal((await guest.op(id, upsert(stroke("long", 100_000)))).ok, true);
+    assert.equal((await guest.op(id, upsert(stroke("long", 100_000) as unknown as Element))).ok, true);
   });
 
   it("rejects a single oversized element, and nobody else sees or saves it", async () => {
     const { id, guest, watcher } = await guestOnEditableLink();
-    const result = await guest.op(id, upsert(rect("small"), stroke("huge", MAX_ELEMENT_BYTES + 50_000)));
+    const result = await guest.op(
+      id,
+      upsert(rect("small"), stroke("huge", MAX_ELEMENT_BYTES + 50_000) as unknown as Element),
+    );
     assert.deepEqual(result, { ok: false, reason: "tooLarge", tooLarge: true });
     await roundTrip(watcher);
     await flushAllSessions();
     assert.equal(watcher.of("board:op").length, 0, "the whole operation was refused, including the small element");
-    assert.equal((await Board.findById(id).lean()).elements.length, 0);
+    assert.equal((await Board.findById(id).lean())!.elements.length, 0);
   });
 
   it("rejects an oversized change to a removed element, though it wouldn't be on the board", async () => {
     const { id, guest, watcher } = await guestOnEditableLink();
-    await guest.op(id, upsert({ ...stroke("gone", 1_000), version: 1, versionNonce: 0 }));
+    await guest.op(id, upsert({ ...stroke("gone", 1_000), version: 1, versionNonce: 0 } as unknown as Element));
     await guest.op(id, { upsert: [], remove: [{ id: "gone", version: 5, versionNonce: 0 }] });
     await eventually(() => watcher.of("board:op").length === 2, { message: "the stroke and its removal" });
     const result = await guest.op(
       id,
-      upsert({ ...stroke("gone", MAX_ELEMENT_BYTES + 50_000), version: 2, versionNonce: 0 }),
+      upsert({ ...stroke("gone", MAX_ELEMENT_BYTES + 50_000), version: 2, versionNonce: 0 } as unknown as Element),
     );
     assert.deepEqual(result, { ok: false, reason: "tooLarge", tooLarge: true });
     await roundTrip(watcher);
@@ -506,9 +527,9 @@ describe("size limits", () => {
     const { id, guest, watcher } = await guestOnEditableLink();
     const nearLimit = MAX_ELEMENT_BYTES - 10_000;
     let accepted = 0;
-    let refused = null;
+    let refused: TestOpReply | null = null;
     for (let index = 0; index < Math.ceil(MAX_BOARD_BYTES / nearLimit) + 3; index += 1) {
-      const result = await guest.op(id, upsert(stroke(`s${index}`, nearLimit)));
+      const result = await guest.op(id, upsert(stroke(`s${index}`, nearLimit) as unknown as Element));
       if (result.ok) accepted += 1;
       else {
         refused = result;
@@ -531,14 +552,26 @@ describe("size limits", () => {
     const { id, guest } = await guestOnEditableLink();
     const nearLimit = MAX_ELEMENT_BYTES - 10_000;
     let index = 0;
-    while ((await guest.op(id, upsert(stroke(`f${index}`, nearLimit)))).ok) index += 1;
+    while ((await guest.op(id, upsert(stroke(`f${index}`, nearLimit) as unknown as Element))).ok) index += 1;
 
-    assert.equal((await guest.op(id, upsert(stroke("another", nearLimit)))).ok, false, "still full");
-    assert.equal((await guest.op(id, upsert(stroke("f0", 1_000)))).ok, true, "shrinking one element in place is fine");
-    assert.equal((await guest.op(id, { upsert: [], remove: ["f1", "f2"] })).ok, true, "removing is fine");
-    assert.equal((await guest.op(id, upsert(stroke("another", nearLimit)))).ok, true, "there is room again");
     assert.equal(
-      (await guest.op(id, upsert(stroke("f3", nearLimit)))).ok,
+      (await guest.op(id, upsert(stroke("another", nearLimit) as unknown as Element))).ok,
+      false,
+      "still full",
+    );
+    assert.equal(
+      (await guest.op(id, upsert(stroke("f0", 1_000) as unknown as Element))).ok,
+      true,
+      "shrinking one element in place is fine",
+    );
+    assert.equal((await guest.op(id, { upsert: [], remove: ["f1", "f2"] })).ok, true, "removing is fine");
+    assert.equal(
+      (await guest.op(id, upsert(stroke("another", nearLimit) as unknown as Element))).ok,
+      true,
+      "there is room again",
+    );
+    assert.equal(
+      (await guest.op(id, upsert(stroke("f3", nearLimit) as unknown as Element))).ok,
       true,
       "replacing with the same size doesn't count twice",
     );
@@ -547,17 +580,17 @@ describe("size limits", () => {
   it("keeps the same limits after a board is restored from a version", async () => {
     const { owner, id, guest } = await guestOnEditableLink();
     const nearLimit = MAX_ELEMENT_BYTES - 10_000;
-    const saved = await app.request(`/boards/${id}/versions`, {
+    const saved = await app.request<{ version: { id: string } }>(`/boards/${id}/versions`, {
       method: "POST",
       user: owner,
       body: { label: "Empty" },
     });
     let filled = 0;
-    while ((await guest.op(id, upsert(stroke(`g${filled}`, nearLimit)))).ok) filled += 1;
+    while ((await guest.op(id, upsert(stroke(`g${filled}`, nearLimit) as unknown as Element))).ok) filled += 1;
 
     await app.request(`/boards/${id}/versions/${saved.data.version.id}/restore`, { method: "POST", user: owner });
     assert.equal(
-      (await guest.op(id, upsert(stroke("after-restore", nearLimit)))).ok,
+      (await guest.op(id, upsert(stroke("after-restore", nearLimit) as unknown as Element))).ok,
       true,
       "the restored (empty) board has room again",
     );
@@ -585,12 +618,12 @@ describe("cursors and views", () => {
   it("relay to others on the board and never to the sender", async () => {
     const { a, b } = await pair();
     a.socket.emit("cursor", { x: 10, y: 20 });
-    const cursor = await eventually(() => b.of("cursor")[0], { message: "the cursor" });
+    const cursor = (await eventually(() => b.of("cursor")[0], { message: "the cursor" }))!;
     assert.deepEqual({ x: cursor.x, y: cursor.y, socketId: cursor.socketId }, { x: 10, y: 20, socketId: a.socket.id });
 
     a.socket.emit("cursor", {}); // pointer left the canvas
     await eventually(() => b.of("cursor").length === 2, { message: "the hide event" });
-    assert.equal(b.last("cursor").x, undefined);
+    assert.equal((b.last("cursor") as CursorMessage).x, undefined);
     assert.equal(a.of("cursor").length, 0);
   });
 
@@ -599,7 +632,7 @@ describe("cursors and views", () => {
     a.socket.emit("viewport", { x: 1, y: 2, zoom: 0, width: 800, height: 600 }); // zoom must be positive
     a.socket.emit("viewport", { x: "far", y: 2, zoom: 1, width: 800, height: 600 });
     a.socket.emit("viewport", { x: 1, y: 2, zoom: 1.5, width: 800, height: 600 });
-    const view = await eventually(() => b.of("viewport")[0], { message: "the valid view" });
+    const view = (await eventually(() => b.of("viewport")[0], { message: "the valid view" }))!;
     assert.equal(view.zoom, 1.5);
     await roundTrip(b);
     assert.equal(b.of("viewport").length, 1);
@@ -607,12 +640,16 @@ describe("cursors and views", () => {
 });
 
 describe("operation rules", () => {
-  const prepare = (elements, op, tombstones = new Map(), options = {}) =>
-    prepareOperation(elements, op, tombstones, options);
+  const prepare = (
+    elements: Element[],
+    op: Parameters<typeof prepareOperation>[1],
+    tombstones = new Map<string, Tombstone>(),
+    options: Parameters<typeof prepareOperation>[3] = {},
+  ) => prepareOperation(elements, op, tombstones, options);
   const board = [
     { ...rect("a"), index: "a0", version: 4, versionNonce: 0 },
     { ...rect("b"), index: "a1", version: 2, versionNonce: 0 },
-  ];
+  ] as Element[];
 
   it("stamp a change from a browser on an older app without versions as the newest edit, whole", () => {
     const [element] = prepare(board, upsert({ ...rect("a"), stroke: "#e03131" }), new Map(), { legacy: true }).upsert;
@@ -623,28 +660,33 @@ describe("operation rules", () => {
 
   it("take a change from the previous app at its version, as a whole, ignoring stamps it copied along", () => {
     const sent = { ...board[0], x1: 9, version: 7, versionNonce: 3, stamps: { stroke: [1, 1] } };
-    const [element] = prepare(board, upsert(sent), new Map(), { legacy: true }).upsert;
+    const [element] = prepare(board, upsert(sent as Element), new Map(), { legacy: true }).upsert;
     assert.deepEqual([element.version, element.versionNonce, "stamps" in element], [7, 3, false]);
   });
 
   it("put a new element without a place in the stack on top, and one coming back where it was", () => {
-    const tombstones = new Map([["gone", { version: 3, versionNonce: 0, element: { ...rect("gone"), index: "Zz" } }]]);
+    const tombstones = new Map<string, Tombstone>([
+      ["gone", { version: 3, versionNonce: 0, element: { ...rect("gone"), index: "Zz" } as Element }],
+    ]);
     const {
       upsert: [fresh, back],
     } = prepare(board, upsert(rect("new"), rect("gone")), tombstones, { legacy: true });
-    assert.ok(fresh.index > "a1");
+    assert.ok(fresh.index! > "a1");
     assert.equal(back.index, "Zz");
   });
 
   it("stamp removals without one as the newest edit", () => {
     assert.deepEqual(
-      prepare(board, sanitizeOperation(remove("b"))).remove.map((removal) => removal.version),
+      prepare(board, sanitizeOperation(remove("b"))!).remove.map((removal) => removal.version),
       [3],
     );
   });
 
   it("stop growing a board past the element cap", () => {
-    const full = Array.from({ length: MAX_ELEMENTS_PER_BOARD }, (_, index) => ({ ...rect(`e${index}`), version: 1 }));
+    const full = Array.from({ length: MAX_ELEMENTS_PER_BOARD }, (_, index) => ({
+      ...rect(`e${index}`),
+      version: 1,
+    })) as Element[];
     const next = applyOperation(
       full,
       {
@@ -659,7 +701,7 @@ describe("operation rules", () => {
     );
     assert.equal(next.length, MAX_ELEMENTS_PER_BOARD);
     assert.equal(
-      next.find((element) => element.id === "e0").stroke,
+      (next.find((element) => element.id === "e0") as ShapeElement).stroke,
       "#e03131",
       "existing elements can still be edited",
     );
@@ -685,7 +727,7 @@ describe("operation rules", () => {
           { id: "c", version: -1 },
           { id: "d", version: 2 ** 53 - 1, versionNonce: 0 },
         ],
-      }).remove,
+      })!.remove,
       [{ id: "b", version: 3, versionNonce: 9 }, { id: "c" }, { id: "d" }],
     );
     assert.equal(sanitizeOperation({ upsert: "x", remove: 5 }), null);
@@ -693,19 +735,19 @@ describe("operation rules", () => {
 });
 
 describe("a change sent in pieces", () => {
-  const piece = (client, boardId, op, group) =>
-    new Promise((resolve) => client.socket.emit("board:op", { boardId, op, group }, resolve));
+  const piece = (client: TestClient, boardId: string, op: unknown, group: unknown) =>
+    new Promise<TestOpReply>((resolve) => client.socket.emit("board:op", { boardId, op, group }, resolve));
 
   it("takes effect only when the last piece arrives, all together", async () => {
     const { id, a, b } = await pair({ sync: SYNC_FORMAT });
-    const group = (index) => ({ id: "g1", index, total: 3 });
+    const group = (index: number) => ({ id: "g1", index, total: 3 });
     assert.deepEqual(await piece(a, id, upsert(rect("p1")), group(0)), { ok: true });
     assert.deepEqual(await piece(a, id, upsert(rect("p2")), group(1)), { ok: true });
     await roundTrip(b);
     assert.equal(b.of("board:op").length, 0, "nothing is shown to others while the group is incomplete");
     assert.equal((await piece(a, id, upsert(rect("p3")), group(2))).ok, true);
     const received = await eventually(() => b.of("board:op")[0], { message: "the whole change" });
-    assert.deepEqual(received.op.upsert.map((element) => element.id).sort(), ["p1", "p2", "p3"]);
+    assert.deepEqual(received.op.upsert.map((element: Element) => element.id).sort(), ["p1", "p2", "p3"]);
   });
 
   it("discards the whole group when a piece is refused or out of order", async () => {
@@ -737,14 +779,16 @@ describe("a change sent in pieces", () => {
 
 describe("holdPiece", () => {
   it("joins pieces in order and refuses everything else", () => {
-    const op = (id) => ({ upsert: [rect(id)], remove: [] });
+    const op = (id: string) => ({ upsert: [rect(id)], remove: [] });
     const first = holdPiece(null, { id: "x", index: 0, total: 2 }, op("a"));
     assert.ok(first.held && !first.op);
     assert.deepEqual(
-      holdPiece(first.held, { id: "x", index: 1, total: 2 }, op("b")).op.upsert.map((element) => element.id),
+      (holdPiece(first.held!, { id: "x", index: 1, total: 2 }, op("b")).op!.upsert as Element[]).map(
+        (element: Element) => element.id,
+      ),
       ["a", "b"],
     );
-    assert.equal(holdPiece(first.held, { id: "other", index: 1, total: 2 }, op("b")).error, "invalid");
+    assert.equal(holdPiece(first.held!, { id: "other", index: 1, total: 2 }, op("b")).error, "invalid");
     assert.equal(holdPiece(null, { id: "x", index: 1, total: 2 }, op("b")).error, "invalid");
     assert.equal(holdPiece(null, { id: "x", index: 0, total: 1 }, op("b")).error, "invalid");
     assert.equal(holdPiece(null, { id: "x", index: 0, total: 2 }, null).error, "invalid");

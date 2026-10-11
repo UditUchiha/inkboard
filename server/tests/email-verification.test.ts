@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
-import { eventually, startServer } from "./helpers.js";
+import type { Session, UserReply } from "@inkboard/shared/api";
+import { eventually, startServer } from "./helpers.ts";
+import type { ServerInstance } from "./helpers.ts";
+import type { SentEmail } from "../src/services/email.ts";
 
 const { env } = await import("../src/config/env.ts");
 const { outbox } = await import("../src/services/email.ts");
@@ -11,10 +14,10 @@ const { sendVerificationEmail, verifyAccountsMadeByProviders } = await import(".
 
 // Email is off unless it's set up; these tests turn it on (tests never really send).
 const emailSettings = { ...env.email };
-const turnEmail = (on) =>
+const turnEmail = (on: boolean) =>
   Object.assign(env.email, on ? { brevoApiKey: "test-key", from: "inkboard@example.test" } : emailSettings);
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
   turnEmail(true);
@@ -25,24 +28,30 @@ after(() => {
 });
 
 let counter = 0;
-const newEmail = (name) => `${name}-${(counter += 1)}@example.test`;
-const post = (path, body, user) => app.request(path, { method: "POST", body, user });
+const newEmail = (name: string) => `${name}-${(counter += 1)}@example.test`;
+type VerifyReply = Session & { error?: string; email?: string };
+const post = (path: string, body?: unknown, user?: { token: string }) =>
+  app.request<VerifyReply>(path, { method: "POST", body, user });
+
+type EmailMatch = SentEmail & { token?: string; link?: string };
 
 // The newest email sent to `to`, and the secret in its link.
-function lastEmailTo(to) {
-  const email = outbox.findLast((sent) => sent.to === to);
+function lastEmailTo(to: string): EmailMatch | undefined {
+  const email = outbox.findLast((sent: SentEmail) => sent.to === to);
   return (
     email && { ...email, token: email.text.match(/token=([\w-]+)/)?.[1], link: email.text.match(/https?:\/\/\S+/)?.[0] }
   );
 }
 
 // Mail goes out after the response (so how long a request takes doesn't depend on the mail service), so wait for it.
-const emailTo = (to, subject) =>
-  eventually(() => lastEmailTo(to)?.subject.match(subject) && lastEmailTo(to), { message: `an email to ${to}` });
+const emailTo = (to: string, subject: RegExp): Promise<EmailMatch> =>
+  eventually(() => lastEmailTo(to)?.subject.match(subject) && lastEmailTo(to), {
+    message: `an email to ${to}`,
+  }) as Promise<EmailMatch>;
 
 // The auth routes allow 30 tries per 15 minutes from one address, so accounts are
 // made directly and only the routes under test are called.
-async function account(name = "Ana", { password, verified = false } = {}) {
+async function account(name = "Ana", { password, verified = false }: { password?: string; verified?: boolean } = {}) {
   const email = newEmail(name.toLowerCase());
   const user = await User.create({ name, email, password, emailVerified: verified });
   if (!verified) await sendVerificationEmail(user, app.url);
@@ -51,7 +60,7 @@ async function account(name = "Ana", { password, verified = false } = {}) {
 
 // Makes the last link sent look older, as if the resend wait had passed.
 // (Through the driver: Mongoose won't change createdAt.)
-const ageLinks = (userId) =>
+const ageLinks = (userId: string) =>
   EmailToken.collection.updateMany(
     { user: new mongoose.Types.ObjectId(userId) },
     { $set: { createdAt: new Date(Date.now() - 5 * 60 * 1000) } },
@@ -66,7 +75,7 @@ describe("verifying an email address", () => {
     assert.equal(user.emailVerified, false);
     const email = await emailTo(user.email, /Verify your email/);
     assert.match(email.subject, /Verify your email/);
-    assert.match(email.link, /\/verify-email\?token=[\w-]{40,}&email=/);
+    assert.match(email.link!, /\/verify-email\?token=[\w-]{40,}&email=/);
     assert.match(email.html, /Verify my email/);
     assert.match(email.text, /asked to log in/, "says what the link will ask for");
     assert.equal((await app.request("/boards", { user })).status, 200, "boards work straight away");
@@ -75,7 +84,7 @@ describe("verifying an email address", () => {
   it("links to Render's own address when APP_URL isn't set, not to the Host header, and to APP_URL when it is", async () => {
     const saved = { appUrl: env.appUrl, renderUrl: env.renderUrl };
     try {
-      const signUp = async (headers) => {
+      const signUp = async (headers: Record<string, string>) => {
         const address = newEmail("links");
         const response = await fetch(`${app.url}/api/auth/register`, {
           method: "POST",
@@ -83,7 +92,7 @@ describe("verifying an email address", () => {
           body: JSON.stringify({ name: "Ana", email: address, password: "a-good-password" }),
         });
         assert.equal(response.status, 201);
-        return (await emailTo(address, /Verify your email/)).link;
+        return (await emailTo(address, /Verify your email/)).link!;
       };
       env.renderUrl = "https://inkboard.onrender.com";
       assert.match(
@@ -99,17 +108,17 @@ describe("verifying an email address", () => {
 
   it("verifies with the link, which works once, for the person logged in to the account (C5)", async () => {
     const user = await account();
-    const { token } = lastEmailTo(user.email);
+    const { token } = lastEmailTo(user.email)!;
     assert.equal((await post("/auth/verify-email", { token })).status, 401, "not logged in: the link is kept");
     const verified = await post("/auth/verify-email", { token }, user);
     assert.equal(verified.status, 200);
     assert.equal(verified.data.email, user.email);
     assert.equal(verified.data.user.emailVerified, true);
-    assert.equal((await app.request("/auth/me", { user })).data.user.emailVerified, true);
+    assert.equal((await app.request<UserReply>("/auth/me", { user })).data.user.emailVerified, true);
 
     const again = await post("/auth/verify-email", { token }, user);
     assert.equal(again.status, 400);
-    assert.match(again.data.error, /expired, was already used/);
+    assert.match(again.data.error!, /expired, was already used/);
   });
 
   it("refuses made-up, malformed and expired links", async () => {
@@ -117,29 +126,29 @@ describe("verifying an email address", () => {
     for (const token of ["x".repeat(43), "short", { $ne: null }]) {
       assert.equal((await post("/auth/verify-email", { token }, user)).status, 400);
     }
-    const { token } = lastEmailTo(user.email);
+    const { token } = lastEmailTo(user.email)!;
     await EmailToken.updateMany({}, { $set: { expiresAt: new Date(Date.now() - 1000) } });
     assert.equal((await post("/auth/verify-email", { token }, user)).status, 400);
   });
 
   it("keeps only a hash of each link's secret", async () => {
     const user = await account();
-    const { token } = lastEmailTo(user.email);
-    const stored = await EmailToken.findOne({ user: user.id }).lean();
+    const { token } = lastEmailTo(user.email)!;
+    const stored = (await EmailToken.findOne({ user: user.id }).lean())!;
     assert.notEqual(stored.hash, token);
     assert.equal(stored.hash.length, 64);
   });
 
   it("sends a new link on request, but not more than once a minute, and not once verified", async () => {
     const user = await account();
-    const first = lastEmailTo(user.email).token;
+    const first = lastEmailTo(user.email)!.token;
     const tooSoon = await post("/auth/verify-email/resend", {}, user);
     assert.equal(tooSoon.status, 429);
-    assert.match(tooSoon.data.error, /spam folder/);
+    assert.match(tooSoon.data.error!, /spam folder/);
 
     await ageLinks(user.id);
     assert.equal((await post("/auth/verify-email/resend", {}, user)).status, 200);
-    const second = lastEmailTo(user.email).token;
+    const second = lastEmailTo(user.email)!.token;
     assert.notEqual(second, first);
     assert.equal((await post("/auth/verify-email", { token: first }, user)).status, 400, "the old link stops working");
     assert.equal((await post("/auth/verify-email", { token: second }, user)).status, 200);
@@ -157,9 +166,9 @@ describe("verifying an email address", () => {
 
     const refused = await invite();
     assert.equal(refused.status, 409);
-    assert.match(refused.data.error, /hasn't verified their email/);
+    assert.match(refused.data.error!, /hasn't verified their email/);
 
-    await post("/auth/verify-email", { token: lastEmailTo(invitee.email).token }, invitee);
+    await post("/auth/verify-email", { token: lastEmailTo(invitee.email)!.token }, invitee);
     assert.equal((await invite()).status, 201);
   });
 });
@@ -173,15 +182,15 @@ describe("accounts from before email verification", () => {
       { name: "P", email: withPassword, password: "$2a$12$abcdefghijklmnopqrstuv" },
     ]);
     assert.ok((await verifyAccountsMadeByProviders()) >= 1);
-    assert.equal((await User.findOne({ email: viaGoogle })).emailVerified, true);
-    assert.equal((await User.findOne({ email: withPassword })).emailVerified, false);
+    assert.equal((await User.findOne({ email: viaGoogle }))!.emailVerified, true);
+    assert.equal((await User.findOne({ email: withPassword }))!.emailVerified, false);
   });
 
   it("is a one-time migration: a later start doesn't scan the accounts again", async () => {
     const late = newEmail("late");
     await User.collection.insertOne({ name: "L", email: late, googleId: "old-google-2" });
     assert.equal(await verifyAccountsMadeByProviders(), 0);
-    assert.equal((await User.findOne({ email: late })).emailVerified, false);
+    assert.equal((await User.findOne({ email: late }))!.emailVerified, false);
   });
 });
 
@@ -190,7 +199,7 @@ describe("while email isn't set up", () => {
   after(() => turnEmail(true));
 
   it("switches verification and password reset off, and invites work as before", async () => {
-    assert.equal((await app.request("/auth/providers")).data.email, false);
+    assert.equal((await app.request<{ email: boolean }>("/auth/providers")).data.email, false);
 
     const sent = outbox.length;
     const address = newEmail("noemail");
@@ -209,7 +218,7 @@ describe("while email isn't set up", () => {
 
   it("says so when it's on", async () => {
     turnEmail(true);
-    assert.equal((await app.request("/auth/providers")).data.email, true);
+    assert.equal((await app.request<{ email: boolean }>("/auth/providers")).data.email, true);
     turnEmail(false);
   });
 });
