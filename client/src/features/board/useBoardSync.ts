@@ -106,8 +106,8 @@ export function useBoardSync(boardId: string, store: BoardStore) {
   );
 
   const flush = useCallback(() => {
-    // The cast, here and below: clearTimeout takes null as well as undefined, which the DOM types don't say.
-    clearTimeout(flushTimer.current as number | undefined);
+    // The cast, here and below: clearTimeout takes null as well as undefined, which its types don't say.
+    clearTimeout(flushTimer.current as ReturnType<typeof setTimeout> | undefined);
     flushTimer.current = null;
     if (!socket || !joined.current) return;
     const piece = outbox.take();
@@ -327,7 +327,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       rejoin.current = () => {};
       // Everything not sent yet goes now, the rest of a change in pieces too, ahead of leaving: the
       // server would refuse what came after (and forget a group it had only part of).
-      clearTimeout(flushTimer.current as number | undefined);
+      clearTimeout(flushTimer.current as ReturnType<typeof setTimeout> | undefined);
       flushTimer.current = null;
       if (joined.current) for (const piece of outbox.drain()) send(piece);
       joined.current = false;
@@ -376,7 +376,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
   const lastCursorAt = useRef(0);
   const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestCursor = useRef<XY | null>(null);
-  useEffect(() => () => clearTimeout(cursorTimer.current as number | undefined), []);
+  useEffect(() => () => clearTimeout(cursorTimer.current as ReturnType<typeof setTimeout> | undefined), []);
   const sendCursor = useCallback(
     (point: XY | null) => {
       if (!socket || !joined.current) return;
@@ -387,7 +387,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       latestCursor.current = point;
       const wait = CURSOR_INTERVAL_MS - (performance.now() - lastCursorAt.current);
       if (!point || wait <= 0) {
-        clearTimeout(cursorTimer.current as number | undefined);
+        clearTimeout(cursorTimer.current as ReturnType<typeof setTimeout> | undefined);
         cursorTimer.current = null;
         emit(point);
       } else {
