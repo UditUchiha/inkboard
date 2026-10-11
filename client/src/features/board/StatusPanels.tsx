@@ -1,4 +1,4 @@
-import { CloudCheck, Eye, LoaderCircle, WifiOff } from "lucide-react";
+import { CloudCheck, Eye, LoaderCircle, MessageSquarePlus, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ButtonLink } from "../../components/Button";
 
@@ -19,6 +19,17 @@ export function ViewOnlyNotice({ signedIn, loginHref }: ViewOnlyNoticeProps) {
           Log in
         </ButtonLink>
       )}
+    </div>
+  );
+}
+
+/** Shown with the toolbar to people on a suggest link: what they change doesn't change the board. */
+export function SuggestingNotice() {
+  return (
+    <div className="floating-panel flex h-8 items-center gap-2 rounded-full px-3 text-xs">
+      <MessageSquarePlus className="size-3.5 shrink-0 text-signal" aria-hidden />
+      <span className="font-medium">Suggesting</span>
+      <span className="text-graphite max-md:hidden">What you change goes to the owner to accept or reject</span>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Check, Globe, Link2, Lock, Pencil } from "lucide-react";
+import { Check, Globe, Link2, Lock, MessageSquarePlus, Pencil } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -28,6 +28,12 @@ const LINK_OPTIONS: LinkOption[] = [
     detail: "No account needed. Only invited people can edit.",
   },
   {
+    value: "suggest",
+    icon: MessageSquarePlus,
+    title: "Anyone with the link can suggest",
+    detail: "No account needed. What they add, change or delete is a suggestion you and your editors accept or reject.",
+  },
+  {
     value: "edit",
     icon: Pencil,
     title: "Anyone with the link can edit",
@@ -35,7 +41,6 @@ const LINK_OPTIONS: LinkOption[] = [
   },
 ];
 
-// "suggest" isn't offered above yet: suggesting is still being built (see docs/suggest-mode.md).
 const LINK_TOASTS: Record<LinkAccess, string> = {
   restricted: "Only invited people can open the link",
   view: "Anyone with the link can now view",
