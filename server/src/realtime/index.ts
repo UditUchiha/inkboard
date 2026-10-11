@@ -623,6 +623,7 @@ function handleConnection(socket: RealtimeSocket) {
     reply({
       ok: true,
       suggestions: result.stored,
+      ...(result.withdrawn.length > 0 ? { withdrawn: result.withdrawn } : {}),
       ...(result.dropped.length > 0 ? { dropped: result.dropped } : {}),
       ...(result.full ? { full: result.full } : {}),
     });

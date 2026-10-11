@@ -139,12 +139,14 @@ export interface SuggestionRefusal {
 }
 
 /**
- * The reply to `suggestion:put`: the suggestions as the board keeps them, and the element ids of drafts it
- * left out (`dropped`): ones that aren't valid, are about an element that isn't on the board (or, for an
+ * The reply to `suggestion:put`: the suggestions as the board keeps them; the ids of the sender's suggestions a
+ * draft took back, by making an element just as it is on the board (`withdrawn`); and the element ids of drafts
+ * it left out (`dropped`): ones that aren't valid, are about an element that isn't on the board (or, for an
  * addition, is), are someone else's, or didn't fit, in which case `full` says which limit they met.
  */
 export type SuggestionPutReply =
-  { ok: true; suggestions: Suggestion[]; dropped?: string[]; full?: "board" | "author" } | SuggestionRefusal;
+  | { ok: true; suggestions: Suggestion[]; withdrawn?: string[]; dropped?: string[]; full?: "board" | "author" }
+  | SuggestionRefusal;
 
 /** The reply to `suggestion:withdraw` and `suggestion:resolve`: done (ids that aren't open are let be), or refused. */
 export type SuggestionReply = { ok: true } | SuggestionRefusal;

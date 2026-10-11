@@ -96,6 +96,7 @@ describe("making suggestions", () => {
     assert.equal(moved.suggestions![0]!.createdAt, change.createdAt);
     const undone = await guest.suggest(boardId, [{ kind: "change", element: rect("box") }]);
     assert.deepEqual(undone.suggestions, []);
+    assert.deepEqual(undone.withdrawn, ["on:g_suggester1:box"]);
     await eventually(() => deleted(host).some((message) => message.outcome === "withdrawn"));
     assert.equal(getSession(boardId)!.suggestions.byId.size, 0);
   });
