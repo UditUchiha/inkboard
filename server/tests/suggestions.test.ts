@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import type { NotificationPage } from "@inkboard/shared/api";
 import { MAX_SUGGESTIONS_PER_AUTHOR } from "@inkboard/shared/limits";
 import type { ChangeSuggestion } from "@inkboard/shared/suggestions";
 import type { ShapeElement } from "@inkboard/shared/types";
@@ -201,6 +202,27 @@ describe("deciding on suggestions", () => {
     );
     assert.equal(outcomes["on:g_suggester1:box"], "accepted");
     assert.equal(outcomes["on:g_suggester1:other"], "gone");
+  });
+});
+
+describe("telling the owner", () => {
+  it("notifies the owner of a guest's first new suggestion, by the guest's name, once while it's unread", async () => {
+    const { owner, boardId, host, guest } = await suggestBoard();
+    await guest.suggest(boardId, [{ kind: "add", element: rect("first") }]);
+    const live = await eventually(() => host.last("notification"));
+    assert.equal(live.type, "suggestion");
+    assert.equal(live.actor.name, "Sam");
+    assert.equal(live.board.id, boardId);
+
+    // Another person's suggestion while that one is unread adds nothing.
+    const other = await app.connect(null, { guest: { id: "g_second1", name: "Kim" } });
+    await other.join(boardId);
+    await other.suggest(boardId, [{ kind: "add", element: rect("second") }]);
+    await roundTrip(other);
+    const { data } = await app.request<NotificationPage>("/notifications", { user: owner });
+    const about = data.notifications.filter((item) => item.type === "suggestion");
+    assert.equal(about.length, 1);
+    assert.equal(about[0]!.actor.name, "Sam", "listed with the guest's name, though they have no account");
   });
 });
 

@@ -20,16 +20,21 @@ export type NotificationsValue = {
 
 const NotificationsContext = createContext<NotificationsValue | null>(null);
 
-export const notificationLink = (notification: Pick<NotificationItem, "board" | "thread">) =>
-  `/board/${notification.board.id}${notification.thread ? `?thread=${notification.thread}` : ""}`;
+// A notification about a comment opens it, and one about suggestions opens those.
+export function notificationLink(notification: Pick<NotificationItem, "board" | "thread" | "type">) {
+  const board = `/board/${notification.board.id}`;
+  if (notification.thread) return `${board}?thread=${notification.thread}`;
+  return notification.type === "suggestion" ? `${board}?suggestions` : board;
+}
 
 export function describeNotification({ type, actor, board }: Pick<NotificationItem, "type" | "actor" | "board">) {
   if (type === "mention") return `${actor.name} mentioned you on “${board.title}”`;
   if (type === "reply") return `${actor.name} replied to a comment on “${board.title}”`;
+  if (type === "suggestion") return `${actor.name} suggested changes to “${board.title}”`;
   return `${actor.name} invited you to “${board.title}”`;
 }
 
-/** Mentions, replies and invites for the signed-in person, live over the socket. */
+/** Mentions, replies, invites and suggestions for the signed-in person, live over the socket. */
 type NotificationsProviderProps = { children: ReactNode };
 
 export function NotificationsProvider({ children }: NotificationsProviderProps) {

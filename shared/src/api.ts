@@ -270,7 +270,7 @@ export interface TemplateReply {
 // Notifications
 
 /** Why someone was notified. */
-export type NotificationType = "mention" | "reply" | "invite";
+export type NotificationType = "mention" | "reply" | "invite" | "suggestion";
 
 /** A mention, reply or invite (see serializeNotification on the server). */
 export interface NotificationItem {
