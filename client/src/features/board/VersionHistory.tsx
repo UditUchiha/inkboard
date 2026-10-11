@@ -5,8 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { Button, IconButton } from "../../components/Button";
-import { api } from "../../lib/api";
-import type { ApiError, Version, VersionKind } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
+import type { Version, VersionKind } from "../../lib/api";
 import { timeAgo } from "../../lib/format";
 import { useMinute } from "../../lib/useMinute";
 import { useSocket } from "../../providers/SocketProvider";
@@ -69,10 +69,10 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
     api
       .getVersion(boardId, version.id)
       .then(({ version: full }) => active && setElements(full.elements))
-      .catch((error: ApiError) => {
+      .catch((error: unknown) => {
         if (!active) return;
         setFailed(true);
-        toast.error(error.message);
+        toast.error(errorMessage(error));
       });
     return () => {
       active = false;
@@ -89,7 +89,7 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
       toast.success("Version restored. What was here before is saved in the history.", { id: "board-restored" });
       onRestored();
     } catch (error) {
-      toast.error((error as ApiError).message); // requests only fail with an ApiError
+      toast.error(errorMessage(error));
       setBusy(false);
     }
   }
@@ -101,7 +101,7 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
       toast.success("Version deleted");
       onDeleted();
     } catch (error) {
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
       setBusy(false);
     }
   }
@@ -185,7 +185,7 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
         setVersions(list);
       } catch (error) {
         if (quiet) return; // keep what is shown; the next refresh tries again
-        toast.error((error as ApiError).message);
+        toast.error(errorMessage(error));
         setVersions([]);
       }
     },
@@ -221,7 +221,7 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
       setLabel("");
       toast.success("Version saved");
     } catch (error) {
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
     } finally {
       setSaving(false);
     }

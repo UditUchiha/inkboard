@@ -27,8 +27,8 @@ import type { BoardSummary, SectionId, Sort, SortKey, View } from "../features/d
 import { useBoards } from "../features/dashboard/useBoards";
 import { useStoredState } from "../features/dashboard/useStoredState";
 import { NewBoardDialog } from "../features/templates/NewBoardDialog";
-import { api } from "../lib/api";
-import type { ApiError, CreateBoardInput } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
+import type { CreateBoardInput } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 
 // How many boards are drawn at first, and added by each "Show more": every card downloads a preview
@@ -284,8 +284,7 @@ export default function DashboardPage() {
         await api.starBoard(board.id, starred);
       } catch (error) {
         patch([board.id], { starred: !starred });
-        // api calls reject with an ApiError.
-        toast.error((error as ApiError).message);
+        toast.error(errorMessage(error));
       }
     },
 
@@ -316,8 +315,7 @@ export default function DashboardPage() {
         );
       } catch (error) {
         before.forEach(([id, was]) => patch([id], { archived: was }));
-        // api calls reject with an ApiError.
-        toast.error((error as ApiError).message);
+        toast.error(errorMessage(error));
         return;
       }
       setSelected(new Set());
@@ -353,8 +351,7 @@ export default function DashboardPage() {
         drop([board.id]);
         toast(`Removed “${board.title}” from your list`, { description: "Open its link again to bring it back." });
       } catch (error) {
-        // api calls reject with an ApiError.
-        toast.error((error as ApiError).message);
+        toast.error(errorMessage(error));
       }
     },
   };
@@ -366,8 +363,7 @@ export default function DashboardPage() {
       const { board } = await api.createBoard(input);
       navigate(`/board/${board.id}`);
     } catch (error) {
-      // api calls reject with an ApiError.
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
       setCreating(false);
     }
   }
@@ -394,8 +390,7 @@ export default function DashboardPage() {
       }
       setConfirm(null);
     } catch (error) {
-      // api calls reject with an ApiError.
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
     } finally {
       setBusy(false);
     }

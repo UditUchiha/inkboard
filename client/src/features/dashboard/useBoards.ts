@@ -1,7 +1,6 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../../lib/api";
-import type { ApiError } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
 import type { BoardSummary } from "./sections";
 
 // Previews are asked for this many boards at a time (the server's limit).
@@ -49,7 +48,7 @@ export function useBoards() {
 
   useEffect(() => {
     let active = true;
-    refresh().catch((error: ApiError) => active && setLoadError(error.message));
+    refresh().catch((error: unknown) => active && setLoadError(errorMessage(error)));
     return () => {
       active = false;
     };

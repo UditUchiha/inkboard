@@ -8,8 +8,7 @@ import { Logo } from "../components/Logo";
 import { OAuthButtons, useEmailEnabled } from "../components/OAuthButtons";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { APP_NAME } from "../config";
-import { api } from "../lib/api";
-import type { ApiError } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
 import { signInErrorMessage } from "../lib/signInErrors";
 import { verifyView } from "../lib/verifyLink";
 import { useAuth } from "../providers/AuthProvider";
@@ -78,8 +77,7 @@ export function LoginPage() {
     try {
       await login(form);
     } catch (loginError) {
-      // login rejects with an ApiError.
-      setError((loginError as ApiError).message);
+      setError(errorMessage(loginError));
       setSubmitting(false);
     }
   }
@@ -160,8 +158,7 @@ export function RegisterPage() {
     try {
       await register(form);
     } catch (registerError) {
-      // register rejects with an ApiError.
-      setError((registerError as ApiError).message);
+      setError(errorMessage(registerError));
       setSubmitting(false);
     }
   }
@@ -242,8 +239,7 @@ export function ForgotPasswordPage() {
       await api.forgotPassword(email.trim());
       setSentTo(email.trim());
     } catch (sendError) {
-      // forgotPassword rejects with an ApiError.
-      setError((sendError as ApiError).message);
+      setError(errorMessage(sendError));
     } finally {
       setSubmitting(false);
     }
@@ -323,8 +319,7 @@ export function ResetPasswordPage() {
       toast.success("Password changed. You're logged in.");
       navigate("/boards", { replace: true });
     } catch (resetError) {
-      // resetPassword rejects with an ApiError.
-      setError((resetError as ApiError).message);
+      setError(errorMessage(resetError));
       setSubmitting(false);
     }
   }
@@ -390,8 +385,7 @@ export function VerifyEmailPage() {
         updateUser(verified); // seen as verified straight away
         setResult({ phase: "done", email });
       })
-      // verifyEmail rejects with an ApiError.
-      .catch((error: ApiError) => setResult({ phase: "failed", message: error.message }));
+      .catch((error: unknown) => setResult({ phase: "failed", message: errorMessage(error) }));
   }
 
   // The link only verifies the account it was sent for, for someone logged in to it, which shows the inbox

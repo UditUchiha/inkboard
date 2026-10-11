@@ -3,8 +3,7 @@ import type { SubmitEvent } from "react";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { TextField } from "../../components/Field";
-import { api } from "../../lib/api";
-import type { ApiError } from "../../lib/api";
+import { api, errorMessage } from "../../lib/api";
 import type { BoardSummary } from "./sections";
 
 // What the server answers a rename with, of which the dashboard keeps the new title and time.
@@ -36,7 +35,7 @@ export function RenameDialog({ board, onClose, onRenamed }: RenameDialogProps) {
       onRenamed(updated);
       onClose();
     } catch (renameError) {
-      setError((renameError as ApiError).message); // requests only fail with an ApiError
+      setError(errorMessage(renameError));
     } finally {
       setSaving(false);
     }

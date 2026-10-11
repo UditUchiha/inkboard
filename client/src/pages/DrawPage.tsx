@@ -10,7 +10,7 @@ import { clearScratch, currentScratch, useScratchBoard } from "../features/board
 import { importScratch } from "../features/board/scratchImport";
 import { useBoardSnapshot } from "../features/board/store";
 import type { BoardSync } from "../features/board/useBoardSync";
-import { api } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
 import type { AccountUser } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { useSocket } from "../providers/SocketProvider";
@@ -104,7 +104,7 @@ function ImportScratch({ onKeep, created }: ImportScratchProps) {
         navigate(`/board/${board.id}`, { replace: true });
       })
       // importScratch rejects with errors (its own ImportError, or the API's).
-      .catch((importError: Error) => setError(importError.message));
+      .catch((importError: unknown) => setError(errorMessage(importError)));
   }, [navigate, socket, attempt, created]);
 
   if (error) {

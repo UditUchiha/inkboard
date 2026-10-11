@@ -2,8 +2,7 @@ import clsx from "clsx";
 import { MailCheck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { api } from "../lib/api";
-import type { ApiError } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { Button } from "./Button";
 import { useEmailEnabled } from "./OAuthButtons";
@@ -25,8 +24,7 @@ export function VerifyEmailNotice({ className }: { className?: string }) {
       // The check above returned for no user; a function declaration doesn't keep that narrowing.
       toast.success(`We sent a new link to ${user!.email}.`);
     } catch (error) {
-      // Requests only fail with an ApiError.
-      toast.error((error as ApiError).message);
+      toast.error(errorMessage(error));
     } finally {
       setSending(false);
     }
