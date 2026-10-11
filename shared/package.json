@@ -16,7 +16,7 @@
   "scripts": {
     "test": "node --test",
     "coverage": "node --test --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\"",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p . && tsc -p tests"
   },
   "dependencies": {
     "fractional-indexing": "^4.0.0"

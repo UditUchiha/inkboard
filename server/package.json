@@ -10,7 +10,7 @@
     "db": "node scripts/dev-db.ts",
     "test": "node --test --test-concurrency=2",
     "coverage": "node --test --test-concurrency=2 --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\"",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p . && tsc -p tests"
   },
   "dependencies": {
     "@inkboard/shared": "^1.0.0",
