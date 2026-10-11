@@ -7,6 +7,7 @@ import { APP_NAME } from "../config";
 import { BoardEditor } from "../features/board/BoardEditor";
 import { createEditorStore } from "../features/board/editorStore";
 import { useBoardSync } from "../features/board/useBoardSync";
+import { getGuest } from "../lib/guest";
 import { useAuth } from "../providers/AuthProvider";
 
 type OpenBoardProps = { boardId: string };
@@ -28,7 +29,7 @@ function OpenBoard({ boardId }: OpenBoardProps) {
   const { user } = useAuth(); // null for guests viewing a shared link
   const exit = user ? backToBoards : goHome;
   const store = useMemo(createEditorStore, []);
-  const sync = useBoardSync(boardId, store);
+  const sync = useBoardSync(boardId, store, { selfId: user?.id ?? getGuest().id });
 
   useEffect(() => {
     document.title = sync.meta ? `${sync.meta.title} · ${APP_NAME}` : APP_NAME;

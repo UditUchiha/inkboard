@@ -126,7 +126,7 @@ function open(boardId = "b1", canonical = boardId) {
   const socket = fakeSocket();
   globalThis.__socket = socket;
   const store = createBoardStore();
-  const sync = render(() => useBoardSync(boardId, store));
+  const sync = render(() => useBoardSync(boardId, store, { selfId: "u_self" }));
   const [join] = socket.of("board:join");
   join!.ack!({ ok: true, board: { id: canonical, title: "B", role: "owner", elements: [] }, removed: [] });
   const phase = () => globalThis.__react.slots.find((kept) => kept?.value?.name)?.value;

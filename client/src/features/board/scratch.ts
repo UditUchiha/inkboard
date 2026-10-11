@@ -6,6 +6,7 @@ import { getGuest } from "../../lib/guest";
 import type { BoardMeta } from "../../lib/api";
 import { noCursors } from "./cursors";
 import { createEditorStore } from "./editorStore";
+import { createBoardStore } from "./store";
 import { noSuggestions } from "./suggestions";
 import type { BoardSync, Peer } from "./useBoardSync";
 
@@ -68,6 +69,8 @@ export function clearScratch() {
 
 const NOOP = () => {};
 const NO_PEERS: Peer[] = [];
+// Nobody suggests on a scratch board, so there's no board underneath suggestions to keep.
+const NOTHING_SUGGESTED_OVER = createBoardStore();
 const CREATED_AT = new Date().toISOString();
 
 /** A scratch board's stand-in for the live sync: a board nobody else is on, plus whether this browser kept the latest changes. */
@@ -170,6 +173,8 @@ export function useScratchBoard() {
       cursors: noCursors,
       suggestions: noSuggestions,
       resolveSuggestions: NOOP,
+      withdrawSuggestions: NOOP,
+      suggestedOver: NOTHING_SUGGESTED_OVER,
       online: true,
       saving: false,
       unsaved,

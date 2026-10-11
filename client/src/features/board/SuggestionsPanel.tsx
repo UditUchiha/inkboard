@@ -1,7 +1,7 @@
 import type { SuggestionOutcome } from "@inkboard/shared/socket";
 import { isOutdated } from "@inkboard/shared/suggestions";
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import { Check, Eye, EyeOff, MessageSquarePlus, TriangleAlert, X } from "lucide-react";
+import { Check, Eye, EyeOff, MessageSquarePlus, TriangleAlert, Undo2, X } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../components/Avatar";
@@ -76,10 +76,26 @@ type ChipsProps = {
   onAccept: (group: SuggestionGroup) => void;
   onReject: (group: SuggestionGroup) => void;
   onHover: (groupId: string | null) => void;
+  // A suggester's own groups, which they can take back.
+  isOwn?: (group: SuggestionGroup) => boolean;
+  onWithdraw?: (group: SuggestionGroup) => void;
 };
 
-/** A label above each group of suggestions on the board: whose they are and, for members, accept and reject. */
-export function SuggestionChips({ groups, viewport, getElement, canDecide, onAccept, onReject, onHover }: ChipsProps) {
+/**
+ * A label above each group of suggestions on the board: whose they are and, for members, accept and reject (for
+ * the suggester whose they are, take them back).
+ */
+export function SuggestionChips({
+  groups,
+  viewport,
+  getElement,
+  canDecide,
+  onAccept,
+  onReject,
+  onHover,
+  isOwn = () => false,
+  onWithdraw = () => {},
+}: ChipsProps) {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {groups.map((group) => {
@@ -118,6 +134,15 @@ export function SuggestionChips({ groups, viewport, getElement, canDecide, onAcc
                 />
               </>
             )}
+            {!canDecide && isOwn(group) && (
+              <IconButton
+                label="Take back your suggestion"
+                icon={Undo2}
+                size="sm"
+                className="size-6"
+                onClick={() => onWithdraw(group)}
+              />
+            )}
           </div>
         );
       })}
@@ -136,9 +161,15 @@ type PanelProps = {
   onHover: (groupId: string | null) => void;
   onFocus: (bounds: Rect) => void;
   onClose: () => void;
+  // A suggester's own groups, which they can take back.
+  isOwn?: (group: SuggestionGroup) => boolean;
+  onWithdraw?: (group: SuggestionGroup) => void;
 };
 
-/** Every open suggestion, a group to a row, newest last, with the decisions a member can make on them. */
+/**
+ * Every open suggestion, a group to a row, newest last, with the decisions a member can make on them (and, for a
+ * suggester, taking back their own). `getElement` has the board as it is, without anyone's suggestions.
+ */
 export function SuggestionsPanel({
   groups,
   getElement,
@@ -150,6 +181,8 @@ export function SuggestionsPanel({
   onHover,
   onFocus,
   onClose,
+  isOwn = () => false,
+  onWithdraw = () => {},
 }: PanelProps) {
   useMinute(); // keeps "2 minutes ago" current
   const all = groups.flatMap((group) => group.suggestions);
@@ -238,6 +271,13 @@ export function SuggestionsPanel({
                       )}
                     </span>
                   </button>
+                  {!canDecide && isOwn(group) && (
+                    <div className="mt-1.5 flex gap-2 pl-[2.375rem]">
+                      <Button size="sm" variant="ghost" icon={Undo2} onClick={() => onWithdraw(group)}>
+                        Take back
+                      </Button>
+                    </div>
+                  )}
                   {canDecide && (
                     <div className="mt-1.5 flex gap-2 pl-[2.375rem]">
                       <Button size="sm" variant="secondary" icon={Check} onClick={() => onAccept(group.suggestions)}>

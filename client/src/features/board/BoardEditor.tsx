@@ -50,6 +50,7 @@ import { connectorPath, pathMiddle } from "./routes";
 import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
 import { suggestionMarks } from "./suggestions";
+import type { OwnSuggestions, SuggestionGroup } from "./suggestions";
 import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } from "./SuggestionsPanel";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
@@ -96,12 +97,13 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const { elements, canUndo, canRedo } = useBoardSnapshot(store);
   // The cast: the editor is only shown once the board's details are there (a scratch board has them from the start).
   const { meta: board, setMeta, role } = sync as BoardSync & { meta: BoardMeta };
-  // Viewers can only look, and contributors (edit link) can draw. Suggesters only look too, until suggesting is
-  // built (see docs/suggest-mode.md).
-  const readOnly = !drawsOnBoard(role);
+  // Viewers can only look, and contributors (edit link) can draw. Suggesters draw too, but what they do is sent as
+  // suggestions (see suggesting.ts), so the board's own settings (its title, pictures, comments) aren't theirs to change.
+  const readOnly = role === "viewer";
+  const suggesting = role === "suggester";
   const isMember = role === "owner" || role === "editor";
   const commentsEnabled = Boolean(user) && !local; // comments are for signed-in people
-  const canComment = commentsEnabled && !readOnly;
+  const canComment = commentsEnabled && drawsOnBoard(role);
   const selfId = user?.id ?? getGuest().id;
 
   const [tool, setTool] = useState<ToolId>("pen");
@@ -122,7 +124,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
   const selected = selectedId ? (store.getElement(selectedId) ?? null) : null;
-  const canAddImages = !readOnly && !local; // a guest's scratch board lives in the browser, with nowhere to keep files
+  // A guest's scratch board lives in the browser, with nowhere to keep files; pictures can't be suggested.
+  const canAddImages = !readOnly && !local && !suggesting;
   const fileInput = useRef<HTMLInputElement>(null);
   const boardFileInput = useRef<HTMLInputElement>(null);
 
@@ -150,11 +153,21 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const review = useSuggestionReview(sync, store);
   const elementById = useMemo(() => new Map(elements.map((element) => [element.id, element])), [elements]);
   const getElement = useCallback((id: string) => elementById.get(id), [elementById]);
+  // A suggester's screen shows the board with their suggestions in it; this is the board without them (see
+  // suggesting.ts), which their removals are drawn from and the panel reads. (Empty for everyone else.)
+  const { elements: underneath } = useBoardSnapshot(sync.suggestedOver);
+  const underneathById = useMemo(() => new Map(underneath.map((element) => [element.id, element])), [underneath]);
+  const boardWithout = suggesting ? (id: string) => underneathById.get(id) : getElement;
+  const isOwnGroup = (group: SuggestionGroup) => suggesting && group.author.userId === selfId;
+  const withdraw = (group: SuggestionGroup) => sync.withdrawSuggestions(group.suggestions.map(({ id }) => id));
   const highlighted = useMemo(() => idsInGroup(review.groups, hoveredGroup), [review.groups, hoveredGroup]);
-  const suggestionLayer = useMemo(
-    () => (showSuggestions ? suggestionMarks(review.suggestions, getElement, highlighted) : undefined),
-    [showSuggestions, review.suggestions, getElement, highlighted],
-  );
+  const suggestionLayer = useMemo(() => {
+    if (!showSuggestions) return undefined;
+    const own: OwnSuggestions | undefined = suggesting
+      ? { isOwn: (suggestion) => suggestion.author.userId === selfId, underneath: (id) => underneathById.get(id) }
+      : undefined;
+    return suggestionMarks(review.suggestions, getElement, highlighted, own);
+  }, [showSuggestions, suggesting, selfId, review.suggestions, getElement, underneathById, highlighted]);
   const focusOn = (bounds: Rect) =>
     changeViewport((vp) => ({
       ...vp,
@@ -350,7 +363,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     socket: sync.socket,
     boardId: board.id,
     local,
-    readOnly,
+    readOnly: readOnly || suggesting, // nothing pasted, dropped or imported is suggested
     view,
     setTool,
     setSelectedId,
@@ -533,11 +546,13 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         <SuggestionChips
           groups={review.groups}
           viewport={viewport}
-          getElement={getElement}
+          getElement={(id) => getElement(id) ?? boardWithout(id)}
           canDecide={isMember}
           onAccept={(group) => review.accept(group.suggestions)}
           onReject={(group) => review.reject(group.suggestions)}
           onHover={setHoveredGroup}
+          isOwn={isOwnGroup}
+          onWithdraw={withdraw}
         />
       )}
 
@@ -581,7 +596,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         <BoardTitle
           board={board}
           rename={renameBoard}
-          readOnly={readOnly}
+          readOnly={readOnly || suggesting}
           onRenamed={(updated) => setMeta((current) => ({ ...current, ...updated }) as BoardMeta)}
         />
       </div>
@@ -643,7 +658,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         <BoardMenu
           user={user}
           local={local}
-          readOnly={readOnly}
+          readOnly={readOnly || suggesting}
           isMember={isMember}
           commentsEnabled={commentsEnabled}
           showComments={showComments}
@@ -681,7 +696,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       {suggestionsOpen && (
         <SuggestionsPanel
           groups={review.groups}
-          getElement={getElement}
+          getElement={boardWithout}
+          isOwn={isOwnGroup}
+          onWithdraw={withdraw}
           canDecide={isMember}
           shown={showSuggestions}
           onToggleShown={() => setShowSuggestions((shown) => !shown)}

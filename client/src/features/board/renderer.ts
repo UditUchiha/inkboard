@@ -485,7 +485,7 @@ function drawSuggestions(
     const element = drawn[i]!;
     if (!isVisible(element, view)) return;
     ctx.save();
-    if (mark.kind !== "remove") {
+    if (mark.ghost) {
       ctx.globalAlpha = mark.highlighted ? 0.85 : 0.55;
       drawElement(ctx, roughCanvas, element);
       ctx.globalAlpha = 1;
