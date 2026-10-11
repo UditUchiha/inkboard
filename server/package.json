@@ -5,9 +5,9 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "node --watch --import ./scripts/dev-env.js src/index.ts",
+    "dev": "node --watch --import ./scripts/dev-env.ts src/index.ts",
     "start": "node src/index.ts",
-    "db": "node scripts/dev-db.js",
+    "db": "node scripts/dev-db.ts",
     "test": "node --test --test-concurrency=2",
     "coverage": "node --test --test-concurrency=2 --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\"",
     "typecheck": "tsc -p ."

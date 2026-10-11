@@ -121,7 +121,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
 
 ### Types
 
-The code in `client/src`, `server/src` and `shared/src` is TypeScript; the tests and the dev scripts are JavaScript. `npm run typecheck` runs `tsc` in each package against its `tsconfig.json`, which all start from `tsconfig.base.json` (strict). Nothing is compiled: Node strips a `.ts` file's types as it loads it, and Vite does the same for the browser, so the server starts straight from `server/src/index.ts`. That is why only syntax that can simply be erased is allowed (`erasableSyntaxOnly`): no enums, namespaces or constructor parameter properties, and type-only imports are written `import type`.
+The code in `client/src`, `server/src`, `server/scripts` and `shared/src` is TypeScript; the tests are JavaScript. `npm run typecheck` runs `tsc` in each package against its `tsconfig.json`, which all start from `tsconfig.base.json` (strict). Nothing is compiled: Node strips a `.ts` file's types as it loads it, and Vite does the same for the browser, so the server starts straight from `server/src/index.ts`. That is why only syntax that can simply be erased is allowed (`erasableSyntaxOnly`): no enums, namespaces or constructor parameter properties, and type-only imports are written `import type`.
 
 - The element types live in `shared/src/types.ts` (`@inkboard/shared/types`), and the browser and the server both use them.
 - What comes from outside (request bodies, socket messages, stored files) is typed `unknown` until the existing checks narrow it.
