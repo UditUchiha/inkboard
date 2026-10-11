@@ -5,7 +5,14 @@ import mongoose from "mongoose";
 import { io as connectSocket } from "socket.io-client";
 import type { Socket } from "socket.io-client";
 import type { BoardDetails, PublicUser } from "@inkboard/shared/api";
-import type { ImageLimit, OpRefusal, RemovedStamp, ServerToClientEvents } from "@inkboard/shared/socket";
+import type {
+  ImageLimit,
+  OpRefusal,
+  RemovedStamp,
+  ServerToClientEvents,
+  SuggestionRefusal,
+} from "@inkboard/shared/socket";
+import type { Suggestion } from "@inkboard/shared/suggestions";
 import type { SYNC_FORMAT } from "@inkboard/shared/limits";
 import type { Element, Operation, ShapeElement } from "@inkboard/shared/types";
 import type { FullOperation } from "../src/realtime/operations.ts";
@@ -62,6 +69,15 @@ export type TestJoinReply = {
   error?: string;
   board: BoardDetails;
   removed: RemovedStamp[];
+  suggestions: Suggestion[];
+};
+
+export type TestSuggestReply = {
+  ok: boolean;
+  reason?: SuggestionRefusal["reason"];
+  suggestions?: Suggestion[];
+  dropped?: string[];
+  full?: "board" | "author";
 };
 
 export type TestOpReply = {
@@ -94,6 +110,10 @@ export interface TestClient {
   leave: () => void;
   image: (boardId: string, data: unknown, small?: unknown) => Promise<TestImageReply>;
   op: (boardId: string, op: unknown) => Promise<TestOpReply>;
+  // Suggestions (see src/realtime/suggestions.ts): make or replace some, take some back, accept or reject some.
+  suggest: (boardId: string, drafts: unknown) => Promise<TestSuggestReply>;
+  withdraw: (boardId: string, ids: unknown) => Promise<TestSuggestReply>;
+  resolve: (boardId: string, ids: unknown, outcome: unknown) => Promise<TestSuggestReply>;
   close: () => void;
 }
 
@@ -239,6 +259,12 @@ export async function startServer(): Promise<ServerInstance> {
       image: (boardId: string, data: unknown, small?: unknown) =>
         new Promise((resolve) => socket.emit("board:image", { boardId, data, small }, resolve)),
       op: (boardId: string, op: unknown) => new Promise((resolve) => socket.emit("board:op", { boardId, op }, resolve)),
+      suggest: (boardId: string, suggestions: unknown) =>
+        new Promise((resolve) => socket.emit("suggestion:put", { boardId, suggestions }, resolve)),
+      withdraw: (boardId: string, ids: unknown) =>
+        new Promise((resolve) => socket.emit("suggestion:withdraw", { boardId, ids }, resolve)),
+      resolve: (boardId: string, ids: unknown, outcome: unknown) =>
+        new Promise((resolve) => socket.emit("suggestion:resolve", { boardId, ids, outcome }, resolve)),
       close: () => socket.disconnect(),
     };
     return client;

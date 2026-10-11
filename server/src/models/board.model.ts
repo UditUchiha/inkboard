@@ -4,8 +4,8 @@ import type { Element } from "@inkboard/shared/types";
 
 const { ObjectId, Mixed } = mongoose.Schema.Types;
 
-// Who besides the owner and invited collaborators can open the board's link.
-export const LINK_ACCESS = ["restricted", "view", "edit"];
+// Who besides the owner and invited collaborators can open the board's link, and what they can do there.
+export const LINK_ACCESS = ["restricted", "view", "suggest", "edit"];
 
 const boardSchema = new mongoose.Schema(
   {
@@ -17,6 +17,9 @@ const boardSchema = new mongoose.Schema(
     // Elements removed lately: { id, version, versionNonce, at }. Only needed
     // when the board is opened for editing (see realtime/sessions.ts).
     removed: { type: [Mixed], default: [], select: false },
+    // Changes people with a "suggest" link proposed, for a member to accept or reject (see
+    // shared/src/suggestions.ts). Kept and saved with the open board, like its elements.
+    suggestions: { type: [Mixed], default: [], select: false },
     // People who starred the board on their dashboard.
     starredBy: [{ type: ObjectId, ref: "User", index: true }],
     // Set when the owner moves the board to the trash; it's deleted for good 30 days later.
