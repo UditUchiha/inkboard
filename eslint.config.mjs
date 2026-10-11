@@ -28,7 +28,7 @@ export default [
     rules: { "react-hooks/rules-of-hooks": "error", "react-hooks/exhaustive-deps": "error" },
   },
   {
-    files: ["client/vite.config.js", "client/tests/**", "server/**", "shared/**"],
+    files: ["client/vite.config.ts", "client/tests/**", "server/**", "shared/**"],
     languageOptions: { globals: globals.node },
   },
   // TypeScript files (.ts, and .tsx with JSX): the same rules, read with TypeScript's parser. tsc checks
