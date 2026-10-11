@@ -1,5 +1,6 @@
 import type * as Api from "@inkboard/shared/api";
 import { COORDINATE_LIMIT } from "@inkboard/shared/element-rules";
+import { MAX_THREADS_PER_BOARD, REACTION_EMOJI } from "@inkboard/shared/limits";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
@@ -20,13 +21,15 @@ import type { Person, Ref } from "../services/boards.ts";
 import { notify } from "../services/notifications.ts";
 import type { BoardRequest } from "./board.controller.ts";
 
-// Comment threads pinned to the canvas. Anyone signed in who can open the board
-// can read them; people who can edit it can comment. Members can be @mentioned.
+// Comment threads pinned to the canvas. Anyone signed in who can open the board can read them, comment
+// and react, people who only view it by its link too. People who can edit the board, and whoever started
+// a thread, can resolve and move it. Members can be @mentioned.
 
 const populateThread = [
   { path: "author", select: PERSON_FIELDS },
   { path: "messages.author", select: PERSON_FIELDS },
   { path: "messages.mentions", select: PERSON_FIELDS },
+  { path: "messages.reactions.user", select: PERSON_FIELDS },
 ];
 
 type ThreadDoc = InstanceType<typeof Thread>;
@@ -43,6 +46,7 @@ interface PopulatedMessage {
   author: Person | null;
   body: string;
   mentions: (Person | null)[];
+  reactions: { emoji: string; user: Person | null }[];
   createdAt: Date;
 }
 
@@ -50,6 +54,16 @@ interface PopulatedMessage {
 interface PopulatedPeople {
   author: Person;
   messages: PopulatedMessage[];
+}
+
+// A message's reactions by emoji, in the order the picker shows them, with the people whose accounts remain.
+function reactionsOf(message: Pick<PopulatedMessage, "reactions">): Api.Reaction[] {
+  return REACTION_EMOJI.map((emoji) => ({
+    emoji,
+    people: message.reactions
+      .filter((reaction) => reaction.emoji === emoji && reaction.user)
+      .map((reaction) => serializePerson(reaction.user!)), // the filter above left only those with one
+  })).filter((reaction) => reaction.people.length > 0);
 }
 
 function serializeThread(
@@ -70,18 +84,14 @@ function serializeThread(
         body: message.body,
         // filter(Boolean) drops the mentions of accounts that are gone, which the type can't see.
         mentions: (message.mentions.filter(Boolean) as Person[]).map(serializePerson),
+        reactions: reactionsOf(message),
         createdAt: message.createdAt,
       })),
   };
 }
 
-async function openBoard(req: BoardRequest, { toComment = false } = {}) {
-  const board = await findBoardForViewing(req.params.boardId, req.userId);
-  if (toComment && !canEdit(roleOf(board, req.userId))) {
-    throw new HttpError(403, "Only people who can edit this board can comment on it.");
-  }
-  return board;
-}
+// Everyone signed in who can open the board (`requireAuth` comes first) may read, comment and react.
+const openBoard = (req: BoardRequest) => findBoardForViewing(req.params.boardId, req.userId);
 
 async function findThread(board: Pick<OpenBoard, "_id">, threadId: string) {
   const thread = mongoose.isValidObjectId(threadId) ? await Thread.findOne({ _id: threadId, board: board._id }) : null;
@@ -149,11 +159,18 @@ export async function createThread(
   req: BoardRequest<{ x?: unknown; y?: unknown; body?: unknown; mentions?: unknown }>,
   res: Response,
 ) {
-  const board = await openBoard(req, { toComment: true });
+  const board = await openBoard(req);
   const x = readCoordinate(req.body?.x);
   const y = readCoordinate(req.body?.y);
   const body = readBody(req.body?.body);
   const mentions = readMentions(board, req.body?.mentions);
+  // Anyone with a view link can comment, so a board's threads are bounded too.
+  if ((await Thread.countDocuments({ board: board._id })) >= MAX_THREADS_PER_BOARD) {
+    throw new HttpError(
+      400,
+      `This board has ${MAX_THREADS_PER_BOARD} comment threads, the most it can hold. Delete some to make room.`,
+    );
+  }
 
   const thread = await Thread.create({
     board: board._id,
@@ -170,7 +187,7 @@ export async function createThread(
 }
 
 export async function replyToThread(req: ThreadRequest<{ body?: unknown; mentions?: unknown }>, res: Response) {
-  const board = await openBoard(req, { toComment: true });
+  const board = await openBoard(req);
   const thread = await findThread(board, req.params.threadId);
   const body = readBody(req.body?.body);
   const mentions = readMentions(board, req.body?.mentions);
@@ -193,8 +210,14 @@ export async function updateThread(
   req: ThreadRequest<{ resolved?: unknown; x?: unknown; y?: unknown }>,
   res: Response,
 ) {
-  const board = await openBoard(req, { toComment: true });
+  const board = await openBoard(req);
   const thread = await findThread(board, req.params.threadId);
+  if (!canEdit(roleOf(board, req.userId)) && idOf(thread.author) !== String(req.userId)) {
+    throw new HttpError(
+      403,
+      "Only people who can edit this board, or who started this thread, can resolve or move it.",
+    );
+  }
   if (typeof req.body?.resolved === "boolean") thread.resolved = req.body.resolved;
   for (const key of ["x", "y"] as const) {
     if (req.body?.[key] !== undefined) thread[key] = readCoordinate(req.body[key]);
@@ -204,7 +227,7 @@ export async function updateThread(
 }
 
 export async function deleteThread(req: ThreadRequest, res: Response) {
-  const board = await openBoard(req, { toComment: true });
+  const board = await openBoard(req);
   const thread = await findThread(board, req.params.threadId);
   if (idOf(thread.author) !== String(req.userId) && !isOwner(board, req.userId)) {
     throw new HttpError(403, "Only the person who started this thread or the board's owner can delete it.");
@@ -214,4 +237,36 @@ export async function deleteThread(req: ThreadRequest, res: Response) {
   await Notification.deleteMany({ thread: thread._id });
   emitToSignedIn(board.id, "thread:delete", { id: thread.id });
   res.status(204).end();
+}
+
+/** A request about one message of a thread, named by the `:messageId` in the route. */
+type MessageRequest<Body = unknown> = Request<
+  { boardId: string; threadId: string; messageId: string },
+  unknown,
+  Body | undefined
+>;
+
+/** Adds the person's reaction to a message (`on: true`) or takes it away (`on: false`). */
+export async function reactToMessage(req: MessageRequest<{ emoji?: unknown; on?: unknown }>, res: Response) {
+  const board = await openBoard(req);
+  const emoji = req.body?.emoji;
+  // `includes` only compares, so it doesn't tell the types that a value that passes is one of the emoji.
+  if (typeof emoji !== "string" || !REACTION_EMOJI.includes(emoji as (typeof REACTION_EMOJI)[number])) {
+    throw new HttpError(400, `React with one of ${REACTION_EMOJI.join(" ")}.`);
+  }
+  const { threadId, messageId } = req.params;
+  const found = mongoose.isValidObjectId(threadId) && mongoose.isValidObjectId(messageId);
+  // One write, so reactions sent at the same moment can't undo each other.
+  const reaction = { emoji, user: new mongoose.Types.ObjectId(String(req.userId)) };
+  const changed = found
+    ? await Thread.updateOne(
+        { _id: threadId, board: board._id, "messages._id": messageId },
+        req.body?.on === false
+          ? { $pull: { "messages.$.reactions": reaction } }
+          : { $addToSet: { "messages.$.reactions": reaction } },
+      )
+    : null;
+  if (!changed?.matchedCount) throw new HttpError(404, "That comment was deleted.");
+  const thread = await findThread(board, threadId);
+  res.json({ thread: await publish(board, thread) } satisfies Api.ThreadReply);
 }

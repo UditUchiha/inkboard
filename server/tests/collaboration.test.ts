@@ -17,6 +17,7 @@ import { Notification } from "../src/models/notification.model.ts";
 import { Template } from "../src/models/template.model.ts";
 import { Thread } from "../src/models/thread.model.ts";
 import { Version } from "../src/models/version.model.ts";
+import { MAX_THREADS_PER_BOARD } from "@inkboard/shared/limits";
 import { elementBytes, MAX_ELEMENT_BYTES } from "../src/realtime/operations.ts";
 import { BOARD_LIMITS } from "../src/services/boards.ts";
 import { pruneVersions, recordVersion, VERSION_LIMITS } from "../src/services/versions.ts";
@@ -454,20 +455,72 @@ describe("comments", () => {
     assert.equal((await comment(editor, id, { x: 0, y: 0, body: "x".repeat(2001) })).status, 400);
   });
 
-  it("lets signed-in viewers read comments but not write them, and keeps guests out", async () => {
+  it("lets signed-in viewers and suggesters read and write comments, and keeps guests out", async () => {
     const owner = await app.signUp("Owner");
     const editor = await app.signUp("Editor");
     const viewer = await app.signUp("Viewer");
     const id = await app.createBoard(owner, "Public");
     await invite(owner, id, editor);
     await setLink(owner, id, "view");
-    await comment(editor, id, { x: 1, y: 1, body: "note" });
+    const note = (await comment(editor, id, { x: 1, y: 1, body: "note" })).data.thread;
 
     const read = await app.request<{ threads: ThreadReply["thread"][] }>(`/boards/${id}/threads`, { user: viewer });
     assert.equal(read.status, 200);
     assert.equal(read.data.threads.length, 1);
-    assert.equal((await comment(viewer, id, { x: 0, y: 0, body: "can't" })).status, 403);
+    assert.equal((await comment(viewer, id, { x: 0, y: 0, body: "from a viewer" })).status, 201);
+    const replied = await app.request(`/boards/${id}/threads/${note.id}/messages`, {
+      method: "POST",
+      user: viewer,
+      body: { body: "agreed" },
+    });
+    assert.equal(replied.status, 201);
+    await setLink(owner, id, "suggest");
+    assert.equal((await comment(viewer, id, { x: 5, y: 5, body: "from a suggester" })).status, 201);
     assert.equal((await app.request(`/boards/${id}/threads`)).status, 401);
+    assert.equal(
+      (await app.request(`/boards/${id}/threads`, { method: "POST", body: { x: 0, y: 0, body: "x" } })).status,
+      401,
+    );
+  });
+
+  it("lets a viewer resolve and move only the threads they started", async () => {
+    const owner = await app.signUp("Owner");
+    const viewer = await app.signUp("Viewer");
+    const id = await app.createBoard(owner);
+    await setLink(owner, id, "view");
+    const theirs = (await comment(owner, id, { x: 0, y: 0, body: "owner's" })).data.thread;
+    const mine = (await comment(viewer, id, { x: 9, y: 9, body: "mine" })).data.thread;
+    const patch = (threadId: string, body: unknown) =>
+      app.request<ThreadReply>(`/boards/${id}/threads/${threadId}`, { method: "PATCH", user: viewer, body });
+
+    assert.equal((await patch(theirs.id, { resolved: true })).status, 403);
+    assert.equal((await patch(theirs.id, { x: 50 })).status, 403);
+    const resolved = await patch(mine.id, { resolved: true, x: 20 });
+    assert.equal(resolved.status, 200);
+    assert.deepEqual([resolved.data.thread.resolved, resolved.data.thread.x], [true, 20]);
+    const byOwner = await app.request(`/boards/${id}/threads/${mine.id}`, {
+      method: "PATCH",
+      user: owner,
+      body: { resolved: false },
+    });
+    assert.equal(byOwner.status, 200, "members still resolve anyone's");
+  });
+
+  it("holds at most so many threads a board", async () => {
+    const owner = await app.signUp("Owner");
+    const id = await app.createBoard(owner);
+    await Thread.insertMany(
+      Array.from({ length: MAX_THREADS_PER_BOARD }, (_, index) => ({
+        board: id,
+        author: owner.id,
+        x: index,
+        y: 0,
+        messages: [{ author: owner.id, body: "filler" }],
+      })),
+    );
+    const { status, data } = await comment(owner, id, { x: 0, y: 0, body: "one too many" });
+    assert.equal(status, 400);
+    assert.match((data as unknown as { error: string }).error, /the most it can hold/);
   });
 
   it("lets signed-in contributors comment when the link allows editing", async () => {
@@ -652,6 +705,73 @@ describe("comments", () => {
     await app.request(`/boards/${id}/threads/${thread!.id}`, { method: "DELETE", user: editor });
     await eventually(() => signedIn.of("thread:delete").length === 1, { message: "the deletion" });
     assert.equal(guest.of("thread:delete").length, 0);
+  });
+});
+
+describe("reactions", () => {
+  const react = (user: TestUser | null, id: string, threadId: string, messageId: string, body: unknown) =>
+    app.request<ThreadReply>(`/boards/${id}/threads/${threadId}/messages/${messageId}/reactions`, {
+      method: "PUT",
+      user: user ?? undefined,
+      body,
+    });
+
+  /** A board shared to view, with one comment by its owner, and someone who views it by the link. */
+  async function commented() {
+    const owner = await app.signUp("Owner");
+    const viewer = await app.signUp("Viewer");
+    const id = await app.createBoard(owner);
+    await app.request(`/boards/${id}/link-access`, { method: "PATCH", user: owner, body: { linkAccess: "view" } });
+    const { data } = await app.request<ThreadReply>(`/boards/${id}/threads`, {
+      method: "POST",
+      user: owner,
+      body: { x: 0, y: 0, body: "Ship it?" },
+    });
+    return { owner, viewer, id, thread: data.thread, message: data.thread.messages[0]! };
+  }
+
+  it("can be added by anyone signed in who can open the board, once each, and taken back", async () => {
+    const { owner, viewer, id, thread, message } = await commented();
+    const tab = await app.connect(owner);
+    await tab.join(id);
+
+    assert.equal((await react(viewer, id, thread.id, message.id, { emoji: "👍", on: true })).status, 200);
+    await react(viewer, id, thread.id, message.id, { emoji: "👍", on: true });
+    await react(owner, id, thread.id, message.id, { emoji: "👍", on: true });
+    const { data } = await react(owner, id, thread.id, message.id, { emoji: "🎉", on: true });
+    assert.deepEqual(
+      data.thread.messages[0]!.reactions.map((reaction) => [reaction.emoji, reaction.people.map((p) => p.name)]),
+      [
+        ["👍", ["Viewer", "Owner"]],
+        ["🎉", ["Owner"]],
+      ],
+    );
+    const pushed = await eventually(
+      () => tab.of("thread:upsert").find((t) => t.messages[0]!.reactions.some((r) => r.emoji === "🎉")),
+      { message: "the reaction arriving live" },
+    );
+    assert.equal(pushed.id, thread.id);
+
+    const taken = await react(viewer, id, thread.id, message.id, { emoji: "👍", on: false });
+    assert.deepEqual(
+      taken.data.thread.messages[0]!.reactions.map((reaction) => [reaction.emoji, reaction.people.length]),
+      [
+        ["👍", 1],
+        ["🎉", 1],
+      ],
+    );
+  });
+
+  it("are only the emoji on offer, on comments that exist, from people who can open the board", async () => {
+    const { viewer, id, thread, message } = await commented();
+    assert.equal((await react(viewer, id, thread.id, message.id, { emoji: "💩", on: true })).status, 400);
+    assert.equal((await react(viewer, id, thread.id, message.id, { on: true })).status, 400);
+    assert.equal((await react(viewer, id, thread.id, "0".repeat(24), { emoji: "👍" })).status, 404);
+    assert.equal((await react(viewer, id, thread.id, "nope", { emoji: "👍" })).status, 404);
+    assert.equal((await react(null, id, thread.id, message.id, { emoji: "👍" })).status, 401);
+    const stranger = await app.signUp("Stranger");
+    const other = await app.createBoard(stranger);
+    assert.equal((await react(stranger, other, thread.id, message.id, { emoji: "👍" })).status, 404);
   });
 });
 

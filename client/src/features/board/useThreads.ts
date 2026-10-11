@@ -54,6 +54,8 @@ export function useThreads({ boardId, socket, enabled }: ThreadsOptions) {
     create: async (input: NewMessage & XY) => upsert((await api.createThread(boardId, input)).thread),
     reply: async (threadId: string, input: NewMessage) =>
       upsert((await api.replyToThread(boardId, threadId, input)).thread),
+    react: async (threadId: string, messageId: string, emoji: string, on: boolean) =>
+      upsert((await api.reactToMessage(boardId, threadId, messageId, emoji, on)).thread),
     setResolved: async (threadId: string, resolved: boolean) =>
       upsert((await api.updateThread(boardId, threadId, { resolved })).thread),
     remove: async (threadId: string) => {

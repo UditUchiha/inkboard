@@ -35,3 +35,7 @@ export const MAX_REMOVALS_REMEMBERED = 50_000;
 export const LINK_PASSWORD_MIN = 4;
 export const LINK_PASSWORD_MAX = 100;
 export const LINK_EXPIRY_MAX_MS = 366 * 24 * 3600 * 1000;
+
+// Comments: how many threads a board can have, and the reactions a comment can be given.
+export const MAX_THREADS_PER_BOARD = 500;
+export const REACTION_EMOJI = ["👍", "❤️", "😂", "🎉", "👀", "✅"] as const;

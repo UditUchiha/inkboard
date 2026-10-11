@@ -229,6 +229,12 @@ export const api = {
     request<Wire<shared.ThreadReply>>(`/boards/${id}/threads`, { method: "POST", body: input }),
   replyToThread: (id: string, threadId: string, input: Record<string, unknown>) =>
     request<Wire<shared.ThreadReply>>(`/boards/${id}/threads/${threadId}/messages`, { method: "POST", body: input }),
+  // Adds the person's reaction to a comment (`on`), or takes it back.
+  reactToMessage: (id: string, threadId: string, messageId: string, emoji: string, on: boolean) =>
+    request<Wire<shared.ThreadReply>>(`/boards/${id}/threads/${threadId}/messages/${messageId}/reactions`, {
+      method: "PUT",
+      body: { emoji, on },
+    }),
   updateThread: (id: string, threadId: string, changes: Record<string, unknown>) =>
     request<Wire<shared.ThreadReply>>(`/boards/${id}/threads/${threadId}`, { method: "PATCH", body: changes }),
   deleteThread: (id: string, threadId: string) =>

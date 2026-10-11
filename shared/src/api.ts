@@ -186,12 +186,19 @@ export interface ArchiveReply {
 
 // Comments
 
-/** One comment in a thread. `mentions` are the people named in it. */
+/** People who reacted to a comment with one emoji (one of REACTION_EMOJI, see shared/src/limits.ts). */
+export interface Reaction {
+  emoji: string;
+  people: Person[];
+}
+
+/** One comment in a thread. `mentions` are the people named in it, and `reactions` who reacted, by emoji. */
 export interface ThreadMessage {
   id: string;
   author: Person;
   body: string;
   mentions: Person[];
+  reactions: Reaction[];
   createdAt: Date;
 }
 

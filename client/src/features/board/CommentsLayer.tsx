@@ -1,5 +1,6 @@
 import clsx from "clsx";
-import { Check, RotateCcw, Trash2, X } from "lucide-react";
+import { REACTION_EMOJI } from "@inkboard/shared/limits";
+import { Check, RotateCcw, SmilePlus, Trash2, X } from "lucide-react";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
@@ -30,6 +31,79 @@ function MessageBody({ message }: { message: ThreadMessage }) {
     ) : (
       <Fragment key={index}>{piece.text}</Fragment>
     ),
+  );
+}
+
+type ReactionsProps = {
+  message: ThreadMessage;
+  selfId: string;
+  canReact: boolean;
+  onReact: (emoji: string, on: boolean) => void;
+};
+
+// Who reacted to a comment with what, and (for those who may react) a way to add one or take theirs back.
+function Reactions({ message, selfId, canReact, onReact }: ReactionsProps) {
+  const [picking, setPicking] = useState(false);
+  const reactions = message.reactions ?? []; // a server from before reactions sends none
+  if (!canReact && reactions.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+      {reactions.map(({ emoji, people }) => {
+        const mine = people.some((person) => person.id === selfId);
+        const names = people.map((person) => person.name).join(", ");
+        return (
+          <button
+            key={emoji}
+            type="button"
+            aria-pressed={mine}
+            disabled={!canReact}
+            title={names}
+            aria-label={`${emoji} ${people.length}: ${names}`}
+            onClick={() => onReact(emoji, !mine)}
+            className={clsx(
+              "flex h-6 items-center gap-1 rounded-full border px-2 text-xs transition-colors disabled:cursor-default",
+              mine
+                ? "border-signal bg-signal/10 font-medium text-signal"
+                : "border-rule enabled:hover:border-graphite/60",
+            )}
+          >
+            <span aria-hidden>{emoji}</span>
+            <span aria-hidden>{people.length}</span>
+          </button>
+        );
+      })}
+      {canReact &&
+        (picking ? (
+          <span role="group" aria-label="Pick a reaction" className="flex items-center gap-0.5">
+            {REACTION_EMOJI.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                aria-label={`React with ${emoji}`}
+                onClick={() => {
+                  setPicking(false);
+                  const mine = reactions.some(
+                    (reaction) => reaction.emoji === emoji && reaction.people.some((person) => person.id === selfId),
+                  );
+                  if (!mine) onReact(emoji, true);
+                }}
+                className="grid size-6 place-items-center rounded-full text-sm hover:bg-ink/8"
+              >
+                {emoji}
+              </button>
+            ))}
+            <IconButton label="Close reactions" icon={X} size="sm" onClick={() => setPicking(false)} />
+          </span>
+        ) : (
+          <IconButton
+            label="Add a reaction"
+            icon={SmilePlus}
+            size="sm"
+            onClick={() => setPicking(true)}
+            className="size-6 text-graphite"
+          />
+        ))}
+    </div>
   );
 }
 
@@ -180,9 +254,12 @@ function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }: Co
 type ThreadViewProps = {
   thread: Thread;
   canComment: boolean;
+  canResolve: boolean;
   canDelete: boolean;
   members: Person[];
+  selfId: string;
   onReply: (message: NewMessage) => Promise<void>;
+  onReact: (messageId: string, emoji: string, on: boolean) => void;
   onResolve: (resolved: boolean) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -191,9 +268,12 @@ type ThreadViewProps = {
 function ThreadView({
   thread,
   canComment,
+  canResolve,
   canDelete,
   members,
+  selfId,
   onReply,
+  onReact,
   onResolve,
   onDelete,
   onClose,
@@ -206,7 +286,7 @@ function ThreadView({
       <div className="flex items-center justify-between gap-1 border-b border-rule px-3 py-2">
         <span className="text-sm font-semibold">{thread.resolved ? "Resolved" : "Comment"}</span>
         <div className="flex items-center">
-          {canComment && (
+          {canResolve && (
             <IconButton
               label={thread.resolved ? "Reopen thread" : "Resolve thread"}
               icon={thread.resolved ? RotateCcw : Check}
@@ -261,6 +341,12 @@ function ThreadView({
               <p className="text-sm break-words whitespace-pre-wrap">
                 <MessageBody message={message} />
               </p>
+              <Reactions
+                message={message}
+                selfId={selfId}
+                canReact={canComment}
+                onReact={(emoji, on) => onReact(message.id, emoji, on)}
+              />
             </div>
           </li>
         ))}
@@ -286,6 +372,8 @@ type CommentsLayerProps = {
   onDraftClose: () => void;
   members: Person[];
   canComment: boolean;
+  // Whether this person may resolve anyone's threads (people who can edit the board), not only their own.
+  canResolveAny: boolean;
   canDeleteAny: boolean;
   selfId: string;
   api: ThreadApi;
@@ -305,6 +393,7 @@ export function CommentsLayer({
   onDraftClose,
   members,
   canComment,
+  canResolveAny,
   canDeleteAny,
   selfId,
   api,
@@ -362,9 +451,14 @@ export function CommentsLayer({
           <ThreadView
             thread={active}
             canComment={canComment}
+            canResolve={canComment && (canResolveAny || active.author.id === selfId)}
             canDelete={canDeleteAny || active.author.id === selfId}
             members={members}
+            selfId={selfId}
             onReply={(input) => api.reply(active.id, input)}
+            onReact={(messageId, emoji, on) =>
+              api.react(active.id, messageId, emoji, on).catch((error: unknown) => toast.error(errorMessage(error)))
+            }
             onResolve={(resolved) =>
               api.setResolved(active.id, resolved).catch((error: unknown) => toast.error(errorMessage(error)))
             }

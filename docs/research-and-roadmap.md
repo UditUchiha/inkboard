@@ -267,7 +267,7 @@ For each idea, did we find a product that already does it?
 - [x] **Email verification (lighter version):** new accounts get a verification link and work straight away, but invites by email only reach verified addresses, so registering someone else's address no longer gets you their invites. Whoever really owns an address can take it back with "Forgot password". Emails go through Brevo's API (Render's free plan blocks SMTP). *Still open:* sessions are signed tokens that can't be revoked, so resetting a password doesn't log out other devices; adding a token version to the account would fix it.
 - [ ] **Edit links can be abused.** "Anyone with the link can edit" includes anonymous guests, so a leaked link allows vandalism or spam. Today the recovery is version history and the owner switching the link back to restricted, and the owner can now put a password or an expiry on the link (2026-10-11). Still cheap to add: a per-connection limit on change operations, and notifying the owner when many guests join.
 - [x] **OAuth verified for real:** Google and GitHub sign-in both worked end to end on the live app (2026-10-08).
-- [ ] **Comment threads and notifications are unbounded per board and per person.** Message length is capped (2,000 characters), but the number of threads and messages is not.
+- [~] **Comment threads and notifications are unbounded per person.** Message length is capped (2,000 characters), a thread holds at most 200 messages and a board at most 500 threads (since link viewers can comment), but how many notifications one person can be sent is not.
 
 ---
 
@@ -365,7 +365,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] Link password and expiry: set in the Share dialog; visitors are asked once (signed-in ones are remembered), a new password or an expired link drops the people on the board who came by it, and invited people are never asked
 - [ ] Request-access flow (S-M)
 - [x] "Make a copy" for anyone signed in who can open a board: from the board menu or the dashboard, with its own copies of the pictures (so it survives the original being deleted), and without comments, history, suggestions or people
-- [ ] Reactions and comment pins for link viewers (S-M)
+- [x] Reactions and comment pins for link viewers: anyone signed in who can open a board comments and reacts (six emoji); viewers comment from a button on the View-only notice and resolve only their own threads
 
 ### P2: growth and niches
 
