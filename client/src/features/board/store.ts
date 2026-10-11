@@ -16,6 +16,7 @@ import {
 import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/board-order";
 import { withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
+import type { RemovedStamp } from "@inkboard/shared/socket";
 import type {
   Element as BoardElement,
   Effect,
@@ -92,6 +93,8 @@ export type BoardStore = {
   historyMark(): HistoryStep | undefined;
   getElements(): BoardElement[];
   getElement(id: string): BoardElement | undefined;
+  /** The stamps of what was removed lately, as load and rejoin take them. */
+  removedStamps(): RemovedStamp[];
   /** Sets who is told of each stamped change made here. */
   setBroadcaster(fn: Broadcaster): void;
   /** Replaces everything and forgets history (first load). */
@@ -437,6 +440,7 @@ export function createBoardStore({
     historyMark: () => undoStack.at(-1),
     getElements: () => elements,
     getElement: (id) => byId().get(id),
+    removedStamps: () => [...tombstones].map(([id, { version, versionNonce }]) => ({ id, version, versionNonce })),
     setBroadcaster(fn) {
       broadcast = fn;
     },

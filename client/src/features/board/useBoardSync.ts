@@ -10,10 +10,12 @@ import type {
   RoleMessage,
   SharedView,
   SuggestionOutcome,
+  SuggestionPutReply,
   SuggestionRemovalMessage,
   SuggestionsMessage,
   ViewportMessage,
 } from "@inkboard/shared/socket";
+import type { SuggestionDraft } from "@inkboard/shared/suggestions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { BoardMeta, Role } from "../../lib/api";
@@ -24,12 +26,21 @@ import type { XY } from "./geometry";
 import { createOutbox } from "./outbox";
 import type { Piece, SettleResult } from "./outbox";
 import type { BoardStore } from "./store";
+import { createSuggester } from "./suggesting";
 import { createSuggestionStore } from "./suggestions";
 
 const CURSOR_INTERVAL_MS = 50;
 const VIEWPORT_INTERVAL_MS = 120;
 const ACK_TIMEOUT_MS = 10_000;
 const SLOW_TOAST = { id: "saving-slow" }; // one message however often it's said
+
+// What to tell a suggester when some of what they suggested wasn't kept, by the limit it met.
+const SUGGESTION_REFUSED: Record<"author" | "board" | "other", string> = {
+  author:
+    "You have as many suggestions waiting as you can, so that one was undone. More can be made once some are decided.",
+  board: "This board has as many suggestions waiting as it can hold, so that one was undone.",
+  other: "That couldn't be suggested (pictures can't be, for one), so it was undone.",
+};
 
 // What to tell the person when the server refuses a change for good (see outbox.ts).
 const REFUSED: Record<string, string> = {
@@ -74,8 +85,10 @@ export type BoardSync = ReturnType<typeof useBoardSync>;
  * changes (batched every 40ms), applies collaborators' changes, and tracks
  * presence and cursors. Edits made while offline are queued and sent after
  * reconnecting. The queue and what to do with the server's replies are in outbox.ts.
+ * Someone who may only suggest has their edits sent as suggestions instead (see
+ * suggesting.ts); `selfId` (their account's id, or their guest id) tells theirs apart.
  */
-export function useBoardSync(boardId: string, store: BoardStore) {
+export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { selfId: string }) {
   const socket = useSocket();
   const [phase, setPhase] = useState<Phase>({ name: "connecting" });
   const [meta, setMeta] = useState<BoardMeta | null>(null);
@@ -86,6 +99,26 @@ export function useBoardSync(boardId: string, store: BoardStore) {
   const [cursors] = useState(createCursorStore);
   const [suggestions] = useState(createSuggestionStore);
   const [outbox] = useState(() => createOutbox({ onChange: setSaving }));
+  // How suggestions are sent: set below, once the socket is known (the suggester is made only once).
+  const sendSuggestions = useRef<(drafts: SuggestionDraft[], withdraw: string[]) => Promise<SuggestionPutReply>>(() =>
+    Promise.resolve({ ok: false, reason: "noSession" }),
+  );
+  // (Someone can log in while on the board, so whose suggestions are theirs is read as it is now.)
+  const self = useRef(selfId);
+  self.current = selfId;
+  const [suggester] = useState(() =>
+    createSuggester({
+      store,
+      suggestions,
+      isOwn: (suggestion) => suggestion.author.userId === self.current,
+      send: (drafts, withdraw) => sendSuggestions.current(drafts, withdraw),
+      onRefused: ({ full }) => toast.error(SUGGESTION_REFUSED[full ?? "other"]),
+    }),
+  );
+  useEffect(() => {
+    suggester.start();
+    return () => suggester.stop();
+  }, [suggester]);
 
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const joined = useRef(false);
@@ -168,11 +201,28 @@ export function useBoardSync(boardId: string, store: BoardStore) {
 
   useEffect(() => {
     store.setBroadcaster((op) => {
+      // A suggester's changes are suggestions, not changes to the board.
+      if (roleRef.current === "suggester") {
+        suggester.take(op);
+        return;
+      }
       outbox.add(op);
       flushTimer.current ??= setTimeout(flush, outbox.flushDelay());
     });
     return () => store.setBroadcaster(() => {});
-  }, [store, outbox, flush]);
+  }, [store, outbox, flush, suggester]);
+
+  sendSuggestions.current = (drafts, withdraw) =>
+    new Promise((resolve) => {
+      if (!socket || !joined.current) return resolve({ ok: false, reason: "noSession" });
+      if (withdraw.length > 0) socket.emit("suggestion:withdraw", { boardId, ids: withdraw }, () => {});
+      if (drafts.length === 0) return resolve({ ok: true, suggestions: [] });
+      socket
+        .timeout(ACK_TIMEOUT_MS)
+        .emit("suggestion:put", { boardId, suggestions: drafts }, (error: Error | null, reply?: SuggestionPutReply) =>
+          resolve(error || !reply ? { ok: false, reason: "noSession" } : reply),
+        );
+    });
 
   useEffect(() => {
     if (!socket) return undefined;
@@ -195,6 +245,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       setPeers([]);
       cursors.clear();
       suggestions.clear();
+      suggester.forget();
     }
 
     const join = () => {
@@ -221,6 +272,8 @@ export function useBoardSync(boardId: string, store: BoardStore) {
         }
         // A server from before suggestions doesn't send any.
         suggestions.load(response.suggestions ?? []);
+        // A suggester sees the board with their suggestions on it.
+        if (joinedRole === "suggester") suggester.joined(elements, response.removed);
         setMeta(boardMeta);
         joined.current = true;
         setPhase({ name: "ready" });
@@ -256,7 +309,9 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     const forOther = (payload: ForBoard) =>
       Boolean(payload?.boardId) && String(payload.boardId).toLowerCase() !== eventId;
     const onOp = (payload: OpMessage) => {
-      if (!forOther(payload)) store.applyRemote(payload.op);
+      if (forOther(payload)) return;
+      store.applyRemote(payload.op);
+      if (roleRef.current === "suggester") suggester.remote(payload.op);
     };
     const onPresence = (list: Peer[], about: BoardMessage) => {
       if (forOther(about)) return;
@@ -287,6 +342,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       const { elements, removed, by } = payload;
       outbox.reset();
       store.load(elements, removed);
+      if (roleRef.current === "suggester") suggester.reset(elements, removed);
       // Same id as the restorer's own toast in VersionHistory, so they see one message, not two.
       toast(by ? `${by} restored an earlier version of this board` : "An earlier version of this board was restored", {
         id: "board-restored",
@@ -313,15 +369,23 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       if (forOther(payload)) return;
       const nextRole = payload.role;
       const lostEditing = drawsOnBoard(roleRef.current) && !drawsOnBoard(nextRole);
+      // Starting or stopping suggesting changes what this screen shows: the board with their suggestions on it, or not.
+      const suggesting = (roleRef.current === "suggester") !== (nextRole === "suggester");
       roleRef.current = nextRole;
       setRole(nextRole);
-      if (lostEditing) resync.current(); // drop unsent edits and history
+      if (suggesting) suggester.forget();
+      if (lostEditing || suggesting) resync.current(); // drop unsent edits and history
     };
     const onSuggestions = (payload: SuggestionsMessage) => {
       if (!forOther(payload)) suggestions.upsert(payload.suggestions);
     };
     const onSuggestionsGone = (payload: SuggestionRemovalMessage) => {
-      if (!forOther(payload)) suggestions.remove(payload.ids);
+      if (forOther(payload)) return;
+      // A suggester's own suggestion that went any way but into the board: show the board without it.
+      const gone = new Set(payload.ids);
+      const own = suggestions.getSnapshot().some((item) => gone.has(item.id) && item.author.userId === self.current);
+      suggestions.remove(payload.ids);
+      if (own && payload.outcome !== "accepted" && roleRef.current === "suggester") suggester.rebuild();
     };
 
     socket.on("connect", onConnect);
@@ -366,7 +430,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       socket.off("suggestion:upsert", onSuggestions);
       socket.off("suggestion:delete", onSuggestionsGone);
     };
-  }, [socket, boardId, store, outbox, cursors, suggestions, flush, send, viewportMessage]);
+  }, [socket, boardId, store, outbox, cursors, suggestions, suggester, flush, send, viewportMessage]);
 
   // What part of the board we're looking at, shared (when anyone else is here) so
   // others can follow along: always what's on screen, also while following someone
@@ -439,6 +503,17 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     [socket, boardId, suggestions],
   );
 
+  // A suggester taking back their own suggestions: the board shows without them again.
+  const withdrawSuggestions = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      suggestions.remove(ids);
+      socket?.emit("suggestion:withdraw", { boardId, ids }, () => {});
+      suggester.rebuild();
+    },
+    [socket, boardId, suggestions, suggester],
+  );
+
   return {
     phase,
     meta,
@@ -448,6 +523,9 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     cursors, // a store (see cursors.ts): only what draws the pointers subscribes
     suggestions, // a store too (see suggestions.ts)
     resolveSuggestions,
+    withdrawSuggestions,
+    // The board as the server has it, without a suggester's own suggestions (see suggesting.ts).
+    suggestedOver: suggester.board,
     online,
     saving,
     sendCursor,

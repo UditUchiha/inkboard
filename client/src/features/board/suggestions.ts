@@ -148,20 +148,43 @@ export type SuggestionMark = {
   color: string;
   outdated: boolean;
   highlighted: boolean;
+  // Whether the element is drawn, faded, as well as outlined: it isn't among what the screen shows (a suggested
+  // addition or change, or, on the suggester's own screen, what they'd remove).
+  ghost: boolean;
 };
 
-/** The marks for `suggestions` on the board as `getElement` has it. Ones about an element that has gone are left out. */
+/**
+ * A suggester's own suggestions are already in what their screen shows (see suggesting.ts): `isOwn` tells which
+ * they are, and `underneath` has the board without them, where an element they'd remove still is.
+ */
+export type OwnSuggestions = {
+  isOwn: (suggestion: Suggestion) => boolean;
+  underneath: (id: string) => BoardElement | undefined;
+};
+
+/**
+ * The marks for `suggestions` on the board as `getElement` has it. Ones about an element that has gone are left out.
+ * With `own`, those of the suggester looking are outlined where they are on their screen, and the elements they'd
+ * remove are drawn, faded, from the board underneath.
+ */
 export function suggestionMarks(
   suggestions: readonly Suggestion[],
   getElement: (id: string) => BoardElement | undefined,
   highlighted: ReadonlySet<string> = new Set(),
+  own?: OwnSuggestions,
 ): SuggestionMark[] {
   const marks: SuggestionMark[] = [];
   for (const suggestion of suggestions) {
     const color = personColor({ id: suggestion.author.userId, color: suggestion.author.color });
     const common = { id: suggestion.id, kind: suggestion.kind, color, highlighted: highlighted.has(suggestion.id) };
+    if (own?.isOwn(suggestion)) {
+      const id = elementIdOf(suggestion);
+      const shown = suggestion.kind === "remove" ? own.underneath(id) : getElement(id);
+      if (shown) marks.push({ ...common, element: shown, outdated: false, ghost: suggestion.kind === "remove" });
+      continue;
+    }
     if (suggestion.kind === "add") {
-      marks.push({ ...common, element: suggestion.element, outdated: false });
+      marks.push({ ...common, element: suggestion.element, outdated: false, ghost: true });
       continue;
     }
     const current = getElement(suggestion.target);
@@ -170,6 +193,7 @@ export function suggestionMarks(
       ...common,
       element: suggestion.kind === "change" ? withChange(current, suggestion) : current,
       outdated: isOutdated(current, suggestion),
+      ghost: suggestion.kind === "change",
     });
   }
   return marks;
