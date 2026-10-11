@@ -52,6 +52,7 @@ import type { BoardStore } from "./store";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
 import { useBoardShortcuts } from "./useBoardShortcuts";
+import { drawsOnBoard } from "./useBoardSync";
 import type { BoardSync, Peer } from "./useBoardSync";
 import { sameView, useFollow } from "./useFollow";
 import { useImageImport } from "./useImageImport";
@@ -93,7 +94,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const { elements, canUndo, canRedo } = useBoardSnapshot(store);
   // The cast: the editor is only shown once the board's details are there (a scratch board has them from the start).
   const { meta: board, setMeta, role } = sync as BoardSync & { meta: BoardMeta };
-  const readOnly = role === "viewer"; // viewers can only look; contributors (edit link) can draw
+  // Viewers can only look, and contributors (edit link) can draw. Suggesters only look too, until suggesting is
+  // built (see docs/suggest-mode.md).
+  const readOnly = !drawsOnBoard(role);
   const isMember = role === "owner" || role === "editor";
   const commentsEnabled = Boolean(user) && !local; // comments are for signed-in people
   const canComment = commentsEnabled && !readOnly;

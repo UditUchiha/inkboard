@@ -1,5 +1,5 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import { Archive, Eye, LayoutGrid, PenLine, Pencil, Star, Trash2, Users } from "lucide-react";
+import { Archive, Eye, LayoutGrid, MessageSquarePlus, PenLine, Pencil, Star, Trash2, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { BoardFiling, ListedBoard, Role, TrashedBoard } from "../../lib/api";
 
@@ -106,6 +106,7 @@ export const ROLES: Record<Role, RoleInfo> = {
   owner: { label: "Owner", icon: PenLine, viaLink: false },
   editor: { label: "Can edit", icon: Pencil, viaLink: false },
   contributor: { label: "Can edit (link)", icon: Pencil, viaLink: true },
+  suggester: { label: "Can suggest (link)", icon: MessageSquarePlus, viaLink: true },
   viewer: { label: "View only", icon: Eye, viaLink: true },
 };
 

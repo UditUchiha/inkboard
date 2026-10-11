@@ -82,11 +82,14 @@ export interface LinkTicketReply {
 
 // Boards
 
-/** What a person can do on a board (see roleOf on the server). */
-export type Role = "owner" | "editor" | "contributor" | "viewer";
+/**
+ * What a person can do on a board (see roleOf on the server). A suggester's changes don't change the board:
+ * they become suggestions, which a member accepts or rejects (see docs/suggest-mode.md).
+ */
+export type Role = "owner" | "editor" | "contributor" | "suggester" | "viewer";
 
-/** Who can open a board by its link. */
-export type LinkAccess = "restricted" | "view" | "edit";
+/** Who can open a board by its link, and what they can do there: look, suggest changes, or edit. */
+export type LinkAccess = "restricted" | "view" | "suggest" | "edit";
 
 /** Someone a board lists as a collaborator, with their email address. Only a board's members see these. */
 export type Member = Person & { email: string };

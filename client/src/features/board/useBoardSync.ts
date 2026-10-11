@@ -59,6 +59,9 @@ export type Phase =
 /** What the board's other events carry, so one meant for the board we left can be told from ours. */
 type ForBoard = { boardId?: string };
 
+/** Whether someone with `role` changes the board itself: viewers only look, and suggesters' changes are suggestions. */
+export const drawsOnBoard = (role: Role) => role !== "viewer" && role !== "suggester";
+
 /** What the sync hook gives the editor: where opening the board has got to, who is here, and how to share a view. */
 export type BoardSync = ReturnType<typeof useBoardSync>;
 
@@ -296,12 +299,12 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     const onRevoked = (payload: BoardMessage) => {
       if (forOther(payload)) return;
       leaveForGood();
-      setPhase({ name: "revoked", wasViewer: roleRef.current === "viewer" });
+      setPhase({ name: "revoked", wasViewer: !drawsOnBoard(roleRef.current) });
     };
     const onRole = (payload: RoleMessage) => {
       if (forOther(payload)) return;
       const nextRole = payload.role;
-      const lostEditing = roleRef.current !== "viewer" && nextRole === "viewer";
+      const lostEditing = drawsOnBoard(roleRef.current) && !drawsOnBoard(nextRole);
       roleRef.current = nextRole;
       setRole(nextRole);
       if (lostEditing) resync.current(); // drop unsent edits and history

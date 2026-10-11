@@ -58,7 +58,7 @@ export async function listBoards(req: Request, res: Response) {
     $or: [
       { owner: req.userId },
       { collaborators: req.userId },
-      { _id: { $in: states.map((state) => state.board) }, linkAccess: { $in: ["view", "edit"] } },
+      { _id: { $in: states.map((state) => state.board) }, linkAccess: { $in: ["view", "suggest", "edit"] } },
     ],
   })
     // Drawings can be megabytes each, so the list carries none: cards ask for their previews (see listPreviews).
