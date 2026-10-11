@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "node --import ./tests/setup.js --test",
     "coverage": "node --import ./tests/setup.js --test --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\"",
-    "typecheck": "tsc -p . && tsc -p tests"
+    "typecheck": "tsc -p . && tsc -p tsconfig.node.json && tsc -p tests"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",
