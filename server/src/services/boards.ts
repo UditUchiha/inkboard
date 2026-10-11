@@ -12,6 +12,8 @@ import { Thread } from "../models/thread.model.ts";
 import type { UserDoc } from "../models/user.model.ts";
 import { getSession } from "../realtime/sessions.ts";
 import { deleteBoardImages } from "./image-storage.ts";
+import { isPassFor } from "./link-pass.ts";
+import type { Keyed } from "./link-pass.ts";
 import { removeVersions, savedVersionBytes } from "./versions.ts";
 
 /** A board as Mongoose returns it from the database. */
@@ -28,10 +30,18 @@ export type Role = Api.Role;
 
 /** Who made a board, who is invited to it and how the link opens it: all that roleOf and isMember read. */
 interface Access {
+  _id?: unknown;
   owner: Ref;
   collaborators: readonly Ref[];
   linkAccess: string;
+  // The link's password, expiry and who gave the password (see board.model.ts). Boards loaded with ACCESS_FIELDS have them.
+  linkKey?: string | null;
+  linkUnlocked?: readonly Ref[];
+  linkExpiresAt?: Date | null;
 }
+
+/** What to select of a board for roleOf. */
+export const ACCESS_FIELDS = "owner collaborators linkAccess linkKey linkUnlocked linkExpiresAt";
 
 /** A person as other people see them: what PERSON_FIELDS selects. */
 export type Person = Pick<UserDoc, "_id" | "name" | "color" | "avatarUrl">;
@@ -97,13 +107,56 @@ export const isMember = (board: Pick<Access, "owner" | "collaborators">, userId:
  * anyone with the link, signed in or not. Null means no access. `userId` is
  * null for guests.
  */
-export function roleOf(board: Access, userId: unknown): Role | null {
+export function roleOf(board: Access, userId: unknown, pass?: unknown): Role | null {
   if (userId && isOwner(board, userId)) return "owner";
   if (userId && isMember(board, userId)) return "editor";
+  if (linkLock(board, userId, pass)) return null;
   if (board.linkAccess === "edit") return "contributor";
   if (board.linkAccess === "suggest") return "suggester";
   if (board.linkAccess === "view") return "viewer";
   return null;
+}
+
+/**
+ * Why the link doesn't open the board for someone who isn't a member: it has expired, or it asks for a password
+ * they haven't given (as a signed-in person, or with the `pass` it got them). Null when the link would open it,
+ * as far as its password and expiry go.
+ */
+export function linkLock(board: Access, userId: unknown, pass?: unknown): Api.LinkLock | null {
+  if (board.linkExpiresAt && board.linkExpiresAt.getTime() <= Date.now()) return "expired";
+  if (!board.linkKey) return null;
+  const unlocked = Boolean(userId) && (board.linkUnlocked ?? []).some((id) => idOf(id) === String(userId));
+  return unlocked || isPassFor(board as Keyed, pass) ? null : "password";
+}
+
+/**
+ * Remembers that someone signed in gave the link's password (or opened it with a pass), so the board stays on their
+ * dashboard and its comments open for them without a pass. Only while the password is still the one in `board`,
+ * and for at most the latest 500 people.
+ */
+export async function rememberUnlock(board: Access, userId: unknown) {
+  if (!userId || !board.linkKey) return;
+  const user = String(userId);
+  await Board.updateOne(
+    { _id: String(board._id), linkKey: board.linkKey, linkUnlocked: { $ne: user } },
+    { $push: { linkUnlocked: { $each: [user], $slice: -500 } } },
+    { timestamps: false },
+  );
+}
+
+const LOCKED: Record<Api.LinkLock, string> = {
+  password: "This board's link asks for a password.",
+  expired: "This link has expired. Ask the board's owner for a new one.",
+};
+
+/** A board whose link asks for a password, or has expired (see linkLock). */
+export class LinkLockedError extends HttpError {
+  declare locked: Api.LinkLock;
+
+  constructor(locked: Api.LinkLock) {
+    super(403, LOCKED[locked]);
+    this.locked = locked;
+  }
 }
 
 export const isMemberRole = (role: Role | null) => role === "owner" || role === "editor";
@@ -134,9 +187,16 @@ export async function findBoardForMember(boardId: ObjectIdLike, userId: unknown,
 }
 
 /** For opening a board: members, plus anyone when the owner shares the link. */
-export async function findBoardForViewing(boardId: ObjectIdLike, userId: unknown, options?: { elements?: boolean }) {
+export async function findBoardForViewing(
+  boardId: ObjectIdLike,
+  userId: unknown,
+  { pass, ...options }: { elements?: boolean; pass?: unknown } = {},
+) {
   const board = await loadBoard(boardId, options);
-  if (!roleOf(board, userId)) {
+  if (!roleOf(board, userId, pass)) {
+    // A link that would open the board but for its password or expiry says so, so the person can do something.
+    const locked = board.linkAccess !== "restricted" && linkLock(board, userId, pass);
+    if (locked) throw new LinkLockedError(locked);
     throw userId
       ? new HttpError(403, "You don't have access to this board. Ask its owner to invite you.")
       : new HttpError(401, "This board is private. Log in to open it.");
@@ -286,20 +346,23 @@ export function serializeMeta(board: BoardMeta, { redact = false }: { redact?: b
     collaborators: redact ? [] : (board.collaborators.filter(Boolean) as Member[]).map(serializeMember),
     // The schema only lets the three through, which Mongoose reads as a string.
     linkAccess: board.linkAccess as Api.LinkAccess,
+    linkPassword: Boolean(board.linkKey),
+    linkExpiresAt: board.linkExpiresAt ?? null,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
   };
 }
 
-// Pass `state` (a BoardState or null) to include this person's own filing, as the dashboard does.
+// Pass `state` (a BoardState or null) to include this person's own filing, as the dashboard does, and `role` when it
+// was worked out with a pass for the link's password (see roleOf).
 export function serializeBoard(
   board: BoardView,
   userId: unknown,
   elements: Element[] = board.elements,
   state: Filing | null | undefined = undefined,
-): Api.BoardDetails & Partial<Api.BoardFiling> {
   // Boards are only serialized for people who were let in, who all have a role, which the type can't see.
-  const role = roleOf(board, userId)!;
+  role: Role = roleOf(board, userId)!,
+): Api.BoardDetails & Partial<Api.BoardFiling> {
   const filing =
     state === undefined ? {} : { lastOpenedAt: state?.lastOpenedAt ?? null, archived: state?.archived ?? false };
   return {

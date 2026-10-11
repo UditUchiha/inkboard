@@ -105,8 +105,20 @@ export interface BoardMeta {
   /** Empty for anyone who isn't a member. */
   collaborators: Member[];
   linkAccess: LinkAccess;
+  /** Whether the link asks for a password (people invited to the board never need it). */
+  linkPassword: boolean;
+  /** When the link stops opening the board, or null if it doesn't. */
+  linkExpiresAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** Why a board's link didn't open it: it asks for a password, or it has expired. */
+export type LinkLock = "password" | "expired";
+
+/** What giving a link's password answers with: the pass that opens the board's link from now on (see JoinPayload). */
+export interface LinkPassReply {
+  pass: string;
 }
 
 /** A board as one person sees it, without its drawing. */

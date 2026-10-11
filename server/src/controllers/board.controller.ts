@@ -1,16 +1,19 @@
 import type * as Api from "@inkboard/shared/api";
 import type { Element } from "@inkboard/shared/types";
+import { LINK_EXPIRY_MAX_MS, LINK_PASSWORD_MAX, LINK_PASSWORD_MIN } from "@inkboard/shared/limits";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
+import { hashPassword, verifyPasswordHash } from "../lib/passwords.ts";
 import { BoardState } from "../models/board-state.model.ts";
 import { Board, LINK_ACCESS } from "../models/board.model.ts";
 import { Notification } from "../models/notification.model.ts";
 import { Template } from "../models/template.model.ts";
 import { User } from "../models/user.model.ts";
 import { sanitizeElements } from "../realtime/operations.ts";
-import { closeBoard, notifyMetaChanged, syncAccess } from "../realtime/index.ts";
+import { closeBoard, notifyMetaChanged, syncAccess, watchLinkExpiry } from "../realtime/index.ts";
 import {
+  ACCESS_FIELDS,
   currentElements,
   destroyBoard,
   drawingBytes,
@@ -18,7 +21,9 @@ import {
   findBoardForViewing,
   idOf,
   isOwner,
+  LinkLockedError,
   populateMembers,
+  rememberUnlock,
   roleOf,
   serializeBoard,
   serializeListed,
@@ -27,6 +32,7 @@ import {
 } from "../services/boards.ts";
 import type { BoardDoc, PopulatedMembers } from "../services/boards.ts";
 import { emailConfigured } from "../services/email.ts";
+import { newLinkKey, passFor } from "../services/link-pass.ts";
 import { deleteImages } from "../services/image-storage.ts";
 import { copyBoardImages } from "../services/images.ts";
 import type { ImageLimit } from "../services/images.ts";
@@ -71,7 +77,10 @@ export async function listBoards(req: Request, res: Response) {
     .populate<PopulatedMembers>(populateMembers);
 
   res.json({
-    boards: boards.map((board) => serializeListed(board, req.userId, stateByBoard.get(board.id) ?? null)),
+    boards: boards
+      // A link that has expired, or whose password changed, no longer opens the board.
+      .filter((board) => roleOf(board, req.userId))
+      .map((board) => serializeListed(board, req.userId, stateByBoard.get(board.id) ?? null)),
   } satisfies Api.BoardListReply);
 }
 
@@ -88,7 +97,7 @@ export async function archiveBoards(
   const { archived } = req.body;
 
   // Only boards this person can open; anything else is skipped rather than failing the batch.
-  const boards = await Board.find({ _id: { $in: ids }, deletedAt: null }).select("owner collaborators linkAccess");
+  const boards = await Board.find({ _id: { $in: ids }, deletedAt: null }).select(ACCESS_FIELDS);
   const allowed = boards.filter((board) => roleOf(board, req.userId)).map((board) => board.id);
 
   if (allowed.length > 0) {
@@ -207,24 +216,88 @@ export async function renameBoard(req: BoardRequest<{ title?: unknown }>, res: R
   res.json({ board: serializeMeta(board) } satisfies Api.BoardMetaReply);
 }
 
-export async function setLinkAccess(req: BoardRequest<{ linkAccess?: unknown }>, res: Response) {
+// The link's password as the owner set it: null to remove it, or text of the allowed length.
+function readLinkPassword(value: unknown) {
+  if (value === null || value === "") return null;
+  if (typeof value !== "string" || value.length < LINK_PASSWORD_MIN || value.length > LINK_PASSWORD_MAX) {
+    throw new HttpError(400, `Use between ${LINK_PASSWORD_MIN} and ${LINK_PASSWORD_MAX} characters for the password.`);
+  }
+  return value;
+}
+
+// When the link should stop working, as the owner set it: null for never, or a moment within the next year.
+function readLinkExpiry(value: unknown) {
+  if (value === null) return null;
+  const at = typeof value === "string" ? new Date(value) : null;
+  if (!at || Number.isNaN(at.getTime())) throw new HttpError(400, "Choose when the link should expire.");
+  if (at.getTime() <= Date.now()) throw new HttpError(400, "Choose a time that hasn't passed yet.");
+  if (at.getTime() > Date.now() + LINK_EXPIRY_MAX_MS) {
+    throw new HttpError(400, "A link can expire at most a year from now.");
+  }
+  return at;
+}
+
+/**
+ * Changes how the link opens the board. Each field sent is changed: `linkAccess` (who can open it and what they
+ * can do), `password` (one it asks for, or null for none) and `expiresAt` (when it stops working, or null for
+ * never). A new password, or none, ends every pass given for the old one, so people opening the board by its
+ * link are asked again; invited people never are.
+ */
+export async function setLinkAccess(
+  req: BoardRequest<{ linkAccess?: unknown; password?: unknown; expiresAt?: unknown }>,
+  res: Response,
+) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!isOwner(board, req.userId)) {
     throw new HttpError(403, "Only the owner can change who can open the link.");
   }
 
-  const { linkAccess } = req.body ?? {};
-  // `includes` only compares, so it doesn't tell the types that a value that passes is one of the strings.
-  if (!LINK_ACCESS.includes(linkAccess as string)) {
-    throw new HttpError(400, `Choose one of: ${LINK_ACCESS.join(", ")}.`);
+  const body = req.body ?? {};
+  if ("linkAccess" in body) {
+    // `includes` only compares, so it doesn't tell the types that a value that passes is one of the strings.
+    if (!LINK_ACCESS.includes(body.linkAccess as string)) {
+      throw new HttpError(400, `Choose one of: ${LINK_ACCESS.join(", ")}.`);
+    }
+    board.linkAccess = body.linkAccess as string;
   }
-
-  board.linkAccess = linkAccess as string;
+  if ("password" in body) {
+    const password = readLinkPassword(body.password);
+    board.linkPassword = password && (await hashPassword(password));
+    board.linkKey = password && newLinkKey();
+    board.set("linkUnlocked", []);
+  }
+  if ("expiresAt" in body) board.linkExpiresAt = readLinkExpiry(body.expiresAt);
   // Sharing isn't editing, so it doesn't move the board up the dashboard.
   await board.save({ timestamps: false });
 
   await syncAccess(board);
+  watchLinkExpiry(board);
   res.json({ board: serializeMeta(board) } satisfies Api.BoardMetaReply);
+}
+
+/**
+ * Checks the password a board's link asks for, and answers with the pass that opens it from now on (see
+ * link-pass.ts). Someone signed in is also remembered, so the board stays on their dashboard. Open to guests.
+ */
+export async function unlockBoard(req: BoardRequest<{ password?: unknown }>, res: Response) {
+  const { boardId } = req.params;
+  const board = mongoose.isValidObjectId(boardId)
+    ? await Board.findOne({ _id: boardId, deletedAt: null }).select(`${ACCESS_FIELDS} +linkPassword`)
+    : null;
+  if (!board || board.linkAccess === "restricted") {
+    throw new HttpError(404, "This board doesn't exist, or its link doesn't open it.");
+  }
+  if (board.linkExpiresAt && board.linkExpiresAt.getTime() <= Date.now()) throw new LinkLockedError("expired");
+  if (!board.linkKey || !board.linkPassword) {
+    res.json({ pass: "" } satisfies Api.LinkPassReply);
+    return;
+  }
+  const password = req.body?.password;
+  const given = typeof password === "string" ? password.slice(0, 200) : "";
+  const { ok } = await verifyPasswordHash(given, board.linkPassword);
+  if (!ok) throw new HttpError(403, "That password isn't right.");
+  await rememberUnlock(board, req.userId);
+  res.json({ pass: passFor(board) } satisfies Api.LinkPassReply);
 }
 
 export async function starBoard(req: BoardRequest<{ starred?: unknown }>, res: Response) {
@@ -289,7 +362,7 @@ export async function listPreviews(req: Request, res: Response) {
   if (ids.length === 0 || ids.length > MAX_PREVIEWS || !ids.every((id) => mongoose.isValidObjectId(id))) {
     throw new HttpError(400, `Ask for between 1 and ${MAX_PREVIEWS} boards.`);
   }
-  const found = await Board.find({ _id: { $in: ids } }).select("owner collaborators linkAccess updatedAt deletedAt");
+  const found = await Board.find({ _id: { $in: ids } }).select(`${ACCESS_FIELDS} updatedAt deletedAt`);
   const boards = found.filter((board) => roleOf(board, req.userId) && (!board.deletedAt || isOwner(board, req.userId)));
   res.json({ previews: Object.fromEntries(await boardPreviews(boards)) } satisfies Api.PreviewsReply);
 }

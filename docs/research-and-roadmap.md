@@ -265,7 +265,7 @@ For each idea, did we find a product that already does it?
 - [ ] **Single instance:** sessions live in one process's memory, so running a second server instance would split boards. Fine for now; note it before scaling.
 - [x] **Version history storage (bounded):** every version is still a full copy of the board, but each board's history now has a 30 MB budget (see the decision log). *Still open:* storing versions compressed, or as deltas from an operation log, would fit far more history in the same space.
 - [x] **Email verification (lighter version):** new accounts get a verification link and work straight away, but invites by email only reach verified addresses, so registering someone else's address no longer gets you their invites. Whoever really owns an address can take it back with "Forgot password". Emails go through Brevo's API (Render's free plan blocks SMTP). *Still open:* sessions are signed tokens that can't be revoked, so resetting a password doesn't log out other devices; adding a token version to the account would fix it.
-- [ ] **Edit links can be abused.** "Anyone with the link can edit" includes anonymous guests, so a leaked link allows vandalism or spam. Today the recovery is version history and the owner switching the link back to restricted. Cheap hardening: a per-connection limit on change operations, a link password or expiry (see the backlog), and notifying the owner when many guests join.
+- [ ] **Edit links can be abused.** "Anyone with the link can edit" includes anonymous guests, so a leaked link allows vandalism or spam. Today the recovery is version history and the owner switching the link back to restricted, and the owner can now put a password or an expiry on the link (2026-10-11). Still cheap to add: a per-connection limit on change operations, and notifying the owner when many guests join.
 - [x] **OAuth verified for real:** Google and GitHub sign-in both worked end to end on the live app (2026-10-08).
 - [ ] **Comment threads and notifications are unbounded per board and per person.** Message length is capped (2,000 characters), but the number of threads and messages is not.
 
@@ -362,7 +362,8 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] **Connectors that stay attached:** arrows and lines attach to the shapes, notes, pictures and text they start or end on, follow them on every screen, and can be reconnected by dragging an end. Connection dots on a hovered shape, straight, curved or elbow routes, arrowheads at one end or both, and labels. The Flowchart and Brainstorm templates use them
 - [x] **Headline differentiator: suggest-mode links** (built 2026-10-11, see [suggest-mode.md](suggest-mode.md)): a share link whose holders' additions, changes and removals become suggestions over the board, which the owner and editors accept or reject; guests can suggest, and the owner is notified
 - [x] Notify collaborators when an owner trashes a board: a notification that leads to the dashboard, taken back if the board is restored
-- [ ] Link password and expiry (S-M); request-access flow (S-M)
+- [x] Link password and expiry: set in the Share dialog; visitors are asked once (signed-in ones are remembered), a new password or an expired link drops the people on the board who came by it, and invited people are never asked
+- [ ] Request-access flow (S-M)
 - [x] "Make a copy" for anyone signed in who can open a board: from the board menu or the dashboard, with its own copies of the pictures (so it survives the original being deleted), and without comments, history, suggestions or people
 - [ ] Reactions and comment pins for link viewers (S-M)
 

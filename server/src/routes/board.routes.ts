@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import {
   addCollaborator,
   archiveBoards,
@@ -17,8 +18,9 @@ import {
   restoreBoard,
   setLinkAccess,
   starBoard,
+  unlockBoard,
 } from "../controllers/board.controller.ts";
-import { requireAuth } from "../middleware/auth.ts";
+import { optionalAuth, requireAuth } from "../middleware/auth.ts";
 import { limitPerUser } from "../middleware/user-limit.ts";
 
 const makingBoards = limitPerUser({
@@ -34,7 +36,22 @@ const inviting = limitPerUser({
   message: "You've sent a lot of invites. Wait a few minutes and try again.",
 });
 
+// Guessing at a link's password: a few wrong tries per network address and board, then a wait.
+const guessingPasswords = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  // A request that is being handled has an address (it's only missing once the connection has closed).
+  keyGenerator: (req) => `${ipKeyGenerator(req.ip!)}:${String(req.params.boardId).toLowerCase()}`,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { error: "Too many wrong passwords. Wait a few minutes and try again." },
+});
+
 const router = Router();
+
+// Giving a link's password is for guests too, so it comes before the routes that need a login.
+router.post("/:boardId/unlock", guessingPasswords, optionalAuth, unlockBoard);
 
 router.use(requireAuth);
 

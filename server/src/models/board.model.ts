@@ -13,6 +13,15 @@ const boardSchema = new mongoose.Schema(
     owner: { type: ObjectId, ref: "User", required: true, index: true },
     collaborators: [{ type: ObjectId, ref: "User", index: true }],
     linkAccess: { type: String, enum: LINK_ACCESS, default: "restricted" },
+    // A password the link asks for (hashed), and a random key that is set with it and changes whenever it does:
+    // the key is the pass people are given for the password, so a new password, or none, ends every pass (see
+    // services/link-pass.ts). The key is never sent to anyone else. Members never need either.
+    linkPassword: { type: String, default: null, select: false },
+    linkKey: { type: String, default: null },
+    // Signed-in people who gave the password, so the board stays on their dashboard. Cleared with the key.
+    linkUnlocked: [{ type: ObjectId, ref: "User" }],
+    // When the link stops opening the board (for anyone but its members), or null.
+    linkExpiresAt: { type: Date, default: null },
     elements: { type: [Mixed], default: [] },
     // Elements removed lately: { id, version, versionNonce, at }. Only needed
     // when the board is opened for editing (see realtime/sessions.ts).

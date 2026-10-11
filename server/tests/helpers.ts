@@ -4,7 +4,7 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { io as connectSocket } from "socket.io-client";
 import type { Socket } from "socket.io-client";
-import type { BoardDetails, PublicUser } from "@inkboard/shared/api";
+import type { BoardDetails, LinkLock, PublicUser } from "@inkboard/shared/api";
 import type {
   ImageLimit,
   OpRefusal,
@@ -67,6 +67,7 @@ export type TestJoinReply = {
   ok: boolean;
   status?: number;
   error?: string;
+  locked?: LinkLock;
   board: BoardDetails;
   removed: RemovedStamp[];
   suggestions: Suggestion[];
@@ -107,7 +108,7 @@ export interface TestClient {
   of(name: string): unknown[];
   last<E extends keyof ServerToClientEvents>(name: E): EventPayload<E> | undefined;
   last(name: string): unknown;
-  join: (boardId: string, options?: { sync?: typeof SYNC_FORMAT }) => Promise<TestJoinReply>;
+  join: (boardId: string, options?: { sync?: typeof SYNC_FORMAT; pass?: string }) => Promise<TestJoinReply>;
   leave: () => void;
   image: (boardId: string, data: unknown, small?: unknown) => Promise<TestImageReply>;
   op: (boardId: string, op: unknown) => Promise<TestOpReply>;
@@ -254,8 +255,9 @@ export async function startServer(): Promise<ServerInstance> {
         events.filter((event) => event.name === name).map((event) => event.payload)) as TestClient["of"],
       last: ((name: string) => client.of(name).at(-1)) as TestClient["last"],
       // `sync`: which merge rules the app says it follows (see SYNC_FORMAT); left out, an older app's.
-      join: (boardId: string, { sync }: { sync?: typeof SYNC_FORMAT } = {}) =>
-        new Promise((resolve) => socket.emit("board:join", { boardId, sync }, resolve)),
+      // `pass`: the pass for the link's password (see link-pass.ts).
+      join: (boardId: string, { sync, pass }: { sync?: typeof SYNC_FORMAT; pass?: string } = {}) =>
+        new Promise((resolve) => socket.emit("board:join", { boardId, sync, pass }, resolve)),
       leave: () => socket.emit("board:leave"),
       image: (boardId: string, data: unknown, small?: unknown) =>
         new Promise((resolve) => socket.emit("board:image", { boardId, data, small }, resolve)),

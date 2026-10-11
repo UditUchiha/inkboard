@@ -23,13 +23,18 @@ import {
   canEdit,
   findBoardForViewing,
   isMemberRole,
+  LinkLockedError,
+  linkLock,
+  populateMembers,
   recordOpen,
+  rememberUnlock,
   roleOf,
   roomLeft,
   serializeBoard,
   serializeMeta,
 } from "../services/boards.ts";
-import type { Role } from "../services/boards.ts";
+import type { PopulatedMembers, Role } from "../services/boards.ts";
+import { Board } from "../models/board.model.ts";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts";
 import { notifySuggestion } from "../services/notifications.ts";
 import type { ImageLimit } from "../services/images.ts";
@@ -102,6 +107,8 @@ export interface SocketData {
   requestedId?: string;
   // What this person may do on the board (see roleOf). Treated as no access until the first join sets it.
   role: Role | null;
+  // The pass for the board's link password the socket joined with, if any (see link-pass.ts).
+  pass?: string;
   // Whether the browser merges changes by the older rules (see prepareOperation).
   legacy?: boolean;
   // What the socket holds of a group sent in several pieces, and the timer that lets go of it (see holdGroup).
@@ -685,7 +692,8 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
   const requestedId = String(payload?.boardId ?? "");
   try {
     const userId = socket.data.user?.id ?? null;
-    const board = await findBoardForViewing(requestedId, userId);
+    const pass = typeof payload?.pass === "string" ? payload.pass.slice(0, 200) : undefined;
+    const board = await findBoardForViewing(requestedId, userId, { pass });
     // The board as the database names it. The id in the request may spell it another way (upper case hex
     // finds it too), and a board must have one session and one room however it was asked for, or two
     // people on it would each save over the other, and events for it would miss those who spelled it differently.
@@ -695,18 +703,22 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     if (socket.data.boardId !== boardId) await leaveBoard(socket);
     // Before the socket is on the board: changes aren't queued behind a join, so one sent for this board
     // while the join still waits (below) would otherwise be checked against the role on the board it left.
-    socket.data.role = roleOf(board, userId);
+    socket.data.role = roleOf(board, userId, pass);
+    socket.data.pass = pass;
     // Browsers still running an older version of the app merge changes by older rules (see prepareOperation).
     socket.data.legacy = payload?.sync !== SYNC_FORMAT;
     const session = await enterBoard(socket, boardId, requestedId);
     await openOwner(session); // looked up now, so it's known by the time they draw
+    watchLinkExpiry(board);
     if (userId) recordOpen(userId, boardId);
+    // Someone who gave the password as a guest and has logged in since: from now on they don't need the pass.
+    if (userId && board.linkKey && !isMemberRole(socket.data.role)) await rememberUnlock(board, userId);
 
     // With the stamps of what was removed lately, so a change to one of those
     // that's still on its way can't bring it back on this screen.
     reply({
       ok: true,
-      board: serializeBoard(board, userId, session.elements),
+      board: serializeBoard(board, userId, session.elements, undefined, socket.data.role!),
       removed: removedStamps(session.tombstones),
       suggestions: suggestionList(session.suggestions),
     });
@@ -718,6 +730,8 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
       ok: false,
       status: (error as Failure).status ?? 500,
       error: (error as Failure).status ? (error as Failure).message : "This board couldn't be opened. Try again.",
+      // A link that asks for a password, or has expired, says which (see LinkLockedError).
+      ...(error instanceof LinkLockedError && { locked: error.locked }),
     });
   }
 }
@@ -792,9 +806,12 @@ export async function syncAccess(board: BoardDetails) {
   if (!io) return;
   let dropped = false;
   for (const socket of socketsIn(board.id)) {
-    const role = roleOf(board, socket.data.user?.id ?? null);
+    const userId = socket.data.user?.id ?? null;
+    const role = roleOf(board, userId, socket.data.pass);
     if (!role) {
-      socket.emit("board:revoked", { boardId: board.id });
+      // Said when it's the link's password or expiry, so the person can give the password or knows why.
+      const locked = (board.linkAccess !== "restricted" && linkLock(board, userId, socket.data.pass)) || undefined;
+      socket.emit("board:revoked", { boardId: board.id, ...(locked && { locked }) });
       socket.leave(board.id);
       socket.data.boardId = null;
       holdGroup(socket, null);
@@ -806,6 +823,38 @@ export async function syncAccess(board: BoardDetails) {
   }
   if (dropped) await handleDeparture(board.id);
   notifyMetaChanged(board);
+}
+
+// Timers that re-check who may be on a board when its link expires, by board id.
+const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+// setTimeout can't wait longer than this; a later expiry is watched once someone joins nearer the time.
+const LONGEST_TIMER_MS = 2 ** 31 - 1;
+
+/**
+ * Drops the people who opened a board by its link when the link expires (see syncAccess), rather than at their
+ * next reconnect. Called whenever the link's expiry is set, and when someone joins the board.
+ */
+export function watchLinkExpiry(board: { id: string; linkExpiresAt?: Date | null }) {
+  clearTimeout(expiryTimers.get(board.id));
+  expiryTimers.delete(board.id);
+  const wait = (board.linkExpiresAt?.getTime() ?? Infinity) - Date.now();
+  if (wait > LONGEST_TIMER_MS) return;
+  const timer = setTimeout(
+    async () => {
+      expiryTimers.delete(board.id);
+      try {
+        const current = await Board.findOne({ _id: board.id, deletedAt: null })
+          .select("-elements")
+          .populate<PopulatedMembers>(populateMembers);
+        if (current) await syncAccess(current);
+      } catch (error) {
+        console.error(`Couldn't close an expired link: ${(error as Error).message}`);
+      }
+    },
+    Math.max(0, wait) + 100,
+  );
+  timer.unref();
+  expiryTimers.set(board.id, timer);
 }
 
 /**

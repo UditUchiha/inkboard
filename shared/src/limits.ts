@@ -30,3 +30,8 @@ export const SUGGESTION_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 // it open. Each keeps a change made before the removal, and arriving after it, from bringing the
 // element back; past this many the oldest are forgotten, so a long session doesn't keep growing.
 export const MAX_REMOVALS_REMEMBERED = 50_000;
+
+// A link's password: how long it may be. And how far ahead a link can be set to expire.
+export const LINK_PASSWORD_MIN = 4;
+export const LINK_PASSWORD_MAX = 100;
+export const LINK_EXPIRY_MAX_MS = 366 * 24 * 3600 * 1000;
