@@ -78,9 +78,9 @@ A browser that reconnects takes the board as the server has it, with its unsent 
 
 ## Tests
 
-- [`shared/tests/board-merge.test.js`](../shared/tests/board-merge.test.js): the rules, including the defining property. Random changes are applied in many orders, and every order must give the same board, stacking order included (500 sets × 6 orders).
-- [`server/tests/convergence.test.js`](../server/tests/convergence.test.js): three real browser stores and the real server rules, adding, dragging, recoloring, removing, undoing and redoing, with messages delivered in random order. Every browser must match the server exactly (400 sessions; 6,000 longer ones were also run while building this).
-- [`server/tests/sync.test.js`](../server/tests/sync.test.js): the same over real sockets, older apps, saved removals and restores.
+- [`shared/tests/board-merge.test.ts`](../shared/tests/board-merge.test.ts): the rules, including the defining property. Random changes are applied in many orders, and every order must give the same board, stacking order included (500 sets × 6 orders).
+- [`server/tests/convergence.test.ts`](../server/tests/convergence.test.ts): three real browser stores and the real server rules, adding, dragging, recoloring, removing, undoing and redoing, with messages delivered in random order. Every browser must match the server exactly (400 sessions; 6,000 longer ones were also run while building this).
+- [`server/tests/sync.test.ts`](../server/tests/sync.test.ts): the same over real sockets, older apps, saved removals and restores.
 
 ## Known limits
 
