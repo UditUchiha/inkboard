@@ -370,7 +370,12 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     return () => viewportListeners.current.delete(listener);
   }, []);
 
-  const requestViewport = useCallback((socketId: string) => socket?.emit("viewport:request", { socketId }), [socket]);
+  const requestViewport = useCallback(
+    (socketId: string) => {
+      socket?.emit("viewport:request", { socketId });
+    },
+    [socket],
+  );
 
   // Throttled, but the last position is always sent, so a pointer that came to rest shows where it stopped.
   const lastCursorAt = useRef(0);

@@ -3,9 +3,10 @@ import type { Element as BoardElement } from "@inkboard/shared/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getGuest } from "../../lib/guest";
-import type { Person } from "../../lib/api";
+import type { BoardMeta } from "../../lib/api";
 import { noCursors } from "./cursors";
 import { createEditorStore } from "./editorStore";
+import type { BoardSync, Peer } from "./useBoardSync";
 
 // A guest's board lives in this browser only (localStorage), so anyone can start
 // drawing without an account and nothing reaches the database. Signing up
@@ -17,9 +18,6 @@ const FULL_WARNING_EVERY_MS = 20_000;
 
 /** A guest's board: its title and its elements. */
 export type Scratch = { title: string; elements: BoardElement[] };
-
-// What is changed about the board's details (only the title is taken); a function gets the details as they are.
-type MetaUpdate = { title?: unknown };
 
 /** The saved scratch board. Anything in it that isn't a valid element is left out, so it can't break drawing. */
 export function readScratch(): Scratch {
@@ -68,7 +66,11 @@ export function clearScratch() {
 }
 
 const NOOP = () => {};
-const NO_PEOPLE: Person[] = [];
+const NO_PEERS: Peer[] = [];
+const CREATED_AT = new Date().toISOString();
+
+/** A scratch board's stand-in for the live sync: a board nobody else is on, plus whether this browser kept the latest changes. */
+export type ScratchSync = BoardSync & { unsaved: boolean };
 
 /**
  * Everything BoardEditor needs for a board that has no server: a store loaded
@@ -138,27 +140,32 @@ export function useScratchBoard() {
     };
   }, [store]);
 
-  const sync = useMemo(() => {
+  const sync = useMemo((): ScratchSync => {
     const guest = getGuest();
+    const meta: BoardMeta = {
+      id: "local",
+      title,
+      owner: { id: guest.id, name: guest.name, color: null, avatarUrl: null },
+      collaborators: [],
+      linkAccess: "restricted",
+      // Never shown for a scratch board; it was made, and last changed, in this browser.
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+    };
     return {
       phase: { name: "ready" },
-      meta: {
-        id: "local",
-        title,
-        owner: { id: guest.id, name: guest.name },
-        collaborators: [],
-        linkAccess: "restricted",
-      },
-      setMeta: (update: MetaUpdate | ((current: { title: string }) => MetaUpdate)) => {
-        const next = typeof update === "function" ? update({ title }) : update;
-        if (typeof next.title !== "string" || next.title === title) return;
+      meta,
+      // Only the title of a scratch board can change.
+      setMeta: (update) => {
+        const next = typeof update === "function" ? update(meta) : update;
+        if (typeof next?.title !== "string" || next.title === title) return;
         titleRef.current = next.title;
         setTitle(next.title);
         live = { title: next.title, elements: store.getElements() };
         setUnsaved(!writeScratch(live));
       },
       role: "owner",
-      peers: NO_PEOPLE,
+      peers: NO_PEERS,
       cursors: noCursors,
       online: true,
       saving: false,
@@ -168,6 +175,7 @@ export function useScratchBoard() {
       subscribeViewport: () => NOOP,
       requestViewport: NOOP,
       socket: null,
+      socketId: undefined,
     };
   }, [title, unsaved, store]);
 
