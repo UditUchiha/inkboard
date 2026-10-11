@@ -13,6 +13,7 @@ import {
 import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/board-order";
 import { cleanElement, isValidId, withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT } from "@inkboard/shared/limits";
+import type { PieceGroup } from "@inkboard/shared/socket";
 import type { Element, FieldGroup, MaybeStamped, Removal, Stamp, Tombstones } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 
@@ -75,13 +76,6 @@ export const isOversized = (op: RawOperation | null | undefined) =>
 // whole or not at all: a piece that is refused takes the whole group with it.
 export const MAX_GROUP_PIECES = 40;
 export const MAX_GROUP_BYTES = 16_000_000;
-
-/** The label on a piece of a change sent in several: its group's id, its place in the group, and how many pieces there are. */
-export interface PieceGroup {
-  id: string;
-  index: number;
-  total: number;
-}
 
 /** What a connection has of a group so far: the pieces that came, joined in order, and their size in JSON. */
 export interface HeldGroup {

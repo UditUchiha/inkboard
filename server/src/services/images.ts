@@ -1,5 +1,6 @@
 import type { Element } from "@inkboard/shared/types";
 import { IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, IMAGE_SMALL_MAX_BYTES, IMAGE_SMALL_MAX_SIDE } from "@inkboard/shared/limits";
+import type { ImageLimit } from "@inkboard/shared/socket";
 import mongoose from "mongoose";
 import { keyedQueue } from "../lib/keyed-queue.ts";
 import { Board } from "../models/board.model.ts";
@@ -168,8 +169,8 @@ function warnIfNearlyFull(total: number) {
   console.warn(`Image storage is ${Math.round((total / IMAGE_LIMITS.total) * 100)}% full.`);
 }
 
-/** The space limits an upload can break: a board's own, its owner's, or the whole app's. */
-export type ImageLimit = "board" | "owner" | "total";
+// The space limits an upload can break are declared with the replies that name them (see ImageReply).
+export type { ImageLimit };
 
 // Which limit, if any, `bytes` more would break.
 async function limitBroken(

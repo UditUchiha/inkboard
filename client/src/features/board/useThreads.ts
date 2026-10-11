@@ -1,7 +1,8 @@
+import type { ThreadRemoval } from "@inkboard/shared/socket";
 import { useCallback, useEffect, useState } from "react";
-import type { Socket } from "socket.io-client";
 import { api } from "../../lib/api";
 import type { Thread } from "../../lib/api";
+import type { AppSocket } from "../../providers/SocketProvider";
 import type { XY } from "./geometry";
 
 /** What someone writes: the text, and the ids of the people they mentioned in it. */
@@ -11,7 +12,7 @@ const sortThreads = (list: Thread[]) =>
   [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
 /** What useThreads takes: the board, the connection that keeps threads current, and whether to have any. */
-type ThreadsOptions = { boardId: string; socket: Socket | null; enabled: boolean };
+type ThreadsOptions = { boardId: string; socket: AppSocket | null; enabled: boolean };
 
 /**
  * A board's comment threads: loaded once, then kept current by the socket.
@@ -35,7 +36,7 @@ export function useThreads({ boardId, socket, enabled }: ThreadsOptions) {
         .catch(() => {}); // Pins just don't show; the board still works.
     load();
 
-    const onDelete = ({ id }: { id: string }) => setThreads((list) => list.filter((item) => item.id !== id));
+    const onDelete = ({ id }: ThreadRemoval) => setThreads((list) => list.filter((item) => item.id !== id));
     // Comments made while we were disconnected arrive with a reload.
     socket?.on("connect", load);
     socket?.on("thread:upsert", upsert);

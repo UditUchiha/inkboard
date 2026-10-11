@@ -10,6 +10,7 @@
     "./board-order": "./src/board-order.ts",
     "./element-rules": "./src/element-rules.ts",
     "./limits": "./src/limits.ts",
+    "./socket": "./src/socket.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {
