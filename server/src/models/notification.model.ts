@@ -2,13 +2,15 @@ import mongoose from "mongoose";
 
 const { ObjectId } = mongoose.Schema.Types;
 
-export const NOTIFICATION_TYPES = ["mention", "reply", "invite"];
+export const NOTIFICATION_TYPES = ["mention", "reply", "invite", "suggestion"];
 
 const notificationSchema = new mongoose.Schema(
   {
     user: { type: ObjectId, ref: "User", required: true },
     type: { type: String, enum: NOTIFICATION_TYPES, required: true },
-    actor: { type: ObjectId, ref: "User", required: true },
+    // Who did it. Someone suggesting changes can be a guest, who has no account: then only their name is kept.
+    actor: { type: ObjectId, ref: "User", default: null },
+    actorName: { type: String, maxlength: 40, default: null },
     board: { type: ObjectId, ref: "Board", required: true, index: true },
     thread: { type: ObjectId, default: null, index: true },
     excerpt: { type: String, maxlength: 140, default: null },

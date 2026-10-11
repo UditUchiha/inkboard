@@ -1,5 +1,7 @@
 import type { NotificationItem, NotificationType } from "@inkboard/shared/api";
+import type { Participant } from "@inkboard/shared/socket";
 import type { Types } from "mongoose";
+import { Board } from "../models/board.model.ts";
 import { Notification } from "../models/notification.model.ts";
 import { notifyUser } from "../realtime/index.ts";
 import { idOf, serializePerson } from "./boards.ts";
@@ -14,16 +16,16 @@ interface Links {
   board: NotifiedBoard;
 }
 
-/** The same as a notification holds them: looked up (populated), or only their ids. */
+/** The same as a notification holds them: looked up (populated), or only their ids. A guest is no one (null). */
 interface Held {
-  actor: Person | Types.ObjectId;
+  actor?: Person | Types.ObjectId | null;
   board: NotifiedBoard | Types.ObjectId;
 }
 
 /** What serializeNotification reads of a notification itself. */
 type NotificationRow = Pick<
   InstanceType<typeof Notification>,
-  "id" | "type" | "read" | "createdAt" | "excerpt" | "thread"
+  "id" | "type" | "read" | "createdAt" | "excerpt" | "thread" | "actorName"
 >;
 
 // A notification holds its actor and board as ids, or as the people and boards themselves once populated. The
@@ -34,17 +36,48 @@ export function serializeNotification(
 ): NotificationItem {
   return {
     id: notification.id,
-    // The schema only lets the three kinds through, which Mongoose reads as a string.
+    // The schema only lets the kinds there are through, which Mongoose reads as a string.
     type: notification.type as NotificationType,
     read: notification.read,
     createdAt: notification.createdAt,
     // The schema fills in null when there is no excerpt, which the type can't see.
     excerpt: notification.excerpt as string | null,
     thread: notification.thread ? String(notification.thread) : null,
-    // Without them, a notification that is read back has been populated, which the type can't know.
-    actor: serializePerson(actor as Person),
+    // Without them, a notification that is read back has been populated, which the type can't know. A guest
+    // (someone suggesting changes without an account) is known only by the name they went by.
+    actor: actor
+      ? serializePerson(actor as Person)
+      : { id: "guest", name: notification.actorName ?? "Someone", color: null, avatarUrl: null },
     board: { id: idOf(board), title: (board as NotifiedBoard).title },
   };
+}
+
+/**
+ * Tells a board's owner that `author` suggested changes on it (see docs/suggest-mode.md). While an earlier
+ * notification about suggestions on the board is still unread, they aren't sent another, whoever suggests.
+ */
+export async function notifySuggestion(boardId: string, author: Participant) {
+  const board = await Board.findById(boardId).select("title owner").lean();
+  if (!board || (!author.guest && author.userId === String(board.owner))) return;
+  const waiting = await Notification.exists({ user: board.owner, type: "suggestion", board: board._id, read: false });
+  if (waiting) return;
+  const notification = await Notification.create({
+    user: board.owner,
+    type: "suggestion",
+    actor: author.guest ? null : author.userId,
+    actorName: author.name,
+    board: board._id,
+  });
+  // A signed-in author as a person (the notification holds only their id); a guest as no one.
+  const actor = author.guest
+    ? null
+    : ({
+        _id: author.userId,
+        name: author.name,
+        color: author.color,
+        avatarUrl: author.avatarUrl,
+      } as unknown as Person);
+  notifyUser(String(board.owner), serializeNotification(notification, { actor, board }));
 }
 
 const EXCERPT_LENGTH = 140;

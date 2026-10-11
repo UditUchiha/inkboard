@@ -30,8 +30,8 @@ export async function listNotifications(req: Request, res: Response) {
   const page = found.slice(0, PAGE_SIZE);
   const more = found.length > PAGE_SIZE;
   res.json({
-    // Skip notifications about people who are gone.
-    notifications: page.filter((n) => n.actor).map((n) => serializeNotification(n)),
+    // Skip notifications about people who are gone. (A suggestion's maker can be a guest, who has no account.)
+    notifications: page.filter((n) => n.actor || n.actorName).map((n) => serializeNotification(n)),
     more,
     // Where the next page starts (pass it as `before`): the oldest notification looked at, shown or
     // skipped, so a page whose every notification was skipped still moves on. Null on the last page.

@@ -31,6 +31,7 @@ import {
 } from "../services/boards.ts";
 import type { Role } from "../services/boards.ts";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts";
+import { notifySuggestion } from "../services/notifications.ts";
 import type { ImageLimit } from "../services/images.ts";
 import { effectOf, planOperation } from "@inkboard/shared/board-merge";
 import {
@@ -453,6 +454,10 @@ function announceSettled(session: Session, { accepted, gone }: { accepted: strin
   if (accepted.length + gone.length > 0) markSuggestionsDirty(session);
 }
 
+// When each open board's owner was last looked into telling about new suggestions (see notifySuggestion).
+const suggestionsNoted = new WeakMap<Session, number>();
+const SUGGESTION_NOTICE_MS = 60_000;
+
 const SUGGESTION_FORBIDDEN = { ok: false, reason: "forbidden" } as const;
 const SUGGESTION_INVALID = { ok: false, reason: "invalid" } as const;
 
@@ -620,6 +625,12 @@ function handleConnection(socket: RealtimeSocket) {
       socket.to(boardId).emit("suggestion:delete", { boardId, ids: result.withdrawn, outcome: "withdrawn" });
     }
     if (result.stored.length + result.withdrawn.length > 0) markSuggestionsDirty(session);
+    // A new suggestion (not one changed again) lets the owner know, looked into at most once a minute per open board.
+    const made = result.stored.some((suggestion) => suggestion.createdAt === suggestion.updatedAt);
+    if (made && Date.now() - (suggestionsNoted.get(session) ?? 0) > SUGGESTION_NOTICE_MS) {
+      suggestionsNoted.set(session, Date.now());
+      notifySuggestion(boardId, personOf(socket)).catch((error: unknown) => console.error(error));
+    }
     reply({
       ok: true,
       suggestions: result.stored,
