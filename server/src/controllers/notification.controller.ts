@@ -1,3 +1,4 @@
+import type { NotificationPage } from "@inkboard/shared/api";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { Board } from "../models/board.model.ts";
@@ -37,7 +38,7 @@ export async function listNotifications(req: Request, res: Response) {
     // `more` is only true when the page has notifications in it.
     next: more ? page.at(-1)!.id : null,
     unread,
-  });
+  } satisfies NotificationPage);
 }
 
 /** Marks the given notifications as read, or all of them when no ids are sent. */

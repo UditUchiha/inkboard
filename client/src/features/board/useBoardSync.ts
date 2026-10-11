@@ -1,7 +1,7 @@
 import type { Element as BoardElement, Effect, Stamp } from "@inkboard/shared/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import type { LinkAccess, Person } from "../../lib/api";
+import type { BoardMeta, Role } from "../../lib/api";
 import { useSocket } from "../../providers/SocketProvider";
 import { SYNC_FORMAT } from "./constants";
 import { createCursorStore } from "./cursors";
@@ -28,23 +28,6 @@ const REFUSED: Record<string, string> = {
 // The shapes below are the ones the server declares for its socket events (ClientToServerEvents and
 // ServerToClientEvents in server/src/realtime/index.ts), as far as the browser reads them. They are written out
 // here because the browser doesn't import server code.
-
-/** What a person may do on a board: "owner" and "editor" can draw, "contributor" is a guest on an edit link. */
-export type Role = "owner" | "editor" | "contributor" | "viewer";
-
-/** Someone on the board or listed on it. Only the board's members come with an email address. */
-export type Member = Person & { email?: string };
-
-/** A board's details: what the server sends when joining (without the drawing) and again when they change. */
-export type BoardMeta = {
-  id: string;
-  title: string;
-  owner: Member;
-  collaborators: Member[];
-  linkAccess: LinkAccess;
-  createdAt: string;
-  updatedAt: string;
-};
 
 /** A tombstone as the server tells of it when a board is opened. */
 export type RemovedStamp = Stamp & { id: string };

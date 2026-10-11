@@ -6,31 +6,13 @@ import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { Button, IconButton } from "../../components/Button";
 import { api } from "../../lib/api";
-import type { ApiError, Person } from "../../lib/api";
+import type { ApiError, Version, VersionKind } from "../../lib/api";
 import { timeAgo } from "../../lib/format";
 import { useMinute } from "../../lib/useMinute";
 import { useSocket } from "../../providers/SocketProvider";
 import { BoardPreview } from "./BoardPreview";
 
 const REFRESH_MS = 30_000;
-
-/** How a version came about: saved by itself, named by someone, or saved just before a restore. */
-export type VersionKind = "auto" | "named" | "restore";
-
-/** A saved version of a board as the history lists it (see serializeVersion on the server), without its drawing. */
-export type Version = {
-  id: string;
-  kind: VersionKind;
-  label: string;
-  author: Person | null;
-  elementCount: number;
-  createdAt: string;
-};
-
-// What the version requests answer with. They don't say yet, so these describe their answers.
-type VersionList = { versions: Version[] };
-type VersionReply = { version: Version };
-type FullVersionReply = { version: Version & { elements: BoardElement[] } };
 
 const KIND_LABELS: Record<VersionKind, string> = {
   auto: "Autosaved",
@@ -84,7 +66,8 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
     setElements(null);
     setFailed(false);
     let active = true;
-    (api.getVersion(boardId, version.id) as Promise<FullVersionReply>)
+    api
+      .getVersion(boardId, version.id)
       .then(({ version: full }) => active && setElements(full.elements))
       .catch((error: ApiError) => {
         if (!active) return;
@@ -198,7 +181,7 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
   const load = useCallback(
     async ({ quiet = false }: { quiet?: boolean } = {}) => {
       try {
-        const { versions: list } = (await api.listVersions(boardId)) as VersionList;
+        const { versions: list } = await api.listVersions(boardId);
         setVersions(list);
       } catch (error) {
         if (quiet) return; // keep what is shown; the next refresh tries again
@@ -232,7 +215,7 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
     event.preventDefault();
     setSaving(true);
     try {
-      const { version } = (await api.saveVersion(boardId, label)) as VersionReply;
+      const { version } = await api.saveVersion(boardId, label);
       setVersions((list) => [version, ...(list ?? [])]);
       setSelectedId(version.id);
       setLabel("");

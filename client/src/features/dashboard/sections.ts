@@ -1,34 +1,22 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
 import { Archive, Eye, LayoutGrid, PenLine, Pencil, Star, Trash2, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { Person } from "../../lib/api";
+import type { BoardFiling, ListedBoard, Role, TrashedBoard } from "../../lib/api";
 
 export const TRASH_DAYS = 30;
 
-/** What a person can do on a board. */
-export type BoardRole = "owner" | "editor" | "contributor" | "viewer";
-
 /**
- * A board as the dashboard lists it (the fields it reads): without its elements, with a preview once one has
- * been fetched. Dates are the ISO strings the server sends.
+ * A board on the dashboard, from either list: a listed board has this person's own filing of it (see BoardFiling),
+ * and a board in the trash has the dates it was deleted and will be erased on instead. The dashboard shows both the
+ * same way, so each list's extra fields are optional here. A board has no elements, but gets a preview once one has
+ * been fetched.
  */
-export type BoardSummary = {
-  id: string;
-  title: string;
-  role: BoardRole;
-  owner: Person;
-  collaborators: Person[];
-  starred: boolean;
-  /** This person's own filing of the board; missing on the trash list. */
-  archived?: boolean;
-  lastOpenedAt?: string | null;
-  updatedAt: string;
-  /** What to draw on the card, once it has been fetched. */
-  preview?: BoardElement[];
-  /** Only on a board in the trash: when it was deleted and when it will be erased for good. */
-  deletedAt?: string;
-  purgeAt?: string;
-};
+export type BoardSummary = Omit<ListedBoard, keyof BoardFiling> &
+  Partial<BoardFiling> &
+  Partial<Pick<TrashedBoard, "deletedAt" | "purgeAt">> & {
+    /** What to draw on the card, once it has been fetched. */
+    preview?: BoardElement[];
+  };
 
 export type SectionId = "all" | "yours" | "shared" | "starred" | "archived" | "trash";
 
@@ -114,7 +102,7 @@ export const SECTIONS: Section[] = [
 type RoleInfo = { label: string; icon: LucideIcon; viaLink: boolean };
 
 // What a person can do on a board. Link roles are for people who aren't invited.
-export const ROLES: Record<BoardRole, RoleInfo> = {
+export const ROLES: Record<Role, RoleInfo> = {
   owner: { label: "Owner", icon: PenLine, viaLink: false },
   editor: { label: "Can edit", icon: Pencil, viaLink: false },
   contributor: { label: "Can edit (link)", icon: Pencil, viaLink: true },

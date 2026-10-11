@@ -1,3 +1,4 @@
+import type { PreviewElement } from "@inkboard/shared/api";
 import type { Element, Fields, PenElement, Point } from "@inkboard/shared/types";
 import type { Types } from "mongoose";
 import { Board } from "../models/board.model.ts";
@@ -29,8 +30,7 @@ interface Box {
 // What extent reads of an element: whichever of these it has (a stroke has points, other kinds corners).
 type Located = { points?: Point[]; x1?: number; y1?: number; x2?: number; y2?: number } | null | undefined;
 
-/** An element as a thumbnail draws it (see previewElements). */
-export type PreviewElement = Fields;
+export type { PreviewElement };
 
 const round = (value: number, places: number) => Math.round(value * 10 ** places) / 10 ** places;
 
@@ -147,10 +147,11 @@ export function previewElements(elements: Element[]): PreviewElement[] {
       .slice(0, MAX_PREVIEW_ELEMENTS)
       .sort((a, b) => a.index - b.index);
   }
-  // slim only drops stamps and shortens text, so a stroke is still a stroke afterwards, which its loose type can't say.
+  // slim only drops stamps and shortens text, so a stroke is still a stroke afterwards, and every element is still the
+  // same kind of element, which its loose type can't say.
   return kept.map(({ element }) =>
     element.type === "pen" ? previewStroke(slim(element) as PenElement, tolerance) : slim(element),
-  );
+  ) as PreviewElement[];
 }
 
 // Previews of saved boards, kept until the board changes (every save moves

@@ -13,8 +13,9 @@ import {
   X,
 } from "lucide-react";
 import { Menu, MenuItem, MenuSeparator } from "../../components/Menu";
+import type { Role } from "../../lib/api";
 import { isMember, ROLES } from "./sections";
-import type { BoardRole, BoardSummary } from "./sections";
+import type { BoardSummary } from "./sections";
 
 /** What the dashboard can do to boards; the menus, cards and rows call these. */
 export type BoardActions = {
@@ -29,7 +30,7 @@ export type BoardActions = {
   forget: (board: BoardSummary) => void;
 };
 
-export function RoleBadge({ role, className }: { role: BoardRole; className?: string }) {
+export function RoleBadge({ role, className }: { role: Role; className?: string }) {
   const { label, icon: Icon, viaLink } = ROLES[role] ?? ROLES.viewer;
   return (
     <span

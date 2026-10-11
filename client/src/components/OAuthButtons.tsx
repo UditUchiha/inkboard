@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import { API_URL } from "../config";
 import { toast } from "sonner";
 import { api } from "../lib/api";
+import type { AuthProviderInfo } from "../lib/api";
 import { startSignIn } from "../lib/signIn";
 import { buttonClass } from "./Button";
 
@@ -38,12 +39,6 @@ export const PROVIDER_ICONS: Record<string, ComponentType<IconProps> | undefined
   github: GitHubIcon,
 };
 
-/** A sign-in provider the server has set up. */
-export type AuthProviderInfo = { id: string; label: string };
-
-/** What the server answers when asked how people can sign in. */
-type ProvidersResponse = { providers: AuthProviderInfo[]; email?: boolean };
-
 type AuthOptions = { providers: AuthProviderInfo[]; email: boolean };
 
 // The list rarely changes, so it's fetched once per page load.
@@ -55,8 +50,7 @@ function useAuthOptions() {
   const [options, setOptions] = useState<AuthOptions>({ providers: [], email: false });
   useEffect(() => {
     let active = true;
-    // listProviders doesn't say what it answers with yet, so its answer is described here.
-    providersRequest ??= (api.listProviders() as Promise<ProvidersResponse>).then(
+    providersRequest ??= api.listProviders().then(
       (data) => ({ providers: data.providers, email: Boolean(data.email) }),
       () => {
         providersRequest = null;

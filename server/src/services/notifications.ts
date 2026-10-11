@@ -1,3 +1,4 @@
+import type { NotificationItem, NotificationType } from "@inkboard/shared/api";
 import type { Types } from "mongoose";
 import { Notification } from "../models/notification.model.ts";
 import { notifyUser } from "../realtime/index.ts";
@@ -25,30 +26,20 @@ type NotificationRow = Pick<
   "id" | "type" | "read" | "createdAt" | "excerpt" | "thread"
 >;
 
-/** A notification as it is sent to the browser. */
-export interface SerializedNotification {
-  id: string;
-  type: string;
-  read: boolean;
-  createdAt: Date;
-  excerpt?: string | null;
-  thread: string | null;
-  actor: ReturnType<typeof serializePerson>;
-  board: { id: string; title: string };
-}
-
 // A notification holds its actor and board as ids, or as the people and boards themselves once populated. The
 // ones in the second argument are used when given, as for a notification just created (see notify), and otherwise the populated ones.
 export function serializeNotification(
   notification: NotificationRow & Held,
   { actor = notification.actor, board = notification.board }: Partial<Held> = {},
-): SerializedNotification {
+): NotificationItem {
   return {
     id: notification.id,
-    type: notification.type,
+    // The schema only lets the three kinds through, which Mongoose reads as a string.
+    type: notification.type as NotificationType,
     read: notification.read,
     createdAt: notification.createdAt,
-    excerpt: notification.excerpt,
+    // The schema fills in null when there is no excerpt, which the type can't see.
+    excerpt: notification.excerpt as string | null,
     thread: notification.thread ? String(notification.thread) : null,
     // Without them, a notification that is read back has been populated, which the type can't know.
     actor: serializePerson(actor as Person),

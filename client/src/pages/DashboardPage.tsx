@@ -363,8 +363,7 @@ export default function DashboardPage() {
   async function createBoard(input: CreateBoardInput = {}) {
     setCreating(true);
     try {
-      // createBoard doesn't say what it answers with yet; the page reads the new board's id.
-      const { board } = (await api.createBoard(input)) as { board: { id: string } };
+      const { board } = await api.createBoard(input);
       navigate(`/board/${board.id}`);
     } catch (error) {
       // api calls reject with an ApiError.

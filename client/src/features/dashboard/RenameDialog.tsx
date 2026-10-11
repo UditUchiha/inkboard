@@ -31,9 +31,8 @@ export function RenameDialog({ board, onClose, onRenamed }: RenameDialogProps) {
     event.preventDefault();
     setSaving(true);
     try {
-      // The form can only be sent while the dialog is open, which is while there is a board. renameBoard doesn't
-      // say what it answers with yet.
-      const { board: updated } = (await api.renameBoard(board!.id, title)) as { board: RenamedBoard };
+      // The form can only be sent while the dialog is open, which is while there is a board.
+      const { board: updated } = await api.renameBoard(board!.id, title);
       onRenamed(updated);
       onClose();
     } catch (renameError) {

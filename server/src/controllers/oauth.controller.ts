@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { LinkTicketReply, ProvidersReply, Session, UserReply } from "@inkboard/shared/api";
 import type { CookieOptions, Request, Response } from "express";
 import { env } from "../config/env.ts";
 import { apiUrlFor, clientUrlFor } from "../lib/app-url.ts";
@@ -299,7 +300,7 @@ export function listProviders(req: Request, res: Response) {
     providers: enabledProviders().map((name) => ({ id: name, label: PROVIDERS[name].label })),
     // Whether email verification and password reset are on (see services/email.ts).
     email: emailConfigured(),
-  });
+  } satisfies ProvidersReply);
 }
 
 /**
@@ -316,7 +317,7 @@ export async function createLinkTicket(req: Request, res: Response) {
   const bind = randomBytes(24).toString("base64url");
   const claims = { sub: req.userId, provider: name, bind: hashOf(bind) };
   const ticket = signPurposeToken(OAUTH_LINK, claims, LINK_TTL_SECONDS);
-  res.json({ url: `/api/auth/oauth/${name}?link=${encodeURIComponent(ticket)}`, bind });
+  res.json({ url: `/api/auth/oauth/${name}?link=${encodeURIComponent(ticket)}`, bind } satisfies LinkTicketReply);
 }
 
 export function startOAuth(req: Request, res: Response) {
@@ -427,7 +428,7 @@ export async function exchangeLoginCode(
   if (!spendLoginCode(note.jti, note.exp)) throw new HttpError(400, "That sign-in was already used. Try again.");
   const user = await User.findById(note.sub);
   if (!user) throw new HttpError(401, "This account no longer exists.");
-  res.json({ token: signToken(user), user: user.toAccount() });
+  res.json({ token: signToken(user), user: user.toAccount() } satisfies Session);
 }
 
 // Another account got there first (a sign-up or connect that ran at the same moment).
@@ -526,7 +527,7 @@ export async function confirmLink(
     throw new HttpError(status, message);
   }
   await refreshUser(user);
-  res.json({ user: user.toAccount() });
+  res.json({ user: user.toAccount() } satisfies UserReply);
 }
 
 /** Disconnects a provider, as long as the account keeps another way to sign in. */
@@ -544,5 +545,5 @@ export async function disconnectProvider(req: Request, res: Response) {
   }
   user[`${name}Id`] = undefined;
   await user.save();
-  res.json({ user: user.toAccount() });
+  res.json({ user: user.toAccount() } satisfies UserReply);
 }

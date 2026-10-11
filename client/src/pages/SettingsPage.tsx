@@ -394,8 +394,8 @@ export default function SettingsPage() {
       toast.error(signInErrorMessage("link-expired", provider));
       return;
     }
-    // confirmProviderLink doesn't say what it answers with yet: the account, with the provider now connected.
-    (api.confirmProviderLink(provider, { connect, bind }) as Promise<{ user: AccountUser }>)
+    api
+      .confirmProviderLink(provider, { connect, bind })
       .then(({ user: fresh }) => {
         updateUser(fresh);
         toast.success(`${providerLabel(provider)} connected`);

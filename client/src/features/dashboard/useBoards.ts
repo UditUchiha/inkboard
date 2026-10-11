@@ -4,9 +4,6 @@ import { api } from "../../lib/api";
 import type { ApiError } from "../../lib/api";
 import type { BoardSummary } from "./sections";
 
-/** What the board list requests answer with. */
-type BoardList = { boards: BoardSummary[] };
-
 // Previews are asked for this many boards at a time (the server's limit).
 const PREVIEW_BATCH = 24;
 
@@ -45,11 +42,7 @@ export function useBoards() {
   };
 
   const refresh = useCallback(async () => {
-    // Neither list request says what it answers with yet, so their answers are described here.
-    const [{ boards: list }, { boards: trashed }] = (await Promise.all([api.listBoards(), api.listTrash()])) as [
-      BoardList,
-      BoardList,
-    ];
+    const [{ boards: list }, { boards: trashed }] = await Promise.all([api.listBoards(), api.listTrash()]);
     setBoards(list.map(withKnownPreview));
     setTrash(trashed.map(withKnownPreview));
   }, []);
@@ -79,10 +72,7 @@ export function useBoards() {
     for (let start = 0; start < todo.length; start += PREVIEW_BATCH) {
       const batch = todo.slice(start, start + PREVIEW_BATCH);
       try {
-        // boardPreviews doesn't say what it answers with yet either.
-        const { previews: found } = (await api.boardPreviews(batch.map((board) => board.id))) as {
-          previews: Record<string, BoardElement[]>;
-        };
+        const { previews: found } = await api.boardPreviews(batch.map((board) => board.id));
         // A board the server sent nothing for (gone, or no longer open to this person) just draws as empty.
         const byKey = new Map(batch.map((board) => [previewKey(board), found[board.id] ?? []]));
         for (const board of batch) {

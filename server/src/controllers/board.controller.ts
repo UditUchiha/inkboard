@@ -1,3 +1,4 @@
+import type * as Api from "@inkboard/shared/api";
 import type { Element } from "@inkboard/shared/types";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
@@ -65,7 +66,9 @@ export async function listBoards(req: Request, res: Response) {
     .sort({ updatedAt: -1 })
     .populate<PopulatedMembers>(populateMembers);
 
-  res.json({ boards: boards.map((board) => serializeListed(board, req.userId, stateByBoard.get(board.id) ?? null)) });
+  res.json({
+    boards: boards.map((board) => serializeListed(board, req.userId, stateByBoard.get(board.id) ?? null)),
+  } satisfies Api.BoardListReply);
 }
 
 // Archive or unarchive several boards at once, for this person only.
@@ -91,7 +94,7 @@ export async function archiveBoards(
       })),
     );
   }
-  res.json({ ids: allowed, archived });
+  res.json({ ids: allowed, archived } satisfies Api.ArchiveReply);
 }
 
 // Drops a board from this person's dashboard. For a board shared by link that means
@@ -132,12 +135,14 @@ export async function createBoard(
   );
   await board.populate(populateMembers);
   // `populate` fills in the owner and collaborators on the board itself, which the types can't see.
-  res.status(201).json({ board: serializeBoard(board as typeof board & PopulatedMembers, req.userId) });
+  res
+    .status(201)
+    .json({ board: serializeBoard(board as typeof board & PopulatedMembers, req.userId) } satisfies Api.BoardReply);
 }
 
 export async function getBoard(req: BoardRequest, res: Response) {
   const board = await findBoardForViewing(req.params.boardId, req.userId);
-  res.json({ board: serializeBoard(board, req.userId, await currentElements(board.id)) });
+  res.json({ board: serializeBoard(board, req.userId, await currentElements(board.id)) } satisfies Api.BoardReply);
 }
 
 export async function renameBoard(req: BoardRequest<{ title?: unknown }>, res: Response) {
@@ -149,7 +154,7 @@ export async function renameBoard(req: BoardRequest<{ title?: unknown }>, res: R
   await board.save();
 
   notifyMetaChanged(board);
-  res.json({ board: serializeMeta(board) });
+  res.json({ board: serializeMeta(board) } satisfies Api.BoardMetaReply);
 }
 
 export async function setLinkAccess(req: BoardRequest<{ linkAccess?: unknown }>, res: Response) {
@@ -169,7 +174,7 @@ export async function setLinkAccess(req: BoardRequest<{ linkAccess?: unknown }>,
   await board.save({ timestamps: false });
 
   await syncAccess(board);
-  res.json({ board: serializeMeta(board) });
+  res.json({ board: serializeMeta(board) } satisfies Api.BoardMetaReply);
 }
 
 export async function starBoard(req: BoardRequest<{ starred?: unknown }>, res: Response) {
@@ -182,7 +187,7 @@ export async function starBoard(req: BoardRequest<{ starred?: unknown }>, res: R
     starred ? { $addToSet: { starredBy: req.userId } } : { $pull: { starredBy: req.userId } },
     { timestamps: false },
   );
-  res.json({ starred });
+  res.json({ starred } satisfies Api.StarReply);
 }
 
 /** Moves a board to the trash. Everyone loses access until the owner restores it. */
@@ -201,10 +206,10 @@ export async function deleteBoard(req: BoardRequest, res: Response) {
 const serializeTrashed = (
   board: Parameters<typeof serializeListed>[0] & Pick<BoardDoc, "deletedAt">,
   userId: unknown,
-) => ({
+): Api.TrashedBoard => ({
   ...serializeListed(board, userId),
-  deletedAt: board.deletedAt,
   // listTrash only finds boards that have been trashed, which the types can't see.
+  deletedAt: board.deletedAt!,
   purgeAt: new Date(board.deletedAt!.getTime() + TRASH_DAYS * DAY_MS),
 });
 
@@ -214,7 +219,7 @@ export async function listTrash(req: Request, res: Response) {
     .select("-elements")
     .sort({ deletedAt: -1 })
     .populate<PopulatedMembers>(populateMembers);
-  res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId)) });
+  res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId)) } satisfies Api.TrashListReply);
 }
 
 const MAX_PREVIEWS = 24;
@@ -232,7 +237,7 @@ export async function listPreviews(req: Request, res: Response) {
   }
   const found = await Board.find({ _id: { $in: ids } }).select("owner collaborators linkAccess updatedAt deletedAt");
   const boards = found.filter((board) => roleOf(board, req.userId) && (!board.deletedAt || isOwner(board, req.userId)));
-  res.json({ previews: Object.fromEntries(await boardPreviews(boards)) });
+  res.json({ previews: Object.fromEntries(await boardPreviews(boards)) } satisfies Api.PreviewsReply);
 }
 
 async function findTrashed(boardId: string, userId: string | undefined) {
@@ -260,7 +265,7 @@ export async function restoreBoard(req: BoardRequest, res: Response) {
   }
   const updated = await Board.findById(board._id).populate<PopulatedMembers>(populateMembers);
   // Found a moment ago; a purge that finished since would make this null and fail here, as it always has.
-  res.json({ board: serializeBoard(updated!, req.userId) });
+  res.json({ board: serializeBoard(updated!, req.userId) } satisfies Api.BoardReply);
 }
 
 export async function purgeBoard(req: BoardRequest, res: Response) {
@@ -330,7 +335,7 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
 
   await syncAccess(updated);
   await notify({ users: [invitee._id], type: "invite", actor: updated.owner, board: updated });
-  res.status(201).json({ board: serializeMeta(updated) });
+  res.status(201).json({ board: serializeMeta(updated) } satisfies Api.BoardMetaReply);
 }
 
 export async function removeCollaborator(req: Request<{ boardId: string; userId: string }>, res: Response) {
@@ -360,5 +365,5 @@ export async function removeCollaborator(req: Request<{ boardId: string; userId:
   const updated = (await reload(board))!; // as in addCollaborator
   await syncAccess(updated);
   // Someone who left may still see the board through its link, so they get what any visitor would.
-  res.json({ board: serializeMeta(updated, { redact: removingSelf }) });
+  res.json({ board: serializeMeta(updated, { redact: removingSelf }) } satisfies Api.BoardMetaReply);
 }

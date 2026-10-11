@@ -17,7 +17,7 @@ import { ConfirmDialog } from "../../components/Dialog";
 import { BoardCrashed, ErrorBoundary } from "../../components/ErrorBoundary";
 import { LogoMark } from "../../components/Logo";
 import { api } from "../../lib/api";
-import type { AccountUser } from "../../lib/api";
+import type { AccountUser, BoardMeta } from "../../lib/api";
 import { getGuest } from "../../lib/guest";
 import { BoardCanvas } from "./BoardCanvas";
 import type { TextEdit } from "./BoardCanvas";
@@ -52,7 +52,7 @@ import type { BoardStore } from "./store";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
 import { useBoardShortcuts } from "./useBoardShortcuts";
-import type { BoardMeta, BoardSync, Peer } from "./useBoardSync";
+import type { BoardSync, Peer } from "./useBoardSync";
 import { sameView, useFollow } from "./useFollow";
 import { useImageImport } from "./useImageImport";
 import type { ImportView } from "./useImageImport";
@@ -170,10 +170,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setDraft(point);
   }, []);
 
-  // The cast: api.renameBoard doesn't type its reply, which is the board's new details under `board`.
   const renameBoard = useCallback(
     async (title: string): Promise<RenamedBoard> =>
-      local ? { title } : ((await api.renameBoard(board.id, title)) as { board: RenamedBoard }).board,
+      local ? { title } : (await api.renameBoard(board.id, title)).board,
     [local, board.id],
   );
 

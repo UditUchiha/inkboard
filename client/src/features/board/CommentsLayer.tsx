@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton } from "../../components/Button";
-import type { ApiError, Person } from "../../lib/api";
+import type { ApiError, Person, Thread, ThreadMessage } from "../../lib/api";
 import { timeAgo } from "../../lib/format";
 import { useMinute } from "../../lib/useMinute";
 import { toScreen } from "./geometry";
@@ -13,7 +13,7 @@ import type { Size, Viewport, XY } from "./geometry";
 import { MentionTextarea } from "./MentionTextarea";
 import { isComposing, splitMentions } from "./mentions";
 import { focusAfterClose } from "./popoverFocus";
-import type { NewMessage, Thread, ThreadApi, ThreadMessage } from "./useThreads";
+import type { NewMessage, ThreadApi } from "./useThreads";
 
 const POPOVER_WIDTH = 320;
 

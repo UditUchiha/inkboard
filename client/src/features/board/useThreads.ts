@@ -1,33 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Socket } from "socket.io-client";
 import { api } from "../../lib/api";
-import type { Person } from "../../lib/api";
+import type { Thread } from "../../lib/api";
 import type { XY } from "./geometry";
-
-/** One comment in a thread. `mentions` are the people named in it. */
-export type ThreadMessage = {
-  id: string;
-  author: Person;
-  body: string;
-  mentions: Person[];
-  createdAt: string;
-};
-
-/** A comment thread as the server lists it (see serializeThread there): pinned at (x, y) on the board. */
-export type Thread = XY & {
-  id: string;
-  resolved: boolean;
-  author: Person;
-  createdAt: string;
-  messages: ThreadMessage[];
-};
 
 /** What someone writes: the text, and the ids of the people they mentioned in it. */
 export type NewMessage = { body: string; mentions: string[] };
-
-// What the thread requests answer with. They don't say yet, so these describe their answers.
-type ThreadList = { threads: Thread[] };
-type ThreadReply = { thread: Thread };
 
 const sortThreads = (list: Thread[]) =>
   [...list].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -51,7 +29,8 @@ export function useThreads({ boardId, socket, enabled }: ThreadsOptions) {
     if (!enabled) return undefined;
     let active = true;
     const load = () =>
-      (api.listThreads(boardId) as Promise<ThreadList>)
+      api
+        .listThreads(boardId)
         .then(({ threads: list }) => active && setThreads(list))
         .catch(() => {}); // Pins just don't show; the board still works.
     load();
@@ -71,11 +50,11 @@ export function useThreads({ boardId, socket, enabled }: ThreadsOptions) {
 
   return {
     threads,
-    create: async (input: NewMessage & XY) => upsert(((await api.createThread(boardId, input)) as ThreadReply).thread),
+    create: async (input: NewMessage & XY) => upsert((await api.createThread(boardId, input)).thread),
     reply: async (threadId: string, input: NewMessage) =>
-      upsert(((await api.replyToThread(boardId, threadId, input)) as ThreadReply).thread),
+      upsert((await api.replyToThread(boardId, threadId, input)).thread),
     setResolved: async (threadId: string, resolved: boolean) =>
-      upsert(((await api.updateThread(boardId, threadId, { resolved })) as ThreadReply).thread),
+      upsert((await api.updateThread(boardId, threadId, { resolved })).thread),
     remove: async (threadId: string) => {
       await api.deleteThread(boardId, threadId);
       setThreads((list) => list.filter((item) => item.id !== threadId));
