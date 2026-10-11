@@ -1,19 +1,22 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import type { BoardReply, VersionReply } from "@inkboard/shared/api";
+import type { PenElement, Point } from "@inkboard/shared/types";
 import { Board } from "../src/models/board.model.ts";
 import { Version } from "../src/models/version.model.ts";
 import { destroyBoard } from "../src/services/boards.ts";
 import { recordVersion, VERSION_LIMITS } from "../src/services/versions.ts";
-import { startServer } from "./helpers.js";
+import { startServer } from "./helpers.ts";
+import type { ServerInstance } from "./helpers.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
 // Runs `fn` with some version-history limits lowered.
-async function withVersionLimits(changes, fn) {
+async function withVersionLimits(changes: Partial<typeof VERSION_LIMITS>, fn: () => Promise<unknown>) {
   const saved = { ...VERSION_LIMITS };
   Object.assign(VERSION_LIMITS, changes);
   try {
@@ -24,19 +27,19 @@ async function withVersionLimits(changes, fn) {
 }
 
 // A drawing of about `bytes` as MongoDB stores it.
-const drawing = (bytes, id = "pen") => [
+const drawing = (bytes: number, id = "pen"): PenElement[] => [
   {
     id,
-    type: "pen",
-    points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i) => [i + 0.25, i + 0.5, 0.5]),
+    type: "pen" as const,
+    points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i): Point => [i + 0.25, i + 0.5, 0.5]),
     pressure: false,
     stroke: "#16213a",
     penSize: 8,
   },
 ];
 
-const historyBytes = async (id) =>
-  (await Version.find({ board: id }).select("bytes").lean()).reduce((sum, version) => sum + version.bytes, 0);
+const historyBytes = async (id: string) =>
+  (await Version.find({ board: id }).select("bytes").lean()).reduce((sum, version) => sum + version.bytes!, 0);
 
 describe("a board's version budget", () => {
   it("is never exceeded, whatever order saved versions, autosaves and restore snapshots arrive in", async () => {
@@ -87,17 +90,21 @@ describe("a board's version budget", () => {
     const id = await app.createBoard(owner);
     await Board.updateOne({ _id: id }, { $set: { elements: drawing(150_000, "now") } });
     await withVersionLimits({ bytes: 300_000 }, async () => {
-      const save = await app.request(`/boards/${id}/versions`, { method: "POST", user: owner, body: { label: "A" } });
+      const save = await app.request<VersionReply>(`/boards/${id}/versions`, {
+        method: "POST",
+        user: owner,
+        body: { label: "A" },
+      });
       assert.equal(save.status, 201);
       await Board.updateOne({ _id: id }, { $set: { elements: drawing(200_000, "later") } });
 
-      const restored = await app.request(`/boards/${id}/versions/${save.data.version.id}/restore`, {
+      const restored = await app.request<{ error: string }>(`/boards/${id}/versions/${save.data.version.id}/restore`, {
         method: "POST",
         user: owner,
       });
       assert.equal(restored.status, 400);
       assert.match(restored.data.error, /undone/);
-      const board = await app.request(`/boards/${id}`, { user: owner });
+      const board = await app.request<BoardReply>(`/boards/${id}`, { user: owner });
       assert.equal(board.data.board.elements[0].id, "later");
       assert.ok((await historyBytes(id)) <= 300_000);
     });
@@ -106,7 +113,11 @@ describe("a board's version budget", () => {
   it("lets a board with no saved versions save one however full of autosaves its history is", async () => {
     const owner = await app.signUp("Owner");
     const id = (
-      await app.request("/boards", { method: "POST", user: owner, body: { title: "Big", elements: drawing(260_000) } })
+      await app.request<BoardReply>("/boards", {
+        method: "POST",
+        user: owner,
+        body: { title: "Big", elements: drawing(260_000) },
+      })
     ).data.board.id;
     await withVersionLimits({ bytes: 1_000_000 }, async () => {
       for (let index = 0; index < 3; index += 1) {
@@ -139,7 +150,9 @@ describe("a board's version budget", () => {
       assert.equal(await recordVersion(id, drawing(300_000, "x"), { kind: "auto" }), null);
       await assert.rejects(
         () => recordVersion(id, drawing(300_000, "x"), { kind: "restore" }),
-        (error) => error.status === 400 && /saved versions and its current drawing/.test(error.message),
+        (error: unknown) =>
+          (error as { status?: number; message: string }).status === 400 &&
+          /saved versions and its current drawing/.test((error as { status?: number; message: string }).message),
       );
       assert.equal(await Version.countDocuments({ board: id, kind: "named" }), 3);
     });
@@ -152,15 +165,15 @@ describe("a board's version budget", () => {
 
     // Holds the write of an autosave until the erase has started.
     const create = Version.create;
-    let release;
-    let writing;
-    const written = new Promise((resolve) => (writing = resolve));
-    const gate = new Promise((resolve) => (release = resolve));
-    Version.create = async (...args) => {
+    let release!: () => void;
+    let writing!: () => void;
+    const written = new Promise<void>((resolve) => (writing = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    Version.create = (async (...args: Parameters<typeof create>) => {
       writing();
       await gate;
-      return create.apply(Version, args);
-    };
+      return (create as Function).apply(Version, args);
+    }) as unknown as typeof Version.create;
     try {
       const saving = recordVersion(id, drawing(10_000, "late"), { kind: "auto" });
       await written;

@@ -1,20 +1,23 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import type { BoardReply } from "@inkboard/shared/api";
+import type { Peer } from "@inkboard/shared/socket";
 import { Board } from "../src/models/board.model.ts";
 import { Notification } from "../src/models/notification.model.ts";
 import { Template } from "../src/models/template.model.ts";
 import { findBoardForMember } from "../src/services/boards.ts";
-import { eventually, rect, roundTrip, startServer, upsert } from "./helpers.js";
+import { eventually, rect, roundTrip, startServer, upsert } from "./helpers.ts";
+import type { ServerInstance, TestUser } from "./helpers.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
-const setLink = (user, boardId, linkAccess) =>
-  app.request(`/boards/${boardId}/link-access`, { method: "PATCH", user, body: { linkAccess } });
-const invite = (owner, boardId, person) =>
+const setLink = (user: TestUser, boardId: string, linkAccess: string) =>
+  app.request<BoardReply>(`/boards/${boardId}/link-access`, { method: "PATCH", user, body: { linkAccess } });
+const invite = (owner: TestUser, boardId: string, person: TestUser) =>
   app.request(`/boards/${boardId}/collaborators`, { method: "POST", user: owner, body: { email: person.email } });
 
 describe("who can open a board", () => {
@@ -53,10 +56,10 @@ describe("who can open a board", () => {
 
     const asOwner = await (await app.connect(owner)).join(boardId);
     const asEditor = await (await app.connect(editor)).join(boardId);
-    assert.equal(asOwner.board.role, "owner");
-    assert.equal(asEditor.board.role, "editor");
-    assert.equal(asEditor.board.owner.email, owner.email);
-    assert.equal(asEditor.board.collaborators[0].email, editor.email);
+    assert.equal(asOwner.board!.role, "owner");
+    assert.equal(asEditor.board!.role, "editor");
+    assert.equal(asEditor.board!.owner.email, owner.email);
+    assert.equal(asEditor.board!.collaborators[0]!.email, editor.email);
   });
 });
 
@@ -126,16 +129,16 @@ describe("anyone with the link can view", () => {
     const viewOnly = await app.createBoard(owner);
     await setLink(owner, viewOnly, "view");
     const client = await app.connect(viewer);
-    assert.equal((await client.join(ownBoard)).board.role, "owner");
+    assert.equal((await client.join(ownBoard)).board!.role, "owner");
 
     // Joining looks up how much space the board's owner has left; slowed down, it holds the join open.
     const aggregate = Template.aggregate;
-    Template.aggregate = function (...args) {
-      const query = aggregate.apply(this, args);
+    Template.aggregate = function (this: unknown, ...args: Parameters<typeof aggregate>) {
+      const query = (aggregate as Function).apply(this, args);
       const exec = query.exec.bind(query);
       query.exec = () => new Promise((resolve) => setTimeout(resolve, 300)).then(exec);
       return query;
-    };
+    } as typeof Template.aggregate;
     try {
       let joined = false;
       const joining = client.join(viewOnly).then((reply) => {
@@ -147,7 +150,7 @@ describe("anyone with the link can view", () => {
         replies.push(await client.op(viewOnly, upsert(rect(`sneaky-${i}`))));
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
-      assert.equal((await joining).board.role, "viewer");
+      assert.equal((await joining).board!.role, "viewer");
       assert.ok(replies.length > 0);
       assert.deepEqual(
         replies.filter((reply) => reply.ok),
@@ -157,7 +160,7 @@ describe("anyone with the link can view", () => {
     } finally {
       Template.aggregate = aggregate;
     }
-    const board = await Board.findById(viewOnly);
+    const board = (await Board.findById(viewOnly))!;
     assert.equal(board.elements.length, 0);
   });
 
@@ -178,12 +181,12 @@ describe("anyone with the link can view", () => {
       },
       { message: "both people in presence" },
     );
-    const guestEntry = presence.find((person) => person.guest);
+    const guestEntry = (presence as Peer[]).find((person: { guest?: boolean }) => person.guest)!;
     assert.equal(guestEntry.name, "Ada Guest");
     assert.equal(guestEntry.userId, "g_abcdef123456");
 
     guest.socket.emit("guest:rename", { name: "Ada L." });
-    await eventually(() => ownerClient.last("presence")?.some((person) => person.name === "Ada L."), {
+    await eventually(() => ownerClient.last("presence")?.some((person: { name: string }) => person.name === "Ada L."), {
       message: "renamed guest in presence",
     });
   });
@@ -195,11 +198,14 @@ describe("anyone with the link can view", () => {
     // A list holding a valid id reads as one when turned into text, which is all the pattern looks at.
     const guest = await app.connect(null, { guest: { id: ["g_abcdef123456"], name: "Listed" } });
     await guest.join(boardId);
-    const presence = await eventually(() => guest.last("presence")?.find((person) => person.name === "Listed"), {
-      message: "the guest in presence",
-    });
-    assert.equal(typeof presence.userId, "string");
-    assert.notEqual(presence.userId, "g_abcdef123456");
+    const presence = await eventually(
+      () => guest.last("presence")?.find((person: { name: string }) => person.name === "Listed"),
+      {
+        message: "the guest in presence",
+      },
+    );
+    assert.equal(typeof presence!.userId, "string");
+    assert.notEqual(presence!.userId, "g_abcdef123456");
   });
 });
 
@@ -245,7 +251,7 @@ describe("access changes reach people who already have the board open", () => {
     await eventually(() => client.last("board:role")?.role === "editor", { message: "upgrade to editor" });
     assert.equal((await client.op(boardId, upsert(rect("allowed")))).ok, true);
     const richMeta = client.last("board:meta");
-    assert.equal(richMeta.collaborators[0].email, person.email, "members get the full list again");
+    assert.equal(richMeta!.collaborators[0]!.email, person.email, "members get the full list again");
 
     assert.equal(
       (await app.request(`/boards/${boardId}/collaborators/${person.id}`, { method: "DELETE", user: owner })).status,
@@ -254,7 +260,7 @@ describe("access changes reach people who already have the board open", () => {
     await eventually(() => client.last("board:role")?.role === "viewer", { message: "downgrade to viewer" });
     assert.equal(client.of("board:revoked").length, 0, "the link is still open, so they stay as a viewer");
     assert.equal((await client.op(boardId, upsert(rect("again")))).readOnly, true);
-    assert.deepEqual(client.last("board:meta").collaborators, []);
+    assert.deepEqual(client.last("board:meta")!.collaborators, []);
   });
 
   it("moves viewers up to contributors when the link becomes editable", async () => {
@@ -288,7 +294,7 @@ describe("access changes reach people who already have the board open", () => {
     await eventually(() => viewerClient.of("board:revoked").length === 1, { message: "viewer revoked" });
     await eventually(() => guest.of("board:revoked").length === 1, { message: "guest revoked" });
     assert.equal(editorClient.of("board:revoked").length, 0);
-    assert.equal(editorClient.last("board:meta").linkAccess, "restricted");
+    assert.equal(editorClient.last("board:meta")!.linkAccess, "restricted");
 
     assert.equal((await guest.op(boardId, upsert(rect("late")))).ok, false);
     assert.equal((await guest.join(boardId)).status, 401);
@@ -354,7 +360,7 @@ describe("invites", () => {
 
     const results = await Promise.all([1, 2, 3].map(() => invite(owner, boardId, person)));
     assert.deepEqual(results.map((result) => result.status).sort(), [201, 409, 409]);
-    const board = await Board.findById(boardId).lean();
+    const board = (await Board.findById(boardId).lean())!;
     assert.deepEqual(board.collaborators.map(String), [person.id]);
     assert.equal(await Notification.countDocuments({ user: person.id, type: "invite" }), 1);
   });
@@ -375,20 +381,20 @@ describe("invites", () => {
     const owner = await app.signUp("Owner");
     const stranger = await app.signUp("Stranger");
     const boardId = await app.createBoard(owner);
-    const before = await Board.findById(boardId).lean();
+    const before = (await Board.findById(boardId).lean())!;
 
     for (const target of ["not-an-id", stranger.id]) {
       const result = await app.request(`/boards/${boardId}/collaborators/${target}`, { method: "DELETE", user: owner });
       assert.equal(result.status, 404, target);
     }
-    assert.deepEqual((await Board.findById(boardId).lean()).updatedAt, before.updatedAt);
+    assert.deepEqual((await Board.findById(boardId).lean())!.updatedAt, before.updatedAt);
   });
 
   it("doesn't count inviting, removing or sharing as editing the board", async () => {
     const owner = await app.signUp("Owner");
     const person = await app.signUp("Person");
     const boardId = await app.createBoard(owner);
-    const stamp = async () => (await Board.findById(boardId).lean()).updatedAt.getTime();
+    const stamp = async () => (await Board.findById(boardId).lean())!.updatedAt.getTime();
     const created = await stamp();
 
     await invite(owner, boardId, person);
@@ -404,17 +410,21 @@ describe("invites", () => {
     await invite(owner, boardId, person);
     await app.request(`/boards/${boardId}/star`, { method: "PUT", user: person, body: { starred: true } });
 
-    const left = await app.request(`/boards/${boardId}/collaborators/me`, { method: "DELETE", user: person });
+    const left = await app.request<{ board: { collaborators: unknown[]; owner: { email?: string } } }>(
+      `/boards/${boardId}/collaborators/me`,
+      { method: "DELETE", user: person },
+    );
     assert.equal(left.status, 200);
     assert.deepEqual(left.data.board.collaborators, []);
     assert.equal(left.data.board.owner.email, undefined);
-    assert.deepEqual((await Board.findById(boardId).lean()).starredBy, []);
+    assert.deepEqual((await Board.findById(boardId).lean())!.starredBy, []);
   });
 
   it("only stars or unstars when told with true or false", async () => {
     const owner = await app.signUp("Owner");
     const boardId = await app.createBoard(owner);
-    const star = (starred) => app.request(`/boards/${boardId}/star`, { method: "PUT", user: owner, body: { starred } });
+    const star = (starred: unknown) =>
+      app.request<{ starred: boolean }>(`/boards/${boardId}/star`, { method: "PUT", user: owner, body: { starred } });
     assert.equal((await star("false")).status, 400);
     assert.equal((await star(0)).status, 400);
     assert.equal((await star(true)).data.starred, true);
@@ -426,16 +436,16 @@ describe("invites", () => {
     const boardId = await app.createBoard(owner);
     await Board.updateOne({ _id: boardId }, { $set: { elements: [rect("a")] } });
 
-    assert.equal((await findBoardForMember(boardId, owner.id)).elements, undefined);
-    const withDrawing = await findBoardForMember(boardId, owner.id, { elements: true });
+    assert.equal((await findBoardForMember(boardId, owner.id))!.elements, undefined);
+    const withDrawing = (await findBoardForMember(boardId, owner.id, { elements: true }))!;
     assert.deepEqual(
       withDrawing.elements.map((element) => element.id),
       ["a"],
     );
     // The routes that need the drawing still send it.
-    assert.equal((await app.request(`/boards/${boardId}`, { user: owner })).data.board.elements.length, 1);
+    assert.equal((await app.request<BoardReply>(`/boards/${boardId}`, { user: owner })).data.board.elements.length, 1);
     const client = await app.connect(owner);
-    assert.equal((await client.join(boardId)).board.elements.length, 1);
+    assert.equal((await client.join(boardId)).board!.elements.length, 1);
   });
 
   it("stops editors removing other people", async () => {

@@ -1,20 +1,27 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { eventually, startServer } from "./helpers.js";
+import type { Session, UserReply } from "@inkboard/shared/api";
+import { eventually, startServer } from "./helpers.ts";
+import type { ServerInstance } from "./helpers.ts";
 
 const { isEmailAddress } = await import("../src/lib/email-address.ts");
 const { User } = await import("../src/models/user.model.ts");
 
 // These use the real sign-up and login routes. The auth rate limit allows 30
 // attempts per 15 minutes, so this file stays well under that.
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
-const register = (body) => app.request("/auth/register", { method: "POST", body });
-const login = (body) => app.request("/auth/login", { method: "POST", body });
+type AuthReply = Session & {
+  error: string;
+  user: Session["user"] & { password?: string };
+};
+
+const register = (body: unknown) => app.request<AuthReply>("/auth/register", { method: "POST", body });
+const login = (body: unknown) => app.request<AuthReply>("/auth/login", { method: "POST", body });
 const valid = { name: "Ada Lovelace", email: "ada@example.test", password: "correct horse" };
 
 describe("sign up", () => {
@@ -26,7 +33,7 @@ describe("sign up", () => {
     assert.equal(data.user.hasPassword, true);
     assert.equal(data.user.password, undefined, "the password never comes back");
 
-    const me = await app.request("/auth/me", { user: { token: data.token } });
+    const me = await app.request<UserReply>("/auth/me", { user: { token: data.token } });
     assert.equal(me.status, 200);
     assert.equal(me.data.user.email, "ada@example.test");
   });
@@ -106,7 +113,7 @@ describe("log in", () => {
     });
     assert.equal((await login({ email, password: "wrong one" })).status, 401);
     assert.equal((await login({ email, password: "old password" })).status, 200);
-    await eventually(async () => (await User.findOne({ email }).select("+password")).password.startsWith("scrypt$"));
+    await eventually(async () => (await User.findOne({ email }).select("+password"))!.password!.startsWith("scrypt$"));
     assert.equal((await login({ email, password: "old password" })).status, 200);
   });
 
@@ -128,7 +135,7 @@ describe("protected routes", () => {
 describe("profile and password", () => {
   it("lets people change their name and colour, and checks the colour", async () => {
     const user = await app.signUp("Original");
-    const renamed = await app.request("/auth/me", {
+    const renamed = await app.request<UserReply>("/auth/me", {
       method: "PATCH",
       user,
       body: { name: "  New Name ", color: "#e8590c" },
@@ -141,7 +148,7 @@ describe("profile and password", () => {
     const listed = await app.request("/auth/me", { method: "PATCH", user, body: { color: ["#e8590c"] } });
     assert.equal(listed.status, 400, "a list holding a color isn't a color");
     assert.equal((await app.request("/auth/me", { method: "PATCH", user, body: { name: "" } })).status, 400);
-    const cleared = await app.request("/auth/me", { method: "PATCH", user, body: { color: null } });
+    const cleared = await app.request<UserReply>("/auth/me", { method: "PATCH", user, body: { color: null } });
     assert.equal(cleared.data.user.color, null);
   });
 
@@ -162,7 +169,7 @@ describe("profile and password", () => {
     });
     assert.equal(tooShort.status, 400);
 
-    const ok = await app.request("/auth/password", {
+    const ok = await app.request<Session>("/auth/password", {
       method: "POST",
       user,
       body: { currentPassword: "first password", newPassword: "second password" },
@@ -177,7 +184,7 @@ describe("profile and password", () => {
 
 describe("social sign-in", () => {
   it("offers no providers until they are configured, and refuses to start one", async () => {
-    const providers = await app.request("/auth/providers");
+    const providers = await app.request<{ providers: string[] }>("/auth/providers");
     assert.equal(providers.status, 200);
     assert.deepEqual(providers.data.providers, []);
     const start = await app.request("/auth/oauth/google");
@@ -189,7 +196,7 @@ describe("health", () => {
   it("reports the database is connected", async () => {
     const response = await fetch(`${app.url}/health`);
     assert.equal(response.status, 200);
-    const body = await response.json();
+    const body = (await response.json()) as { status: string; database: string };
     assert.equal(body.status, "ok");
     assert.equal(body.database, "connected");
   });

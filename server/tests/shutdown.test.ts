@@ -1,11 +1,13 @@
-import { rect, startServer, upsert } from "./helpers.js"; // first: it sets up the environment
+import { rect, startServer, upsert } from "./helpers.ts"; // first: it sets up the environment
+import type { ServerInstance } from "./helpers.ts";
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import type { Element } from "@inkboard/shared/types";
 import { Board } from "../src/models/board.model.ts";
 import { closeRealtime } from "../src/realtime/index.ts";
 import { SYNC_FORMAT } from "../src/realtime/operations.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
@@ -17,13 +19,13 @@ describe("shutting down", () => {
     const id = await app.createBoard(owner);
     const client = await app.connect(owner);
     await client.join(id, { sync: SYNC_FORMAT });
-    assert.equal((await client.op(id, upsert(rect("kept")))).ok, true);
+    assert.equal(((await client.op(id, upsert(rect("kept")))) as { ok: boolean }).ok, true);
 
     // The sequence from index.js: people are disconnected, and each board saves as the last of them leaves.
     await closeRealtime();
     const saved = await Board.findById(id).lean();
     assert.deepEqual(
-      saved.elements.map((element) => element.id),
+      saved!.elements.map((element: Element) => element.id),
       ["kept"],
     );
   });

@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
+import type { NotificationPage } from "@inkboard/shared/api";
 import { Notification } from "../src/models/notification.model.ts";
-import { startServer } from "./helpers.js";
+import { startServer } from "./helpers.ts";
+import type { ServerInstance, TestUser } from "./helpers.ts";
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
 after(() => app.stop());
 
-const page = async (user, before) =>
-  (await app.request(`/notifications${before ? `?before=${before}` : ""}`, { user })).data;
+const page = async (user: TestUser, before?: string | null): Promise<NotificationPage> =>
+  (await app.request<NotificationPage>(`/notifications${before ? `?before=${before}` : ""}`, { user })).data;
 
 describe("paging through notifications", () => {
   it("moves on past a page whose every notification is skipped", async () => {
@@ -19,7 +21,12 @@ describe("paging through notifications", () => {
     const reader = await app.signUp("Reader");
     const board = await app.createBoard(owner);
     await app.request(`/boards/${board}/link-access`, { method: "PATCH", user: owner, body: { linkAccess: "view" } });
-    const notification = (actor) => ({ user: reader.id, type: "invite", actor, board });
+    const notification = (actor: string | mongoose.Types.ObjectId) => ({
+      user: reader.id,
+      type: "invite",
+      actor,
+      board,
+    });
     // Two from someone still here, then 35 newer ones from an account that is gone (which aren't shown).
     await Notification.create([notification(owner.id), notification(owner.id)]);
     const gone = new mongoose.Types.ObjectId();

@@ -1,17 +1,23 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
-import { eventually, startServer } from "./helpers.js";
+import type { LinkTicketReply, Session, UserReply } from "@inkboard/shared/api";
+import type { NextFunction, Request as ExpressRequest, Response as ExpressResponse } from "express";
+import type { JwtPayload } from "jsonwebtoken";
+import { eventually, startServer } from "./helpers.ts";
+import type { ServerInstance } from "./helpers.ts";
 
 const { env } = await import("../src/config/env.ts");
 const { createApp } = await import("../src/app.ts");
 const { errorHandler } = await import("../src/middleware/error-handler.ts");
+type HandledError = Parameters<typeof errorHandler>[0];
 const { OAUTH_LINK, OAUTH_LOGIN, OAUTH_STATE, SESSION, signPurposeToken, signToken } =
   await import("../src/lib/tokens.ts");
 const { EmailToken } = await import("../src/models/email-token.model.ts");
@@ -22,18 +28,20 @@ const { sendPasswordResetEmail, sendVerificationEmail } = await import("../src/s
 // Email and social sign-in are off unless set up; these tests turn them on (nothing is really sent).
 const original = { email: { ...env.email }, oauth: { ...env.oauth }, appUrl: env.appUrl, apiUrl: env.apiUrl };
 const realFetch = globalThis.fetch;
-const providerRequests = [];
+const providerRequests: (RequestInit | undefined)[] = [];
 let providerProfile = { id: "google-1", email: "someone@example.test", name: "Some One" };
-const jsonResponse = (body) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+type ProviderProfile = typeof providerProfile;
+const jsonResponse = (body: unknown) =>
+  new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
   Object.assign(env.email, { brevoApiKey: "test-key", from: "inkboard@example.test" });
   env.oauth.google = { clientId: "google-client", clientSecret: "google-secret" };
   // Stands in for Google; everything else (the tests' own requests to the server) goes through.
-  globalThis.fetch = (input, init) => {
-    const url = String(input?.url ?? input);
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    const url = String((input as { url?: string })?.url ?? input);
     if (url.startsWith("https://oauth2.googleapis.com/token")) {
       providerRequests.push(init);
       return Promise.resolve(jsonResponse({ access_token: "token" }));
@@ -55,40 +63,46 @@ after(() => {
   return app.stop();
 });
 
-let counter = 0;
-const newEmail = (name) => `${name}-${(counter += 1)}@example.test`;
-const post = (route, body, user) => app.request(route, { method: "POST", body, user });
-const tokenFor = (user) => ({ token: signToken(user) });
+// What the routes posted to here answer with, as one shape: each test reads the fields its route sends.
+type AuthReply = Session & LinkTicketReply & { error?: string };
+type Login = { token: string };
 
-async function accountWith(fields = {}) {
+let counter = 0;
+const newEmail = (name: string) => `${name}-${(counter += 1)}@example.test`;
+const post = (route: string, body?: unknown, user?: Login) =>
+  app.request<AuthReply>(route, { method: "POST", body, user });
+const tokenFor = (user: { id: string; tokenVersion?: number | null }) => ({ token: signToken(user) });
+
+async function accountWith(fields: Record<string, unknown> = {}) {
   const email = newEmail("person");
   const user = await User.create({ name: "Person", email, emailVerified: true, ...fields });
   return { user, email, ...tokenFor(user) };
 }
 
-const emailTo = (to, subject) =>
-  eventually(() => outbox.findLast((sent) => sent.to === to && subject.test(sent.subject)), {
+const emailTo = (to: string, subject: RegExp) =>
+  eventually(() => outbox.findLast((sent) => sent.to === to && subject.test(sent.subject))!, {
     message: `an email to ${to}`,
   });
-const secretIn = (email) => email.text.match(/token=([\w-]+)/)[1];
+const secretIn = (email: { text: string }) => email.text.match(/token=([\w-]+)/)![1]!;
 
-const cookieOf = (response, name) =>
+const cookieOf = (response: Response, name: string) =>
   response.headers
     .getSetCookie()
-    .map((cookie) => cookie.split(";")[0])
-    .find((cookie) => cookie.startsWith(`${name}=`));
+    .map((cookie: string) => cookie.split(";")[0]!)
+    .find((cookie: string) => cookie.startsWith(`${name}=`));
 
-const visit = (route, cookie) => fetch(`${app.url}${route}`, { redirect: "manual", headers: cookie ? { cookie } : {} });
+const visit = (route: string, cookie?: string) =>
+  fetch(`${app.url}${route}`, { redirect: "manual", headers: cookie ? { cookie } : {} });
 
 // What the app does when it starts a sign-in: keeps a random `bind` in the tab and sends a hash of it.
 const newBind = () => randomBytes(24).toString("base64url");
-const hashOf = (bind) => createHash("sha256").update(bind).digest("base64url");
+const hashOf = (bind: string) => createHash("sha256").update(bind).digest("base64url");
 
 // Walks through "Continue with Google" up to the provider's answer; resolves with where the app sends the browser next,
 // and the tab's `bind` (a sign-in that connects an account brings its own, in the ticket in `startPath`).
 async function signInWithGoogle(
-  profile,
-  { startPath = "/api/auth/oauth/google", cookies = [], bind = newBind(), sendBind = true } = {},
+  profile: ProviderProfile,
+  { startPath = "/api/auth/oauth/google", cookies = [] as string[], bind = newBind(), sendBind = true } = {},
 ) {
   providerProfile = profile;
   const path =
@@ -96,23 +110,23 @@ async function signInWithGoogle(
       ? startPath
       : `${startPath}${startPath.includes("?") ? "&" : "?"}bind=${hashOf(bind)}`;
   const start = await visit(path, cookies.join("; "));
-  const location = new URL(start.headers.get("location"));
+  const location = new URL(start.headers.get("location")!);
   const state = location.searchParams.get("state");
   const callback = await visit(
     `/api/auth/oauth/google/callback?code=a-code&state=${state}`,
     cookieOf(start, "inkboard_oauth"),
   );
-  return { start, location, callback, next: callback.headers.get("location"), bind };
+  return { start, location, callback, next: callback.headers.get("location")!, bind };
 }
 
-const fragmentOf = (next) => new URLSearchParams(new URL(next).hash.slice(1));
+const fragmentOf = (next: string) => new URLSearchParams(new URL(next).hash.slice(1));
 // The app's last step: hands the code in the redirect, with the tab's `bind`, to the server for a login token.
-const exchange = (code, bind) => post("/auth/oauth/exchange", { code, bind });
+const exchange = (code: string | null | undefined, bind: string) => post("/auth/oauth/exchange", { code, bind });
 
 describe("login tokens", () => {
   it("are only accepted as logins when made for that, and signed with HS256", async () => {
     const { user } = await accountWith();
-    const me = (token) => app.request("/auth/me", { user: { token } });
+    const me = (token: string) => app.request("/auth/me", { user: { token } });
     const common = { sub: user.id, tv: 0 };
 
     assert.equal((await me(signToken(user))).status, 200);
@@ -180,7 +194,7 @@ describe("ending sessions (M1)", () => {
     assert.equal(reset.status, 200);
     assert.equal((await app.request("/auth/me", { user: { token } })).status, 401);
     assert.equal((await app.request("/auth/me", { user: { token: reset.data.token } })).status, 200);
-    assert.equal((await User.findById(user.id)).tokenVersion, 1);
+    assert.equal((await User.findById(user.id))!.tokenVersion, 1);
   });
 
   it("logging out everywhere ends every login, sockets included, and nothing else (M1)", async () => {
@@ -206,7 +220,7 @@ describe("ending sessions (M1)", () => {
 
     const refused = await post("/auth/password", { newPassword: "a-first-password" }, stale);
     assert.equal(refused.status, 403);
-    assert.match(refused.data.error, /log in again/);
+    assert.match(refused.data.error!, /log in again/);
     assert.equal((await post("/auth/oauth/google/link", {}, stale)).status, 403);
 
     assert.equal((await post("/auth/oauth/google/link", {}, tokenFor(user))).status, 200);
@@ -216,8 +230,8 @@ describe("ending sessions (M1)", () => {
   it("a request with no login time doesn't count as a recent login", async () => {
     // As if the recent-login check were mounted on a route without requireAuth before it.
     const { assertRecentLogin } = await import("../src/middleware/auth.ts");
-    assert.throws(() => assertRecentLogin({}), { status: 403 });
-    assert.doesNotThrow(() => assertRecentLogin({ loginIssuedAt: Math.floor(Date.now() / 1000) }));
+    assert.throws(() => assertRecentLogin({} as ExpressRequest), { status: 403 });
+    assert.doesNotThrow(() => assertRecentLogin({ loginIssuedAt: Math.floor(Date.now() / 1000) } as ExpressRequest));
   });
 });
 
@@ -226,7 +240,7 @@ describe("a provider linked before the address was verified (C5)", () => {
     const { token } = await accountWith({ emailVerified: false });
     const refused = await post("/auth/oauth/google/link", {}, { token });
     assert.equal(refused.status, 403);
-    assert.match(refused.data.error, /Verify your email/);
+    assert.match(refused.data.error!, /Verify your email/);
   });
 
   it("is disconnected, and logins end, when a password reset proves who owns the address", async () => {
@@ -242,7 +256,7 @@ describe("a provider linked before the address was verified (C5)", () => {
     assert.equal(reset.status, 200);
     assert.equal(reset.data.user.emailVerified, true);
     assert.deepEqual(reset.data.user.providers, { google: false, github: false });
-    assert.equal((await User.findById(user.id).select("+githubId")).githubId, undefined);
+    assert.equal((await User.findById(user.id).select("+githubId"))!.githubId, undefined);
     assert.equal((await app.request("/auth/me", { user: { token } })).status, 401, "the attacker's login ended");
   });
 
@@ -261,7 +275,7 @@ describe("a provider linked before the address was verified (C5)", () => {
     const link = secretIn(await emailTo(victim, /Verify your email/));
     const click = await post("/auth/verify-email", { token: link });
     assert.equal(click.status, 401);
-    assert.equal((await User.findOne({ email: victim })).emailVerified, false);
+    assert.equal((await User.findOne({ email: victim }))!.emailVerified, false);
     // ...nor by someone logged in to a different account, which leaves the link working.
     const someoneElse = await accountWith({ emailVerified: false });
     assert.equal((await post("/auth/verify-email", { token: link }, someoneElse)).status, 400);
@@ -290,7 +304,7 @@ describe("a provider linked before the address was verified (C5)", () => {
     assert.equal((await post("/auth/login", { email: victim, password: "the-attackers-password" })).status, 401);
     const google = await signInWithGoogle({ id: "attacker-google-c5", email: newEmail("attacker"), name: "Attacker" });
     const { token } = (await exchange(fragmentOf(google.next).get("code"), google.bind)).data;
-    assert.notEqual((await app.request("/auth/me", { user: { token } })).data.user.email, victim);
+    assert.notEqual((await app.request<UserReply>("/auth/me", { user: { token } })).data.user.email, victim);
   });
 
   it("is verified by its link for the person logged in to it, who stays logged in", async () => {
@@ -306,7 +320,7 @@ describe("a provider linked before the address was verified (C5)", () => {
 
 describe("connecting Google to an account (M2)", () => {
   // Asks to connect Google and goes through it; resolves with the `connect` note the app gets back, and the `bind` it kept.
-  async function connectGoogle(login, profile) {
+  async function connectGoogle(login: Login, profile: ProviderProfile) {
     const asked = await post("/auth/oauth/google/link", {}, login);
     assert.equal(asked.status, 200);
     const { url, bind } = asked.data;
@@ -317,7 +331,8 @@ describe("connecting Google to an account (M2)", () => {
     assert.equal(fragment.get("provider"), "google");
     return { url, bind, connect: fragment.get("connect") };
   }
-  const confirm = (body, login) => post("/auth/oauth/google/link/confirm", body, login);
+  const confirm = (body: { connect: string | null; bind?: string }, login: Login) =>
+    post("/auth/oauth/google/link/confirm", body, login);
 
   it("needs no cookie from the app's own requests, so it works when the app is on another site (M10)", async () => {
     const { user, token } = await accountWith();
@@ -331,11 +346,11 @@ describe("connecting Google to an account (M2)", () => {
       { token },
       { id: "google-linked", email: "x@example.test", name: "X" },
     );
-    assert.equal((await User.findById(user.id).select("+googleId")).googleId, undefined, "not until the app confirms");
+    assert.equal((await User.findById(user.id).select("+googleId"))!.googleId, undefined, "not until the app confirms");
     const done = await confirm({ connect, bind }, { token });
     assert.equal(done.status, 200);
     assert.equal(done.data.user.providers.google, true);
-    assert.equal((await User.findById(user.id).select("+googleId")).googleId, "google-linked");
+    assert.equal((await User.findById(user.id).select("+googleId"))!.googleId, "google-linked");
   });
 
   it("only connects for the person, and the tab, that asked", async () => {
@@ -349,10 +364,10 @@ describe("connecting Google to an account (M2)", () => {
     assert.equal((await confirm({ connect, bind }, victim)).status, 403);
     // Even with the link-maker's login planted in the victim's tab, the tab hasn't got the link-maker's `bind`.
     assert.equal((await confirm({ connect, bind: "a-guess" }, linkMaker)).status, 403);
-    assert.equal((await confirm({ connect, bind }, {})).status, 401);
+    assert.equal((await confirm({ connect, bind }, {} as Login)).status, 401); // no login at all
     assert.equal((await confirm({ connect: "made-up", bind }, linkMaker)).status, 400);
     for (const { user } of [linkMaker, victim]) {
-      assert.equal((await User.findById(user.id).select("+googleId")).googleId, undefined);
+      assert.equal((await User.findById(user.id).select("+googleId"))!.googleId, undefined);
     }
 
     // A ticket from the URL is only good for the provider it was made for.
@@ -360,7 +375,7 @@ describe("connecting Google to an account (M2)", () => {
     env.oauth.github = { clientId: "github-client", clientSecret: "github-secret" };
     try {
       const github = await visit(url.replace("/google?", "/github?"));
-      assert.match(github.headers.get("location"), /\/settings\?error=link-expired&provider=github$/);
+      assert.match(github.headers.get("location")!, /\/settings\?error=link-expired&provider=github$/);
     } finally {
       env.oauth.github = original.oauth.github;
     }
@@ -375,7 +390,7 @@ describe("connecting Google to an account (M2)", () => {
     );
     const refused = await confirm({ connect, bind }, { token });
     assert.equal(refused.status, 409);
-    assert.match(refused.data.error, /already connected to a different account/);
+    assert.match(refused.data.error!, /already connected to a different account/);
   });
 });
 
@@ -399,7 +414,10 @@ describe("Continue with Google", () => {
     const loggedIn = await exchange(fragment.get("code"), bind);
     assert.equal(loggedIn.status, 200);
     assert.equal(loggedIn.data.user.email, email);
-    assert.equal((await app.request("/auth/me", { user: { token: loggedIn.data.token } })).data.user.email, email);
+    assert.equal(
+      (await app.request<UserReply>("/auth/me", { user: { token: loggedIn.data.token } })).data.user.email,
+      email,
+    );
 
     // The same address under another Google account: no takeover, and no text of the link's choosing.
     const taken = await signInWithGoogle({ id: "google-other", email, name: "Impostor" });
@@ -411,15 +429,15 @@ describe("Continue with Google", () => {
       "/api/auth/oauth/google/callback?code=c&state=made-up",
       cookieOf(start, "inkboard_oauth"),
     );
-    assert.match(forged.headers.get("location"), /error=unverified/);
+    assert.match(forged.headers.get("location")!, /error=unverified/);
     assert.match(
-      (await visit("/api/auth/oauth/google/callback?code=c&state=made-up")).headers.get("location"),
+      (await visit("/api/auth/oauth/google/callback?code=c&state=made-up")).headers.get("location")!,
       /error=expired/,
     );
   });
 
   it("only goes on to a path inside the app, refusing ones a browser would read as another site", async () => {
-    const nextAfter = async (next) => {
+    const nextAfter = async (next: string) => {
       const email = newEmail("next");
       const startPath = `/api/auth/oauth/google?next=${encodeURIComponent(next)}`;
       const signedIn = await signInWithGoogle({ id: `google-${email}`, email, name: "N" }, { startPath });
@@ -435,7 +453,7 @@ describe("Continue with Google", () => {
     const email = `${"n".repeat(80)}@example.test`;
     const { next } = await signInWithGoogle({ id: "google-long", email, name: "" });
     assert.equal(new URL(next).pathname, "/auth/callback");
-    assert.equal((await User.findOne({ email })).name.length, 60);
+    assert.equal((await User.findOne({ email }))!.name.length, 60);
   });
 
   it("two sign-ins at once make one account, not an error", async () => {
@@ -449,7 +467,7 @@ describe("Continue with Google", () => {
     providerRequests.length = 0;
     await signInWithGoogle({ id: "google-timeout", email: newEmail("timeout"), name: "T" });
     assert.ok(providerRequests.length >= 2);
-    assert.ok(providerRequests.every((init) => init.signal instanceof AbortSignal));
+    assert.ok(providerRequests.every((init) => init!.signal instanceof AbortSignal));
   });
 
   it("calls back to the API's address and then goes to the app's address when they differ (M10)", async () => {
@@ -476,7 +494,7 @@ describe("Continue with Google", () => {
 describe("finishing a Google or GitHub sign-in in the tab that started it (login CSRF, C5)", () => {
   // The app's first step for a sign-in is a random `bind` kept in the tab; the redirect at the end carries a
   // code that is only good with it, so a redirect someone else made can't sign a different browser in.
-  const signIn = (name) => signInWithGoogle({ id: `google-${name}`, email: newEmail(name), name });
+  const signIn = (name: string) => signInWithGoogle({ id: `google-${name}`, email: newEmail(name), name });
 
   it("won't start without the tab's bind, which is what ties the end of the sign-in to the browser", async () => {
     for (const startPath of [
@@ -485,7 +503,7 @@ describe("finishing a Google or GitHub sign-in in the tab that started it (login
       "/api/auth/oauth/google?bind[]=x",
     ]) {
       const start = await visit(startPath);
-      assert.match(start.headers.get("location"), /\/login\?error=incomplete&provider=google$/, startPath);
+      assert.match(start.headers.get("location")!, /\/login\?error=incomplete&provider=google$/, startPath);
       assert.equal(cookieOf(start, "inkboard_oauth"), undefined, "nothing was started");
     }
   });
@@ -495,13 +513,13 @@ describe("finishing a Google or GitHub sign-in in the tab that started it (login
     const fragment = fragmentOf(next);
     assert.deepEqual([...fragment.keys()].sort(), ["code", "next"]);
     // The code isn't a login, anywhere logins are checked...
-    assert.equal((await app.request("/auth/me", { user: { token: fragment.get("code") } })).status, 401);
+    assert.equal((await app.request("/auth/me", { user: { token: fragment.get("code")! } })).status, 401);
     // ...and lasts about two minutes.
-    const claims = jwt.decode(fragment.get("code"));
+    const claims = jwt.decode(fragment.get("code")!) as JwtPayload;
     assert.equal(claims.aud, OAUTH_LOGIN);
-    assert.ok(claims.exp - claims.iat <= 120);
+    assert.ok(claims.exp! - claims.iat! <= 120);
     assert.equal(claims.bind, hashOf(bind), "only a hash of the bind is in it");
-    assert.ok(!fragment.get("code").includes(bind));
+    assert.ok(!fragment.get("code")!.includes(bind));
   });
 
   it("answers with the login for the tab that holds the bind, once", async () => {
@@ -561,7 +579,7 @@ describe("finishing a Google or GitHub sign-in in the tab that started it (login
   it("can't be used to sign in as someone else by changing the code's account", async () => {
     const mine = await signIn("mine");
     const other = await accountWith();
-    const { aud: _aud, ...claims } = jwt.decode(fragmentOf(mine.next).get("code"));
+    const { aud: _aud, ...claims } = jwt.decode(fragmentOf(mine.next).get("code")!) as JwtPayload;
     const swapped = jwt.sign({ ...claims, sub: other.user.id }, "not-the-secret", { audience: OAUTH_LOGIN });
     assert.equal((await exchange(swapped, mine.bind)).status, 400);
   });
@@ -570,7 +588,7 @@ describe("finishing a Google or GitHub sign-in in the tab that started it (login
 describe("headers and files the server sends", () => {
   it("lets profile photos from Google and GitHub through the content security policy (M6)", async () => {
     const csp = (await fetch(`${app.url}/health`)).headers.get("content-security-policy");
-    const images = csp.match(/img-src ([^;]+)/)[1].split(" ");
+    const images = csp!.match(/img-src ([^;]+)/)![1]!.split(" ");
     for (const source of [
       "'self'",
       "data:",
@@ -593,7 +611,8 @@ describe("headers and files the server sends", () => {
         database: "disconnected",
       });
     } finally {
-      delete mongoose.connection.readyState;
+      // Removes the stand-in, uncovering the real (read-only) one again.
+      delete (mongoose.connection as { readyState?: number }).readyState;
     }
     assert.equal((await (await fetch(`${app.url}/health`)).json()).status, "ok");
   });
@@ -629,9 +648,9 @@ describe("headers and files the server sends", () => {
 });
 
 describe("the built app's files", () => {
-  let dir;
-  let server;
-  let base;
+  let dir: string;
+  let server: http.Server;
+  let base: string;
   before(async () => {
     // The path has an "assets" folder above the build, which mustn't make every file in it immutable.
     dir = await mkdtemp(path.join(os.tmpdir(), "inkboard-"));
@@ -641,8 +660,8 @@ describe("the built app's files", () => {
     await writeFile(path.join(dist, "favicon.svg"), "<svg/>");
     await writeFile(path.join(dist, "assets", "app-123.js"), "export {}");
     server = http.createServer(createApp({ clientDist: dist }));
-    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-    base = `http://127.0.0.1:${server.address().port}`;
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
   after(async () => {
     await new Promise((resolve) => server.close(resolve));
@@ -654,7 +673,7 @@ describe("the built app's files", () => {
       for (const route of ["/", "/boards", "/board/abc123"]) {
         const response = await fetch(base + route, { method, headers: { accept: "text/html" } });
         assert.equal(response.status, 200, `${method} ${route}`);
-        assert.match(response.headers.get("content-type"), /html/);
+        assert.match(response.headers.get("content-type")!, /html/);
       }
     }
   });
@@ -693,21 +712,30 @@ describe("errors", () => {
   });
 
   it("leaves a reply that's already begun alone, and turns duplicate keys into 409 (L9, L10)", () => {
+    // Stand-ins for Express's request, reply and `next`, with only what the handler uses.
     const failure = new Error("late");
-    let passedOn;
-    errorHandler(failure, {}, { headersSent: true }, (error) => (passedOn = error));
+    let passedOn: unknown;
+    errorHandler(
+      failure as HandledError,
+      {} as ExpressRequest,
+      { headersSent: true } as ExpressResponse,
+      (error) => (passedOn = error),
+    );
     assert.equal(passedOn, failure);
 
-    let sent;
-    const res = { headersSent: false, status: (code) => ({ json: (body) => (sent = { code, body }) }) };
+    let sent: { code: number; body: unknown } | undefined;
+    const res = {
+      headersSent: false,
+      status: (code: number) => ({ json: (body: unknown) => (sent = { code, body }) }),
+    };
     errorHandler(
       Object.assign(new Error("E11000 duplicate key { email: 'a@b.test' }"), { code: 11000 }),
-      {},
-      res,
-      null,
+      {} as ExpressRequest,
+      res as unknown as ExpressResponse,
+      null as unknown as NextFunction,
     );
-    assert.equal(sent.code, 409);
-    assert.doesNotMatch(JSON.stringify(sent.body), /a@b\.test/, "no personal details");
+    assert.equal(sent!.code, 409);
+    assert.doesNotMatch(JSON.stringify(sent!.body), /a@b\.test/, "no personal details");
   });
 
   it("two sign-ups with one address at once give a 201 and a 409 (L10)", async () => {
@@ -766,7 +794,7 @@ describe("account emails", () => {
       assert.ok(emailsSentToday() < env.email.dailyLimit, "sign-ups stop before the limit");
 
       // Someone locked out can still get a reset link, until the limit itself.
-      const resets = [];
+      const resets: string[] = [];
       for (let count = 0; count < 12; count += 1) {
         const { user } = await accountWith();
         resets.push(
@@ -808,7 +836,7 @@ describe("passwords", () => {
       await bcrypt.compare("a guess", legacy);
       return performance.now() - started;
     };
-    const loginTime = async (email) => {
+    const loginTime = async (email: string) => {
       const started = performance.now();
       assert.equal((await post("/auth/login", { email, password: "a guess" })).status, 401);
       return performance.now() - started;
@@ -823,13 +851,13 @@ describe("passwords", () => {
 
   describe("the wait that hides bcrypt accounts from failed logins", () => {
     // A timer with a made-up clock, a made-up bcrypt check (`measurements`, one per call) and no real waiting.
-    async function timerWith(measurements) {
+    async function timerWith(measurements: number[]) {
       const { createCheckTimer } = await import("../src/lib/passwords.ts");
       const clock = { ms: 1_000_000 };
-      const waits = [];
+      const waits: number[] = [];
       let taken = 0;
       const timer = createCheckTimer({
-        measure: async () => measurements[Math.min(taken++, measurements.length - 1)],
+        measure: async () => measurements[Math.min(taken++, measurements.length - 1)]!,
         now: () => clock.ms,
         sleep: async (ms) => waits.push(ms),
       });
@@ -896,14 +924,14 @@ describe("passwords", () => {
 
   it("are stored with scrypt and checked against that (L13)", async () => {
     const { user } = await accountWith({ password: "correct horse battery" });
-    const stored = (await User.findById(user.id).select("+password")).password;
-    assert.match(stored, /^scrypt\$32768\$8\$1\$/);
+    const stored = (await User.findById(user.id).select("+password"))!.password;
+    assert.match(stored!, /^scrypt\$32768\$8\$1\$/);
     assert.equal(
-      await (await User.findById(user.id).select("+password")).verifyPassword("correct horse battery"),
+      await (await User.findById(user.id).select("+password"))!.verifyPassword("correct horse battery"),
       true,
     );
     assert.equal(
-      await (await User.findById(user.id).select("+password")).verifyPassword("correct horse batterz"),
+      await (await User.findById(user.id).select("+password"))!.verifyPassword("correct horse batterz"),
       false,
     );
   });
@@ -916,6 +944,6 @@ describe("passwords", () => {
     assert.equal((await post("/auth/login", { email, password: emoji })).status, 200);
     const tooLong = await post("/auth/register", { name: "Long", email: newEmail("long"), password: "x".repeat(129) });
     assert.equal(tooLong.status, 400);
-    assert.match(tooLong.data.error, /128 characters/);
+    assert.match(tooLong.data.error!, /128 characters/);
   });
 });

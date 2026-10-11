@@ -9,10 +9,12 @@ import {
   MAX_TEXT_LENGTH,
   withDefaults,
 } from "@inkboard/shared/element-rules";
-import { eventually, rect, startServer, upsert } from "./helpers.js";
+import type { FrameElement, PenElement, Point, ShapeElement } from "@inkboard/shared/types";
+import { eventually, rect, startServer, upsert } from "./helpers.ts";
+import type { ServerInstance } from "./helpers.ts";
 
 // What the client creates (see client/src/features/board/elements.ts).
-const pen = (overrides = {}) => ({
+const pen = (overrides: Record<string, unknown> = {}) => ({
   id: "p",
   type: "pen",
   points: [
@@ -24,7 +26,7 @@ const pen = (overrides = {}) => ({
   penSize: 8,
   ...overrides,
 });
-const text = (overrides = {}) => ({
+const text = (overrides: Record<string, unknown> = {}) => ({
   id: "t",
   type: "text",
   x1: 5,
@@ -35,7 +37,7 @@ const text = (overrides = {}) => ({
   font: "hand",
   ...overrides,
 });
-const picture = (overrides = {}) => ({
+const picture = (overrides: Record<string, unknown> = {}) => ({
   id: "i",
   type: "image",
   imageId: "a".repeat(32),
@@ -46,7 +48,7 @@ const picture = (overrides = {}) => ({
   ...overrides,
 });
 // A line or arrow has a label, a route and a label font from the start, and an arrow a start head.
-const line = (overrides = {}) => ({
+const line = (overrides: Record<string, unknown> = {}) => ({
   ...rect("l"),
   type: "line",
   text: "",
@@ -54,8 +56,8 @@ const line = (overrides = {}) => ({
   font: "hand",
   ...overrides,
 });
-const arrow = (overrides = {}) => line({ type: "arrow", startHead: false, ...overrides });
-const note = (overrides = {}) => ({
+const arrow = (overrides: Record<string, unknown> = {}) => line({ type: "arrow", startHead: false, ...overrides });
+const note = (overrides: Record<string, unknown> = {}) => ({
   id: "n",
   type: "sticky",
   x1: 0,
@@ -67,7 +69,7 @@ const note = (overrides = {}) => ({
   font: "hand",
   ...overrides,
 });
-const frame = (overrides = {}) => ({
+const frame = (overrides: Record<string, unknown> = {}) => ({
   id: "f",
   type: "frame",
   x1: 0,
@@ -131,24 +133,33 @@ describe("element rules", () => {
   it("keeps the shapes a connector is attached to, and drops attachments that can't be", () => {
     const attached = arrow({ startId: "a", endId: "b" });
     assert.deepEqual(cleanElement(attached), attached);
-    const cleaned = cleanElement({ ...line(), startId: 42, endId: "l" });
+    const cleaned = cleanElement({ ...line(), startId: 42, endId: "l" })!;
     assert.equal("startId" in cleaned, false, "not an id");
     assert.equal("endId" in cleaned, false, "itself");
-    assert.equal("startId" in cleanElement({ ...line(), startId: "x".repeat(65) }), false);
-    assert.equal("startId" in cleanElement({ ...rect("r"), startId: "a" }), false, "only lines and arrows connect");
+    assert.equal("startId" in cleanElement({ ...line(), startId: "x".repeat(65) })!, false);
+    assert.equal("startId" in cleanElement({ ...rect("r"), startId: "a" })!, false, "only lines and arrows connect");
   });
 
   it("doesn't attach both ends of a connector to the same element", () => {
-    const cleaned = cleanElement({ ...line(), startId: "a", startAnchor: "top", endId: "a", endAnchor: "bottom" });
+    const cleaned = cleanElement({
+      ...line(),
+      startId: "a",
+      startAnchor: "top",
+      endId: "a",
+      endAnchor: "bottom",
+    }) as ShapeElement;
     assert.deepEqual([cleaned.startId, cleaned.startAnchor], ["a", "top"]);
     assert.equal("endId" in cleaned, false);
     assert.equal("endAnchor" in cleaned, false);
   });
 
   it("refuses a stroke with an absurd number of points", () => {
-    const points = (count) => Array.from({ length: count }, (_, n) => [n, n, 0.5]);
+    const points = (count: number): Point[] => Array.from({ length: count }, (_, n): Point => [n, n, 0.5]);
     assert.equal(cleanElement(pen({ points: points(MAX_STROKE_POINTS + 1) })), null);
-    assert.equal(cleanElement(pen({ points: points(MAX_STROKE_POINTS) })).points.length, MAX_STROKE_POINTS);
+    assert.equal(
+      (cleanElement(pen({ points: points(MAX_STROKE_POINTS) })) as PenElement).points.length,
+      MAX_STROKE_POINTS,
+    );
   });
 
   it("cuts long text between whole characters, never inside an emoji", () => {
@@ -158,9 +169,11 @@ describe("element rules", () => {
     assert.equal(cutText("abcdef", 3), "abc");
     assert.equal(cutText(`ab${family}`, 5), "ab", "a joined sequence is kept whole or left out");
     assert.equal(cutText(`ab${family}`, 10), `ab${family}`);
-    const name = cleanElement(frame({ name: `${"a".repeat(MAX_FRAME_NAME_LENGTH - 1)}${smile}` })).name;
+    const name = (cleanElement(frame({ name: `${"a".repeat(MAX_FRAME_NAME_LENGTH - 1)}${smile}` })) as FrameElement)
+      .name;
     assert.equal(name, "a".repeat(MAX_FRAME_NAME_LENGTH - 1));
-    const label = cleanElement({ ...line(), text: `${"a".repeat(MAX_TEXT_LENGTH - 1)}${family}` }).text;
+    const label = (cleanElement({ ...line(), text: `${"a".repeat(MAX_TEXT_LENGTH - 1)}${family}` }) as ShapeElement)
+      .text;
     assert.equal(label, "a".repeat(MAX_TEXT_LENGTH - 1));
   });
 
@@ -187,14 +200,17 @@ describe("element rules", () => {
       startHead: true, // a line has no heads
       text: 7,
       font: "comic",
-    });
+    }) as ShapeElement;
     for (const key of ["startAnchor", "endAnchor", "startHead"]) {
       assert.equal(key in odd, false, key);
     }
     assert.deepEqual([odd.route, odd.text, odd.font], ["straight", "", "hand"], "what isn't one is the default");
-    assert.equal(cleanElement({ ...line(), text: "x".repeat(MAX_TEXT_LENGTH + 5) }).text.length, MAX_TEXT_LENGTH);
     assert.equal(
-      "route" in cleanElement({ ...rect("r"), route: "curved" }),
+      (cleanElement({ ...line(), text: "x".repeat(MAX_TEXT_LENGTH + 5) }) as ShapeElement).text!.length,
+      MAX_TEXT_LENGTH,
+    );
+    assert.equal(
+      "route" in cleanElement({ ...rect("r"), route: "curved" })!,
       false,
       "only lines and arrows have routes",
     );
@@ -203,19 +219,20 @@ describe("element rules", () => {
   it("fills in what a line or arrow saved before it had a label, route or arrowheads lacks, as never set", () => {
     const { text: _text, route: _route, font: _font, ...saved } = line();
     const old = { ...saved, type: "arrow", version: 3, versionNonce: 7 };
-    const filled = cleanElement(old);
+    const filled = cleanElement(old) as ShapeElement;
     assert.deepEqual([filled.text, filled.route, filled.font, filled.startHead], ["", "straight", "hand", false]);
     assert.equal(filled.version, 3, "the element's own stamp is unchanged");
-    for (const group of ["text", "route", "font", "startHead"]) assert.deepEqual(filled.stamps[group], [0, 0], group);
+    for (const group of ["text", "route", "font", "startHead"] as const)
+      assert.deepEqual(filled.stamps![group], [0, 0], group);
     assert.equal(withDefaults(filled), filled, "nothing is missing any more");
     const plain = rect("r");
     assert.equal(withDefaults(plain), plain, "other kinds are left as they are");
   });
 
   it("keeps a place in the stack, and drops one that isn't a stacking key", () => {
-    assert.equal(cleanElement({ ...rect("r"), index: "a0" }).index, "a0");
+    assert.equal(cleanElement({ ...rect("r"), index: "a0" })!.index, "a0");
     for (const bad of ["", "a", "a0 ", "!x", 7, "a".repeat(200)]) {
-      assert.equal("index" in cleanElement({ ...rect("r"), index: bad }), false, JSON.stringify(bad));
+      assert.equal("index" in cleanElement({ ...rect("r"), index: bad })!, false, JSON.stringify(bad));
     }
   });
 
@@ -225,7 +242,7 @@ describe("element rules", () => {
       version: 2,
       versionNonce: 1,
       stamps: { stroke: [9, 4], fill: [1, 1], made: [1, 1], sketchy: "x" },
-    });
+    })!;
     assert.equal(cleaned.version, 9, "a group newer than the version it came with");
     assert.equal(cleaned.versionNonce, 4);
     assert.deepEqual(cleaned.stamps, {
@@ -236,7 +253,7 @@ describe("element rules", () => {
       index: [2, 1],
     });
     assert.equal(
-      "stamps" in cleanElement({ ...rect("r"), stamps: { stroke: [9, 4] } }),
+      "stamps" in cleanElement({ ...rect("r"), stamps: { stroke: [9, 4] } })!,
       false,
       "no version, no stamps",
     );
@@ -256,7 +273,7 @@ describe("element rules", () => {
       { versionNonce: 2 ** 31 },
       { versionNonce: -2 },
     ]) {
-      const cleaned = cleanElement({ ...rect("r"), ...bad });
+      const cleaned = cleanElement({ ...rect("r"), ...bad })!;
       assert.ok(!("version" in bad) || !("version" in cleaned), JSON.stringify(bad));
       assert.ok(!("versionNonce" in bad) || !("versionNonce" in cleaned), JSON.stringify(bad));
     }
@@ -272,7 +289,7 @@ describe("element rules", () => {
     );
     assert.ok(Object.hasOwn(sneaky, "__proto__"));
     assert.deepEqual(cleanElement(sneaky), rect("r"));
-    assert.equal({}.polluted, undefined);
+    assert.equal(({} as Record<string, unknown>).polluted, undefined);
     assert.deepEqual(cleanElement({ ...line(), angle: 2 }), line(), "lines and arrows don't turn");
     assert.deepEqual(cleanElement(frame({ angle: 2, stroke: "#000000", text: "hi" })), frame(), "nor do frames");
   });
@@ -297,16 +314,20 @@ describe("element rules", () => {
       },
     );
     assert.deepEqual(cleanElement(text({ fontSize: 2, font: "comic" })), text({ fontSize: 8, font: "hand" }));
-    assert.equal(cleanElement(line({ fill: "#ffffff" })).fill, null, "only rectangles and ellipses are filled");
+    assert.equal(
+      (cleanElement(line({ fill: "#ffffff" })) as unknown as { fill?: unknown }).fill,
+      null,
+      "only rectangles and ellipses are filled",
+    );
     assert.deepEqual(cleanElement(note({ fill: "yellow", font: "comic" })), note({ fill: "#ffec99", font: "hand" }));
-    assert.equal(cleanElement(frame({ name: 42 })).name, "", "a name that isn't text");
-    assert.equal(cleanElement(frame({ name: "x".repeat(500) })).name.length, MAX_FRAME_NAME_LENGTH);
+    assert.equal((cleanElement(frame({ name: 42 })) as FrameElement).name, "", "a name that isn't text");
+    assert.equal((cleanElement(frame({ name: "x".repeat(500) })) as FrameElement).name.length, MAX_FRAME_NAME_LENGTH);
   });
 
   it("keeps a stroke's good points and evens out odd pressures", () => {
     const cleaned = cleanElement(
       pen({ points: [[0, 0, 7], "x", [Number.NaN, 1], [3, 4]], pressure: "yes", penSize: -1 }),
-    );
+    ) as PenElement;
     assert.deepEqual(cleaned.points, [
       [0, 0, 1],
       [3, 4, 0.5],
@@ -317,7 +338,7 @@ describe("element rules", () => {
 });
 
 describe("element rules on a live board", () => {
-  let app;
+  let app: ServerInstance;
   before(async () => {
     app = await startServer();
   });
@@ -334,10 +355,10 @@ describe("element rules on a live board", () => {
     const sent = { ...rect("r"), index: "a0", version: 1, versionNonce: 5 };
     assert.equal((await editor.op(boardId, upsert({ ...sent, extra: "x".repeat(1000) }))).ok, true);
     await eventually(() => watcher.of("board:op").length > 0, { message: "the change reaching the other screen" });
-    assert.deepEqual(watcher.of("board:op")[0].op.upsert, [sent]);
+    assert.deepEqual(watcher.of("board:op")[0]!.op.upsert, [sent]);
 
     assert.equal((await editor.op(boardId, upsert({ ...rect("bad"), x1: Number.NaN }))).ok, false);
     const reopened = await (await app.connect(owner)).join(boardId);
-    assert.deepEqual(reopened.board.elements, [sent]);
+    assert.deepEqual(reopened.board!.elements, [sent]);
   });
 });

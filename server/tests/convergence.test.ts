@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { commitPlan, effectOf, planOperation } from "@inkboard/shared/board-merge";
+import type { Effect, Element, ShapeElement, Tombstones } from "@inkboard/shared/types";
 import { createBoardStore } from "../../client/src/features/board/store.ts";
 import { prepareOperation } from "../src/realtime/operations.ts";
-import { rect } from "./helpers.js";
+import type { FullOperation } from "../src/realtime/operations.ts";
+import { rect } from "./helpers.ts";
 
 // People edit the same elements at the same time, and their changes reach the
 // server, and each other, in different orders. Whatever the order, everyone
@@ -13,7 +15,7 @@ import { rect } from "./helpers.js";
 // recoloring, removing, undoing and redoing, with messages delivered in a
 // random order (each connection keeps its own order, as a socket does).
 
-function random(seed) {
+function random(seed: number) {
   let state = seed >>> 0;
   return () => {
     state = (state * 1664525 + 1013904223) >>> 0;
@@ -23,21 +25,29 @@ function random(seed) {
 
 const COLORS = ["#ff0000", "#00aa00", "#0000ff", "#222222"];
 
-function play(seed) {
-  const next = random(seed);
-  const pick = (list) => list[Math.floor(next() * list.length)];
-  const server = { elements: [], tombstones: new Map() };
+interface SimClient {
+  number: number;
+  store: ReturnType<typeof createBoardStore>;
+  outbox: FullOperation[];
+  inbox: Effect[];
+  made: number;
+}
 
-  const clients = Array.from({ length: 3 }, (_, number) => {
+function play(seed: number) {
+  const next = random(seed);
+  const pick = <T>(list: readonly T[] | T[]) => list[Math.floor(next() * list.length)];
+  const server: { elements: Element[]; tombstones: Tombstones } = { elements: [], tombstones: new Map() };
+
+  const clients: SimClient[] = Array.from({ length: 3 }, (_, number) => {
     const store = createBoardStore();
     store.load([]);
-    const client = { number, store, outbox: [], inbox: [], made: 0 };
-    store.setBroadcaster((op) => client.outbox.push(op));
+    const client: SimClient = { number, store, outbox: [], inbox: [], made: 0 };
+    store.setBroadcaster((op: Effect) => client.outbox.push(op as unknown as FullOperation));
     return client;
   });
 
   // The server takes a change in exactly as the board:op handler does.
-  function serverReceives(from, sent) {
+  function serverReceives(from: SimClient, sent: FullOperation) {
     const op = prepareOperation(server.elements, sent, server.tombstones);
     const plan = planOperation(server.elements, op, server.tombstones);
     const effect = effectOf(plan);
@@ -49,8 +59,8 @@ function play(seed) {
   function deliverOne() {
     const ready = [];
     for (const client of clients) {
-      if (client.outbox.length > 0) ready.push(() => serverReceives(client, client.outbox.shift()));
-      if (client.inbox.length > 0) ready.push(() => client.store.applyRemote(client.inbox.shift()));
+      if (client.outbox.length > 0) ready.push(() => serverReceives(client, client.outbox.shift()!));
+      if (client.inbox.length > 0) ready.push(() => client.store.applyRemote(client.inbox.shift()!));
     }
     if (ready.length === 0) return false;
     pick(ready)();
@@ -58,7 +68,7 @@ function play(seed) {
   }
 
   // One person does one thing, the way the editor does it.
-  function act(client) {
+  function act(client: SimClient) {
     const { store } = client;
     const elements = store.getElements();
     const target = elements.length > 0 ? pick(elements) : null;
@@ -83,7 +93,7 @@ function play(seed) {
     const steps = 1 + Math.floor(next() * 3);
     for (let step = 1; step <= steps; step += 1) {
       const dx = step * 7;
-      const moved = { ...target, x1: target.x1 + dx, x2: target.x2 + dx };
+      const moved = { ...target, x1: (target as ShapeElement).x1 + dx, x2: (target as ShapeElement).x2 + dx };
       store.apply({ upsert: [moved] }, { base: [previous] });
       previous = moved;
       if (next() < 0.5) deliverOne();
@@ -114,8 +124,9 @@ describe("everyone ends up with the same board", () => {
     let stacked = 0;
     for (let seed = 1; seed <= 100; seed += 1) {
       const { server, clients } = play(seed);
-      const order = server.map((element) => element.id).join();
-      for (const client of clients) assert.equal(client.map((element) => element.id).join(), order, `session ${seed}`);
+      const order = server.map((element: Element) => element.id).join();
+      for (const client of clients)
+        assert.equal(client.map((element: Element) => element.id).join(), order, `session ${seed}`);
       if (server.length > 2) stacked += 1;
     }
     assert.ok(stacked > 50, "most sessions end with a few elements to stack");

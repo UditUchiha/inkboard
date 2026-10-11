@@ -1,6 +1,12 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    // The convergence test loads the client's board store, which is written for the browser: its imports
+    // follow Vite's rules (no file extensions) and the code it pulls in uses DOM types. Node runs it fine
+    // (those imports are type-only, and the DOM code isn't reached), but checking it needs both.
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
     "types": ["node"]
   },
   "include": ["."]

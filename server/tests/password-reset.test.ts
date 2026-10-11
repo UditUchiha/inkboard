@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { eventually, startServer } from "./helpers.js";
+import type { Session } from "@inkboard/shared/api";
+import { eventually, startServer } from "./helpers.ts";
+import type { ServerInstance } from "./helpers.ts";
+import type { SentEmail } from "../src/services/email.ts";
 
 const { env } = await import("../src/config/env.ts");
 const { outbox } = await import("../src/services/email.ts");
@@ -9,10 +12,10 @@ const { sendVerificationEmail } = await import("../src/services/account-emails.t
 
 // Email is off unless it's set up; these tests turn it on (tests never really send).
 const emailSettings = { ...env.email };
-const turnEmail = (on) =>
+const turnEmail = (on: boolean) =>
   Object.assign(env.email, on ? { brevoApiKey: "test-key", from: "inkboard@example.test" } : emailSettings);
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
   turnEmail(true);
@@ -23,24 +26,30 @@ after(() => {
 });
 
 let counter = 0;
-const newEmail = (name) => `${name}-${(counter += 1)}@example.test`;
-const post = (path, body, user) => app.request(path, { method: "POST", body, user });
+const newEmail = (name: string) => `${name}-${(counter += 1)}@example.test`;
+type ResetReply = Session & { error?: string };
+const post = (path: string, body?: unknown, user?: { token: string }) =>
+  app.request<ResetReply>(path, { method: "POST", body, user });
+
+type EmailMatch = SentEmail & { token?: string; link?: string };
 
 // The newest email sent to `to`, and the secret in its link.
-function lastEmailTo(to) {
-  const email = outbox.findLast((sent) => sent.to === to);
+function lastEmailTo(to: string): EmailMatch | undefined {
+  const email = outbox.findLast((sent: SentEmail) => sent.to === to);
   return (
     email && { ...email, token: email.text.match(/token=([\w-]+)/)?.[1], link: email.text.match(/https?:\/\/\S+/)?.[0] }
   );
 }
 
 // Mail goes out after the response (so how long a request takes doesn't depend on the mail service), so wait for it.
-const emailTo = (to, subject) =>
-  eventually(() => lastEmailTo(to)?.subject.match(subject) && lastEmailTo(to), { message: `an email to ${to}` });
+const emailTo = (to: string, subject: RegExp): Promise<EmailMatch> =>
+  eventually(() => lastEmailTo(to)?.subject.match(subject) && lastEmailTo(to), {
+    message: `an email to ${to}`,
+  }) as Promise<EmailMatch>;
 
 // The auth routes allow 30 tries per 15 minutes from one address, so accounts are
 // made directly and only the routes under test are called.
-async function account(name = "Ana", { password, verified = false } = {}) {
+async function account(name = "Ana", { password, verified = false }: { password?: string; verified?: boolean } = {}) {
   const email = newEmail(name.toLowerCase());
   const user = await User.create({ name, email, password, emailVerified: verified });
   if (!verified) await sendVerificationEmail(user, app.url);
@@ -58,7 +67,7 @@ describe("forgetting a password", () => {
     assert.deepEqual(known.data, unknown.data, "the answer doesn't reveal who has an account");
     const email = await emailTo(user.email, /Reset your/);
     assert.match(email.subject, /Reset your Inkboard password/);
-    assert.match(email.link, /\/reset-password\?token=/);
+    assert.match(email.link!, /\/reset-password\?token=/);
     // The request for the unknown address came first, and sending is quick to start, so its email would be here by now.
     assert.deepEqual(
       outbox.slice(before).map((sent) => sent.to),
@@ -75,7 +84,7 @@ describe("forgetting a password", () => {
 
     const tooShort = await post("/auth/reset-password", { token, password: "short" });
     assert.equal(tooShort.status, 400);
-    assert.match(tooShort.data.error, /at least 8/);
+    assert.match(tooShort.data.error!, /at least 8/);
 
     const reset = await post("/auth/reset-password", { token, password: "the-new-password" });
     assert.equal(reset.status, 200, "a too-short try doesn't use up the link");
@@ -105,14 +114,14 @@ describe("forgetting a password", () => {
   });
 
   it("links to the app where the person is using it: an allowed client address, or else the server", async () => {
-    const ask = async (origin) => {
+    const ask = async (origin: string | null) => {
       const user = await account("Eve", { verified: true });
       await fetch(`${app.url}/api/auth/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
         body: JSON.stringify({ email: user.email }),
       });
-      return (await emailTo(user.email, /Reset your/)).link;
+      return (await emailTo(user.email, /Reset your/)).link!;
     };
     // helpers.js blanks CLIENT_ORIGIN, so the default local client address is the allowed one.
     const client = "http://localhost:5173";

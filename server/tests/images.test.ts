@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
 import mongoose from "mongoose";
-import { eventually, rect, remove, startServer, upsert } from "./helpers.js";
+import { eventually, rect, remove, startServer, upsert } from "./helpers.ts";
+import type { ServerInstance, TestUser } from "./helpers.ts";
 
 const { env } = await import("../src/config/env.ts");
 
@@ -9,7 +10,7 @@ const { imageBytes } = await import("../src/services/image-storage.ts");
 const { forgetRecentUploads, IMAGE_LIMITS, sweepsSettled, sweepUnusedImages } =
   await import("../src/services/images.ts");
 
-let app;
+let app: ServerInstance;
 before(async () => {
   app = await startServer();
 });
@@ -19,9 +20,9 @@ beforeEach(() => forgetRecentUploads());
 
 // The smallest headers of each kind that say how big the picture is (16 by 16 unless told otherwise), padded
 // so they pass the "is this a picture" check. They can't be drawn, but the server only reads the header.
-const u32 = (value) => Buffer.from(value.toString(16).padStart(8, "0"), "hex");
-const u16le = (value) => Buffer.from([value & 255, value >> 8]);
-const u24le = (value) => Buffer.from([value & 255, (value >> 8) & 255, value >> 16]);
+const u32 = (value: number) => Buffer.from(value.toString(16).padStart(8, "0"), "hex");
+const u16le = (value: number) => Buffer.from([value & 255, value >> 8]);
+const u24le = (value: number) => Buffer.from([value & 255, (value >> 8) & 255, value >> 16]);
 const png = (extra = 0, [width, height] = [16, 16]) =>
   Buffer.concat([
     Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
@@ -48,17 +49,21 @@ const webp = ([width, height] = [16, 16]) =>
     u24le(height - 1),
   ]);
 
-const setLink = (user, boardId, linkAccess) =>
+const setLink = (user: TestUser, boardId: string, linkAccess: string) =>
   app.request(`/boards/${boardId}/link-access`, { method: "PATCH", user, body: { linkAccess } });
 
-const picture = (imageId, id = "pic") => ({ id, type: "image", imageId, x1: 0, y1: 0, x2: 200, y2: 100 });
-const imageUrl = (id) => `${app.url}/api/images/${id}`;
+const picture = (imageId?: string, id = "pic") =>
+  ({ id, type: "image", imageId, x1: 0, y1: 0, x2: 200, y2: 100 }) as unknown as Element;
+const imageUrl = (id: string) => `${app.url}/api/images/${id}`;
 
-const ok = (reply) => (assert.equal(reply.ok, true, reply.error), reply.id);
-const status = async (id) => (await fetch(imageUrl(id))).status;
+const ok = (reply: { ok: boolean; id?: string; error?: string }) => (
+  assert.equal(reply.ok, true, reply.error),
+  reply.id!
+);
+const status = async (id: string) => (await fetch(imageUrl(id))).status;
 
 // Runs `fn` with some image limits lowered, so tests don't need hundreds of MB.
-async function withLimits(changes, fn) {
+async function withLimits(changes: Partial<typeof IMAGE_LIMITS>, fn: () => Promise<unknown>) {
   const saved = { ...IMAGE_LIMITS };
   Object.assign(IMAGE_LIMITS, changes);
   try {
@@ -87,7 +92,7 @@ describe("uploading images", () => {
     const response = await fetch(imageUrl(reply.id));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("content-type"), "image/png");
-    assert.match(response.headers.get("cache-control"), /immutable/);
+    assert.match(response.headers.get("cache-control")!, /immutable/);
     assert.equal(response.headers.get("cross-origin-resource-policy"), "cross-origin");
     assert.deepEqual(Buffer.from(await response.arrayBuffer()), file);
   });
@@ -111,7 +116,7 @@ describe("uploading images", () => {
     for (const data of [script, Buffer.from("just some text, not a picture at all"), Buffer.alloc(0)]) {
       assert.equal((await client.image(boardId, data)).ok, false);
     }
-    assert.equal((await client.image(boardId, "a string, not bytes")).ok, false);
+    assert.equal((await client.image(boardId, "a string, not bytes" as unknown as Buffer)).ok, false);
   });
 
   it("refuses an image over the size limit", async () => {
@@ -133,7 +138,7 @@ describe("uploading images", () => {
     ]) {
       const reply = await client.image(boardId, bomb);
       assert.equal(reply.ok, false);
-      assert.match(reply.error, /too large/);
+      assert.match(reply.error!, /too large/);
     }
     // At the limit is fine, and so is every format's header being read.
     ok(await client.image(boardId, png(0, [side, side])));
@@ -146,7 +151,7 @@ describe("uploading images", () => {
     const noHeader = Buffer.concat([Buffer.from("ffd8ffe000104a464946", "hex"), Buffer.alloc(8, 2)]);
     const reply = await client.image(boardId, noHeader);
     assert.equal(reply.ok, false);
-    assert.match(reply.error, /couldn't be read/);
+    assert.match(reply.error!, /couldn't be read/);
   });
 
   it("drops a small copy with too many pixels, but keeps the image", async () => {
@@ -162,14 +167,14 @@ describe("uploading images", () => {
       for (let index = 0; index < 3; index += 1) ok(await client.image(boardId, png()));
       const reply = await client.image(boardId, png());
       assert.equal(reply.ok, false);
-      assert.match(reply.error, /too quickly/);
+      assert.match(reply.error!, /too quickly/);
     });
   });
 
   it("stops a board from filling the database with images", async () => {
     const { boardId, client } = await ownerOnBoard();
     let stored = 0;
-    let reply;
+    let reply!: { ok: boolean; full?: string };
     for (; stored < 20; stored += 1) {
       reply = await client.image(boardId, png(1_900_000));
       if (!reply.ok) break;
@@ -188,14 +193,14 @@ describe("uploading images", () => {
       ok(await client.image(second, png(100_000)));
       const reply = await client.image(second, png(100_000));
       assert.equal(reply.full, "owner");
-      assert.match(reply.error, /Your boards are out of image space/);
+      assert.match(reply.error!, /Your boards are out of image space/);
     });
   });
 
   it("gives an account whose email address nobody has confirmed a smaller share, once email is set up", async () => {
     const stranger = await app.signUp("Stranger", { verified: false });
     const verified = await app.signUp("Verified");
-    const open = async (user) => {
+    const open = async (user: TestUser) => {
       const boardId = await app.createBoard(user);
       const client = await app.connect(user);
       await client.join(boardId);
@@ -211,13 +216,13 @@ describe("uploading images", () => {
         ok(await first.client.image(first.boardId, png(100_000)));
         const refused = await first.client.image(first.boardId, png(100_000));
         assert.equal(refused.full, "owner");
-        assert.match(refused.error, /Confirm your email address/);
+        assert.match(refused.error!, /Confirm your email address/);
 
         ok(await second.client.image(second.boardId, png(100_000)));
         ok(await second.client.image(second.boardId, png(100_000)));
         const verifiedRefused = await second.client.image(second.boardId, png(100_000));
         assert.equal(verifiedRefused.full, "owner");
-        assert.doesNotMatch(verifiedRefused.error, /Confirm your email/);
+        assert.doesNotMatch(verifiedRefused.error!, /Confirm your email/);
       });
     } finally {
       Object.assign(env.email, saved);
@@ -235,7 +240,7 @@ describe("uploading images", () => {
       ok(await a.client.image(a.boardId, png()));
       const reply = await b.client.image(b.boardId, png());
       assert.equal(reply.ok, false);
-      assert.match(reply.error, /too quickly/);
+      assert.match(reply.error!, /too quickly/);
     });
   });
 
@@ -278,14 +283,14 @@ describe("uploading images", () => {
   it("answers with an error, rather than dropping the connection, for a stored image that can't be read", async () => {
     const { boardId, client } = await ownerOnBoard();
     const { db } = mongoose.connection;
-    const lose = async (id, chunks) => {
-      const file = await db.collection("images.files").findOne({ filename: id });
-      await db.collection("images.chunks").deleteMany({ files_id: file._id, ...chunks });
+    const lose = async (id: string, chunks: Record<string, unknown>) => {
+      const file = (await db!.collection("images.files").findOne({ filename: id }))!;
+      await db!.collection("images.chunks").deleteMany({ files_id: file._id, ...chunks });
     };
-    const expectError = async (id) => {
+    const expectError = async (id: string) => {
       const response = await fetch(imageUrl(id));
       assert.equal(response.status, 500);
-      assert.match((await response.json()).error, /went wrong/);
+      assert.match(((await response.json()) as { error: string }).error, /went wrong/);
     };
     // Bigger than one 255 KB chunk, with its first chunk gone: reading it fails.
     const firstLost = ok(await client.image(boardId, png(300_000)));
@@ -348,12 +353,12 @@ describe("image elements on a board", () => {
     const { id } = await client.image(boardId, png());
     assert.equal((await client.op(boardId, upsert(picture(id)))).ok, true);
     await eventually(() => watcher.of("board:op").length > 0, { message: "the image reaching the other screen" });
-    assert.equal(watcher.of("board:op")[0].op.upsert[0].imageId, id);
+    assert.equal((watcher.of("board:op")[0]!.op.upsert![0] as { imageId: string }).imageId, id);
 
     await eventually(
       async () => {
         const reopened = await (await app.connect(owner)).join(boardId);
-        return reopened.board.elements.some((element) => element.imageId === id);
+        return reopened.board!.elements.some((element) => (element as { imageId?: string }).imageId === id);
       },
       { timeout: 8000, message: "the image element being saved" },
     );
@@ -365,7 +370,7 @@ describe("image elements on a board", () => {
       picture("../../etc/passwd"),
       picture(undefined),
       picture("short"),
-      { ...picture("a".repeat(32)), imageId: 5 },
+      { ...picture("a".repeat(32)), imageId: 5 as unknown as string },
     ];
     for (const element of bad) assert.equal((await client.op(boardId, upsert(element))).ok, false);
     assert.equal((await client.op(boardId, upsert(picture("a".repeat(32))))).ok, true);
@@ -384,7 +389,7 @@ describe("image elements on a board", () => {
   it("explains why a board with only images can't become a template", async () => {
     const { owner, boardId, client } = await ownerOnBoard();
     await client.op(boardId, upsert(picture(ok(await client.image(boardId, png())))));
-    const { status: code, data } = await app.request("/templates", {
+    const { status: code, data } = await app.request<{ error: string }>("/templates", {
       method: "POST",
       user: owner,
       body: { boardId, title: "T" },
@@ -398,15 +403,18 @@ describe("image elements on a board", () => {
     const { id } = await client.image(boardId, png());
     await client.op(boardId, upsert(picture(id), rect("box")));
 
-    const { status, data } = await app.request("/templates", {
-      method: "POST",
-      user: owner,
-      body: { boardId, title: "T" },
-    });
+    const { status, data } = await app.request<{ template: { elementCount: number; preview: { type: string }[] } }>(
+      "/templates",
+      {
+        method: "POST",
+        user: owner,
+        body: { boardId, title: "T" },
+      },
+    );
     assert.equal(status, 201);
     assert.equal(data.template.elementCount, 1);
     assert.deepEqual(
-      data.template.preview.map((element) => element.type),
+      data.template.preview.map((element: { type: string }) => element.type),
       ["rectangle"],
     );
   });

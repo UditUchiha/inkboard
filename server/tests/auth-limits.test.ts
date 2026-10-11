@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { startServer } from "./helpers.js";
+import { startServer } from "./helpers.ts";
+import type { ServerInstance } from "./helpers.ts";
 
 const { env } = await import("../src/config/env.ts");
 const { signToken } = await import("../src/lib/tokens.ts");
@@ -13,7 +14,7 @@ const { outbox } = await import("../src/services/email.ts");
 // as Render's proxy does; requests that don't say come from the tests' own address.
 const emailSettings = { ...env.email };
 const trustProxy = env.trustProxy;
-let app;
+let app: ServerInstance;
 before(async () => {
   env.trustProxy = 1;
   app = await startServer();
@@ -25,9 +26,10 @@ after(() => {
   return app.stop();
 });
 
-const post = (route, body, user) => app.request(route, { method: "POST", body, user });
-const login = (email, password) => post("/auth/login", { email, password });
-const loginFrom = (address, email, password) =>
+const post = (route: string, body?: unknown, user?: { token: string }) =>
+  app.request(route, { method: "POST", body, user });
+const login = (email: string, password: string) => post("/auth/login", { email, password });
+const loginFrom = (address: string, email: string, password: string) =>
   fetch(`${app.url}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Forwarded-For": address },
@@ -100,7 +102,7 @@ describe("asking for a password reset", () => {
 
 describe("signed-in actions", () => {
   it("are limited per person, not per address", async () => {
-    const withPassword = async (name) => {
+    const withPassword = async (name: string) => {
       const user = await User.create({ name, email: `${name}@example.test`, password: "the-password" });
       return { token: signToken(user) };
     };
