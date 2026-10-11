@@ -50,7 +50,7 @@ Account features:
 - **Comments and mentions**: pin a thread to any spot on the board, `@mention` a member and resolve threads. Mentions and replies arrive as live notifications.
 - **Follow mode**: click someone's avatar and your view tracks theirs until you pan or zoom.
 - **Templates**: start from a built-in kanban, flowchart, retrospective, SWOT or brainstorm board, or save any board as a template of your own.
-- **Stars and trash**: star boards, and deleted boards stay in a trash for 30 days before they are removed for good.
+- **Stars and trash**: star boards, and deleted boards stay in a trash for 30 days before they are removed for good. The people invited to a board are notified when its owner moves it to the trash.
 - **Profile**: your name, color and photo appear on your cursor and avatar. Connect or disconnect Google and GitHub, or set a password for an account that signed up through one of them.
 
 ## Tech stack

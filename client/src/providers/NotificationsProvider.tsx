@@ -20,8 +20,10 @@ export type NotificationsValue = {
 
 const NotificationsContext = createContext<NotificationsValue | null>(null);
 
-// A notification about a comment opens it, and one about suggestions opens those.
+// A notification about a comment opens it, and one about suggestions opens those. A board in the trash can't be
+// opened, so being told about one leads to the dashboard.
 export function notificationLink(notification: Pick<NotificationItem, "board" | "thread" | "type">) {
+  if (notification.type === "trashed") return "/boards";
   const board = `/board/${notification.board.id}`;
   if (notification.thread) return `${board}?thread=${notification.thread}`;
   return notification.type === "suggestion" ? `${board}?suggestions` : board;
@@ -31,10 +33,11 @@ export function describeNotification({ type, actor, board }: Pick<NotificationIt
   if (type === "mention") return `${actor.name} mentioned you on “${board.title}”`;
   if (type === "reply") return `${actor.name} replied to a comment on “${board.title}”`;
   if (type === "suggestion") return `${actor.name} suggested changes to “${board.title}”`;
+  if (type === "trashed") return `${actor.name} moved “${board.title}” to the trash`;
   return `${actor.name} invited you to “${board.title}”`;
 }
 
-/** Mentions, replies, invites and suggestions for the signed-in person, live over the socket. */
+/** Mentions, replies, invites, suggestions and trashed boards for the signed-in person, live over the socket. */
 type NotificationsProviderProps = { children: ReactNode };
 
 export function NotificationsProvider({ children }: NotificationsProviderProps) {
@@ -116,9 +119,10 @@ export function NotificationsProvider({ children }: NotificationsProviderProps) 
     if (!socket || !signedIn) return undefined;
     const onNotification = (notification: NotificationItem) => {
       setItems((list) => mergeNotifications(list, [notification]));
+      const trashed = notification.type === "trashed";
       toast(describeNotification(notification), {
-        description: notification.excerpt ?? undefined,
-        action: { label: "Open", onClick: () => navigate(notificationLink(notification)) },
+        description: trashed ? "You can open it again if they restore it." : (notification.excerpt ?? undefined),
+        action: trashed ? undefined : { label: "Open", onClick: () => navigate(notificationLink(notification)) },
       });
     };
     socket.on("notification", onNotification);

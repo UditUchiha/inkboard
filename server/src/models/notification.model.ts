@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const { ObjectId } = mongoose.Schema.Types;
 
-export const NOTIFICATION_TYPES = ["mention", "reply", "invite", "suggestion"];
+export const NOTIFICATION_TYPES = ["mention", "reply", "invite", "suggestion", "trashed"];
 
 const notificationSchema = new mongoose.Schema(
   {

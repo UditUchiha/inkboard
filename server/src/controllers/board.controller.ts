@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
 import { BoardState } from "../models/board-state.model.ts";
 import { Board, LINK_ACCESS } from "../models/board.model.ts";
+import { Notification } from "../models/notification.model.ts";
 import { Template } from "../models/template.model.ts";
 import { User } from "../models/user.model.ts";
 import { sanitizeElements } from "../realtime/operations.ts";
@@ -190,7 +191,10 @@ export async function starBoard(req: BoardRequest<{ starred?: unknown }>, res: R
   res.json({ starred } satisfies Api.StarReply);
 }
 
-/** Moves a board to the trash. Everyone loses access until the owner restores it. */
+/**
+ * Moves a board to the trash. Everyone loses access until the owner restores it, so the people invited to it are
+ * told (a board that vanished from their dashboard without a word looks like a bug, or like being removed).
+ */
 export async function deleteBoard(req: BoardRequest, res: Response) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!isOwner(board, req.userId)) {
@@ -200,6 +204,7 @@ export async function deleteBoard(req: BoardRequest, res: Response) {
   board.deletedAt = new Date();
   await board.save();
   await closeBoard(board.id, { keepChanges: true });
+  await notify({ users: board.collaborators, type: "trashed", actor: board.owner, board });
   res.status(204).end();
 }
 
@@ -263,6 +268,8 @@ export async function restoreBoard(req: BoardRequest, res: Response) {
     }
     throw new HttpError(404, "That board isn't in your trash."); // restored by another request just now
   }
+  // It's back, so being told it went is no longer true (and a later trash can tell them again).
+  await Notification.deleteMany({ board: board._id, type: "trashed" });
   const updated = await Board.findById(board._id).populate<PopulatedMembers>(populateMembers);
   // Found a moment ago; a purge that finished since would make this null and fail here, as it always has.
   res.json({ board: serializeBoard(updated!, req.userId) } satisfies Api.BoardReply);
