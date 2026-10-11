@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 // A browser without Intl.Segmenter (Firefox before 125) must still load the rules, which the editor
 // imports: the segmenter is only made when text is first cut, and there's a fallback without one.
 const segmenter = Intl.Segmenter;
+// @ts-expect-error testing fallback when Intl.Segmenter is undefined
 Intl.Segmenter = undefined;
 const { cutText } = await import("../src/element-rules.ts");
 
@@ -15,6 +16,7 @@ describe("cutting text without Intl.Segmenter", () => {
       assert.equal(cutText(`ab${smile}`, 3), "ab");
       assert.equal(cutText(`ab${smile}c`, 4), `ab${smile}`);
     } finally {
+      // @ts-expect-error restoring Intl.Segmenter
       Intl.Segmenter = segmenter;
     }
   });

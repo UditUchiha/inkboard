@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { compareOrder, inStackOrder, isOrderKey, keyToMove } from "../src/board-order.ts";
+import type { Element, StackMove } from "../src/types.ts";
 
-const board = (...ids) => inStackOrder(ids.map((id) => ({ id })));
-const ids = (elements) => elements.map((element) => element.id);
+const board = (...ids: string[]) => inStackOrder(ids.map((id) => ({ id }) as unknown as Element));
+const ids = (elements: Element[]) => elements.map((element) => element.id);
 
 /** The board with element `id` given `key`, sorted as a board keeps it. */
-function moved(elements, id, key) {
+function moved(elements: Element[], id: string, key: string) {
   return elements.map((element) => (element.id === id ? { ...element, index: key } : element)).sort(compareOrder);
 }
 
-function move(elements, id, where, overlaps) {
+function move(elements: Element[], id: string, where: StackMove, overlaps?: (element: Element) => boolean) {
   const key = keyToMove(elements, id, where, overlaps);
   assert.ok(isOrderKey(key), `${where} gave ${key}`);
   return moved(elements, id, key);
@@ -38,17 +39,24 @@ describe("moving an element in the stack", () => {
     assert.equal(keyToMove(elements, "a", "back"), null);
     assert.equal(keyToMove(elements, "a", "backward"), null);
     assert.equal(keyToMove(elements, "missing", "front"), null);
+    // @ts-expect-error deliberately invalid move direction
     assert.equal(keyToMove(elements, "b", "sideways"), null);
   });
 
   it("steps past elements it doesn't overlap", () => {
     const elements = board("a", "b", "c", "d", "e");
-    const overlapsD = (other) => other.id === "d";
+    const overlapsD = (other: Element) => other.id === "d";
     assert.deepEqual(ids(move(elements, "b", "forward", overlapsD)), ["a", "c", "d", "b", "e"]);
-    assert.deepEqual(ids(move(elements, "e", "backward", (other) => other.id === "b")), ["a", "e", "b", "c", "d"]);
+    assert.deepEqual(ids(move(elements, "e", "backward", (other: Element) => other.id === "b")), [
+      "a",
+      "e",
+      "b",
+      "c",
+      "d",
+    ]);
     // Nothing above it overlaps, so stepping forward changes nothing visible.
     assert.equal(
-      keyToMove(elements, "d", "forward", (other) => other.id === "a"),
+      keyToMove(elements, "d", "forward", (other: Element) => other.id === "a"),
       null,
     );
     assert.equal(
@@ -59,12 +67,14 @@ describe("moving an element in the stack", () => {
 
   it("steps past every element tied on the same key", () => {
     // Elements added at the same moment by two people can share a key.
-    const elements = [
-      { id: "a", index: "a0" },
-      { id: "b", index: "a1" },
-      { id: "c", index: "a1" },
-      { id: "d", index: "a2" },
-    ].sort(compareOrder);
+    const elements = (
+      [
+        { id: "a", index: "a0" },
+        { id: "b", index: "a1" },
+        { id: "c", index: "a1" },
+        { id: "d", index: "a2" },
+      ] as unknown as Element[]
+    ).sort(compareOrder);
     assert.deepEqual(ids(move(elements, "a", "forward")), ["b", "c", "a", "d"]);
     assert.deepEqual(ids(move(elements, "d", "backward")), ["a", "d", "b", "c"]);
     // Tied with the element above: still moves above it.
@@ -75,8 +85,8 @@ describe("moving an element in the stack", () => {
     let elements = board("a", "b", "c", "d", "e", "f");
     let moves = 0;
     for (let round = 0; round < 200; round += 1) {
-      const id = ids(elements)[round % elements.length];
-      const where = ["forward", "backward", "front", "back"][round % 4];
+      const id = ids(elements)[round % elements.length]!;
+      const where = (["forward", "backward", "front", "back"] as const)[round % 4]!;
       const key = keyToMove(elements, id, where);
       if (!key) continue;
       const before = ids(elements).indexOf(id);
@@ -86,7 +96,7 @@ describe("moving an element in the stack", () => {
       moves += 1;
     }
     assert.ok(moves > 100);
-    assert.ok(Math.max(...elements.map((element) => element.index.length)) < 20);
+    assert.ok(Math.max(...elements.map((element) => element.index!.length)) < 20);
   });
 
   it("refuses keys whose whole number can't be stepped past, which would only lengthen every later key", () => {
@@ -104,8 +114,8 @@ describe("moving an element in the stack", () => {
     const elements = [
       { id: "a", index: "a0" },
       { id: "b", index: "a1" },
-    ];
+    ] as unknown as Element[];
     // A board with a key it couldn't have made is left alone rather than guessed at.
-    assert.equal(keyToMove([{ id: "x", index: long }, ...elements], "a", "back"), null);
+    assert.equal(keyToMove([{ id: "x", index: long } as unknown as Element, ...elements], "a", "back"), null);
   });
 });
