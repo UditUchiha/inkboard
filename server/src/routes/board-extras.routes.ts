@@ -5,6 +5,7 @@ import {
   createThread,
   deleteThread,
   listThreads,
+  reactToMessage,
   replyToThread,
   updateThread,
 } from "../controllers/thread.controller.ts";
@@ -25,6 +26,13 @@ const commenting = limitPerUser({
   message: "You're commenting very quickly. Wait a moment and try again.",
 });
 
+// Reacting notifies nobody, but each one is sent to everyone on the board.
+const reacting = limitPerUser({
+  windowMs: 60 * 1000,
+  limit: 120,
+  message: "You're reacting very quickly. Wait a moment and try again.",
+});
+
 // Mounted at /api/boards/:boardId/versions
 export const versionRoutes = Router({ mergeParams: true });
 versionRoutes.use(requireAuth);
@@ -40,6 +48,7 @@ threadRoutes.use(requireAuth);
 threadRoutes.get("/", listThreads);
 threadRoutes.post("/", commenting, createThread);
 threadRoutes.post("/:threadId/messages", commenting, replyToThread);
+threadRoutes.put("/:threadId/messages/:messageId/reactions", reacting, reactToMessage);
 threadRoutes.patch("/:threadId", updateThread);
 threadRoutes.delete("/:threadId", deleteThread);
 

@@ -1,12 +1,20 @@
-import { CloudCheck, Eye, LoaderCircle, MessageSquarePlus, WifiOff } from "lucide-react";
+import { CloudCheck, Eye, LoaderCircle, MessageSquare, MessageSquarePlus, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ButtonLink } from "../../components/Button";
+import { Button, ButtonLink } from "../../components/Button";
 
-/** What the view-only notice takes: whether the person is signed in, and where logging in leads. */
-export type ViewOnlyNoticeProps = { signedIn: boolean; loginHref: string };
+/**
+ * What the view-only notice takes: whether the person is signed in, and where logging in leads. `commenting` is
+ * whether the comment tool is on, for someone who may comment (left out otherwise), and `onToggleComment` turns it.
+ */
+export type ViewOnlyNoticeProps = {
+  signedIn: boolean;
+  loginHref: string;
+  commenting?: boolean;
+  onToggleComment?: () => void;
+};
 
-/** Shown in place of the toolbar to people who can only look. */
-export function ViewOnlyNotice({ signedIn, loginHref }: ViewOnlyNoticeProps) {
+/** Shown in place of the toolbar to people who can only look (and, signed in, comment). */
+export function ViewOnlyNotice({ signedIn, loginHref, commenting, onToggleComment }: ViewOnlyNoticeProps) {
   return (
     <div className="floating-panel flex h-12 items-center gap-3 rounded-xl pr-2 pl-4 text-sm">
       <Eye className="size-4 shrink-0 text-graphite" aria-hidden />
@@ -18,6 +26,18 @@ export function ViewOnlyNotice({ signedIn, loginHref }: ViewOnlyNoticeProps) {
         <ButtonLink to={loginHref} size="sm">
           Log in
         </ButtonLink>
+      )}
+      {commenting !== undefined && (
+        <Button
+          variant={commenting ? "primary" : "secondary"}
+          size="sm"
+          icon={MessageSquare}
+          aria-pressed={commenting}
+          onClick={onToggleComment}
+          title="Click the board where your comment should go"
+        >
+          Comment
+        </Button>
       )}
     </div>
   );

@@ -102,8 +102,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const readOnly = role === "viewer";
   const suggesting = role === "suggester";
   const isMember = role === "owner" || role === "editor";
-  const commentsEnabled = Boolean(user) && !local; // comments are for signed-in people
-  const canComment = commentsEnabled && drawsOnBoard(role);
+  // Comments are for signed-in people, and all of them can comment, viewers and suggesters too.
+  const commentsEnabled = Boolean(user) && !local;
+  const canComment = commentsEnabled;
   const selfId = user?.id ?? getGuest().id;
 
   const [tool, setTool] = useState<ToolId>("pen");
@@ -490,7 +491,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       <ErrorBoundary fallback={BoardCrashed}>
         <MemoBoardCanvas
           store={store}
-          tool={readOnly ? "hand" : tool}
+          tool={readOnly && tool !== "comment" ? "hand" : tool}
           style={style}
           viewport={viewport}
           onViewportChange={changeViewport}
@@ -552,6 +553,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           onDraftClose={() => setDraft(null)}
           members={members}
           canComment={canComment}
+          canResolveAny={drawsOnBoard(role)}
           canDeleteAny={role === "owner"}
           selfId={selfId}
           api={threadApi}
@@ -623,6 +625,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           <ViewOnlyNotice
             signedIn={Boolean(user)}
             loginHref={`/login?next=${encodeURIComponent(location.pathname + location.search)}`}
+            commenting={canComment ? tool === "comment" : undefined}
+            onToggleComment={() => changeTool(tool === "comment" ? "hand" : "comment")}
           />
         ) : (
           <Toolbar

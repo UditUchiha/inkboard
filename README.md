@@ -48,7 +48,7 @@ A guest's scratch board lives in `localStorage` only, so it never reaches the da
 Account features:
 
 - **Version history**: boards are checkpointed automatically as people work. Name a version, preview an old one and restore it for everyone. The board as it was is saved first, so a restore can be undone.
-- **Comments and mentions**: pin a thread to any spot on the board, `@mention` a member and resolve threads. Mentions and replies arrive as live notifications.
+- **Comments and mentions**: pin a thread to any spot on the board, `@mention` a member, react to comments with an emoji and resolve threads. Anyone signed in who can open the board can comment and react, people who only view it by its link too (they resolve only their own threads). Mentions and replies arrive as live notifications.
 - **Follow mode**: click someone's avatar and your view tracks theirs until you pan or zoom.
 - **Templates**: start from a built-in kanban, flowchart, retrospective, SWOT or brainstorm board, or save any board as a template of your own.
 - **Stars and trash**: star boards, and deleted boards stay in a trash for 30 days before they are removed for good. The people invited to a board are notified when its owner moves it to the trash.

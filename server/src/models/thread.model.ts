@@ -7,6 +7,10 @@ const messageSchema = new mongoose.Schema(
     author: { type: ObjectId, ref: "User", required: true },
     body: { type: String, required: true, trim: true, maxlength: 2000 },
     mentions: [{ type: ObjectId, ref: "User" }],
+    // Who reacted with which emoji (one of REACTION_EMOJI), once each. Without ids, so adding one twice adds it once.
+    reactions: [
+      { _id: false, emoji: { type: String, required: true }, user: { type: ObjectId, ref: "User", required: true } },
+    ],
   },
   { timestamps: { createdAt: true, updatedAt: false } },
 );
