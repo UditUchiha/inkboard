@@ -487,3 +487,100 @@ describe("cleaning up images nothing shows", () => {
     });
   });
 });
+
+describe("making a copy of a board", () => {
+  type CopyReply = {
+    board: { id: string; title: string; role: string; collaborators: unknown[]; elements: unknown[] };
+  };
+  const copy = (user: TestUser | null, boardId: string) =>
+    app.request<CopyReply & { error?: string }>(`/boards/${boardId}/copy`, { method: "POST", user: user ?? undefined });
+  const imageIdsOf = (elements: unknown[]) =>
+    elements.flatMap((element) =>
+      (element as { imageId?: string }).imageId ? [(element as { imageId: string }).imageId] : [],
+    );
+
+  it("gives a viewer their own copy of the drawing as it is right now", async () => {
+    const { owner, boardId, client } = await ownerOnBoard();
+    await app.request(`/boards/${boardId}`, { method: "PATCH", user: owner, body: { title: "Plans" } });
+    await setLink(owner, boardId, "view");
+    assert.equal((await client.op(boardId, upsert(rect("box"), rect("other", 50)))).ok, true);
+    const viewer = await app.signUp("Viewer");
+
+    const { status: code, data } = await copy(viewer, boardId);
+    assert.equal(code, 201);
+    assert.equal(data.board.title, "Copy of Plans");
+    assert.equal(data.board.role, "owner");
+    assert.deepEqual(data.board.collaborators, []);
+    assert.deepEqual(
+      data.board.elements.map((element) => (element as { id: string }).id).sort(),
+      ["box", "other"],
+      "what's on the open board, saved or not",
+    );
+    const listed = (await app.request<{ boards: { id: string; role: string }[] }>("/boards", { user: viewer })).data;
+    assert.ok(listed.boards.some((board) => board.id === data.board.id && board.role === "owner"));
+
+    // The copy is separate: drawing on it leaves the original alone.
+    const mine = await app.connect(viewer);
+    await mine.join(data.board.id);
+    assert.equal((await mine.op(data.board.id, remove("box"))).ok, true);
+    const original = await (await app.connect(owner)).join(boardId);
+    assert.equal(original.board!.elements.length, 2);
+  });
+
+  it("copies the pictures, so the copy keeps them when the original is deleted for good", async () => {
+    const { owner, boardId, client } = await ownerOnBoard();
+    const file = png(3000);
+    const id = ok(await client.image(boardId, file, { buffer: png(100), mime: "image/png" }));
+    await client.op(boardId, upsert(picture(id), picture(id, "again")));
+
+    const { data } = await copy(owner, boardId);
+    const copied = imageIdsOf(data.board.elements);
+    assert.equal(copied.length, 2);
+    assert.equal(new Set(copied).size, 1, "one picture shown twice is copied once");
+    assert.notEqual(copied[0], id);
+    assert.equal(await imageBytes({ boards: [data.board.id] }), await imageBytes({ boards: [boardId] }));
+
+    await app.request(`/boards/${boardId}`, { method: "DELETE", user: owner });
+    await app.request(`/boards/${boardId}/permanent`, { method: "DELETE", user: owner });
+    await eventually(async () => (await status(id)) === 404, { message: "the original picture being removed" });
+    const response = await fetch(imageUrl(copied[0]!));
+    assert.equal(response.status, 200);
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), file);
+  });
+
+  it("copies only the board's own pictures", async () => {
+    const { owner, boardId, client } = await ownerOnBoard();
+    const other = await ownerOnBoard();
+    const theirs = ok(await other.client.image(other.boardId, png()));
+    await client.op(boardId, upsert(picture(theirs)));
+
+    const { status: code, data } = await copy(owner, boardId);
+    assert.equal(code, 201);
+    assert.deepEqual(imageIdsOf(data.board.elements), [theirs], "left as it was, not copied");
+    assert.equal(await imageBytes({ boards: [data.board.id] }), 0);
+  });
+
+  it("is refused when the pictures don't fit in the copier's space, leaving nothing behind", async () => {
+    const { owner, boardId, client } = await ownerOnBoard();
+    await client.op(boardId, upsert(picture(ok(await client.image(boardId, png(4000))))));
+    await setLink(owner, boardId, "view");
+    const viewer = await app.signUp("Viewer");
+    await withLimits({ owner: 3000 }, async () => {
+      const { status: code, data } = await copy(viewer, boardId);
+      assert.equal(code, 400);
+      assert.match(data.error!, /out of image space/);
+    });
+    const listed = (await app.request<{ boards: unknown[] }>("/boards", { user: viewer })).data.boards;
+    assert.equal(listed.filter((board) => (board as { role: string }).role === "owner").length, 0);
+  });
+
+  it("is only for people signed in who can open the board", async () => {
+    const { owner, boardId } = await ownerOnBoard();
+    const stranger = await app.signUp("Stranger");
+    assert.equal((await copy(stranger, boardId)).status, 403);
+    await setLink(owner, boardId, "view");
+    assert.equal((await copy(null, boardId)).status, 401, "a guest has nowhere to keep a copy");
+    await app.request(`/boards/${boardId}`, { method: "DELETE", user: owner });
+    assert.equal((await copy(owner, boardId)).status, 404, "not from the trash");
+  });
+});

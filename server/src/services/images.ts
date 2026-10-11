@@ -9,8 +9,8 @@ import { Version } from "../models/version.model.ts";
 import { getSession } from "../realtime/sessions.ts";
 import { emailConfigured } from "./email.ts";
 import type { ObjectIdLike } from "./boards.ts";
-import { deleteImages, imageBytes, listImages, putImage } from "./image-storage.ts";
-import type { ImageContent, ImageFilter } from "./image-storage.ts";
+import { copyImages, deleteImages, imageBytes, imageBytesAmong, listImages, putImage } from "./image-storage.ts";
+import type { CopyImages, ImageContent, ImageFilter } from "./image-storage.ts";
 
 // Rules for uploaded images. The browser shrinks pictures before sending them
 // (to about 2000 px on the long side), so the size limit is a backstop for
@@ -249,19 +249,32 @@ export async function storeImage({
   const board = await Board.findById(boardId).select("owner").lean();
   if (!board) return { missing: true };
   return uploading(String(board.owner), async () => {
-    const ownerBoards = (await Board.find({ owner: board.owner }).distinct("_id")).map(String);
-    const unverified =
-      emailConfigured() && !(await User.findById(board.owner).select("emailVerified").lean())?.emailVerified;
-    const ownerLimit = unverified ? IMAGE_LIMITS.unverifiedOwner : IMAGE_LIMITS.owner;
+    const full = await roomFor(boardId, board.owner, buffer.length + (small?.buffer.length ?? 0));
+    return full ?? { id: await putImage({ board: boardId, buffer, mime, uploadedBy, small }) };
+  });
+}
 
-    const bytes = buffer.length + (small?.buffer.length ?? 0);
-    const full = await limitBroken(boardId, ownerBoards, ownerLimit, bytes);
-    if (full) {
-      const everyone = full === "total";
-      sweepSoon(everyone ? "everyone" : String(board.owner), { boards: everyone ? undefined : ownerBoards });
-      return { full, ...(full === "owner" && unverified && { unverified }) };
-    }
-    return { id: await putImage({ board: boardId, buffer, mime, uploadedBy, small }) };
+// Whether `bytes` more images fit on board `boardId` of `owner`: null if they do, or `{ full }` naming the limit
+// they would break, as storeImage resolves with. When they don't, a sweep starts (see sweepSoon). Run in `uploading`.
+async function roomFor(boardId: ObjectIdLike, owner: ObjectIdLike, bytes: number) {
+  const ownerBoards = (await Board.find({ owner }).distinct("_id")).map(String);
+  const unverified = emailConfigured() && !(await User.findById(owner).select("emailVerified").lean())?.emailVerified;
+  const ownerLimit = unverified ? IMAGE_LIMITS.unverifiedOwner : IMAGE_LIMITS.owner;
+  const full = await limitBroken(boardId, ownerBoards, ownerLimit, bytes);
+  if (!full) return null;
+  const everyone = full === "total";
+  sweepSoon(everyone ? "everyone" : String(owner), { boards: everyone ? undefined : ownerBoards });
+  return { full, ...(full === "owner" && unverified && { unverified: true as const }) };
+}
+
+/**
+ * Copies a board's pictures to a new board of `owner`'s (making a copy of a board, see copyImages), if they all fit.
+ * Resolves with the copies' ids by the originals', or `{ full }` as storeImage does.
+ */
+export async function copyBoardImages({ owner, ...copy }: CopyImages & { owner: ObjectIdLike }) {
+  return uploading(String(owner), async () => {
+    const full = await roomFor(copy.to, owner, await imageBytesAmong(copy.from, copy.ids));
+    return full ?? { copies: await copyImages(copy) };
   });
 }
 

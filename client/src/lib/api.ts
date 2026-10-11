@@ -186,6 +186,8 @@ export const api = {
   starBoard: (id: string, starred: boolean) =>
     request<Wire<shared.StarReply>>(`/boards/${id}/star`, { method: "PUT", body: { starred } }),
   listTrash: () => request<Wire<shared.TrashListReply>>("/boards/trash"),
+  // A copy of the board as it is now, owned by the person asking (see copyBoard on the server).
+  copyBoard: (id: string) => request<Wire<shared.BoardReply>>(`/boards/${id}/copy`, { method: "POST" }),
   restoreBoard: (id: string) => request<Wire<shared.BoardReply>>(`/boards/${id}/restore`, { method: "POST" }),
   purgeBoard: (id: string) => request<void>(`/boards/${id}/permanent`, { method: "DELETE" }),
   emptyTrash: () => request<void>("/boards/trash", { method: "DELETE" }),

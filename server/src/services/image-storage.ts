@@ -160,6 +160,54 @@ export async function listImages(filter?: ImageFilter) {
   return found.map((file) => ({ id: file.filename, board: file.metadata?.board }));
 }
 
+// The stored files (small copies too) of those of `ids` that belong to `board`.
+const filesAmong = (board: ObjectIdLike, ids: readonly string[]) =>
+  files()
+    .find({ "metadata.board": String(board), filename: { $in: [...ids, ...ids.map(smallName)] } })
+    .toArray();
+
+/** Bytes the images among `ids` that belong to `board` take, with their small copies. */
+export async function imageBytesAmong(board: ObjectIdLike, ids: readonly string[]) {
+  return (await filesAmong(board, ids)).reduce((sum, file) => sum + file.length, 0);
+}
+
+const readFile = async (file: ImageFile) => Buffer.concat(await getBucket().openDownloadStream(file._id).toArray());
+
+/** What copyImages is asked to copy, and where to. */
+export interface CopyImages {
+  from: ObjectIdLike;
+  to: ObjectIdLike;
+  ids: readonly string[];
+  uploadedBy?: ObjectIdLike | null;
+}
+
+/**
+ * Copies the images among `ids` that belong to board `from` (with their small copies) to board `to`, and resolves
+ * with the copies' ids by the originals'. Images of other boards, and ones that are gone, aren't copied. If a copy
+ * fails, those made so far are deleted.
+ */
+export async function copyImages({ from, to, ids, uploadedBy }: CopyImages) {
+  const found = await filesAmong(from, ids);
+  const copies = new Map<string, string>();
+  try {
+    for (const file of found.filter((file) => !file.metadata?.of)) {
+      const small = found.find((other) => other.filename === smallName(file.filename));
+      const id = await putImage({
+        board: to,
+        buffer: await readFile(file),
+        mime: file.metadata?.mime ?? "",
+        uploadedBy,
+        small: small ? { buffer: await readFile(small), mime: small.metadata?.mime ?? "" } : null,
+      });
+      copies.set(file.filename, id);
+    }
+  } catch (error) {
+    await deleteImages([...copies.values()]);
+    throw error;
+  }
+  return copies;
+}
+
 /** Deletes images by id, with their small copies. */
 export async function deleteImages(ids: string[]) {
   if (ids.length === 0) return;
