@@ -38,6 +38,7 @@ import { getImage, showingImages } from "./images";
 import { darkInk } from "./ink";
 import { forgetNoteMeasurements, noteLayout } from "./notes";
 import { connectorPath, pathData } from "./routes";
+import type { SuggestionMark } from "./suggestions";
 import { getSelectionBox } from "./transform";
 
 /** Turns a stored colour into the one to draw. */
@@ -56,6 +57,7 @@ export type RenderOptions = {
   screenLabels?: boolean;
   connectTargetId?: string | null;
   dots?: { id: string; side: Side | null } | null;
+  suggestions?: readonly SuggestionMark[];
 };
 
 const generator = rough.generator();
@@ -448,6 +450,74 @@ function drawConnectionDots(ctx: CanvasRenderingContext2D, element: AnyElement, 
   ctx.restore();
 }
 
+// A suggested removal is outlined and hatched in this red; other suggestions in their author's color.
+const REMOVAL_COLOR = "#e03131";
+
+// Suggested elements as drawn: a suggested arrow attached to shapes is drawn to where they are, which takes the
+// board with the suggestions in it. Worked out again only when the board or the suggestions change.
+let resolvedLayer: { elements: BoardElement[]; marks: readonly SuggestionMark[]; drawn: BoardElement[] } | null = null;
+
+function suggestedElements(marks: readonly SuggestionMark[], elements: BoardElement[]): BoardElement[] {
+  if (resolvedLayer?.elements === elements && resolvedLayer.marks === marks) return resolvedLayer.drawn;
+  let drawn = marks.map((mark) => mark.element);
+  if (drawn.some((element) => isConnector(element) && (element.startId || element.endId))) {
+    const byId = new Map(elements.map((element) => [element.id, element]));
+    for (const mark of marks) if (mark.kind !== "remove") byId.set(mark.element.id, mark.element);
+    const resolved = new Map(resolveConnectors([...byId.values()]).map((element) => [element.id, element]));
+    drawn = drawn.map((element, i) => (marks[i]!.kind === "remove" ? element : (resolved.get(element.id) ?? element)));
+  }
+  resolvedLayer = { elements, marks, drawn };
+  return drawn;
+}
+
+// Suggestions over the board (see suggestions.ts): what they'd add or change, faded, in a dashed outline of their
+// author's color; what they'd remove, outlined and hatched in red. The ones `highlighted` stand out.
+function drawSuggestions(
+  ctx: CanvasRenderingContext2D,
+  roughCanvas: RoughCanvas,
+  marks: readonly SuggestionMark[],
+  elements: BoardElement[],
+  view: Rect,
+  zoom: number,
+) {
+  const drawn = suggestedElements(marks, elements);
+  marks.forEach((mark, i) => {
+    const element = drawn[i]!;
+    if (!isVisible(element, view)) return;
+    ctx.save();
+    if (mark.kind !== "remove") {
+      ctx.globalAlpha = mark.highlighted ? 0.85 : 0.55;
+      drawElement(ctx, roughCanvas, element);
+      ctx.globalAlpha = 1;
+    }
+    const box = expandRect(getBounds(element), 6 / zoom);
+    ctx.strokeStyle = ink(mark.kind === "remove" ? REMOVAL_COLOR : mark.color);
+    ctx.lineWidth = (mark.highlighted ? 3 : 1.75) / zoom;
+    ctx.setLineDash([6 / zoom, 4 / zoom]);
+    ctx.strokeRect(box.x, box.y, box.width, box.height);
+    if (mark.kind === "remove") hatch(ctx, box, zoom, mark.highlighted ? 0.55 : 0.35);
+    ctx.restore();
+  });
+}
+
+// Diagonal lines across `box`, in the stroke color as set, at `opacity`.
+function hatch(ctx: CanvasRenderingContext2D, box: Rect, zoom: number, opacity: number) {
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.rect(box.x, box.y, box.width, box.height);
+  ctx.clip();
+  ctx.globalAlpha = opacity;
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.beginPath();
+  for (let offset = -box.height; offset < box.width; offset += 10 / zoom) {
+    ctx.moveTo(box.x + offset, box.y + box.height);
+    ctx.lineTo(box.x + offset + box.height, box.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 function isVisible(element: BoardElement, view: Rect): boolean {
   const b = getBounds(element);
   return (
@@ -460,9 +530,9 @@ function isVisible(element: BoardElement, view: Rect): boolean {
  * them (pictures keep their own colors), `smallImages` for thumbnails,
  * `screenLabels` to keep frame names the same size on screen at any zoom,
  * `connectTargetId` to outline the shape a connector end is about to attach
- * to, and `dots` ({ id, side }) to show a shape's connection dots, `side`'s
- * highlighted. The element `hiddenId` is left out while it's edited; for a
- * connector, only its label is.
+ * to, `dots` ({ id, side }) to show a shape's connection dots, `side`'s
+ * highlighted, and `suggestions` to draw those over the board. The element
+ * `hiddenId` is left out while it's edited; for a connector, only its label is.
  */
 export function renderScene(
   canvas: HTMLCanvasElement,
@@ -478,6 +548,7 @@ export function renderScene(
     screenLabels = false,
     connectTargetId = null,
     dots = null,
+    suggestions = [],
   }: RenderOptions,
 ): void {
   ink = dark ? darkInk : sameInk;
@@ -517,7 +588,10 @@ export function renderScene(
     if (isFrame(element)) frames.push(element);
     if (isVisible(element, view)) drawElement(ctx, roughCanvas, element, { hideLabel: hidden });
   }
-  for (const cache of [drawableCaches.light, drawableCaches.dark, penPathCache]) cache.trim(elements.length);
+  if (suggestions.length > 0) drawSuggestions(ctx, roughCanvas, suggestions, elements, view, viewport.zoom);
+  for (const cache of [drawableCaches.light, drawableCaches.dark, penPathCache]) {
+    cache.trim(elements.length + suggestions.length);
+  }
   // The pictures on show here are kept while they are (see showingImages).
   showingImages(canvas, picturesDrawn, { small: smallPictures });
   for (const frame of frames) drawFrameName(ctx, frame, view);

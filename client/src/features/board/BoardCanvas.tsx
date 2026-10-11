@@ -46,6 +46,7 @@ import { imagesVersion, subscribeImages } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
 import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
+import type { SuggestionMark } from "./suggestions";
 import { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } from "./transform";
 
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
@@ -108,7 +109,11 @@ export type BoardCanvasProps = {
   onSizeChange?: (size: Size) => void;
   onPlaceComment?: (point: XY) => void;
   onFrameDrawn?: (id: string) => void;
+  // Suggestions drawn over the board (see suggestions.ts).
+  suggestions?: readonly SuggestionMark[];
 };
+
+const NO_MARKS: readonly SuggestionMark[] = [];
 
 // What the pointer is doing on the canvas, by `kind`. The pointer that began it (`pointerId`) carries it on.
 type PanGesture = { kind: "pan"; startScreen: XY; startViewport: Viewport };
@@ -192,6 +197,7 @@ export function BoardCanvas({
   onSizeChange,
   onPlaceComment,
   onFrameDrawn,
+  suggestions = NO_MARKS,
 }: BoardCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -236,8 +242,9 @@ export function BoardCanvas({
       screenLabels: true,
       connectTargetId: hint.outline,
       dots: hint.dots,
+      suggestions,
     });
-  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme, hint]);
+  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme, hint, suggestions]);
 
   const showHint = (next: Hint) => setHint((current) => (sameHint(current, next) ? current : next));
 

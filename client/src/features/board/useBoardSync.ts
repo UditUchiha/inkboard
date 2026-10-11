@@ -9,6 +9,9 @@ import type {
   ResetMessage,
   RoleMessage,
   SharedView,
+  SuggestionOutcome,
+  SuggestionRemovalMessage,
+  SuggestionsMessage,
   ViewportMessage,
 } from "@inkboard/shared/socket";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,6 +24,7 @@ import type { XY } from "./geometry";
 import { createOutbox } from "./outbox";
 import type { Piece, SettleResult } from "./outbox";
 import type { BoardStore } from "./store";
+import { createSuggestionStore } from "./suggestions";
 
 const CURSOR_INTERVAL_MS = 50;
 const VIEWPORT_INTERVAL_MS = 120;
@@ -80,6 +84,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
   const [online, setOnline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cursors] = useState(createCursorStore);
+  const [suggestions] = useState(createSuggestionStore);
   const [outbox] = useState(() => createOutbox({ onChange: setSaving }));
 
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -189,6 +194,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       setRole("viewer");
       setPeers([]);
       cursors.clear();
+      suggestions.clear();
     }
 
     const join = () => {
@@ -213,6 +219,8 @@ export function useBoardSync(boardId: string, store: BoardStore) {
           if (outbox.hasPending()) store.applyRemote(outbox.unsent()); // drawn while this was loading
           loaded.current = true;
         }
+        // A server from before suggestions doesn't send any.
+        suggestions.load(response.suggestions ?? []);
         setMeta(boardMeta);
         joined.current = true;
         setPhase({ name: "ready" });
@@ -309,6 +317,12 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       setRole(nextRole);
       if (lostEditing) resync.current(); // drop unsent edits and history
     };
+    const onSuggestions = (payload: SuggestionsMessage) => {
+      if (!forOther(payload)) suggestions.upsert(payload.suggestions);
+    };
+    const onSuggestionsGone = (payload: SuggestionRemovalMessage) => {
+      if (!forOther(payload)) suggestions.remove(payload.ids);
+    };
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
@@ -322,6 +336,8 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     socket.on("board:reset", onReset);
     socket.on("viewport", onViewport);
     socket.on("viewport:request", onViewportRequest);
+    socket.on("suggestion:upsert", onSuggestions);
+    socket.on("suggestion:delete", onSuggestionsGone);
     if (socket.connected) onConnect();
 
     return () => {
@@ -347,8 +363,10 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       socket.off("board:reset", onReset);
       socket.off("viewport", onViewport);
       socket.off("viewport:request", onViewportRequest);
+      socket.off("suggestion:upsert", onSuggestions);
+      socket.off("suggestion:delete", onSuggestionsGone);
     };
-  }, [socket, boardId, store, outbox, cursors, flush, send, viewportMessage]);
+  }, [socket, boardId, store, outbox, cursors, suggestions, flush, send, viewportMessage]);
 
   // What part of the board we're looking at, shared (when anyone else is here) so
   // others can follow along: always what's on screen, also while following someone
@@ -408,6 +426,19 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     [socket],
   );
 
+  // A member's decision on suggestions. They go from this screen at once; accepting one is the member's own
+  // change to the board, made before this (see acceptance in suggestions.ts).
+  const resolveSuggestions = useCallback(
+    (ids: string[], outcome: SuggestionOutcome) => {
+      if (ids.length === 0) return;
+      suggestions.remove(ids);
+      socket?.emit("suggestion:resolve", { boardId, ids, outcome }, (reply) => {
+        if (!reply?.ok) toast.error("That decision couldn't be saved. Open the board again and try once more.");
+      });
+    },
+    [socket, boardId, suggestions],
+  );
+
   return {
     phase,
     meta,
@@ -415,6 +446,8 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     role,
     peers,
     cursors, // a store (see cursors.ts): only what draws the pointers subscribes
+    suggestions, // a store too (see suggestions.ts)
+    resolveSuggestions,
     online,
     saving,
     sendCursor,

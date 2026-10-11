@@ -6,6 +6,7 @@ import { getGuest } from "../../lib/guest";
 import type { BoardMeta } from "../../lib/api";
 import { noCursors } from "./cursors";
 import { createEditorStore } from "./editorStore";
+import { noSuggestions } from "./suggestions";
 import type { BoardSync, Peer } from "./useBoardSync";
 
 // A guest's board lives in this browser only (localStorage), so anyone can start
@@ -167,6 +168,8 @@ export function useScratchBoard() {
       role: "owner",
       peers: NO_PEERS,
       cursors: noCursors,
+      suggestions: noSuggestions,
+      resolveSuggestions: NOOP,
       online: true,
       saving: false,
       unsaved,
