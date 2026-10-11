@@ -1,7 +1,8 @@
 import { IMAGE_MAX_BYTES } from "@inkboard/shared/limits";
+import type { ImageReply } from "@inkboard/shared/socket";
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import type { Socket } from "socket.io-client";
 import { API_URL } from "../../config";
+import type { AppSocket } from "../../providers/SocketProvider";
 import type { Size } from "./geometry";
 
 // Everything about pictures on the board that isn't drawing: getting them ready
@@ -41,8 +42,9 @@ const ATTEMPTS = [
 /** A picture ready to upload: as it will be stored, its size, and a small copy for thumbnails (null if it couldn't be made). */
 export type PreparedImage = { blob: Blob; width: number; height: number; small: Blob | null };
 
-// What the server answers to an uploaded picture: its image id, or what went wrong.
-type UploadReply = { ok: true; id: string } | { ok?: false; readOnly?: boolean; error?: string };
+// What the server answers to an uploaded picture: its image id, or what went wrong (with no `ok` where uploadImage
+// makes the reply up itself, for one that didn't come).
+type UploadReply = Extract<ImageReply, { ok: true }> | Partial<Extract<ImageReply, { ok: false }>>;
 
 /** A problem with a picture that can be shown to the person as it is. */
 export class ImageError extends Error {}
@@ -139,7 +141,7 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
 
 /** Sends a prepared picture (and its small copy, if any) to the server and resolves with its new image id. */
 export async function uploadImage(
-  socket: Socket | null | undefined,
+  socket: AppSocket | null | undefined,
   boardId: string,
   { blob, small }: { blob: Blob; small?: Blob | null },
 ): Promise<string> {

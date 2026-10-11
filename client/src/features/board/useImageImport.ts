@@ -2,7 +2,7 @@ import type { Element as BoardElement } from "@inkboard/shared/types";
 import { useCallback, useEffect, useRef } from "react";
 import type { RefObject } from "react";
 import { toast } from "sonner";
-import type { Socket } from "socket.io-client";
+import type { AppSocket } from "../../providers/SocketProvider";
 import { BoardFileError, dataUrlToBlob, isBoardFile, placeElements, readBoardFile } from "./boardFile";
 import type { ParsedBoardFile } from "./boardFile";
 import { MAX_ELEMENTS_PER_BOARD } from "./constants";
@@ -22,7 +22,7 @@ export type ImportView = { viewport: Viewport; canvasSize: Size };
 /** What useImageImport takes. `local` is set for a board kept in the browser, which has nowhere to keep pictures. */
 type ImageImportOptions = {
   store: BoardStore;
-  socket: Socket | null;
+  socket: AppSocket | null;
   boardId: string;
   local: unknown;
   readOnly: boolean;

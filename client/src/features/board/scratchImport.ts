@@ -1,7 +1,9 @@
 import { stampOf } from "@inkboard/shared/board-merge";
+import type { JoinPayload, OpPayload } from "@inkboard/shared/socket";
 import type { Element as BoardElement, Effect } from "@inkboard/shared/types";
 import type { Socket } from "socket.io-client";
 import type { CreateBoardInput } from "../../lib/api";
+import type { AppSocket } from "../../providers/SocketProvider";
 import { SYNC_FORMAT } from "./constants";
 import type { Scratch } from "./scratch";
 import { toOperations } from "./store";
@@ -21,7 +23,7 @@ export type ImportedBoard = { id: string };
 export type ImportOptions = {
   scratch: Scratch;
   createBoard: (input: CreateBoardInput) => Promise<{ board: ImportedBoard }>;
-  socket: Socket;
+  socket: AppSocket;
   created?: ImportedBoard | null;
   onCreated?: (board: ImportedBoard) => void;
 };
@@ -34,14 +36,22 @@ export class ImportError extends Error {}
 // The board an earlier try made is gone (deleted meanwhile): a new one is made instead.
 class BoardGone extends Error {}
 
-const ask = (socket: Socket, event: string, payload: unknown): Promise<Reply | null> =>
-  new Promise((resolve) => {
-    socket
-      .timeout(REPLY_TIMEOUT_MS)
-      .emit(event, payload, (error: Error | null, response: Reply) => resolve(error ? null : response));
+// The events this asks, each with its own payload: the overloads check every call against the shared events.
+type Ask = {
+  (socket: AppSocket, event: "board:join", payload: JoinPayload): Promise<Reply | null>;
+  (socket: AppSocket, event: "board:op", payload: OpPayload): Promise<Reply | null>;
+};
+
+// The cast: emit can't follow an event that is one of two from the signature to the payload and the reply, so the
+// overloads above are what check it. The reply is read as far as Reply says.
+const ask: Ask = (socket: AppSocket, event: "board:join" | "board:op", payload: JoinPayload | OpPayload) =>
+  new Promise<Reply | null>((resolve) => {
+    (socket.timeout(REPLY_TIMEOUT_MS) as Socket).emit(event, payload, (error: Error | null, response: Reply) =>
+      resolve(error ? null : response),
+    );
   });
 
-function connected(socket: Socket): Promise<void> {
+function connected(socket: AppSocket): Promise<void> {
   if (socket.connected) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -59,7 +69,7 @@ function connected(socket: Socket): Promise<void> {
 // Sends `operations` to the board. With `keep` (the ids in the drawing), elements the board has that
 // the drawing doesn't any more (removed since an earlier try uploaded them) are removed too.
 async function sendPieces(
-  socket: Socket,
+  socket: AppSocket,
   boardId: string,
   operations: Effect[],
   keep: Set<string> | null = null,

@@ -2,6 +2,7 @@ import { commitPlan } from "@inkboard/shared/board-merge";
 import { inStackOrder } from "@inkboard/shared/board-order";
 import { withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
+import type { RemovedStamp } from "@inkboard/shared/socket";
 import type { Effect, Element, Plan, Stamp, Tombstone, Tombstones } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import { Board } from "../models/board.model.ts";
@@ -65,9 +66,6 @@ export interface Session {
 
 // A tombstone as it is saved with a board (see removedList): the stamp of the removal and when it happened.
 type SavedRemoval = Stamp & { id: string; at: number };
-
-/** A tombstone as a browser hears of it when it opens a board. */
-export type RemovedStamp = Stamp & { id: string };
 
 const sessions = new Map<string, Session>();
 

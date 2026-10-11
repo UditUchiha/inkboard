@@ -1,11 +1,23 @@
-import type { Element as BoardElement, Effect, Stamp } from "@inkboard/shared/types";
+import type { Wire } from "@inkboard/shared/api";
+import type {
+  BoardMessage,
+  CursorMessage,
+  JoinReply as SocketJoinReply,
+  OpMessage,
+  OpReply,
+  Peer,
+  ResetMessage,
+  RoleMessage,
+  SharedView,
+  ViewportMessage,
+} from "@inkboard/shared/socket";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { BoardMeta, Role } from "../../lib/api";
 import { useSocket } from "../../providers/SocketProvider";
 import { SYNC_FORMAT } from "./constants";
 import { createCursorStore } from "./cursors";
-import type { XY, Viewport } from "./geometry";
+import type { XY } from "./geometry";
 import { createOutbox } from "./outbox";
 import type { Piece, SettleResult } from "./outbox";
 import type { BoardStore } from "./store";
@@ -25,61 +37,13 @@ const REFUSED: Record<string, string> = {
   invalid: "That change couldn't be saved, so it was undone.",
 };
 
-// The shapes below are the ones the server declares for its socket events (ClientToServerEvents and
-// ServerToClientEvents in server/src/realtime/index.ts), as far as the browser reads them. They are written out
-// here because the browser doesn't import server code.
-
-/** A tombstone as the server tells of it when a board is opened. */
-export type RemovedStamp = Stamp & { id: string };
+// The shapes of what the socket carries are declared once, in @inkboard/shared/socket, and are exported from here
+// by the names the rest of the app uses. A reply that carries dates arrives with them as strings (see Wire).
+export type { CursorMessage, OpReply, Peer, SharedView, ViewportMessage };
+export type { OpRefusal, Participant, RemovedStamp } from "@inkboard/shared/socket";
 
 /** The reply to joining a board: the board as this person may see it, with the stamps of what was removed lately. */
-export type JoinReply =
-  | {
-      ok: true;
-      board: BoardMeta & { role: Role; starred: boolean; elements: BoardElement[] };
-      removed: RemovedStamp[];
-    }
-  | { ok: false; status: number; error: string };
-
-/**
- * Why a change was refused. `tooLarge` and `readOnly` are also set where older browsers, which look for
- * them, need to see them.
- */
-export type OpRefusal = {
-  ok: false;
-  reason: "rate" | "noSession" | "invalid" | "tooLarge" | "forbidden" | "expired" | "ownerFull";
-  tooLarge?: true;
-  readOnly?: true;
-};
-
-/** The reply to a change: taken in (with `cleaned`, elements as the board stored them where that isn't how they were sent, and `dropped`, ids of elements it refused), or refused. */
-export type OpReply = { ok: true; cleaned?: BoardElement[]; dropped?: string[] } | OpRefusal;
-
-/** Someone on the board, as presence lists them. A guest has no color or avatar. */
-export type Participant = {
-  userId: string;
-  name: string;
-  color?: string | null;
-  avatarUrl?: string | null;
-  guest: boolean;
-};
-
-/** A participant with the id of the connection they are on, which is what follows and pointers are told apart by. */
-export type Peer = Participant & { socketId: string };
-
-/** A person's pointer: where it is on the board, or no position when it has left the board's view. */
-export type CursorMessage = { socketId: string } & ({ x: number; y: number } | { x?: undefined; y?: undefined });
-
-/** The part of the board someone is looking at: where it is, how far in, and how big their canvas is. */
-export type SharedView = Viewport & { width: number; height: number };
-
-/** One person's view of the board, passed on to the others so they can follow along. */
-export type ViewportMessage = SharedView & {
-  boardId: string;
-  socketId: string;
-  // Whose own view it is, when it's one taken from someone they follow.
-  source: string;
-};
+export type JoinReply = Wire<SocketJoinReply>;
 
 /** Told of every view someone else shares (see subscribeViewport). */
 export type ViewportListener = (view: ViewportMessage) => void;
@@ -227,7 +191,7 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     const join = () => {
       if (joining || gone) return;
       joining = true;
-      socket.emit("board:join", { boardId, sync: SYNC_FORMAT }, (response: JoinReply) => {
+      socket.emit("board:join", { boardId, sync: SYNC_FORMAT }, (response) => {
         joining = false;
         if (!active) return;
         if (!response?.ok) {
@@ -280,10 +244,10 @@ export function useBoardSync(boardId: string, store: BoardStore) {
     // (Servers before this one don't say which board an event is for.)
     const forOther = (payload: ForBoard) =>
       Boolean(payload?.boardId) && String(payload.boardId).toLowerCase() !== eventId;
-    const onOp = (payload: { boardId: string; op: Effect }) => {
+    const onOp = (payload: OpMessage) => {
       if (!forOther(payload)) store.applyRemote(payload.op);
     };
-    const onPresence = (list: Peer[], about: { boardId: string }) => {
+    const onPresence = (list: Peer[], about: BoardMessage) => {
       if (forOther(about)) return;
       peerCount.current = list.length;
       setPeers(list);
@@ -301,18 +265,13 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       rejoin.current = () => {};
       resync.current = () => {};
     };
-    const onDeleted = (payload: { boardId: string }) => {
+    const onDeleted = (payload: BoardMessage) => {
       if (forOther(payload)) return;
       leaveForGood();
       setPhase({ name: "deleted" });
     };
     // Someone restored an earlier version: everything on the board is replaced.
-    const onReset = (payload: {
-      boardId: string;
-      elements: BoardElement[];
-      removed: RemovedStamp[];
-      by: string | null;
-    }) => {
+    const onReset = (payload: ResetMessage) => {
       if (forOther(payload)) return;
       const { elements, removed, by } = payload;
       outbox.reset();
@@ -331,15 +290,15 @@ export function useBoardSync(boardId: string, store: BoardStore) {
       for (const listener of viewportListeners.current) listener(view);
     };
     // Someone started following us: send our view right away instead of waiting for a pan.
-    const onViewportRequest = (payload: { boardId: string }) => {
+    const onViewportRequest = (payload: BoardMessage) => {
       if (!forOther(payload) && latestViewport.current) socket.volatile.emit("viewport", viewportMessage());
     };
-    const onRevoked = (payload: { boardId: string }) => {
+    const onRevoked = (payload: BoardMessage) => {
       if (forOther(payload)) return;
       leaveForGood();
       setPhase({ name: "revoked", wasViewer: roleRef.current === "viewer" });
     };
-    const onRole = (payload: { boardId: string; role: Role }) => {
+    const onRole = (payload: RoleMessage) => {
       if (forOther(payload)) return;
       const nextRole = payload.role;
       const lostEditing = roleRef.current !== "viewer" && nextRole === "viewer";

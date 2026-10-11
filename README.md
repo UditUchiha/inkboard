@@ -125,6 +125,7 @@ The code in `client/src`, `server/src`, `server/scripts` and `shared/src` is Typ
 
 - The element types live in `shared/src/types.ts` (`@inkboard/shared/types`), and the browser and the server both use them.
 - What the HTTP API answers with is declared once in `shared/src/api.ts` (`@inkboard/shared/api`). The server's serializers and controllers say they produce those shapes, and `client/src/lib/api.ts` says each endpoint returns them (with `Wire<...>`, which turns their `Date`s into the ISO strings JSON makes of them), so renaming a field on the server stops the browser from type checking.
+- The live-editing messages over Socket.IO (joining a board, changes, presence, cursors, views and their replies) are declared the same way in `shared/src/socket.ts` (`@inkboard/shared/socket`): the browser's socket is typed with them, and the server reads what browsers send through `Untrusted<...>`, with every field `unknown`.
 - What comes from outside (request bodies, socket messages, stored files) is typed `unknown` until the existing checks narrow it.
 - TypeScript is pinned to 6.0 while `typescript-eslint` doesn't support 7 yet.
 

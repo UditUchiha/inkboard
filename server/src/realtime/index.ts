@@ -1,7 +1,18 @@
 import type { Server as HttpServer } from "node:http";
-import type { NotificationItem, PublicUser } from "@inkboard/shared/api";
+import type { NotificationItem, PublicUser, Thread } from "@inkboard/shared/api";
 import { cutText } from "@inkboard/shared/element-rules";
-import type { Effect, Element } from "@inkboard/shared/types";
+import type {
+  ClientToServerEvents,
+  JoinPayload,
+  JoinReply,
+  OpRefusal,
+  OpReply,
+  Participant,
+  PieceGroup,
+  ServerToClientEvents,
+  ThreadRemoval,
+} from "@inkboard/shared/socket";
+import type { Element } from "@inkboard/shared/types";
 import { Server } from "socket.io";
 import type { Socket } from "socket.io";
 import { env } from "../config/env.ts";
@@ -29,7 +40,7 @@ import {
   sanitizeOperation,
   SYNC_FORMAT,
 } from "./operations.ts";
-import type { ExpiredGroup, GroupError, HeldGroup, PieceGroup, RawOperation } from "./operations.ts";
+import type { ExpiredGroup, GroupError, HeldGroup, RawOperation } from "./operations.ts";
 import { createLimiter, LIMITS } from "./rate-limit.ts";
 import type { Limiter } from "./rate-limit.ts";
 import {
@@ -44,128 +55,27 @@ import {
   resetSession,
   updateSession,
 } from "./sessions.ts";
-import type { RemovedStamp, Session } from "./sessions.ts";
+import type { Session } from "./sessions.ts";
 
 // What a browser sends. Nothing in a payload has been checked when it arrives (a browser can send anything, or
-// nothing), so every field is unknown until the handler has looked at it. Where an event has a reply, the
-// browser may leave out the callback for it, and the handler checks for one.
-export interface JoinPayload {
-  boardId?: unknown;
-  sync?: unknown;
-}
-export interface OpPayload {
-  boardId?: unknown;
-  op?: RawOperation | null;
-  group?: unknown;
-}
-export interface ImagePayload {
-  boardId?: unknown;
-  data?: unknown;
-  small?: unknown;
-}
-export interface CursorPayload {
-  x?: unknown;
-  y?: unknown;
-}
-// Also read by name, through the list of keys the handler checks.
-export interface ViewportPayload {
-  x?: unknown;
-  y?: unknown;
-  zoom?: unknown;
-  width?: unknown;
-  height?: unknown;
-  source?: unknown;
-  [key: string]: unknown;
-}
-export interface ViewportRequestPayload {
-  socketId?: unknown;
-}
-export interface RenamePayload {
-  name?: unknown;
-}
+// nothing), so the handlers get it as Untrusted: every field is unknown until the handler has looked at it, and
+// the payload itself may be missing. What is sent by a browser that follows the rules is in @inkboard/shared/socket.
+type Untrusted<Payload> = { [Field in keyof Payload]?: unknown } | null | undefined;
 
-/** The reply to joining a board: the board as this person may see it, with the stamps of what was removed lately. */
-export type JoinReply =
-  | { ok: true; board: ReturnType<typeof serializeBoard>; removed: RemovedStamp[] }
-  | { ok: false; status: number; error: string };
+// A handler for an event of the shared map, with the payload as Untrusted. Where an event has a reply, the browser
+// may leave out the callback for it, and the handler checks for one.
+type UntrustedHandler<Handler> = Handler extends () => void
+  ? Handler
+  : Handler extends (payload: infer Payload) => void
+    ? (payload: Untrusted<Payload>) => void
+    : Handler extends (payload: infer Payload, ack: infer Ack) => void
+      ? (payload: Untrusted<Payload>, ack?: Ack) => void
+      : never;
 
-/**
- * Why a change was refused. `tooLarge` and `readOnly` are also set where older browsers, which look for
- * them, need to see them. "rate", "noSession" (join the board first), "invalid", "tooLarge", "forbidden",
- * "expired" (see GROUP_REFUSED) and "ownerFull" (see OWNER_FULL) are what `reason` can say.
- */
-export interface OpRefusal {
-  ok: false;
-  reason: "rate" | "noSession" | "invalid" | "tooLarge" | "forbidden" | "expired" | "ownerFull";
-  tooLarge?: true;
-  readOnly?: true;
-}
-
-/** The reply to a change: taken in (with `cleaned`, elements as the board stored them where that isn't how they were sent, and `dropped`, ids of elements it refused), or refused. */
-export type OpReply = { ok: true; cleaned?: Element[]; dropped?: string[] } | OpRefusal;
-
-/** The reply to an image: the id it was stored under, or why it wasn't (`error` is a sentence for the person who tried). */
-export type ImageReply =
-  { ok: true; id: string } | { ok: false; error?: string; readOnly?: true; tooLarge?: true; full?: ImageLimit };
-
-/** Everything a browser can send, and what it hears back. */
-export interface ClientToServerEvents {
-  "board:join": (payload: JoinPayload, ack?: (reply: JoinReply) => void) => void;
-  "board:leave": () => void;
-  "board:op": (payload: OpPayload, ack?: (reply: OpReply) => void) => void;
-  "board:image": (payload: ImagePayload, ack?: (reply: ImageReply) => void) => void;
-  cursor: (payload: CursorPayload) => void;
-  viewport: (payload: ViewportPayload) => void;
-  "viewport:request": (payload: ViewportRequestPayload) => void;
-  "guest:rename": (payload: RenamePayload) => void;
-}
-
-/** Someone on a board, as the others see them. A guest has no color or avatar. */
-export interface Participant {
-  userId: string;
-  name: string;
-  color?: string | null;
-  avatarUrl?: string | null;
-  guest: boolean;
-}
-
-/** One person's view of the board, passed on to the others so they can follow along. */
-export interface ViewportMessage {
-  boardId: string;
-  socketId: string;
-  // Whose own view it is, when it's one taken from someone they follow.
-  source: string;
-  x: number;
-  y: number;
-  zoom: number;
-  width: number;
-  height: number;
-}
-
-/** What a browser is sent: changes made by others, who is there, and the board's own changes. */
-export interface ServerToClientEvents {
-  "board:op": (message: { boardId: string; op: Effect }) => void;
-  "board:meta": (meta: ReturnType<typeof serializeMeta>) => void;
-  "board:reset": (message: {
-    boardId: string;
-    elements: Element[];
-    removed: RemovedStamp[];
-    by: string | null;
-  }) => void;
-  "board:revoked": (message: { boardId: string }) => void;
-  "board:role": (message: { boardId: string; role: Role }) => void;
-  "board:deleted": (message: { boardId: string }) => void;
-  // The board's id comes second, so browsers on an older app, which expect just the list, still read it.
-  presence: (people: (Participant & { socketId: string })[], board: { boardId: string }) => void;
-  // A cursor without a position has left the board's view.
-  cursor: (message: { socketId: string; x?: number; y?: number }) => void;
-  viewport: (message: ViewportMessage) => void;
-  "viewport:request": (message: { boardId: string }) => void;
-  notification: (notification: NotificationItem) => void;
-  // A comment thread as it is listed (see serializeThread in controllers/thread.controller.ts), or the id of one that is gone.
-  "thread:upsert": (thread: unknown) => void;
-  "thread:delete": (thread: { id: string }) => void;
-}
+/** Everything a browser can send, as the handlers hear it. */
+export type UntrustedClientEvents = {
+  [Event in keyof ClientToServerEvents]: UntrustedHandler<ClientToServerEvents[Event]>;
+};
 
 /** There is one server, so there are no events between servers. */
 export type InterServerEvents = Record<never, never>;
@@ -189,8 +99,8 @@ export interface SocketData {
   heldTimer?: ReturnType<typeof setTimeout> | null;
 }
 
-export type RealtimeServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
-export type RealtimeSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+export type RealtimeServer = Server<UntrustedClientEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+export type RealtimeSocket = Socket<UntrustedClientEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
 // An error as the code below reads it: the database and the services throw HttpErrors, which have a status.
 type Failure = Error & { status?: number };
@@ -546,11 +456,17 @@ function handleConnection(socket: RealtimeSocket) {
     const session = isOnBoard(socket, payload?.boardId) ? getSession(socket.data.boardId!) : null;
     if (!session) return reply({ ok: false, reason: "noSession" });
     if (!canEdit(socket.data.role)) return reply(FORBIDDEN);
-    let operation = payload.op;
-    if (payload.group !== undefined) {
+    // The assertions and casts below: a payload that isOnBoard found a board id in is there, which TypeScript doesn't
+    // see through it. The op is whatever the browser sent: sanitizeOperation (through takeOperation) checks it.
+    let operation = payload!.op as RawOperation | null | undefined;
+    if (payload!.group !== undefined) {
       // One piece of a change sent in several (see holdPiece): nothing is taken in until the last arrives.
       // holdPiece checks every part of the label, and refuses a piece with one that isn't right.
-      const piece = holdPiece(socket.data.heldGroup, payload.group as PieceGroup | null | undefined, payload.op);
+      const piece = holdPiece(
+        socket.data.heldGroup,
+        payload!.group as PieceGroup | null | undefined,
+        payload!.op as RawOperation | null | undefined,
+      );
       if (!holdGroup(socket, piece.held)) return reply({ ok: false, reason: "rate" });
       if (piece.error) return reply(GROUP_REFUSED[piece.error] ?? GROUP_REFUSED.invalid);
       if (!piece.op) return reply({ ok: true });
@@ -577,7 +493,8 @@ function handleConnection(socket: RealtimeSocket) {
     if (!mime) return reply({ ok: false, error: "Use a PNG, JPEG, WebP or GIF image." });
 
     try {
-      const small = readSmallCopy(payload.small);
+      // The assertion: the buffer above came out of the payload, so it is there.
+      const small = readSmallCopy(payload!.small);
       // What storeImage resolves with, read by the parts each kind of result has.
       const stored: {
         id?: string;
@@ -621,20 +538,22 @@ function handleConnection(socket: RealtimeSocket) {
   socket.on("viewport", (payload) => {
     const boardId = socket.data.boardId;
     if (!boardId || !limits.viewport()) return;
-    if (!["x", "y", "zoom", "width", "height"].every((key) => finite(payload?.[key]))) return;
-    const zoom = Number(payload.zoom);
+    if (!(["x", "y", "zoom", "width", "height"] as const).every((key) => finite(payload?.[key]))) return;
+    // The assertions below: the check above found numbers in the payload, so it is there (which TypeScript
+    // doesn't see through it). The list is `as const` so that its keys are the payload's.
+    const zoom = Number(payload!.zoom);
     if (zoom <= 0) return;
     // `source`: whose own view it is, when it's one taken from someone they follow (see useBoardSync).
-    const source = typeof payload.source === "string" && payload.source.length <= 64 ? payload.source : socket.id;
+    const source = typeof payload!.source === "string" && payload!.source.length <= 64 ? payload!.source : socket.id;
     socket.to(boardId).volatile.emit("viewport", {
       boardId,
       socketId: socket.id,
       source,
-      x: Number(payload.x),
-      y: Number(payload.y),
+      x: Number(payload!.x),
+      y: Number(payload!.y),
       zoom,
-      width: Number(payload.width),
-      height: Number(payload.height),
+      width: Number(payload!.width),
+      height: Number(payload!.height),
     });
   });
 
@@ -657,7 +576,7 @@ function handleConnection(socket: RealtimeSocket) {
   socket.on("disconnect", () => inTurn(() => leaveBoard(socket)));
 }
 
-async function joinBoard(socket: RealtimeSocket, payload: JoinPayload, ack?: (reply: JoinReply) => void) {
+async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>, ack?: (reply: JoinReply) => void) {
   const reply = typeof ack === "function" ? ack : () => {};
   const requestedId = String(payload?.boardId ?? "");
   try {
@@ -804,9 +723,17 @@ export async function replaceElements(boardId: string, snapshot: Element[], acto
 }
 
 /** Comments are only shown to signed-in people. */
-export function emitToSignedIn(boardId: string, event: "thread:upsert" | "thread:delete", payload: unknown) {
+export function emitToSignedIn(boardId: string, event: "thread:upsert", payload: Thread): void;
+export function emitToSignedIn(boardId: string, event: "thread:delete", payload: ThreadRemoval): void;
+export function emitToSignedIn(
+  boardId: string,
+  event: "thread:upsert" | "thread:delete",
+  payload: Thread | ThreadRemoval,
+) {
   for (const socket of socketsIn(boardId)) {
-    if (socket.data.user) socket.emit(event, payload);
+    // The casts: the overloads above have already matched the event with its payload, which emit can't follow
+    // from a union of events.
+    if (socket.data.user) socket.emit(event as "thread:upsert", payload as Thread);
   }
 }
 
