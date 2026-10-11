@@ -261,7 +261,7 @@ For each idea, did we find a product that already does it?
   
   Since then the HTTP API's responses are declared once in `shared/src/api.ts`, for the server and the browser alike, and the dev scripts and tests are TypeScript too. Converting the tests found nothing wrong; it replaced a hand-written copy of part of Node's types in the client tests with the real ones.
 - [ ] **Free-tier hosting** sleeps after inactivity; the GitHub Actions keep-alive covers this only while the workflow runs.
-- [ ] **Owner trash hides a board for everyone.** Collaborators should be notified when it happens.
+- [x] **Owner trash hides a board for everyone (now announced):** the people invited to it get a notification when it happens, which goes away if the owner restores it.
 - [ ] **Single instance:** sessions live in one process's memory, so running a second server instance would split boards. Fine for now; note it before scaling.
 - [x] **Version history storage (bounded):** every version is still a full copy of the board, but each board's history now has a 30 MB budget (see the decision log). *Still open:* storing versions compressed, or as deltas from an operation log, would fit far more history in the same space.
 - [x] **Email verification (lighter version):** new accounts get a verification link and work straight away, but invites by email only reach verified addresses, so registering someone else's address no longer gets you their invites. Whoever really owns an address can take it back with "Forgot password". Emails go through Brevo's API (Render's free plan blocks SMTP). *Still open:* sessions are signed tokens that can't be revoked, so resetting a password doesn't log out other devices; adding a token version to the account would fix it.
@@ -350,7 +350,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] **Per-type element validation** on the server: geometry and content must be right, style values are repaired, unknown fields are dropped
 - [x] **Dashboard thumbnails:** the board list sends thinned, cached previews instead of full drawings; thumbnails use small picture copies; pictures keep their colors in dark mode
 - [x] **Real Google and GitHub sign-ins** worked on the live app (2026-10-08)
-- [ ] **Turn on email verification and password reset:** built and tested (verification link at sign-up, invites need a verified address, "Forgot password?" with a 1-hour link, via Brevo), but off until `BREVO_API_KEY` and `EMAIL_FROM` are set on the server, waiting on a dedicated sender address (S)
+- [x] **Email verification and password reset:** verification link at sign-up, invites need a verified address, "Forgot password?" with a 1-hour link, via Brevo. Turned on for the live app on 2026-10-11 (without a domain of our own yet, so some emails may land in spam)
 - [x] **Bound version-history storage:** a 30 MB budget per board, oldest autosaves trimmed first, saved versions capped and deletable
 
 ### P1: close table stakes and start the differentiator
@@ -361,7 +361,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] **Sticky notes and frames:** notes whose writing wraps and shrinks to fit; named frames that move, copy and delete with what's inside them. The Kanban and Retrospective templates use them
 - [x] **Connectors that stay attached:** arrows and lines attach to the shapes, notes, pictures and text they start or end on, follow them on every screen, and can be reconnected by dragging an end. Connection dots on a hovered shape, straight, curved or elbow routes, arrowheads at one end or both, and labels. The Flowchart and Brainstorm templates use them
 - [x] **Headline differentiator: suggest-mode links** (built 2026-10-11, see [suggest-mode.md](suggest-mode.md)): a share link whose holders' additions, changes and removals become suggestions over the board, which the owner and editors accept or reject; guests can suggest, and the owner is notified
-- [ ] Notify collaborators when an owner trashes a board (S)
+- [x] Notify collaborators when an owner trashes a board: a notification that leads to the dashboard, taken back if the board is restored
 - [ ] Link password and expiry (S-M); request-access flow (S-M)
 - [ ] "Make a copy" for viewers and editors (S)
 - [ ] Reactions and comment pins for link viewers (S-M)

@@ -744,10 +744,65 @@ describe("notifications", () => {
       0,
     );
     await app.request(`/boards/${id}`, { method: "DELETE", user: owner });
-    assert.equal(
-      (await app.request<NotificationPage>("/notifications", { user: person })).data.notifications.length,
-      0,
+    const types = (await app.request<NotificationPage>("/notifications", { user: person })).data.notifications.map(
+      (n) => n.type,
     );
+    assert.deepEqual(types, ["trashed"], "the invite is gone; only the notice that the board was trashed is left");
+  });
+
+  it("tell the people invited to a board, live, when its owner moves it to the trash", async () => {
+    const { owner, editor, id } = await team();
+    const visitor = await app.signUp("Visitor");
+    await setLink(owner, id, "edit");
+    const tab = await app.connect(editor);
+
+    assert.equal((await app.request(`/boards/${id}`, { method: "DELETE", user: owner })).status, 204);
+    const pushed = await eventually(() => tab.of("notification").find((n) => n.type === "trashed"), {
+      message: "the live notification",
+    });
+    assert.equal(pushed.board.title, "Team board");
+    assert.equal(pushed.actor.name, "Owner");
+
+    const { data } = await app.request<NotificationPage>("/notifications", { user: editor });
+    assert.equal(data.notifications[0]!.type, "trashed");
+    assert.equal(data.unread, 1, "only the trash notice: the invite is about a board they can't open now");
+    for (const user of [owner, visitor]) {
+      const listed = (await app.request<NotificationPage>("/notifications", { user })).data.notifications;
+      assert.ok(!listed.some((n) => n.type === "trashed"), "only invited people are told");
+    }
+  });
+
+  it("take back the trash notice when the board is restored, and tell people again if it goes again", async () => {
+    const { owner, editor, id } = await team();
+    const trashedNotices = async () =>
+      (await app.request<NotificationPage>("/notifications", { user: editor })).data.notifications.filter(
+        (n) => n.type === "trashed",
+      ).length;
+
+    await app.request(`/boards/${id}`, { method: "DELETE", user: owner });
+    assert.equal(await trashedNotices(), 1);
+    assert.equal((await app.request(`/boards/${id}/restore`, { method: "POST", user: owner })).status, 200);
+    assert.equal(await trashedNotices(), 0);
+    assert.equal(await Notification.countDocuments({ board: id, type: "trashed" }), 0);
+
+    await app.request(`/boards/${id}`, { method: "DELETE", user: owner });
+    assert.equal(await trashedNotices(), 1);
+  });
+
+  it("don't show the trash notice to someone taken off the board, or once it's deleted for good", async () => {
+    const { owner, editor, id } = await team();
+    await app.request(`/boards/${id}`, { method: "DELETE", user: owner });
+    await Board.updateOne({ _id: id }, { $pull: { collaborators: editor.id } });
+    assert.equal((await app.request<NotificationPage>("/notifications", { user: editor })).data.unread, 0);
+
+    const other = await team();
+    await app.request(`/boards/${other.id}`, { method: "DELETE", user: other.owner });
+    assert.equal(
+      (await app.request(`/boards/${other.id}/permanent`, { method: "DELETE", user: other.owner })).status,
+      204,
+    );
+    const { data } = await app.request<NotificationPage>("/notifications", { user: other.editor });
+    assert.deepEqual([data.notifications.length, data.unread], [0, 0]);
   });
 });
 
