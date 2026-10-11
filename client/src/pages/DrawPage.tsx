@@ -9,7 +9,6 @@ import { BoardEditor } from "../features/board/BoardEditor";
 import { clearScratch, currentScratch, useScratchBoard } from "../features/board/scratch";
 import { importScratch } from "../features/board/scratchImport";
 import { useBoardSnapshot } from "../features/board/store";
-import type { BoardSync } from "../features/board/useBoardSync";
 import { api, errorMessage } from "../lib/api";
 import type { AccountUser } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
@@ -63,9 +62,7 @@ function ScratchEditor({ user = null, onSave = null }: ScratchEditorProps) {
     });
   });
 
-  // The cast: the scratch board's stand-in for the live sync has what the editor reads of it, but isn't a
-  // BoardSync (it has no socketId, and its phase, role and details are only as wide as strings; see scratch.ts).
-  return <BoardEditor store={store} sync={sync as unknown as BoardSync} user={user} local={{ onSave: save }} />;
+  return <BoardEditor store={store} sync={sync} user={user} local={{ onSave: save }} />;
 }
 
 // Signed in: turn the guest's drawing into a real board, then open it. If that
