@@ -259,7 +259,7 @@ For each idea, did we find a product that already does it?
   - Picture ids and guest ids that were lists holding a valid id were accepted.
   - Pen strokes never got the browser's coalesced pointer samples.
   
-  *Still open:* the tests and dev scripts are JavaScript, and many API responses are cast to their shape where they're read, because `lib/api.ts` doesn't type each endpoint's response yet.
+  Since then the HTTP API's responses are declared once in `shared/src/api.ts`, for the server and the browser alike, and the dev scripts are TypeScript too. *Still open:* the tests are JavaScript.
 - [ ] **Free-tier hosting** sleeps after inactivity; the GitHub Actions keep-alive covers this only while the workflow runs.
 - [ ] **Owner trash hides a board for everyone.** Collaborators should be notified when it happens.
 - [ ] **Single instance:** sessions live in one process's memory, so running a second server instance would split boards. Fine for now; note it before scaling.
