@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { Link, useLocation, useNavigate } from "react-router";
-import { Keyboard, Save, UserPlus, X } from "lucide-react";
+import { Keyboard, MessageSquarePlus, Save, UserPlus, X } from "lucide-react";
 import { STACK_MOVES } from "@inkboard/shared/board-order";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
 import type {
@@ -35,7 +35,7 @@ import { getBounds, getSceneBounds, isFrame, stackKey, withContents } from "./el
 import type { Connector } from "./elements";
 import { ExportError } from "./exportSize";
 import { fitViewport, zoomAround } from "./geometry";
-import type { Viewport, XY } from "./geometry";
+import type { Rect, Viewport, XY } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
 import { copyOffset, viewToReveal } from "./placement";
 import { PresenceStack } from "./PresenceStack";
@@ -49,6 +49,8 @@ import { SyncStatus, ViewOnlyNotice } from "./StatusPanels";
 import { connectorPath, pathMiddle } from "./routes";
 import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
+import { suggestionMarks } from "./suggestions";
+import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } from "./SuggestionsPanel";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
 import { useBoardShortcuts } from "./useBoardShortcuts";
@@ -115,6 +117,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [showComments, setShowComments] = useState(true);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [draft, setDraft] = useState<XY | null>(null); // where a new comment is being written
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
   const selected = selectedId ? (store.getElement(selectedId) ?? null) : null;
   const canAddImages = !readOnly && !local; // a guest's scratch board lives in the browser, with nowhere to keep files
@@ -140,6 +145,22 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     const followed = followingId && sameView(viewport, followedView.current) ? followingId : null;
     sendViewport({ ...viewport, width: canvasSize.width, height: canvasSize.height }, followed);
   }, [viewport, canvasSize, sendViewport, followedView, followingId]);
+
+  // Suggestions (see suggestions.ts): drawn over the board for everyone, and decided on by members.
+  const review = useSuggestionReview(sync, store);
+  const elementById = useMemo(() => new Map(elements.map((element) => [element.id, element])), [elements]);
+  const getElement = useCallback((id: string) => elementById.get(id), [elementById]);
+  const highlighted = useMemo(() => idsInGroup(review.groups, hoveredGroup), [review.groups, hoveredGroup]);
+  const suggestionLayer = useMemo(
+    () => (showSuggestions ? suggestionMarks(review.suggestions, getElement, highlighted) : undefined),
+    [showSuggestions, review.suggestions, getElement, highlighted],
+  );
+  const focusOn = (bounds: Rect) =>
+    changeViewport((vp) => ({
+      ...vp,
+      x: canvasSize.width / 2 / vp.zoom - (bounds.x + bounds.width / 2),
+      y: canvasSize.height / 2 / vp.zoom - (bounds.y + bounds.height / 2),
+    }));
 
   const { threads, ...threadApi } = useThreads({ boardId: board.id, socket: sync.socket, enabled: commentsEnabled });
   const members = useMemo(
@@ -453,6 +474,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           onSizeChange={setCanvasSize}
           onPlaceComment={placeComment}
           onFrameDrawn={selectElement}
+          suggestions={suggestionLayer}
         />
       </ErrorBoundary>
 
@@ -504,6 +526,18 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           canDeleteAny={role === "owner"}
           selfId={selfId}
           api={threadApi}
+        />
+      )}
+
+      {showSuggestions && review.groups.length > 0 && (
+        <SuggestionChips
+          groups={review.groups}
+          viewport={viewport}
+          getElement={getElement}
+          canDecide={isMember}
+          onAccept={(group) => review.accept(group.suggestions)}
+          onReject={(group) => review.reject(group.suggestions)}
+          onHover={setHoveredGroup}
         />
       )}
 
@@ -578,6 +612,25 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           </div>
         )}
         {!user && !local && <GuestIdentity socket={sync.socket} />}
+        {(review.suggestions.length > 0 || board.linkAccess === "suggest") && (
+          <Button
+            variant="secondary"
+            icon={MessageSquarePlus}
+            onClick={() => {
+              setHistoryOpen(false);
+              setSuggestionsOpen((open) => !open);
+            }}
+            aria-pressed={suggestionsOpen}
+            className="max-sm:px-3"
+          >
+            <span className="max-sm:sr-only">Suggestions</span>
+            {review.suggestions.length > 0 && (
+              <span className="rounded-full bg-signal px-1.5 text-xs leading-5 font-semibold text-white">
+                {review.suggestions.length}
+              </span>
+            )}
+          </Button>
+        )}
         {local ? (
           <Button icon={Save} onClick={local.onSave} className="max-sm:px-3">
             <span className="max-sm:sr-only">Save board</span>
@@ -597,7 +650,10 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           isEmpty={elements.length === 0}
           onExport={exportAs}
           onImportFile={() => boardFileInput.current?.click()}
-          onHistory={() => setHistoryOpen(true)}
+          onHistory={() => {
+            setSuggestionsOpen(false);
+            setHistoryOpen(true);
+          }}
           onTemplate={() => setDialog("template")}
           onToggleComments={() => setShowComments((shown) => !shown)}
           onShortcuts={() => setDialog("shortcuts")}
@@ -622,6 +678,20 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       )}
 
       {historyOpen && isMember && <VersionHistory boardId={board.id} onClose={() => setHistoryOpen(false)} />}
+      {suggestionsOpen && (
+        <SuggestionsPanel
+          groups={review.groups}
+          getElement={getElement}
+          canDecide={isMember}
+          shown={showSuggestions}
+          onToggleShown={() => setShowSuggestions((shown) => !shown)}
+          onAccept={review.accept}
+          onReject={review.reject}
+          onHover={setHoveredGroup}
+          onFocus={focusOn}
+          onClose={() => setSuggestionsOpen(false)}
+        />
+      )}
 
       {/* Style panel */}
       {panelType && (
