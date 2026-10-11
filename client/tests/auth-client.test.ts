@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { api, setAuthToken, setUnauthorizedHandler } from "../src/lib/api.ts";
+import type { AccountUser, Session } from "../src/lib/api.ts";
 import { formColor } from "../src/lib/profileColor.ts";
 import { logoutPlan, tokenUserId } from "../src/lib/session.ts";
 import { completeSignIn, hashBind, startSignIn } from "../src/lib/signIn.ts";
@@ -22,7 +23,7 @@ afterEach(() => {
   setUnauthorizedHandler(() => {});
 });
 
-const reply = (status, body) => Promise.resolve(new Response(JSON.stringify(body), { status }));
+const reply = (status: number, body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status }));
 
 describe("a refused login (L30)", () => {
   it("logs out when the login that was refused is still the current one", async () => {
@@ -38,11 +39,11 @@ describe("a refused login (L30)", () => {
     let loggedOut = 0;
     setUnauthorizedHandler(() => (loggedOut += 1));
     setAuthToken("old");
-    let answer;
-    globalThis.fetch = (url, init) => {
-      assert.equal(init.headers.Authorization, "Bearer old");
-      return new Promise((resolve) => (answer = () => resolve(new Response("{}", { status: 401 }))));
-    };
+    let answer!: () => void;
+    globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => {
+      assert.equal((init!.headers as Record<string, string>).Authorization, "Bearer old");
+      return new Promise<Response>((resolve) => (answer = () => resolve(new Response("{}", { status: 401 }))));
+    }) as typeof globalThis.fetch;
     const pending = api.me();
     setAuthToken("new"); // logged in again (here or in another tab) while the request was out
     answer();
@@ -61,18 +62,18 @@ describe("a refused login (L30)", () => {
 
 describe("connecting a provider", () => {
   it("needs no cookie, so it works when the API is on another site, and hands back the tab's bind (M2, M10)", async () => {
-    const calls = [];
-    globalThis.fetch = (url, init) => {
+    const calls: { url: unknown; init: RequestInit | undefined }[] = [];
+    globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url, init });
       return reply(200, { url: "/api/auth/oauth/google?link=x", bind: "b" });
-    };
+    }) as typeof globalThis.fetch;
     setAuthToken("current");
     assert.deepEqual(await api.linkProvider("google"), { url: "/api/auth/oauth/google?link=x", bind: "b" });
     await api.confirmProviderLink("google", { connect: "note", bind: "b" });
-    assert.equal(calls[0].init.credentials, undefined);
-    assert.match(calls[1].url, /\/api\/auth\/oauth\/google\/link\/confirm$/);
-    assert.deepEqual(JSON.parse(calls[1].init.body), { connect: "note", bind: "b" });
-    assert.equal(calls[1].init.headers.Authorization, "Bearer current");
+    assert.equal(calls[0]!.init!.credentials, undefined);
+    assert.match(calls[1]!.url as string, /\/api\/auth\/oauth\/google\/link\/confirm$/);
+    assert.deepEqual(JSON.parse(calls[1]!.init!.body as string), { connect: "note", bind: "b" });
+    assert.equal((calls[1]!.init!.headers as Record<string, string>).Authorization, "Bearer current");
   });
 });
 
@@ -91,7 +92,7 @@ describe("where sign-in goes next", () => {
       undefined,
       42,
     ]) {
-      assert.equal(safeNext(value), "/boards", JSON.stringify(value));
+      assert.equal(safeNext(value as string), "/boards", JSON.stringify(value));
     }
   });
 
@@ -115,18 +116,18 @@ describe("sign-in errors come as codes (L32)", () => {
     assert.equal(isProvider("google"), true);
     assert.equal(isProvider("github"), true);
     assert.equal(isProvider("constructor"), false);
-    assert.equal(isProvider(null), false);
+    assert.equal(isProvider(null as unknown as string), false);
   });
 });
 
-const loginFor = (sub) => `h.${Buffer.from(JSON.stringify({ sub })).toString("base64url")}.s`;
+const loginFor = (sub: string) => `h.${Buffer.from(JSON.stringify({ sub })).toString("base64url")}.s`;
 
 describe("which login a tab keeps when it logs out (L30)", () => {
   it("reads the account out of a token, without trusting it", () => {
     assert.equal(tokenUserId(loginFor("ana")), "ana");
     const numeric = `h.${Buffer.from('{"sub":5}').toString("base64url")}.s`;
     for (const bad of ["", "abc", "a.b.c", "a..c", null, undefined, 7, numeric]) {
-      assert.equal(tokenUserId(bad), null, String(bad));
+      assert.equal(tokenUserId(bad as string), null, String(bad));
     }
   });
 
@@ -158,24 +159,24 @@ describe("which login a tab keeps when it logs out (L30)", () => {
 });
 
 describe("finishing a Google or GitHub sign-in in the tab that started it (login CSRF, C5)", () => {
-  const storage = new Map();
+  const storage = new Map<string, string>();
   beforeEach(() => {
     storage.clear();
     globalThis.sessionStorage = {
-      getItem: (key) => storage.get(key) ?? null,
-      setItem: (key, value) => storage.set(key, String(value)),
-      removeItem: (key) => storage.delete(key),
-    };
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: unknown) => storage.set(key, String(value)),
+      removeItem: (key: string) => storage.delete(key),
+    } as unknown as Storage;
   });
-  const session = { token: "login", user: { id: "u" } };
+  const session: Session = { token: "login", user: { id: "u" } as unknown as AccountUser };
 
   it("sends a hash of a bind kept in the tab, which is what the server hashes the same way", async () => {
     const hash = await startSignIn();
-    const bind = [...storage.values()][0];
+    const bind = [...storage.values()][0]!;
     assert.ok(bind.length >= 32);
     assert.equal(hash, createHash("sha256").update(bind).digest("base64url"));
     assert.equal(await hashBind("abc"), createHash("sha256").update("abc").digest("base64url"));
-    assert.match(hash, /^[A-Za-z0-9_-]{43}$/);
+    assert.match(hash as string, /^[A-Za-z0-9_-]{43}$/);
     assert.notEqual(await startSignIn(), hash, "a new one each time");
   });
 
@@ -184,13 +185,16 @@ describe("finishing a Google or GitHub sign-in in the tab that started it (login
       setItem() {
         throw new Error("blocked");
       },
-    };
+    } as unknown as Storage;
     assert.equal(await startSignIn(), null);
   });
 
   it("signs nobody in from a redirect this tab didn't start: no bind, no exchange", async () => {
     let asked = 0;
-    const exchange = async () => (asked += 1);
+    const exchange = (async () => (asked += 1)) as unknown as (input: {
+      code: string;
+      bind: string;
+    }) => Promise<Session>;
     // An attacker's link: a valid code, but this tab never made a bind.
     assert.deepEqual(await completeSignIn({ code: "attackers-code", exchange }), { outcome: "incomplete" });
     assert.equal(asked, 0, "the code isn't even sent anywhere");
@@ -200,24 +204,40 @@ describe("finishing a Google or GitHub sign-in in the tab that started it (login
 
   it("trades the code and the tab's bind for the login, and forgets the bind", async () => {
     await startSignIn();
-    const bind = [...storage.values()][0];
-    const calls = [];
+    const bind = [...storage.values()][0]!;
+    const calls: unknown[] = [];
     const result = await completeSignIn({
       code: "a-code",
-      exchange: async (input) => (calls.push(input), session),
+      exchange: (async (input) => (calls.push(input), session)) as (input: {
+        code: string;
+        bind: string;
+      }) => Promise<Session>,
     });
     assert.deepEqual(result, { outcome: "signed-in", session });
     assert.deepEqual(calls, [{ code: "a-code", bind }]);
     assert.equal(storage.size, 0, "a bind is used once");
-    assert.deepEqual(await completeSignIn({ code: "a-code", exchange: async () => session }), {
-      outcome: "incomplete",
-    });
+    assert.deepEqual(
+      await completeSignIn({
+        code: "a-code",
+        exchange: (async () => session) as unknown as (input: { code: string; bind: string }) => Promise<Session>,
+      }),
+      {
+        outcome: "incomplete",
+      },
+    );
   });
 
   it("goes back to the log in page when the server refuses, and keeps the bind to retry when it can't be reached", async () => {
     await startSignIn();
-    const refuse = async () => Promise.reject(Object.assign(new Error("no"), { status: 403 }));
-    const unreachable = async () => Promise.reject(Object.assign(new Error("offline"), { status: 0 }));
+    const refuse = (async () => Promise.reject(Object.assign(new Error("no"), { status: 403 }))) as unknown as (input: {
+      code: string;
+      bind: string;
+    }) => Promise<Session>;
+    const unreachable = (async () =>
+      Promise.reject(Object.assign(new Error("offline"), { status: 0 }))) as unknown as (input: {
+      code: string;
+      bind: string;
+    }) => Promise<Session>;
     assert.deepEqual(await completeSignIn({ code: "c", exchange: unreachable }), { outcome: "offline" });
     assert.equal(storage.size, 1, "still there for the retry");
     assert.deepEqual(await completeSignIn({ code: "c", exchange: refuse }), { outcome: "incomplete" });
@@ -225,21 +245,21 @@ describe("finishing a Google or GitHub sign-in in the tab that started it (login
   });
 
   it("is asked of the server as a plain request that needs no cookie", async () => {
-    const calls = [];
-    globalThis.fetch = (url, init) => {
+    const calls: { url: unknown; init: RequestInit | undefined }[] = [];
+    globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) => {
       calls.push({ url, init });
       return reply(200, session);
-    };
+    }) as typeof globalThis.fetch;
     assert.deepEqual(await api.exchangeOAuthCode({ code: "c", bind: "b" }), session);
-    assert.match(calls[0].url, /\/api\/auth\/oauth\/exchange$/);
-    assert.equal(calls[0].init.method, "POST");
-    assert.deepEqual(JSON.parse(calls[0].init.body), { code: "c", bind: "b" });
-    assert.equal(calls[0].init.credentials, undefined);
+    assert.match(calls[0]!.url as string, /\/api\/auth\/oauth\/exchange$/);
+    assert.equal(calls[0]!.init!.method, "POST");
+    assert.deepEqual(JSON.parse(calls[0]!.init!.body as string), { code: "c", bind: "b" });
+    assert.equal(calls[0]!.init!.credentials, undefined);
   });
 });
 
 describe("the page behind a verification link", () => {
-  const ana = { email: "ana@example.test" };
+  const ana = { email: "ana@example.test" } as unknown as AccountUser;
 
   it("waits for the account, and says when it can't be reached instead of asking to log in", () => {
     assert.equal(verifyView({ status: "loading", user: null }), "loading");
@@ -260,7 +280,7 @@ describe("the page behind a verification link", () => {
 describe("a login that runs out on the way back from connecting a provider", () => {
   it("keeps the fragment when it sends the person to log in, and follows it back", () => {
     const path = loginPathFor({ pathname: "/settings", search: "", hash: "#connect=abc.def&provider=google" });
-    const next = new URL(path, "http://app.test").searchParams.get("next");
+    const next = new URL(path, "http://app.test").searchParams.get("next")!;
     assert.equal(next, "/settings#connect=abc.def&provider=google");
     assert.equal(safeNext(next), next, "and the log in page follows it");
     assert.equal(loginPathFor({ pathname: "/board/abc", search: "?x=1" }), "/login?next=%2Fboard%2Fabc%3Fx%3D1");

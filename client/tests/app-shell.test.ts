@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { isView } from "../src/features/dashboard/sections.ts";
+import type { BoardSummary } from "../src/features/dashboard/sections.ts";
 import { fillPreviews } from "../src/features/dashboard/useBoards.ts";
 import { readStored, writeStored } from "../src/features/dashboard/useStoredState.ts";
 import { isChunkLoadError, reloadOnce, resetReloadOnce, withReload } from "../src/lib/chunkReload.ts";
 import { contrastWithWhite, PEOPLE_COLORS, personColor, readableColor } from "../src/lib/format.ts";
 import { mergeNotifications, withNewestPage } from "../src/lib/notifications.ts";
+import type { NotificationItem } from "../src/lib/api.ts";
+import type { Element as BoardElement } from "@inkboard/shared/types";
 
 describe("saved choices with site data blocked", () => {
-  let original;
+  let original: PropertyDescriptor | undefined;
   beforeEach(() => {
     original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
     // What Chrome does when cookies and site data are blocked: merely reading `localStorage` throws.
@@ -21,7 +24,7 @@ describe("saved choices with site data blocked", () => {
   });
   afterEach(() => {
     if (original) Object.defineProperty(globalThis, "localStorage", original);
-    else delete globalThis.localStorage;
+    else delete (globalThis as Record<string, unknown>).localStorage;
   });
 
   it("reads the initial value instead of throwing", () => {
@@ -34,13 +37,13 @@ describe("saved choices with site data blocked", () => {
 });
 
 describe("reloading after a deploy replaced the app's files", () => {
-  const memory = (entries = {}) => {
-    const store = { ...entries };
+  const memory = (entries: Record<string, string> = {}) => {
+    const store: Record<string, string> = { ...entries };
     return {
       store,
       storage: () => ({
-        getItem: (key) => store[key] ?? null,
-        setItem: (key, value) => {
+        getItem: (key: string) => store[key] ?? null,
+        setItem: (key: string, value: string) => {
           store[key] = value;
         },
       }),
@@ -148,7 +151,8 @@ describe("reloading after a deploy replaced the app's files", () => {
 });
 
 describe("notification pages", () => {
-  const note = (id, minute, read = false) => ({ id, read, createdAt: `2026-01-01T00:${minute}:00Z` });
+  const note = (id: string, minute: string, read = false) =>
+    ({ id, read, createdAt: `2026-01-01T00:${minute}:00Z` }) as unknown as NotificationItem;
 
   it("keeps older pages when a live one arrives", () => {
     const loaded = Array.from({ length: 45 }, (_, index) => note(`n${index}`, String(index).padStart(2, "0")));
@@ -180,14 +184,14 @@ describe("dashboard previews", () => {
     const found = new Map([
       ["a@2026-01-01T00:00:00Z", ["a-old"]],
       ["b@2026-01-01T00:00:00Z", ["b-now"]],
-    ]);
+    ]) as unknown as Map<string, BoardElement[]>;
     const list = [
       { id: "a", updatedAt: "2026-01-02T00:00:00Z" }, // refreshed while its preview was on its way
       { id: "b", updatedAt: "2026-01-01T00:00:00Z" },
       { id: "c", updatedAt: "2026-01-01T00:00:00Z" },
-    ];
+    ] as unknown as BoardSummary[];
     assert.deepEqual(
-      fillPreviews(list, found).map((board) => board.preview),
+      fillPreviews(list, found)!.map((board) => board.preview),
       [undefined, ["b-now"], undefined],
     );
     assert.equal(fillPreviews(null, found), undefined);
@@ -195,7 +199,7 @@ describe("dashboard previews", () => {
 });
 
 describe("people colors with white text", () => {
-  const rgb = (hex) => [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16));
+  const rgb = (hex: string) => [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16));
 
   it("maps colors from the old palette to the ones that replaced them", () => {
     assert.equal(readableColor("#f08c00"), "#946200");
@@ -207,8 +211,8 @@ describe("people colors with white text", () => {
   it("darkens any other color too light for white text, and leaves dark ones and no color alone", () => {
     for (const color of ["#ffffff", "#ffd43b", "#74c0fc", "#40c057", "#ff8787"]) {
       const readable = readableColor(color);
-      assert.match(readable, /^#[0-9a-f]{6}$/);
-      assert.ok(contrastWithWhite(rgb(readable)) >= 4.5, `${color} -> ${readable}`);
+      assert.match(readable!, /^#[0-9a-f]{6}$/);
+      assert.ok(contrastWithWhite(rgb(readable!)) >= 4.5, `${color} -> ${readable}`);
     }
     assert.equal(readableColor("#123456"), "#123456");
     assert.equal(readableColor(null), null);

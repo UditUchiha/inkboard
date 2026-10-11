@@ -1,19 +1,22 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { compareBoards, daysLeft, isMember, SECTIONS } from "../src/features/dashboard/sections.ts";
+import type { BoardSummary, SectionId } from "../src/features/dashboard/sections.ts";
 
-const board = (overrides) => ({
-  id: "x",
-  title: "Board",
-  role: "owner",
-  starred: false,
-  archived: false,
-  updatedAt: "2026-01-01T00:00:00Z",
-  lastOpenedAt: null,
-  ...overrides,
-});
-const section = (id) => SECTIONS.find((item) => item.id === id);
-const inSection = (id, boards) => boards.filter(section(id).matches).map((item) => item.title);
+const board = (overrides?: Partial<BoardSummary>): BoardSummary =>
+  ({
+    id: "x",
+    title: "Board",
+    role: "owner",
+    starred: false,
+    archived: false,
+    updatedAt: "2026-01-01T00:00:00Z",
+    lastOpenedAt: null,
+    ...overrides,
+  }) as unknown as BoardSummary;
+const section = (id: SectionId) => SECTIONS.find((item) => item.id === id);
+const inSection = (id: SectionId, boards: BoardSummary[]) =>
+  boards.filter(section(id)!.matches).map((item) => item.title);
 
 describe("dashboard sections", () => {
   const boards = [
@@ -62,7 +65,8 @@ describe("dashboard sorting", () => {
   const b = board({ title: "beta", updatedAt: "2026-01-01T00:00:00Z", lastOpenedAt: "2026-03-05T00:00:00Z" });
   const c = board({ title: "Gamma 10", updatedAt: "2026-02-01T00:00:00Z" });
   const d = board({ title: "Gamma 2", updatedAt: "2026-02-01T00:00:00Z" });
-  const titles = (list, sort) => [...list].sort(compareBoards(sort)).map((item) => item.title);
+  const titles = (list: BoardSummary[], sort: Parameters<typeof compareBoards>[0]) =>
+    [...list].sort(compareBoards(sort)).map((item) => item.title);
 
   it("sorts by last modified, newest first by default", () => {
     assert.deepEqual(titles([a, b, c], { key: "modified", dir: "desc" }), ["Alpha", "Gamma 10", "beta"]);
@@ -85,7 +89,7 @@ describe("dashboard sorting", () => {
 
 describe("trash countdown", () => {
   it("counts whole days left, never below zero", () => {
-    const inDays = (days) => new Date(Date.now() + days * 24 * 3600 * 1000 - 1000).toISOString();
+    const inDays = (days: number) => new Date(Date.now() + days * 24 * 3600 * 1000 - 1000).toISOString();
     assert.equal(daysLeft(inDays(30)), 30);
     assert.equal(daysLeft(inDays(1)), 1);
     assert.equal(daysLeft(new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString()), 0);

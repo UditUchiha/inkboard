@@ -3,12 +3,12 @@ import { describe, it } from "node:test";
 import { isOverlayKey, isPressable, isTypingTarget } from "../src/features/board/domTargets.ts";
 
 // There's no DOM here: just enough of one for the selectors domTargets uses (tags, [attr], [attr='value']).
-function matches(element, selector) {
-  return selector.split(",").some((part) => {
-    const [, tag, attributes] = /^\s*([a-z]*)((?:\[[^\]]+\])*)\s*$/i.exec(part);
+function matches(element: FakeElement, selector: string) {
+  return selector.split(",").some((part: string) => {
+    const [, tag, attributes] = /^\s*([a-z]*)((?:\[[^\]]+\])*)\s*$/i.exec(part)!;
     if (tag && element.tagName !== tag.toUpperCase()) return false;
-    for (const [, name, value] of attributes.matchAll(/\[([\w-]+)(?:='([^']*)')?\]/g)) {
-      const actual = element.attributes[name];
+    for (const [, name, value] of attributes!.matchAll(/\[([\w-]+)(?:='([^']*)')?\]/g)) {
+      const actual = element.attributes[name!];
       if (actual === undefined || (value !== undefined && actual !== value)) return false;
     }
     return true;
@@ -16,7 +16,13 @@ function matches(element, selector) {
 }
 
 class FakeElement {
-  constructor(tag, attributes = {}, parent = null) {
+  declare tagName: string;
+  declare attributes: Record<string, string>;
+  declare type: string;
+  declare isContentEditable: boolean;
+  declare parent: FakeElement | HTMLElement | null;
+
+  constructor(tag: string, attributes: Record<string, string> = {}, parent: FakeElement | HTMLElement | null = null) {
     this.tagName = tag.toUpperCase();
     this.attributes = attributes;
     this.type = attributes.type ?? (this.tagName === "INPUT" ? "text" : "");
@@ -24,15 +30,20 @@ class FakeElement {
     this.parent = parent;
   }
 
-  closest(selector) {
-    for (let element = this; element; element = element.parent) if (matches(element, selector)) return element;
+  closest(selector: string): FakeElement | HTMLElement | null {
+    for (let element: FakeElement | HTMLElement | null = this; element; element = (element as FakeElement).parent)
+      if (matches(element as FakeElement, selector)) return element;
     return null;
   }
 }
-globalThis.HTMLElement = FakeElement;
+globalThis.HTMLElement = FakeElement as unknown as typeof HTMLElement;
 
-const el = (tag, attributes, parent) => new FakeElement(tag, attributes, parent);
-const page = (...open) => ({ querySelector: (selector) => open.find((element) => matches(element, selector)) ?? null });
+const el = (tag: string, attributes?: Record<string, string>, parent?: FakeElement | HTMLElement | null) =>
+  new FakeElement(tag, attributes, parent) as unknown as HTMLElement;
+const page = (...open: (FakeElement | HTMLElement)[]) =>
+  ({
+    querySelector: (selector: string) => open.find((element) => matches(element as FakeElement, selector)) ?? null,
+  }) as unknown as ParentNode;
 
 describe("typing targets", () => {
   it("are text fields, not color pickers or checkboxes", () => {

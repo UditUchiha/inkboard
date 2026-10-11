@@ -8,9 +8,11 @@ import { DEFAULT_SORT, isSort, isView } from "../src/features/dashboard/sections
 import { readStored } from "../src/features/dashboard/useStoredState.ts";
 import { colorFor, initials, PEOPLE_COLORS, personColor, timeAgo } from "../src/lib/format.ts";
 import { mergeNotifications, unreadIds } from "../src/lib/notifications.ts";
+import type { NotificationItem } from "../src/lib/api.ts";
+import type { Element } from "@inkboard/shared/types";
 
-const storage = (entries) => ({
-  getItem: (key) => (key in entries ? entries[key] : null),
+const storage = (entries: Record<string, string>) => ({
+  getItem: (key: string) => (key in entries ? entries[key]! : null),
 });
 
 describe("readStored (saved dashboard choices)", () => {
@@ -20,7 +22,7 @@ describe("readStored (saved dashboard choices)", () => {
 
   it("returns a saved value that passes the check", () => {
     assert.equal(readStored("k", "grid", isView, storage({ k: '"list"' })), "list");
-    const sort = { key: "title", dir: "asc" };
+    const sort = { key: "title", dir: "asc" } as const;
     assert.deepEqual(readStored("k", DEFAULT_SORT, isSort, storage({ k: JSON.stringify(sort) })), sort);
   });
 
@@ -103,14 +105,24 @@ describe("mentions", () => {
   });
 
   it("knows when an input method is composing (Enter must not send then)", () => {
-    assert.equal(isComposing({ nativeEvent: { isComposing: true }, keyCode: 13 }), true);
-    assert.equal(isComposing({ nativeEvent: { isComposing: false }, keyCode: 229 }), true);
-    assert.equal(isComposing({ nativeEvent: { isComposing: false }, keyCode: 13 }), false);
+    assert.equal(
+      isComposing({ nativeEvent: { isComposing: true }, keyCode: 13 } as unknown as React.KeyboardEvent),
+      true,
+    );
+    assert.equal(
+      isComposing({ nativeEvent: { isComposing: false }, keyCode: 229 } as unknown as React.KeyboardEvent),
+      true,
+    );
+    assert.equal(
+      isComposing({ nativeEvent: { isComposing: false }, keyCode: 13 } as unknown as React.KeyboardEvent),
+      false,
+    );
   });
 });
 
 describe("notifications merge", () => {
-  const note = (id, minute, read = false) => ({ id, createdAt: `2026-01-01T00:${minute}:00Z`, read });
+  const note = (id: string, minute: string, read = false) =>
+    ({ id, createdAt: `2026-01-01T00:${minute}:00Z`, read }) as unknown as NotificationItem;
 
   it("merges by id, newest first, without duplicates", () => {
     const merged = mergeNotifications([note("b", "10"), note("a", "05")], [note("c", "20"), note("b", "10")]);
@@ -121,8 +133,8 @@ describe("notifications merge", () => {
   });
 
   it("never turns a read notification back into an unread one", () => {
-    assert.equal(mergeNotifications([note("a", "05", true)], [note("a", "05", false)])[0].read, true);
-    assert.equal(mergeNotifications([note("a", "05", false)], [note("a", "05", true)])[0].read, true);
+    assert.equal(mergeNotifications([note("a", "05", true)], [note("a", "05", false)])[0]!.read, true);
+    assert.equal(mergeNotifications([note("a", "05", false)], [note("a", "05", true)])[0]!.read, true);
   });
 
   it("keeps only the newest `limit` and lists unread ids", () => {
@@ -164,9 +176,9 @@ describe("person colors", () => {
   });
 
   it("keeps every color dark enough for white text (WCAG AA, 4.5:1)", () => {
-    const luminance = (hex) => {
-      const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
-      const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+    const luminance = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255) as [number, number, number];
+      const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
       return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
     };
     for (const color of PEOPLE_COLORS) {
@@ -177,15 +189,18 @@ describe("person colors", () => {
 
 describe("element labels for the keyboard list", () => {
   it("names elements by type and text", () => {
-    assert.equal(describeElement({ type: "rectangle" }), "Rectangle");
-    assert.equal(describeElement({ type: "sticky", text: "  Buy\nmilk " }), "Sticky note: Buy milk");
-    assert.equal(describeElement({ type: "frame", name: "Sprint 4" }), "Frame: Sprint 4");
-    assert.equal(describeElement({ type: "arrow", text: "yes" }), "Arrow: yes");
-    assert.equal(describeElement({ type: "mystery" }), "Element");
+    assert.equal(describeElement({ type: "rectangle" } as unknown as Element), "Rectangle");
+    assert.equal(
+      describeElement({ type: "sticky", text: "  Buy\nmilk " } as unknown as Element),
+      "Sticky note: Buy milk",
+    );
+    assert.equal(describeElement({ type: "frame", name: "Sprint 4" } as unknown as Element), "Frame: Sprint 4");
+    assert.equal(describeElement({ type: "arrow", text: "yes" } as unknown as Element), "Arrow: yes");
+    assert.equal(describeElement({ type: "mystery" } as unknown as Element), "Element");
   });
 
   it("shortens long text", () => {
-    const label = describeElement({ type: "text", text: "x".repeat(500) });
+    const label = describeElement({ type: "text", text: "x".repeat(500) } as unknown as Element);
     assert.ok(label.length < 80 && label.endsWith("…"));
   });
 });
@@ -210,20 +225,23 @@ describe("board title rename", () => {
 
 describe("focus after a comment popover closes", () => {
   const inside = new Set(["field"]);
-  const popover = { contains: (node) => inside.has(node) };
-  const opener = { isConnected: true };
+  const popover = { contains: (node: unknown) => inside.has(node as string) } as unknown as HTMLElement;
+  const opener = { isConnected: true } as unknown as HTMLElement;
 
   it("returns to the opener when focus was inside the popover", () => {
-    assert.equal(focusAfterClose(popover, "field", opener), opener);
+    assert.equal(focusAfterClose(popover, "field" as unknown as HTMLElement, opener), opener);
   });
 
   it("leaves focus alone when it was elsewhere, such as the body after a click on the canvas", () => {
-    assert.equal(focusAfterClose(popover, "body", opener), null);
+    assert.equal(focusAfterClose(popover, "body" as unknown as HTMLElement, opener), null);
     assert.equal(focusAfterClose(popover, null, opener), null);
   });
 
   it("does nothing when the opener is gone", () => {
-    assert.equal(focusAfterClose(popover, "field", { isConnected: false }), null);
-    assert.equal(focusAfterClose(popover, "field", null), null);
+    assert.equal(
+      focusAfterClose(popover, "field" as unknown as HTMLElement, { isConnected: false } as unknown as HTMLElement),
+      null,
+    );
+    assert.equal(focusAfterClose(popover, "field" as unknown as HTMLElement, null), null);
   });
 });

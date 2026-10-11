@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { register } from "node:module";
 import { describe, it } from "node:test";
+import type { ShapeElement } from "@inkboard/shared/types";
+
+declare global {
+  var __react: {
+    slots: { value?: { name?: string } }[];
+    effects: (() => void)[];
+    cleanups: (() => void)[];
+    at: number;
+  };
+  var __toasts: string[];
+  var __socket: unknown;
+}
 
 // useBoardSync run in Node, without a browser: React, the toasts and the socket it gets from
 // SocketProvider are swapped for small stand-ins (only for this file), so what the hook sends
@@ -40,7 +52,7 @@ const fakes = {
   `,
   socket: `export const useSocket = () => globalThis.__socket;`,
 };
-const url = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
+const url = (source: string) => `data:text/javascript,${encodeURIComponent(source)}`;
 register(
   url(`
     const fakes = ${JSON.stringify(Object.fromEntries(Object.entries(fakes).map(([name, source]) => [name, url(source)])))};
@@ -53,35 +65,56 @@ register(
   `),
 );
 
-const { render, unmount } = await import("react");
+const { render, unmount } = (await import("react")) as unknown as {
+  render: <T>(hook: () => T) => T;
+  unmount: () => void;
+};
 const { useBoardSync } = await import("../src/features/board/useBoardSync.ts");
 const { createBoardStore } = await import("../src/features/board/store.ts");
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const rect = (id) => ({ id, type: "rectangle", x1: 0, y1: 0, x2: 10, y2: 10, stroke: "#000000", fill: null });
-const big = (id) => ({ ...rect(id), text: "x".repeat(400_000) });
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const rect = (id: string): ShapeElement =>
+  ({ id, type: "rectangle", x1: 0, y1: 0, x2: 10, y2: 10, stroke: "#000000", fill: null }) as unknown as ShapeElement;
+const big = (id: string): ShapeElement => ({ ...rect(id), text: "x".repeat(400_000) }) as unknown as ShapeElement;
+
+type FakeSocketEntry = {
+  event: string;
+  payload: {
+    group?: { index: number };
+    op?: { remove?: { id: string }[] };
+    source?: string;
+    [key: string]: unknown;
+  };
+  ack?: (err: unknown, res?: unknown) => void;
+  timed?: boolean;
+};
 
 /** A connection that records what's sent, and lets a test answer it and send events. */
 function fakeSocket() {
-  const handlers = new Map();
-  const sent = [];
+  const handlers = new Map<string, ((...args: unknown[]) => void)[]>();
+  const sent: FakeSocketEntry[] = [];
   const socket = {
     id: "me",
     connected: true,
     sent,
-    on: (event, handler) => handlers.set(event, [...(handlers.get(event) ?? []), handler]),
-    off: (event, handler) =>
+    on: (event: string, handler: (...args: unknown[]) => void) =>
+      handlers.set(event, [...(handlers.get(event) ?? []), handler]),
+    off: (event: string, handler: (...args: unknown[]) => void) =>
       handlers.set(
         event,
-        (handlers.get(event) ?? []).filter((h) => h !== handler),
+        (handlers.get(event) ?? []).filter((h: (...args: unknown[]) => void) => h !== handler),
       ),
-    emit: (event, payload, ack) => sent.push({ event, payload, ack }),
-    timeout: () => ({ emit: (event, payload, ack) => sent.push({ event, payload, ack, timed: true }) }),
-    volatile: { emit: (event, payload) => sent.push({ event, payload }) },
-    fire: (event, ...args) => {
+    emit: (event: string, payload: FakeSocketEntry["payload"], ack?: (err: unknown, res?: unknown) => void) =>
+      sent.push({ event, payload, ack }),
+    timeout: () => ({
+      emit: (event: string, payload: FakeSocketEntry["payload"], ack?: (err: unknown, res?: unknown) => void) =>
+        sent.push({ event, payload, ack, timed: true }),
+    }),
+    volatile: { emit: (event: string, payload: FakeSocketEntry["payload"]) => sent.push({ event, payload }) },
+    fire: (event: string, ...args: unknown[]) => {
       for (const handler of handlers.get(event) ?? []) handler(...args);
     },
-    of: (event) => sent.filter((entry) => entry.event === event),
+    of: (event: string) => sent.filter((entry) => entry.event === event),
   };
   return socket;
 }
@@ -95,7 +128,7 @@ function open(boardId = "b1", canonical = boardId) {
   const store = createBoardStore();
   const sync = render(() => useBoardSync(boardId, store));
   const [join] = socket.of("board:join");
-  join.ack({ ok: true, board: { id: canonical, title: "B", role: "owner", elements: [] }, removed: [] });
+  join!.ack!({ ok: true, board: { id: canonical, title: "B", role: "owner", elements: [] }, removed: [] });
   const phase = () => globalThis.__react.slots.find((kept) => kept?.value?.name)?.value;
   return { socket, store, sync, phase };
 }
@@ -106,13 +139,13 @@ describe("useBoardSync", () => {
     store.apply({ upsert: [big("a"), big("b"), big("c")] });
     await wait(60);
     const [first] = socket.of("board:op");
-    assert.equal(first.payload.group.index, 0);
+    assert.equal(first!.payload.group!.index, 0);
     store.apply({ remove: ["a"] }); // waits for the change in pieces
     await wait(60);
     assert.equal(socket.of("board:op").length, 1);
     unmount();
     const after = socket.sent
-      .slice(socket.sent.indexOf(first) + 1)
+      .slice(socket.sent.indexOf(first!) + 1)
       .map(({ event, payload }) => [event, payload?.group?.index ?? payload?.op?.remove?.length]);
     assert.deepEqual(after, [
       ["board:op", 1],
@@ -127,13 +160,13 @@ describe("useBoardSync", () => {
     await wait(60);
     store.apply({ remove: ["a"] });
     await wait(60);
-    socket.of("board:op")[0].ack(null, { ok: true });
-    socket.of("board:op")[1].ack(null, { ok: true });
+    socket.of("board:op")[0]!.ack!(null, { ok: true });
+    socket.of("board:op")[1]!.ack!(null, { ok: true });
     await wait(10);
     const ops = socket.of("board:op");
     assert.equal(ops.length, 3);
     assert.deepEqual(
-      ops[2].payload.op.remove.map((removal) => removal.id),
+      ops[2]!.payload.op!.remove!.map((removal: { id: string }) => removal.id),
       ["a"],
     );
     unmount();
@@ -144,10 +177,10 @@ describe("useBoardSync", () => {
     store.apply({ upsert: [rect("a")] });
     await wait(60);
     socket.fire("board:deleted", { boardId: "b1" });
-    socket.of("board:op")[0].ack(null, { ok: false, reason: "noSession" });
+    socket.of("board:op")[0]!.ack!(null, { ok: false, reason: "noSession" });
     socket.fire("connect");
     assert.equal(socket.of("board:join").length, 1);
-    assert.equal(phase().name, "deleted");
+    assert.equal(phase()!.name, "deleted");
     unmount();
   });
 
@@ -156,7 +189,7 @@ describe("useBoardSync", () => {
     socket.fire("board:revoked", { boardId: "b1" });
     socket.fire("connect");
     assert.equal(socket.of("board:join").length, 1);
-    assert.equal(phase().name, "revoked");
+    assert.equal(phase()!.name, "revoked");
     unmount();
   });
 
@@ -165,7 +198,7 @@ describe("useBoardSync", () => {
     socket.fire("board:op", { boardId: "other", op: { upsert: [{ ...rect("x"), version: 1, versionNonce: 0 }] } });
     socket.fire("board:deleted", { boardId: "other" });
     assert.equal(store.getElement("x"), undefined);
-    assert.equal(phase().name, "ready");
+    assert.equal(phase()!.name, "ready");
     socket.fire("board:op", { boardId: "b1", op: { upsert: [{ ...rect("y"), version: 1, versionNonce: 0 }] } });
     assert.ok(store.getElement("y"));
     unmount();
@@ -185,15 +218,15 @@ describe("useBoardSync", () => {
     });
     assert.equal(store.getElement("z"), undefined);
     socket.fire("board:deleted", { boardId: "507f1f77bcf86cd799439011" });
-    assert.equal(phase().name, "deleted");
+    assert.equal(phase()!.name, "deleted");
     unmount();
   });
 
   it("sends a view taken from someone as whose own it is, and never follows its own view back", async () => {
     const { socket, sync } = open();
     socket.fire("presence", [{ socketId: "me" }, { socketId: "lead" }], { boardId: "b1" });
-    const seen = [];
-    sync.subscribeViewport((view) => seen.push(view));
+    const seen: { source?: string }[] = [];
+    sync.subscribeViewport((view: { source?: string }) => seen.push(view));
     const view = { x: 0, y: 0, zoom: 1, width: 800, height: 600 };
     // "lead" shows what "origin" sees; we follow "lead".
     socket.fire("viewport", { ...view, boardId: "b1", socketId: "lead", source: "origin" });
@@ -204,10 +237,10 @@ describe("useBoardSync", () => {
     );
     sync.sendViewport(view, "lead");
     await wait(150);
-    assert.equal(socket.of("viewport").at(-1).payload.source, "origin");
+    assert.equal(socket.of("viewport").at(-1)!.payload.source, "origin");
     sync.sendViewport(view); // stopped following, without moving: now it's our own
     await wait(150);
-    assert.equal(socket.of("viewport").at(-1).payload.source, "me");
+    assert.equal(socket.of("viewport").at(-1)!.payload.source, "me");
     unmount();
   });
 });

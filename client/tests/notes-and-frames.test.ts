@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { Element, FrameElement, ShapeElement, StickyElement, TextElement } from "@inkboard/shared/types";
 import { inStackOrder } from "@inkboard/shared/board-order";
 import { resolveConnectors } from "../src/features/board/connectors.ts";
 import {
@@ -23,11 +24,11 @@ import { loadCanvasFonts } from "../src/features/board/renderer.ts";
 // Text is measured with a canvas, which Node doesn't have: a stand-in makes every character `perCharacter` wide.
 let perCharacter = 10;
 let measurements = 0;
-globalThis.document = {
+(globalThis as unknown as { document: unknown }).document = {
   createElement: () => ({
     getContext: () => ({
       font: "",
-      measureText: (text) => {
+      measureText: (text: string) => {
         measurements += 1;
         return { width: text.length * perCharacter };
       },
@@ -37,29 +38,38 @@ globalThis.document = {
 };
 
 // Every character is half the font size wide, so tests can work out where lines break.
-const measure = (text, fontSize) => text.length * fontSize * 0.5;
-const byWidth = (perChar) => (text) => text.length * perChar;
+const measure = (text: string, fontSize: number) => text.length * fontSize * 0.5;
+const byWidth = (perChar: number) => (text: string) => text.length * perChar;
 
-const note = (text, size = 200) => ({
-  ...createNote({ x: 0, y: 0 }, { noteFill: "#ffec99", font: "hand" }),
+const note = (text: string, size = 200): StickyElement => ({
+  ...createNote({ x: 0, y: 0 }, { noteFill: "#ffec99", font: "hand" } as unknown as Parameters<typeof createNote>[1]),
   text,
   x2: size - 100,
   y2: size - 100,
 });
-const frame = (id, x1, y1, x2, y2) => ({ id, type: "frame", x1, y1, x2, y2, name: id });
-const box = (id, x1, y1, x2 = x1 + 10, y2 = y1 + 10) => ({
+const frame = (id: string, x1: number, y1: number, x2: number, y2: number): FrameElement => ({
   id,
-  type: "rectangle",
+  type: "frame",
   x1,
   y1,
   x2,
   y2,
-  stroke: "#000000",
-  fill: "#ffffff",
-  strokeWidth: 2,
-  sketchy: false,
+  name: id,
 });
-const ids = (elements) => elements.map((element) => element.id);
+const box = (id: string, x1: number, y1: number, x2 = x1 + 10, y2 = y1 + 10): ShapeElement =>
+  ({
+    id,
+    type: "rectangle",
+    x1,
+    y1,
+    x2,
+    y2,
+    stroke: "#000000",
+    fill: "#ffffff",
+    strokeWidth: 2,
+    sketchy: false,
+  }) as unknown as ShapeElement;
+const ids = (elements: Element[]) => elements.map((element) => element.id);
 
 describe("sticky note text", () => {
   it("wraps between words, keeps line breaks, and breaks words too long for a line", () => {
@@ -118,7 +128,7 @@ describe("sticky note text", () => {
     const word = "x".repeat(20_000);
     let calls = 0;
     let measured = 0;
-    const counting = (text) => {
+    const counting = (text: string) => {
       calls += 1;
       measured += text.length;
       return text.length;
@@ -132,7 +142,7 @@ describe("sticky note text", () => {
 
     calls = 0;
     measured = 0;
-    const layout = layoutNote({ ...note(word), font: "hand" }, (text, size) => {
+    const layout = layoutNote({ ...note(word), font: "hand" }, (text: string, size: number) => {
       calls += 1;
       measured += text.length;
       return text.length * size * 0.5;
@@ -149,7 +159,7 @@ describe("sticky note text", () => {
     assert.ok(layout.fontSize > MIN_NOTE_FONT_SIZE, "fits above the smallest size");
     assert.ok(layout.lines.length * layout.lineHeight <= layout.height);
     const larger = Math.floor(layout.fontSize / 0.9);
-    const wrapped = wrapLines(text, layout.width, (line) => measure(line, larger));
+    const wrapped = wrapLines(text, layout.width, (line: string) => measure(line, larger));
     assert.ok(
       wrapped.length * larger * LINE_HEIGHT > layout.height || larger === layout.fontSize,
       "the next size up didn't",
@@ -158,10 +168,10 @@ describe("sticky note text", () => {
 
   it("breaks between whole characters, never inside an emoji or a pair", () => {
     const family = "👨‍👩‍👧"; // seven code units, one character
-    const grapheme = (text) => [...new Intl.Segmenter().segment(text)].length;
-    const lines = wrapLines(family.repeat(5), 20, (text) => grapheme(text) * 10);
+    const grapheme = (text: string) => [...new Intl.Segmenter().segment(text)].length;
+    const lines = wrapLines(family.repeat(5), 20, (text: string) => grapheme(text) * 10);
     assert.deepEqual(lines, [family.repeat(2), family.repeat(2), family]);
-    const faces = wrapLines("😀".repeat(5), 20, (text) => [...text].length * 10);
+    const faces = wrapLines("😀".repeat(5), 20, (text: string) => [...text].length * 10);
     assert.deepEqual(faces, ["😀😀", "😀😀", "😀"]);
   });
 });
@@ -221,25 +231,29 @@ describe("frames", () => {
       box("b", 36, 36),
       box("c", 280, 280),
     ]);
-    const inOriginal = ids(frameContents(elements, elements[0]));
-    const inCopy = ids(frameContents(elements, elements[2]));
+    const inOriginal = ids(frameContents(elements, elements[0] as FrameElement));
+    const inCopy = ids(frameContents(elements, elements[2] as FrameElement));
     assert.deepEqual([...inOriginal, ...inCopy].sort(), ["a", "b", "c"]);
     assert.ok(inCopy.includes("c"), "only the copy is around it");
   });
 
   it("never hold each other, even when they're the same size", () => {
     const elements = inStackOrder([frame("lower", 0, 0, 100, 100), frame("upper", 0, 0, 100, 100), box("x", 10, 10)]);
-    assert.deepEqual(ids(frameContents(elements, elements[0])), ["x"]);
-    assert.deepEqual(ids(frameContents(elements, elements[1])), ["lower", "x"], "the upper one holds the lower one");
+    assert.deepEqual(ids(frameContents(elements, elements[0] as FrameElement)), ["x"]);
+    assert.deepEqual(
+      ids(frameContents(elements, elements[1] as FrameElement)),
+      ["lower", "x"],
+      "the upper one holds the lower one",
+    );
   });
 
   it("move, copy and delete with what's in them", () => {
     const elements = inStackOrder([frame("f", 0, 0, 300, 300), box("in", 50, 50), box("out", 400, 400)]);
-    const group = withContents(elements, elements[0]);
+    const group = withContents(elements, elements[0] as FrameElement);
     const moved = group.map((element) => translate(element, 1000, 0));
     const after = elements.map((element) => moved.find((m) => m.id === element.id) ?? element);
-    assert.deepEqual(ids(frameContents(after, moved[0])), ["in"], "still inside after the move");
-    const copies = group.map(duplicate);
+    assert.deepEqual(ids(frameContents(after, moved[0] as FrameElement)), ["in"], "still inside after the move");
+    const copies = group.map(duplicate as unknown as (element: Element) => Element);
     assert.equal(new Set([...ids(copies), ...ids(elements)]).size, 5, "copies get their own ids");
   });
 
@@ -247,19 +261,19 @@ describe("frames", () => {
     const outer = frame("outer", 0, 0, 500, 500);
     const inner = frame("inner", 100, 100, 300, 300);
     const elements = inStackOrder([outer, inner, box("shape", 150, 150, 200, 200)]);
-    assert.equal(elementAt(elements, 175, 175, 1).id, "shape", "a shape on a frame");
-    assert.equal(elementAt(elements, 250, 250, 1).id, "inner", "inside the innermost frame");
-    assert.equal(elementAt(elements, 50, 50, 1).id, "outer");
-    assert.equal(elementAt(elements, 500, 250, 2).id, "outer", "its border");
+    assert.equal(elementAt(elements, 175, 175, 1)!.id, "shape", "a shape on a frame");
+    assert.equal(elementAt(elements, 250, 250, 1)!.id, "inner", "inside the innermost frame");
+    assert.equal(elementAt(elements, 50, 50, 1)!.id, "outer");
+    assert.equal(elementAt(elements, 500, 250, 2)!.id, "outer", "its border");
     assert.equal(elementAt(elements, 700, 700, 1), null);
   });
 
   it("only move in the stack among frames", () => {
     const elements = inStackOrder([frame("f1", 0, 0, 100, 100), box("a", 10, 10), frame("f2", 0, 0, 100, 100)]);
-    const key = stackKey(elements, elements[0], "front");
-    assert.ok(key > elements[2].index, "above the other frame");
-    assert.equal(stackKey(elements, elements[2], "front"), null, "already the top frame, whatever is above it");
-    assert.equal(stackKey(elements, elements[1], "back"), null, "a shape is already at the back of the shapes");
+    const key = stackKey(elements, elements[0]!, "front");
+    assert.ok(key! > elements[2]!.index!, "above the other frame");
+    assert.equal(stackKey(elements, elements[2]!, "front"), null, "already the top frame, whatever is above it");
+    assert.equal(stackKey(elements, elements[1]!, "back"), null, "a shape is already at the back of the shapes");
   });
 
   it("are named Frame 1, Frame 2, … without repeating a name in use", () => {
@@ -270,24 +284,33 @@ describe("frames", () => {
   });
 
   it("start empty-named from the frame tool", () => {
-    const created = createElement("frame", { x: 3, y: 4 }, {});
+    const created = createElement("frame", { x: 3, y: 4 }, {} as unknown as Parameters<typeof createElement>[2]);
     assert.deepEqual({ ...created, id: "x" }, { id: "x", type: "frame", x1: 3, y1: 4, x2: 3, y2: 4, name: "" });
   });
 });
 
 describe("text measured before the web fonts load", () => {
   it("is measured again once they have, wherever it was measured", async () => {
-    const text = { id: "t", type: "text", x1: 0, y1: 0, text: "hello", stroke: "#000", fontSize: 20, font: "hand" };
-    const turned = { ...text, id: "r", angle: 1 };
+    const text: TextElement = {
+      id: "t",
+      type: "text",
+      x1: 0,
+      y1: 0,
+      text: "hello",
+      stroke: "#000",
+      fontSize: 20,
+      font: "hand",
+    };
+    const turned: TextElement = { ...text, id: "r", angle: 1 };
     const named = { ...frame("f", 0, 0, 500, 100), name: "hello" };
-    const connector = { ...box("c", 0, 0), type: "arrow", startId: "t", x1: 0, y1: 0, x2: 400, y2: 0 };
-    const board = [text, connector];
+    const connector = { ...box("c", 0, 0), type: "arrow", startId: "t", x1: 0, y1: 0, x2: 400, y2: 0 } as ShapeElement;
+    const board: Element[] = [text, connector];
 
     // The fallback font's letters are narrower than the web font's.
     assert.equal(getBounds(text).width, 50);
     const turnedWidth = getBounds(turned).width;
     assert.equal(frameLabel(named).width, 50);
-    const startedAt = resolveConnectors(board)[1].x1;
+    const startedAt = (resolveConnectors(board)[1] as ShapeElement).x1;
 
     perCharacter = 20;
     assert.equal(getBounds(text).width, 50, "kept until the fonts load");
@@ -295,13 +318,16 @@ describe("text measured before the web fonts load", () => {
     assert.equal(getBounds(text).width, 100);
     assert.ok(getBounds(turned).width > turnedWidth, "turned bounds too");
     assert.equal(frameLabel(named).width, 100);
-    assert.ok(resolveConnectors(board)[1].x1 > startedAt, "connectors attached to the text start further out");
+    assert.ok(
+      (resolveConnectors(board)[1] as ShapeElement).x1 > startedAt,
+      "connectors attached to the text start further out",
+    );
     perCharacter = 10;
   });
 });
 
 describe("frame names", () => {
-  const named = (name, width) => ({ ...frame("f", 0, 0, width, 100), name });
+  const named = (name: string, width: number): FrameElement => ({ ...frame("f", 0, 0, width, 100), name });
 
   it("are cut short to the frame's width, with an ellipsis", () => {
     assert.equal(frameLabel(named("abcdefghij", 55)).text, "abcd…");
