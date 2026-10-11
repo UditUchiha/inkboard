@@ -1,3 +1,4 @@
+import type * as Api from "@inkboard/shared/api";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
 import { HttpError } from "../lib/http-error.ts";
@@ -32,10 +33,12 @@ interface PopulatedAuthor {
 
 const serializeVersion = (
   version: Pick<VersionDoc, "id" | "kind" | "label" | "elementCount" | "createdAt"> & PopulatedAuthor,
-) => ({
+): Api.VersionSummary => ({
   id: version.id,
-  kind: version.kind,
-  label: version.label,
+  // The schema only lets the three kinds through, which Mongoose reads as a string.
+  kind: version.kind as Api.VersionKind,
+  // The schema fills in null for a version with no name, which the type can't see.
+  label: version.label as string | null,
   author: version.author ? serializePerson(version.author) : null,
   elementCount: version.elementCount,
   createdAt: version.createdAt,
@@ -57,7 +60,7 @@ export async function listVersions(req: BoardRequest, res: Response) {
     .limit(VERSION_LIMITS.auto + VERSION_LIMITS.restore + VERSION_LIMITS.named)
     .select("-elements")
     .populate<PopulatedAuthor>("author", PERSON_FIELDS);
-  res.json({ versions: versions.map(serializeVersion) });
+  res.json({ versions: versions.map(serializeVersion) } satisfies Api.VersionListReply);
 }
 
 export async function getVersion(req: VersionRequest, res: Response) {
@@ -67,7 +70,7 @@ export async function getVersion(req: VersionRequest, res: Response) {
   // `populate` fills in the author on the version itself, which the types can't see.
   res.json({
     version: { ...serializeVersion(version as typeof version & PopulatedAuthor), elements: version.elements },
-  });
+  } satisfies Api.FullVersionReply);
 }
 
 /** Saves the board as it is now, under a name. */
@@ -89,7 +92,9 @@ export async function saveVersion(req: BoardRequest<{ label?: unknown }>, res: R
   ))!;
   await version.populate("author", PERSON_FIELDS);
   // `populate` fills in the author on the version itself, which the types can't see.
-  res.status(201).json({ version: serializeVersion(version as typeof version & PopulatedAuthor) });
+  res
+    .status(201)
+    .json({ version: serializeVersion(version as typeof version & PopulatedAuthor) } satisfies Api.VersionReply);
 }
 
 /**
@@ -107,7 +112,7 @@ export async function restoreVersion(req: VersionRequest, res: Response) {
     author: req.userId,
   });
   const elements = await replaceElements(board.id, version.elements, actor);
-  res.json({ elements });
+  res.json({ elements } satisfies Api.RestoredVersionReply);
 }
 
 /**

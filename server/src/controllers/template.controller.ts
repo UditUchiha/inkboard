@@ -1,3 +1,4 @@
+import type * as Api from "@inkboard/shared/api";
 import type { Element, ConnectorFields } from "@inkboard/shared/types";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
@@ -15,10 +16,13 @@ export const TEMPLATE_LIMITS = { count: 30, bytes: 2_000_000 };
 
 // What the New board dialog needs: a light preview to draw, not the drawing. Starting a
 // board from a template is done by id (see createBoard), so the drawing never needs to be sent.
-const serializeTemplate = (template: Pick<TemplateDoc, "id" | "title" | "elementCount" | "preview" | "createdAt">) => ({
+const serializeTemplate = (
+  template: Pick<TemplateDoc, "id" | "title" | "elementCount" | "preview" | "createdAt">,
+): Api.TemplateSummary => ({
   id: template.id,
   title: template.title,
-  elementCount: template.elementCount,
+  // Templates saved before the count was kept get it when first listed (see fillMissingPreviews), which the type can't see.
+  elementCount: template.elementCount!,
   preview: template.preview,
   createdAt: template.createdAt,
 });
@@ -52,7 +56,7 @@ export async function listTemplates(req: Request, res: Response) {
     .sort({ createdAt: -1 })
     .select("title createdAt elementCount preview");
   await fillMissingPreviews(templates);
-  res.json({ templates: templates.map(serializeTemplate) });
+  res.json({ templates: templates.map(serializeTemplate) } satisfies Api.TemplateListReply);
 }
 
 // An element looked at for the fields a connector adds, which any of them may be missing.
@@ -124,7 +128,7 @@ export async function createTemplate(
       bytes,
     });
   });
-  res.status(201).json({ template: serializeTemplate(template) });
+  res.status(201).json({ template: serializeTemplate(template) } satisfies Api.TemplateReply);
 }
 
 export async function deleteTemplate(req: Request<{ templateId: string }>, res: Response) {

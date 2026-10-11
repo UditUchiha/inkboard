@@ -9,7 +9,7 @@ import { OAuthButtons, useEmailEnabled } from "../components/OAuthButtons";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { APP_NAME } from "../config";
 import { api } from "../lib/api";
-import type { AccountUser, ApiError } from "../lib/api";
+import type { ApiError } from "../lib/api";
 import { signInErrorMessage } from "../lib/signInErrors";
 import { verifyView } from "../lib/verifyLink";
 import { useAuth } from "../providers/AuthProvider";
@@ -383,9 +383,9 @@ export function VerifyEmailPage() {
 
   function verify() {
     setResult({ phase: "verifying" });
-    // The "ready" phase, where the button that calls this is shown, only happens with a token. The server answers
-    // with the address that was verified and the account as it is now.
-    (api.verifyEmail(token as string) as Promise<{ email: string; user: AccountUser }>)
+    // The "ready" phase, where the button that calls this is shown, only happens with a token.
+    api
+      .verifyEmail(token as string)
       .then(({ email, user: verified }) => {
         updateUser(verified); // seen as verified straight away
         setResult({ phase: "done", email });

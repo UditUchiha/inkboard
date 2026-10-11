@@ -1,8 +1,9 @@
+import type { AccountUser, OAuthProvider, PublicUser } from "@inkboard/shared/api";
 import mongoose from "mongoose";
 import type { HydratedDocument, InferSchemaType, Model } from "mongoose";
 import { hashPassword, verifyPasswordHash } from "../lib/passwords.ts";
 
-export type OAuthProvider = "google" | "github";
+export type { OAuthProvider };
 export const OAUTH_PROVIDERS: OAuthProvider[] = ["google", "github"];
 
 const userSchema = new mongoose.Schema(
@@ -25,23 +26,6 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
-
-/** What other people may see about someone. */
-export interface PublicUser {
-  id: string;
-  name: string;
-  email: string;
-  color?: string | null;
-  avatarUrl?: string | null;
-}
-
-/** What the account holder sees. */
-export interface AccountUser extends PublicUser {
-  emailVerified: boolean;
-  hasPassword: boolean;
-  /** Which sign-in providers the account is linked to. */
-  providers: Record<string, boolean>;
-}
 
 // Methods added to the schema below, which Mongoose can't infer from the schema itself.
 interface UserMethods {

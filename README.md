@@ -124,6 +124,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and every
 The code in `client/src`, `server/src`, `server/scripts` and `shared/src` is TypeScript; the tests are JavaScript. `npm run typecheck` runs `tsc` in each package against its `tsconfig.json`, which all start from `tsconfig.base.json` (strict). Nothing is compiled: Node strips a `.ts` file's types as it loads it, and Vite does the same for the browser, so the server starts straight from `server/src/index.ts`. That is why only syntax that can simply be erased is allowed (`erasableSyntaxOnly`): no enums, namespaces or constructor parameter properties, and type-only imports are written `import type`.
 
 - The element types live in `shared/src/types.ts` (`@inkboard/shared/types`), and the browser and the server both use them.
+- What the HTTP API answers with is declared once in `shared/src/api.ts` (`@inkboard/shared/api`). The server's serializers and controllers say they produce those shapes, and `client/src/lib/api.ts` says each endpoint returns them (with `Wire<...>`, which turns their `Date`s into the ISO strings JSON makes of them), so renaming a field on the server stops the browser from type checking.
 - What comes from outside (request bodies, socket messages, stored files) is typed `unknown` until the existing checks narrow it.
 - TypeScript is pinned to 6.0 while `typescript-eslint` doesn't support 7 yet.
 

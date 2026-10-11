@@ -1,3 +1,4 @@
+import type { Session, SentReply, UserReply, VerifiedEmailReply } from "@inkboard/shared/api";
 import type { Request, Response } from "express";
 import { emailLinkUrlFor } from "../lib/app-url.ts";
 import { MAX_EMAIL_LENGTH, isEmailAddress } from "../lib/email-address.ts";
@@ -103,7 +104,7 @@ export async function register(req: BodyRequest<CredentialsBody & { name?: unkno
   }
   // The account works straight away; the address is verified when they click the link.
   if (emailConfigured()) sendInBackground(sendVerificationEmail(user, emailLinkUrlFor(req)), "the verification email");
-  res.status(201).json({ token: signToken(user), user: user.toAccount() });
+  res.status(201).json({ token: signToken(user), user: user.toAccount() } satisfies Session);
 }
 
 export async function login(req: BodyRequest<CredentialsBody>, res: Response) {
@@ -125,12 +126,12 @@ export async function login(req: BodyRequest<CredentialsBody>, res: Response) {
   }
 
   // `ok` is only true when `user` was found (and had a password).
-  res.json({ token: signToken(user!), user: user!.toAccount() });
+  res.json({ token: signToken(user!), user: user!.toAccount() } satisfies Session);
 }
 
 export async function me(req: Request, res: Response) {
   const user = await findAccount(req.userId);
-  res.json({ user: user.toAccount() });
+  res.json({ user: user.toAccount() } satisfies UserReply);
 }
 
 export async function updateProfile(req: BodyRequest<{ name?: unknown; color?: unknown }>, res: Response) {
@@ -146,7 +147,7 @@ export async function updateProfile(req: BodyRequest<{ name?: unknown; color?: u
   }
   await user.save();
   await refreshUser(user);
-  res.json({ user: user.toAccount() });
+  res.json({ user: user.toAccount() } satisfies UserReply);
 }
 
 /**
@@ -172,7 +173,7 @@ export async function changePassword(
   user.password = next;
   await endAllSessions(user);
   await forgetSecrets(user._id, "reset-password");
-  res.json({ token: signToken(user), user: user.toAccount() });
+  res.json({ token: signToken(user), user: user.toAccount() } satisfies Session);
 }
 
 // Verification and password reset need email, which may not be set up yet.
@@ -202,7 +203,7 @@ export async function verifyEmail(req: BodyRequest<{ token?: unknown }>, res: Re
     user.emailVerified = true;
     await user.save();
   }
-  res.json({ email: user.email, user: user.toAccount() });
+  res.json({ email: user.email, user: user.toAccount() } satisfies VerifiedEmailReply);
 }
 
 /** Logs the account out on every device, this one included (a lost phone, a shared computer). */
@@ -226,7 +227,7 @@ export async function resendVerification(req: Request, res: Response) {
   }
   if (!sent)
     throw new HttpError(429, "We just sent you one. Check your inbox and spam folder, or try again in a minute.");
-  res.json({ sent: true });
+  res.json({ sent: true } satisfies SentReply);
 }
 
 /**
@@ -239,7 +240,7 @@ export async function forgotPassword(req: BodyRequest<CredentialsBody>, res: Res
   if (!isEmailAddress(email)) throw new HttpError(400, "Enter a valid email address.");
   const user = await User.findOne({ email });
   if (user) sendInBackground(sendPasswordResetEmail(user, emailLinkUrlFor(req)), "a password reset email");
-  res.json({ sent: true });
+  res.json({ sent: true } satisfies SentReply);
 }
 
 /**
@@ -262,5 +263,5 @@ export async function resetPassword(req: BodyRequest<{ password?: unknown; token
   user.emailVerified = true;
   await endAllSessions(user);
   await forgetSecrets(user._id, "reset-password");
-  res.json({ token: signToken(user), user: user.toAccount() });
+  res.json({ token: signToken(user), user: user.toAccount() } satisfies Session);
 }

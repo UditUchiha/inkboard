@@ -1,4 +1,5 @@
 import type { Server as HttpServer } from "node:http";
+import type { NotificationItem, PublicUser } from "@inkboard/shared/api";
 import { cutText } from "@inkboard/shared/element-rules";
 import type { Effect, Element } from "@inkboard/shared/types";
 import { Server } from "socket.io";
@@ -6,7 +7,6 @@ import type { Socket } from "socket.io";
 import { env } from "../config/env.ts";
 import { keyedQueue } from "../lib/keyed-queue.ts";
 import { userForToken } from "../lib/tokens.ts";
-import type { PublicUser } from "../models/user.model.ts";
 import {
   canEdit,
   findBoardForViewing,
@@ -20,7 +20,6 @@ import {
 import type { Role } from "../services/boards.ts";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts";
 import type { ImageLimit } from "../services/images.ts";
-import type { SerializedNotification } from "../services/notifications.ts";
 import { effectOf, planOperation } from "@inkboard/shared/board-merge";
 import {
   holdPiece,
@@ -162,7 +161,7 @@ export interface ServerToClientEvents {
   cursor: (message: { socketId: string; x?: number; y?: number }) => void;
   viewport: (message: ViewportMessage) => void;
   "viewport:request": (message: { boardId: string }) => void;
-  notification: (notification: SerializedNotification) => void;
+  notification: (notification: NotificationItem) => void;
   // A comment thread as it is listed (see serializeThread in controllers/thread.controller.ts), or the id of one that is gone.
   "thread:upsert": (thread: unknown) => void;
   "thread:delete": (thread: { id: string }) => void;
@@ -811,7 +810,7 @@ export function emitToSignedIn(boardId: string, event: "thread:upsert" | "thread
   }
 }
 
-export function notifyUser(userId: string, notification: SerializedNotification) {
+export function notifyUser(userId: string, notification: NotificationItem) {
   io?.to(`user:${userId}`).emit("notification", notification);
 }
 

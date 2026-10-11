@@ -5,21 +5,11 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Button, IconButton } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
-import type { Element as BoardElement } from "@inkboard/shared/types";
 import { api } from "../../lib/api";
-import type { ApiError, CreateBoardInput } from "../../lib/api";
+import type { ApiError, CreateBoardInput, TemplateSummary } from "../../lib/api";
 import { BoardPreview } from "../board/BoardPreview";
 import { BUILTIN_TEMPLATES } from "./builtin";
 import type { BuiltinTemplate } from "./builtin";
-
-/** One of the person's own saved templates, as the server lists it (a light preview, not the drawing). */
-export type TemplateSummary = {
-  id: string;
-  title: string;
-  elementCount: number;
-  preview?: BoardElement[];
-  createdAt: string;
-};
 
 type ChoiceProps = {
   title: string;
@@ -90,8 +80,8 @@ export function NewBoardDialog({ open, onClose, onCreate, busy = false }: NewBoa
   useEffect(() => {
     if (!open) return undefined;
     let active = true;
-    // listTemplates doesn't say what it answers with yet, so its answer is described here.
-    (api.listTemplates() as Promise<{ templates: TemplateSummary[] }>)
+    api
+      .listTemplates()
       .then(({ templates }) => active && setMine(templates))
       .catch(() => active && setMine([]));
     return () => {

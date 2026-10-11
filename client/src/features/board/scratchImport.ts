@@ -20,7 +20,7 @@ export type ImportedBoard = { id: string };
 /** What importScratch takes: the drawing, how to make a board and reach the server, and what an earlier try made. */
 export type ImportOptions = {
   scratch: Scratch;
-  createBoard: (input: CreateBoardInput) => Promise<unknown>;
+  createBoard: (input: CreateBoardInput) => Promise<{ board: ImportedBoard }>;
   socket: Socket;
   created?: ImportedBoard | null;
   onCreated?: (board: ImportedBoard) => void;
@@ -111,10 +111,7 @@ export async function importScratch({
     }
   }
   const [first, ...rest] = operations;
-  // The cast: the API says nothing of what it answers with, and it is the board that was made.
-  const { board } = (await createBoard({ title: scratch.title, elements: first?.upsert ?? [] })) as {
-    board: ImportedBoard;
-  };
+  const { board } = await createBoard({ title: scratch.title, elements: first?.upsert ?? [] });
   onCreated(board);
   if (rest.length > 0) await sendPieces(socket, board.id, rest);
   return board;

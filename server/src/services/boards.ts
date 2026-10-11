@@ -1,3 +1,4 @@
+import type * as Api from "@inkboard/shared/api";
 import type { Element } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import type { Types } from "mongoose";
@@ -23,7 +24,7 @@ export type ObjectIdLike = string | Types.ObjectId;
 export type Ref = { _id?: unknown; toString(): string } | null | undefined;
 
 /** What a person can do on a board (see roleOf). */
-export type Role = "owner" | "editor" | "contributor" | "viewer";
+export type Role = Api.Role;
 
 /** Who made a board, who is invited to it and how the link opens it: all that roleOf and isMember read. */
 interface Access {
@@ -264,24 +265,25 @@ export async function destroyBoard(boardId: ObjectIdLike, { trashedBefore }: { t
   return (await Board.deleteOne({ _id: boardId, purgingAt: { $ne: null } })).deletedCount > 0;
 }
 
-export const serializePerson = (user: Person) => ({
+export const serializePerson = (user: Person): Api.Person => ({
   id: idOf(user),
   name: user.name,
   color: user.color ?? null,
   avatarUrl: user.avatarUrl ?? null,
 });
 
-const serializeMember = (user: Member) => ({ ...serializePerson(user), email: user.email });
+const serializeMember = (user: Member): Api.Member => ({ ...serializePerson(user), email: user.email });
 
 // People who aren't members never see anyone's email address or the invite list.
-export function serializeMeta(board: BoardMeta, { redact = false }: { redact?: boolean } = {}) {
+export function serializeMeta(board: BoardMeta, { redact = false }: { redact?: boolean } = {}): Api.BoardMeta {
   return {
     id: board.id,
     title: board.title,
     owner: redact ? serializePerson(board.owner) : serializeMember(board.owner),
     // filter(Boolean) drops the collaborators whose account is gone (they populate as null), which the type can't see.
     collaborators: redact ? [] : (board.collaborators.filter(Boolean) as Member[]).map(serializeMember),
-    linkAccess: board.linkAccess,
+    // The schema only lets the three through, which Mongoose reads as a string.
+    linkAccess: board.linkAccess as Api.LinkAccess,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
   };
@@ -293,8 +295,9 @@ export function serializeBoard(
   userId: unknown,
   elements: Element[] = board.elements,
   state: Filing | null | undefined = undefined,
-) {
-  const role = roleOf(board, userId);
+): Api.BoardDetails & Partial<Api.BoardFiling> {
+  // Boards are only serialized for people who were let in, who all have a role, which the type can't see.
+  const role = roleOf(board, userId)!;
   const filing =
     state === undefined ? {} : { lastOpenedAt: state?.lastOpenedAt ?? null, archived: state?.archived ?? false };
   return {
@@ -310,6 +313,8 @@ export function serializeBoard(
  * A board as the dashboard lists it: without its elements, and without a preview to draw either.
  * Previews are fetched a page of cards at a time (see listPreviews and previews.js).
  */
+export function serializeListed(board: BoardView, userId: unknown): Api.BoardSummary;
+export function serializeListed(board: BoardView, userId: unknown, state: Filing | null): Api.ListedBoard;
 export function serializeListed(board: BoardView, userId: unknown, state: Filing | null | undefined = undefined) {
   const { elements: _elements, ...listed } = serializeBoard(board, userId, [], state);
   return listed;

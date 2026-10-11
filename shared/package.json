@@ -5,6 +5,7 @@
   "description": "Rules the browser and the server must apply identically, such as how boards merge changes.",
   "type": "module",
   "exports": {
+    "./api": "./src/api.ts",
     "./board-merge": "./src/board-merge.ts",
     "./board-order": "./src/board-order.ts",
     "./element-rules": "./src/element-rules.ts",

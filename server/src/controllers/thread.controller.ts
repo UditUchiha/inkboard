@@ -1,3 +1,4 @@
+import type * as Api from "@inkboard/shared/api";
 import { COORDINATE_LIMIT } from "@inkboard/shared/element-rules";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
@@ -51,7 +52,9 @@ interface PopulatedPeople {
   messages: PopulatedMessage[];
 }
 
-function serializeThread(thread: Pick<ThreadDoc, "id" | "x" | "y" | "resolved" | "createdAt"> & PopulatedPeople) {
+function serializeThread(
+  thread: Pick<ThreadDoc, "id" | "x" | "y" | "resolved" | "createdAt"> & PopulatedPeople,
+): Api.Thread {
   return {
     id: thread.id,
     x: thread.x,
@@ -139,7 +142,7 @@ export async function listThreads(req: BoardRequest, res: Response) {
   const threads = await Thread.find({ board: board._id })
     .sort({ createdAt: 1 })
     .populate<PopulatedPeople>(populateThread);
-  res.json({ threads: threads.map(serializeThread) });
+  res.json({ threads: threads.map(serializeThread) } satisfies Api.ThreadListReply);
 }
 
 export async function createThread(
@@ -163,7 +166,7 @@ export async function createThread(
   // `requireAuth` found this account moments ago.
   const actor = (await User.findById(req.userId))!;
   await notify({ users: mentions, type: "mention", actor, board, thread: thread._id, excerpt: body });
-  res.status(201).json({ thread: payload });
+  res.status(201).json({ thread: payload } satisfies Api.ThreadReply);
 }
 
 export async function replyToThread(req: ThreadRequest<{ body?: unknown; mentions?: unknown }>, res: Response) {
@@ -183,7 +186,7 @@ export async function replyToThread(req: ThreadRequest<{ body?: unknown; mention
   const payload = await publish(board, thread);
   const actor = (await User.findById(req.userId))!; // as in createThread
   await notifyAbout(board, { _id: thread._id, messages: previous }, { actor, body, mentions });
-  res.status(201).json({ thread: payload });
+  res.status(201).json({ thread: payload } satisfies Api.ThreadReply);
 }
 
 export async function updateThread(
@@ -197,7 +200,7 @@ export async function updateThread(
     if (req.body?.[key] !== undefined) thread[key] = readCoordinate(req.body[key]);
   }
   await thread.save();
-  res.json({ thread: await publish(board, thread) });
+  res.json({ thread: await publish(board, thread) } satisfies Api.ThreadReply);
 }
 
 export async function deleteThread(req: ThreadRequest, res: Response) {

@@ -9,14 +9,10 @@ import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
 import { TextField } from "../../components/Field";
 import { api } from "../../lib/api";
-import type { ApiError, LinkAccess, Person } from "../../lib/api";
-import type { BoardMeta, Member, Role } from "./useBoardSync";
+import type { ApiError, BoardMeta, LinkAccess, Person, Role } from "../../lib/api";
 
 // A way the link can open the board, as the dialog offers it.
 type LinkOption = { value: LinkAccess; icon: LucideIcon; title: string; detail: string };
-
-// What the sharing requests answer with: the board's details as they are now. They don't say yet, so this describes it.
-type BoardReply = { board: BoardMeta };
 
 const LINK_OPTIONS: LinkOption[] = [
   {
@@ -91,7 +87,7 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
     setError("");
     setInviting(true);
     try {
-      const { board: updated } = (await api.inviteCollaborator(board.id, email.trim())) as BoardReply;
+      const { board: updated } = await api.inviteCollaborator(board.id, email.trim());
       onBoardChange(updated);
       toast.success(`Invited ${email.trim()}`);
       setEmail("");
@@ -102,11 +98,11 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
     }
   }
 
-  async function remove(member: Member) {
+  async function remove(member: Person) {
     const leaving = member.id === currentUser?.id;
     setRemovingId(member.id);
     try {
-      const { board: updated } = (await api.removeCollaborator(board.id, leaving ? "me" : member.id)) as BoardReply;
+      const { board: updated } = await api.removeCollaborator(board.id, leaving ? "me" : member.id);
       if (leaving) {
         onLeft();
         return;
@@ -125,7 +121,7 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
     if (next === linkAccess) return;
     setSavingAccess(true);
     try {
-      const { board: updated } = (await api.setLinkAccess(board.id, next)) as BoardReply;
+      const { board: updated } = await api.setLinkAccess(board.id, next);
       onBoardChange(updated);
       toast.success(LINK_TOASTS[next]);
     } catch (accessError) {
