@@ -83,7 +83,7 @@ export function useScratchBoard() {
   useEffect(() => {
     store.load(currentScratch().elements);
 
-    let timer: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     let lastWarning = 0;
     let adopting = false; // showing what another tab saved: not a change to save again
 
@@ -91,8 +91,8 @@ export function useScratchBoard() {
       live = { title: titleRef.current, elements: store.getElements() };
     };
     const save = () => {
-      // The cast, here and in onStorage: clearTimeout takes null as well as undefined, which the DOM types don't say.
-      clearTimeout(timer as number | undefined);
+      // The cast, here and in onStorage: clearTimeout takes null as well as undefined, which its types don't say.
+      clearTimeout(timer as ReturnType<typeof setTimeout> | undefined);
       timer = null;
       const kept = writeScratch({ title: titleRef.current, elements: store.getElements() });
       setUnsaved(!kept);
@@ -117,7 +117,7 @@ export function useScratchBoard() {
     // rather than carrying on with a copy that would overwrite it, or upload it a second time.
     const onStorage = (event: StorageEvent) => {
       if (event.key !== SCRATCH_KEY && event.key !== null) return;
-      clearTimeout(timer as number | undefined);
+      clearTimeout(timer as ReturnType<typeof setTimeout> | undefined);
       timer = null;
       live = null;
       const scratch = readScratch();
