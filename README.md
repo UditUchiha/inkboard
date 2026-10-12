@@ -53,6 +53,7 @@ Account features:
 - **Presenting**: **Present frames** in the board menu shows the board's frames one at a time, full screen, in reading order (arrow keys or Space to move, Escape to stop). Everyone else on the board follows along, and the presenter's pointer is a red laser dot for them.
 - **Replay**: **Replay** in the board menu plays back how the board was built, as a timelapse you can pause and scrub through. Members can always watch it; the owner can let people with the link watch too (Share dialog), and **Copy link** in the replay gives a link that opens it. A board keeps up to 5 MB of replay; past that, the oldest steps are folded into where the replay starts.
 - **Templates**: start from a built-in kanban, flowchart, retrospective, SWOT or brainstorm board, or save any board as a template of your own.
+- **API and MCP server**: personal tokens (Settings → API tokens, read-only or read-and-change) for a small HTTP API at `/api/v1` and an MCP server at `/mcp`, so scripts and AI assistants can list, read and draw on boards. Changes go through the same checks as the app's and show up live. See [docs/api.md](docs/api.md).
 - **Stars and trash**: star boards, and deleted boards stay in a trash for 30 days before they are removed for good. The people invited to a board are notified when its owner moves it to the trash.
 - **Profile**: your name, color and photo appear on your cursor and avatar. Connect or disconnect Google and GitHub, or set a password for an account that signed up through one of them.
 

@@ -5,6 +5,7 @@ import type {
   ClientToServerEvents,
   JoinPayload,
   JoinReply,
+  OpMessage,
   OpRefusal,
   OpReply,
   Participant,
@@ -389,23 +390,42 @@ function isOnBoard(socket: RealtimeSocket, claimed: unknown) {
   return Boolean(boardId) && (claimed === boardId || claimed === requestedId);
 }
 
+// Where a change comes from: a browser on the board, or the public API (see applyOperation). `broadcast` passes it
+// on to everyone else on the board, and `present` says whether the sender is still there to take it in.
+interface Sender {
+  boardId: string;
+  legacy?: boolean | undefined;
+  broadcast: (message: OpMessage) => void;
+  present: () => boolean;
+}
+
+// A browser on a board, as the sender of its changes. The socket is on the board (callers check), so it has an id.
+function socketSender(socket: RealtimeSocket): Sender {
+  const boardId = socket.data.boardId!;
+  return {
+    boardId,
+    legacy: socket.data.legacy,
+    broadcast: (message) => socket.to(boardId).emit("board:op", message),
+    present: () => socket.data.boardId === boardId,
+  };
+}
+
 // Takes a change in, or refuses it, and replies. `refresh` says whether a refusal for lack of space
 // may be checked against a newer figure first (it may be a little out of date): that look-up is the only
 // wait, and the change is worked out again after it, from the board as it is then.
 function takeOperation(
-  socket: RealtimeSocket,
+  sender: Sender,
   session: Session,
   operation: RawOperation | null | undefined,
   reply: (reply: OpReply) => void,
   refresh: boolean,
 ) {
-  // The socket is on the board (the caller checked), so it has an id.
-  const { boardId } = socket.data as { boardId: string };
+  const { boardId } = sender;
   if (isOversized(operation)) return reply(TOO_LARGE);
   const sanitized = sanitizeOperation(operation);
   if (!sanitized) return reply({ ok: false, reason: "invalid" });
   const op = prepareOperation(session.elements, sanitized, session.tombstones, {
-    legacy: socket.data.legacy,
+    legacy: sender.legacy,
     index: session.index,
   });
   const plan = planOperation(session.elements, op, session.tombstones, { index: session.index, remember: false });
@@ -424,8 +444,8 @@ function takeOperation(
   if (refused === "owner" && refresh && Date.now() - ownerEntry(session.owner!).at > ROOM_REFRESH_MS) {
     lookUpRoom(session.owner!).then(() => {
       // Nothing is taken in for a socket that left, or a board that closed, meanwhile.
-      if (socket.data.boardId === boardId && getSession(boardId) === session) {
-        takeOperation(socket, session, operation, reply, false);
+      if (sender.present() && getSession(boardId) === session) {
+        takeOperation(sender, session, operation, reply, false);
       } else reply({ ok: false, reason: "noSession" });
     });
     return;
@@ -437,7 +457,7 @@ function takeOperation(
   const dropped = new Set(updateSession(session, plan));
   if (dropped.size > 0) effect.upsert = effect.upsert.filter((element) => !dropped.has(element.id));
   if (effect.upsert.length > 0 || effect.remove.length > 0) {
-    socket.to(boardId).emit("board:op", { boardId, op: effect });
+    sender.broadcast({ boardId, op: effect });
     // A suggested element now on the board was accepted; suggestions about an element that's gone go too.
     const touched = [...effect.upsert.map((element) => element.id), ...effect.remove.map((removal) => removal.id)];
     announceSettled(session, settleSuggestions(session.suggestions, session, touched));
@@ -455,6 +475,26 @@ function takeOperation(
     ...(cleaned.length > 0 ? { cleaned } : {}),
     ...(dropped.size > 0 ? { dropped: [...dropped] } : {}),
   });
+}
+
+/**
+ * Takes a change in from outside a browser (the public API, see controllers/api.controller.ts): the board is opened
+ * as a join opens it, the change is checked, merged and passed on to everyone on the board as one from a browser
+ * is, and the board is saved and let go afterwards if nobody has it open. Resolves to the reply a browser would get,
+ * and the board's open session.
+ */
+export async function applyOperation(boardId: string, operation: RawOperation) {
+  let session: Session;
+  do session = await acquireSession(boardId);
+  while (!holdSession(session)); // closed, and saved, since: open it again
+  const sender: Sender = {
+    boardId,
+    broadcast: (message) => io.to(boardId).emit("board:op", message),
+    present: () => true,
+  };
+  const reply = await new Promise<OpReply>((resolve) => takeOperation(sender, session, operation, resolve, true));
+  if (!io.sockets.adapter.rooms.get(boardId)?.size) await closeSession(boardId);
+  return { reply, session };
 }
 
 // Tells everyone on the board about suggestions settleSuggestions let go of, and has the change saved.
@@ -511,7 +551,7 @@ function handleConnection(socket: RealtimeSocket) {
       if (!piece.op) return reply({ ok: true });
       operation = piece.op;
     }
-    takeOperation(socket, session, operation, reply, true);
+    takeOperation(socketSender(socket), session, operation, reply, true);
   });
 
   // Uploading goes over the socket, not HTTP, so it is checked exactly like a
