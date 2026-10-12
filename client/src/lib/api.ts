@@ -36,6 +36,9 @@ export type BoardMeta = Wire<shared.BoardMeta>;
 /** A board with its drawing, as opening or creating one answers. */
 export type BoardDetails = Wire<shared.BoardDetails>;
 
+/** How much image space the boards someone owns use, and which boards use it. */
+export type ImageUsage = shared.ImageUsage;
+
 /** A board as the dashboard lists it. */
 export type ListedBoard = Wire<shared.ListedBoard>;
 
@@ -186,6 +189,8 @@ export const api = {
   starBoard: (id: string, starred: boolean) =>
     request<Wire<shared.StarReply>>(`/boards/${id}/star`, { method: "PUT", body: { starred } }),
   listTrash: () => request<Wire<shared.TrashListReply>>("/boards/trash"),
+  // How much image space the boards this person owns use, and which boards use it.
+  imageUsage: () => request<shared.ImageUsage>("/boards/image-usage"),
   // A copy of the board as it is now, owned by the person asking (see copyBoard on the server).
   copyBoard: (id: string) => request<Wire<shared.BoardReply>>(`/boards/${id}/copy`, { method: "POST" }),
   restoreBoard: (id: string) => request<Wire<shared.BoardReply>>(`/boards/${id}/restore`, { method: "POST" }),

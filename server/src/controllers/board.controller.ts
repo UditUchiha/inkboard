@@ -35,7 +35,7 @@ import type { BoardDoc, PopulatedMembers } from "../services/boards.ts";
 import { emailConfigured } from "../services/email.ts";
 import { newLinkKey, passFor } from "../services/link-pass.ts";
 import { deleteImages } from "../services/image-storage.ts";
-import { copyBoardImages } from "../services/images.ts";
+import { copyBoardImages, ownerImageUsage } from "../services/images.ts";
 import type { ImageLimit } from "../services/images.ts";
 import { notify } from "../services/notifications.ts";
 import { boardPreviews } from "../services/previews.ts";
@@ -348,6 +348,12 @@ export async function listTrash(req: Request, res: Response) {
     .sort({ deletedAt: -1 })
     .populate<PopulatedMembers>(populateMembers);
   res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId)) } satisfies Api.TrashListReply);
+}
+
+// How much image space the person's boards use, and which boards use it.
+export async function imageUsage(req: Request, res: Response) {
+  // `requireAuth` has set `userId` by now, which the types can't know.
+  res.json((await ownerImageUsage(req.userId!)) satisfies Api.ImageUsage);
 }
 
 const MAX_PREVIEWS = 24;
