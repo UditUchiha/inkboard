@@ -330,3 +330,26 @@ export interface NotificationPage {
   next: string | null;
   unread: number;
 }
+
+/** A personal access token for the public API and the MCP server, as its owner sees it (never the token itself). */
+export interface ApiTokenInfo {
+  id: string;
+  name: string;
+  /** The first characters of the token, so tokens can be told apart. */
+  start: string;
+  /** "read" can only read boards; "write" can change them too. */
+  scope: "read" | "write";
+  lastUsedAt: Date | null;
+  createdAt: Date;
+}
+
+/** The person's API tokens, newest first. */
+export interface ApiTokenListReply {
+  tokens: ApiTokenInfo[];
+}
+
+/** A token just made: the token itself is shown this once. */
+export interface ApiTokenCreatedReply {
+  token: string;
+  info: ApiTokenInfo;
+}

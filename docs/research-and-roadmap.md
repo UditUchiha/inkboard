@@ -373,7 +373,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] Presentation mode from frames; laser pointer: **Present frames** shows the frames one at a time, full screen, in reading order (rows from the top, left to right). The others on the board follow the presenter from when they start (or arrive) until they stop or move themselves, and the presenter's pointer is a laser dot for them
 - [x] Live read-only embed: **Copy embed code** in the Share dialog (when the link is shared) gives an `<iframe>` of `/embed/<id>`, the board live to pan and zoom. The server keeps an embed view-only whatever the link allows and leaves it out of presence; only `/embed/` pages may be framed by other sites
 - [ ] Math-first board: LaTeX elements (S-M)
-- [ ] Public API and MCP server (M)
+- [x] Public API and MCP server: personal tokens (read, or read and change), a small HTTP API (`/api/v1`: list and create boards, read one, add, change and remove elements in a simpler element form) and an MCP server (`/mcp`, Streamable HTTP, five tools). Writes go through the same pipeline as a browser's change, so they're checked, merged and shown live. See [api.md](api.md)
 - [ ] Mermaid import (M) and export (M-L)
 - [ ] AI prompt-to-board with a bring-your-own-key option (M)
 - [ ] Classroom mode (L)

@@ -39,6 +39,9 @@ export type BoardDetails = Wire<shared.BoardDetails>;
 /** How much image space the boards someone owns use, and which boards use it. */
 export type ImageUsage = shared.ImageUsage;
 
+/** One of the person's API tokens, without the token itself. */
+export type ApiTokenInfo = Wire<shared.ApiTokenInfo>;
+
 /** A board as the dashboard lists it. */
 export type ListedBoard = Wire<shared.ListedBoard>;
 
@@ -191,6 +194,11 @@ export const api = {
   listTrash: () => request<Wire<shared.TrashListReply>>("/boards/trash"),
   // How much image space the boards this person owns use, and which boards use it.
   imageUsage: () => request<shared.ImageUsage>("/boards/image-usage"),
+  // Tokens for the public API and the MCP server (see docs/api.md). A new token is in the reply only once.
+  listApiTokens: () => request<Wire<shared.ApiTokenListReply>>("/tokens"),
+  createApiToken: (name: string, scope: ApiTokenInfo["scope"]) =>
+    request<Wire<shared.ApiTokenCreatedReply>>("/tokens", { method: "POST", body: { name, scope } }),
+  deleteApiToken: (id: string) => request<void>(`/tokens/${id}`, { method: "DELETE" }),
   // A copy of the board as it is now, owned by the person asking (see copyBoard on the server).
   copyBoard: (id: string) => request<Wire<shared.BoardReply>>(`/boards/${id}/copy`, { method: "POST" }),
   restoreBoard: (id: string) => request<Wire<shared.BoardReply>>(`/boards/${id}/restore`, { method: "POST" }),

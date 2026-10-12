@@ -143,7 +143,6 @@ export interface OpRefusal {
 /** The reply to a change: taken in (with `cleaned`, elements as the board stored them where that isn't how they were sent, and `dropped`, ids of elements it refused), or refused. */
 export type OpReply = { ok: true; cleaned?: Element[]; dropped?: string[] } | OpRefusal;
 
-/** The reply to an image: the id it was stored under, or why it wasn't (`error` is a sentence for the person who tried). */
 /** A step of a board's replay: when it ended, the elements that changed (as they ended up) and those removed. */
 export interface ReplayStep {
   at: number;
@@ -154,6 +153,7 @@ export interface ReplayStep {
 /** The reply to `board:replay`: the steps, oldest first, and the board as it is now, which the replay ends on. */
 export type ReplayReply = { ok: true; steps: ReplayStep[]; elements: Element[] } | { ok: false; error: string };
 
+/** The reply to an image: the id it was stored under, or why it wasn't (`error` is a sentence for the person who tried). */
 export type ImageReply =
   { ok: true; id: string } | { ok: false; error?: string; readOnly?: true; tooLarge?: true; full?: ImageLimit };
 

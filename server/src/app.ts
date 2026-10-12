@@ -9,6 +9,7 @@ import helmet from "helmet";
 import mongoose from "mongoose";
 import { env } from "./config/env.ts";
 import { errorHandler, notFound } from "./middleware/error-handler.ts";
+import { mcpRoutes, publicApiRoutes, tokenRoutes } from "./routes/api.routes.ts";
 import authRoutes from "./routes/auth.routes.ts";
 import { notificationRoutes, templateRoutes, threadRoutes, versionRoutes } from "./routes/board-extras.routes.ts";
 import boardRoutes from "./routes/board.routes.ts";
@@ -67,6 +68,9 @@ export function createApp({ clientDist = defaultClientDist } = {}) {
   app.use("/api/boards/:boardId/versions", versionRoutes);
   app.use("/api/boards/:boardId/threads", threadRoutes);
   app.use("/api/boards", boardRoutes);
+  app.use("/api/v1", publicApiRoutes);
+  app.use("/api/tokens", tokenRoutes);
+  app.use("/mcp", mcpRoutes);
   app.use("/api/images", imageRoutes);
   app.use("/api/templates", templateRoutes);
   app.use("/api/notifications", notificationRoutes);
