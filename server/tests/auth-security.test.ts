@@ -678,6 +678,18 @@ describe("the built app's files", () => {
     }
   });
 
+  it("lets other sites frame an embed's page, and no other", async () => {
+    const page = { headers: { accept: "text/html" } };
+    const embedded = await fetch(`${base}/embed/some-board`, page);
+    assert.equal(embedded.status, 200);
+    assert.equal(embedded.headers.get("x-frame-options"), null);
+    assert.match(embedded.headers.get("content-security-policy")!, /frame-ancestors \*/);
+
+    const board = await fetch(`${base}/board/some-board`, page);
+    assert.equal(board.headers.get("x-frame-options"), "SAMEORIGIN");
+    assert.match(board.headers.get("content-security-policy")!, /frame-ancestors 'self'/);
+  });
+
   it("answers 404, not the page, for files that don't exist", async () => {
     for (const route of ["/assets/gone-123.js", "/robots.txt", "/fonts/x.woff2", "/assets/gone"]) {
       const response = await fetch(base + route, { headers: { accept: "*/*" } });
