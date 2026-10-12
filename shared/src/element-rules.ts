@@ -6,6 +6,7 @@ import type {
   FieldGroup,
   Fields,
   Font,
+  ImageCrop,
   Point,
   Route,
   ShapeElement,
@@ -27,6 +28,9 @@ import type {
 export const COORDINATE_LIMIT = 10_000_000; // far beyond any real drawing
 export const MAX_TEXT_LENGTH = 20_000;
 export const MAX_FRAME_NAME_LENGTH = 200;
+export const MAX_ALT_LENGTH = 1000;
+// The smallest part of a picture a crop can keep, as a fraction of its side.
+const MIN_CROP = 0.001;
 // A stroke past this is refused before anything is done with it. About what fits in an
 // element (MAX_ELEMENT_BYTES on the server allows about 11,000), so this only stops absurd ones.
 export const MAX_STROKE_POINTS = 50_000;
@@ -191,6 +195,18 @@ function connectorFields(element: Fields): ConnectorFields {
   return kept;
 }
 
+// The part of a picture shown, if it is one: inside the picture, and not too small to see. A crop that isn't is
+// dropped, which shows the whole picture.
+function cleanCrop(value: unknown): ImageCrop | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { x, y, w, h } = value as Record<string, unknown>;
+  const fraction = (part: unknown): part is number => typeof part === "number" && part >= 0 && part <= 1;
+  if (!fraction(x) || !fraction(y) || !fraction(w) || !fraction(h) || w < MIN_CROP || h < MIN_CROP) return undefined;
+  // A little over the edge is rounding in the browser that sent it.
+  if (x + w > 1 + 1e-6 || y + h > 1 + 1e-6) return undefined;
+  return { x, y, w: Math.min(w, 1 - x), h: Math.min(h, 1 - y) };
+}
+
 function cleanByType(element: Fields): Element | null {
   const { id, type } = element;
   if (type === "pen") {
@@ -245,7 +261,19 @@ function cleanByType(element: Fields): Element | null {
     const imageId = element.imageId;
     if (typeof imageId !== "string" || !IMAGE_ID.test(imageId) || !box(element)) return null;
     const { x1, y1, x2, y2 } = element;
-    return { id, type, imageId, x1, y1, x2, y2 };
+    const crop = cleanCrop(element.crop);
+    return {
+      id,
+      type,
+      imageId,
+      x1,
+      y1,
+      x2,
+      y2,
+      ...(crop && { crop }),
+      // Kept when empty: that is how a description is cleared (see mergeElements in board-merge.ts).
+      ...(typeof element.alt === "string" && { alt: cutText(element.alt, MAX_ALT_LENGTH) }),
+    };
   }
   if (SHAPE_TYPES.has(type)) {
     if (!box(element)) return null;

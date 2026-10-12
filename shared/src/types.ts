@@ -99,7 +99,13 @@ export type FrameElement = Common & {
   name: string;
 };
 
-/** A picture, kept by the server under `imageId`. */
+/** The part of a picture that is shown, as fractions of its width and height (0 to 1) from its top left corner. */
+export type ImageCrop = { x: number; y: number; w: number; h: number };
+
+/**
+ * A picture, kept by the server under `imageId`. `crop` is the part of it shown in the box (all of it when left out),
+ * and `alt` says what it shows, for people who can't see it.
+ */
 export type ImageElement = Common & {
   type: "image";
   imageId: string;
@@ -107,6 +113,8 @@ export type ImageElement = Common & {
   y1: number;
   x2: number;
   y2: number;
+  crop?: ImageCrop;
+  alt?: string;
   angle?: number;
 };
 

@@ -47,7 +47,7 @@ import { loadCanvasFonts, renderScene } from "./renderer";
 import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
 import type { SuggestionMark } from "./suggestions";
-import { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } from "./transform";
+import { cropImage, cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } from "./transform";
 
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="9" fill="white" fill-opacity=".6" stroke="#16213a" stroke-width="1.5"/></svg>',
@@ -111,6 +111,8 @@ export type BoardCanvasProps = {
   onFrameDrawn?: (id: string) => void;
   // Suggestions drawn over the board (see suggestions.ts).
   suggestions?: readonly SuggestionMark[];
+  // A picture being cropped: dragging its handles crops it instead of resizing it.
+  croppingId?: string | null;
 };
 
 const NO_MARKS: readonly SuggestionMark[] = [];
@@ -198,6 +200,7 @@ export function BoardCanvas({
   onPlaceComment,
   onFrameDrawn,
   suggestions = NO_MARKS,
+  croppingId = null,
 }: BoardCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -243,8 +246,21 @@ export function BoardCanvas({
       connectTargetId: hint.outline,
       dots: hint.dots,
       suggestions,
+      croppingId,
     });
-  }, [elements, viewport, size, selectedId, editingId, fontsReady, picturesLoaded, theme, hint, suggestions]);
+  }, [
+    elements,
+    viewport,
+    size,
+    selectedId,
+    editingId,
+    fontsReady,
+    picturesLoaded,
+    theme,
+    hint,
+    suggestions,
+    croppingId,
+  ]);
 
   const showHint = (next: Hint) => setHint((current) => (sameHint(current, next) ? current : next));
 
@@ -757,7 +773,9 @@ export function BoardCanvas({
         let next =
           g.handle === "rotate"
             ? rotateElement(g.from, g.start, world, { snap: event.shiftKey })
-            : resizeElement(g.from, g.handle, world, { keepAspect: event.shiftKey, pad: g.pad });
+            : g.from.type === "image" && g.from.id === croppingId
+              ? cropImage(g.from, g.handle, world, { pad: g.pad })
+              : resizeElement(g.from, g.handle, world, { keepAspect: event.shiftKey, pad: g.pad });
         // A connector's end attaches to whatever it's dropped on, and lets go elsewhere.
         if (g.handle === "start" || g.handle === "end") {
           // The casts: only a connector has end handles.

@@ -1,4 +1,4 @@
-import type { Element as BoardElement, Point } from "@inkboard/shared/types";
+import type { Element as BoardElement, ImageCrop, ImageElement, Point } from "@inkboard/shared/types";
 import { canRotate, getFrame, getLocalBounds, measureText } from "./elements";
 import type { Connector } from "./elements";
 import { clamp, constrainEnd, rotatePoint } from "./geometry";
@@ -132,7 +132,11 @@ export function resizeElement(
   original: BoardElement,
   handleId: string,
   point: XY,
-  { keepAspect = false, pad = 0 }: { keepAspect?: boolean; pad?: number } = {},
+  {
+    keepAspect = false,
+    pad = 0,
+    maxSize,
+  }: { keepAspect?: boolean; pad?: number; maxSize?: { width: number; height: number } } = {},
 ): BoardElement {
   if (isLine(original)) return moveLineEnd(original, handleId, point, keepAspect);
 
@@ -143,8 +147,13 @@ export function resizeElement(
   const flatY = original.type === "pen" && frame.height < 1;
   // Not for a flat stroke: its proportions are a line, so keeping them would scale by the ratio of a drag to
   // a size of nothing. It's scaled along its real side only, as it is without Shift.
+  // A picture being cropped (`maxSize`, see cropImage) changes shape freely.
   const lockAspect =
-    (keepAspect || original.type === "text" || original.type === "image") && dx !== 0 && dy !== 0 && !flatX && !flatY;
+    (keepAspect || original.type === "text" || (original.type === "image" && !maxSize)) &&
+    dx !== 0 &&
+    dy !== 0 &&
+    !flatX &&
+    !flatY;
 
   // The fixed point, and the point's position along the element's own axes from it.
   const [ax, ay] = rotatePoint(
@@ -164,6 +173,10 @@ export function resizeElement(
     const scale = Math.max(width / Math.max(frame.width, 1), height / Math.max(frame.height, 1));
     width = Math.max(MIN_SIZE, frame.width * scale);
     height = Math.max(MIN_SIZE, frame.height * scale);
+  }
+  if (maxSize) {
+    width = Math.min(width, maxSize.width);
+    height = Math.min(height, maxSize.height);
   }
   if (flatX) width = frame.width;
   if (flatY) height = frame.height;
@@ -198,6 +211,45 @@ export function resizeElement(
     default:
       return { ...original, x1: cx - width / 2, y1: cy - height / 2, x2: cx + width / 2, y2: cy + height / 2 };
   }
+}
+
+/** All of a picture: what one without a crop shows. */
+export const WHOLE_PICTURE: ImageCrop = { x: 0, y: 0, w: 1, h: 1 };
+
+/**
+ * Drags a handle of a picture being cropped to `point`: the side opposite the handle stays where it is, as when
+ * resizing, but the picture keeps its scale, so the box shows more or less of it. It can't show past the picture's
+ * edges. `pad` is as for resizeElement.
+ */
+export function cropImage(original: ImageElement, handleId: string, point: XY, { pad = 0 } = {}): ImageElement {
+  const crop = original.crop ?? WHOLE_PICTURE;
+  const { width, height } = getFrame(original);
+  // Board units the whole picture takes each way, at the size it's shown.
+  const perX = width / crop.w;
+  const perY = height / crop.h;
+  const [dx, dy] = DIRECTIONS[handleId];
+  // How far each side can go before it shows past the picture's edge.
+  const maxSize = {
+    width: (dx > 0 ? 1 - crop.x : crop.x + crop.w) * perX,
+    height: (dy > 0 ? 1 - crop.y : crop.y + crop.h) * perY,
+  };
+  const resized = resizeElement(original, handleId, point, { pad, maxSize }) as ImageElement;
+  const after = getFrame(resized);
+  const w = Math.min(1, after.width / perX);
+  const h = Math.min(1, after.height / perY);
+  const x = dx < 0 ? Math.max(0, crop.x + crop.w - w) : crop.x;
+  const y = dy < 0 ? Math.max(0, crop.y + crop.h - h) : crop.y;
+  return { ...resized, crop: { x, y, w, h } };
+}
+
+/** The whole of a cropped picture, at the scale it's shown and about the same centre. */
+export function uncropImage(element: ImageElement): ImageElement {
+  const { crop, ...rest } = element;
+  if (!crop) return element;
+  const { cx, cy, width, height } = getFrame(element);
+  const halfWidth = width / crop.w / 2;
+  const halfHeight = height / crop.h / 2;
+  return { ...rest, x1: cx - halfWidth, y1: cy - halfHeight, x2: cx + halfWidth, y2: cy + halfHeight };
 }
 
 /**

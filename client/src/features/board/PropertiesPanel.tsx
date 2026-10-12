@@ -1,6 +1,7 @@
-import type { ElementType, Font, StackMove } from "@inkboard/shared/types";
+import { MAX_ALT_LENGTH } from "@inkboard/shared/element-rules";
+import type { ElementType, Font, ImageCrop, StackMove } from "@inkboard/shared/types";
 import clsx from "clsx";
-import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Ban, CopyPlus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Ban, CopyPlus, Crop, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import {
@@ -121,7 +122,7 @@ const STACK_BUTTONS: { where: StackMove; label: string; icon: LucideIcon }[] = [
 type Settings = Pick<
   Style,
   "stroke" | "fill" | "strokeWidth" | "penSize" | "sketchy" | "route" | "startHead" | "font" | "fontSize"
-> & { name: string };
+> & { name: string; alt: string };
 
 /** A change made in the panel: what is set (say "fill") and the value it is set to (a colour, or null for none). */
 export type StyleChange = { [K in keyof Settings]: [key: K, value: Settings[K]] }[keyof Settings];
@@ -132,6 +133,8 @@ export type PanelValues = Partial<Settings> & {
   text?: string;
   // Set when the values are an element's.
   type?: ElementType;
+  // The part of a picture that is shown, if it's cropped.
+  crop?: ImageCrop;
 };
 
 /** What the properties panel takes: what it is for, what it shows and what its buttons do. */
@@ -147,6 +150,10 @@ export type PropertiesPanelProps = {
   // Which moves in the stack are possible.
   stackMoves?: Partial<Record<StackMove, boolean>>;
   onMove: (where: StackMove) => void;
+  // For a picture: whether it's being cropped, starting or finishing that, and showing all of it again.
+  cropping?: boolean;
+  onToggleCrop?: () => void;
+  onUncrop?: () => void;
 };
 
 /**
@@ -162,6 +169,9 @@ export function PropertiesPanel({
   onDelete,
   stackMoves = {},
   onMove,
+  cropping = false,
+  onToggleCrop,
+  onUncrop,
 }: PropertiesPanelProps) {
   const controls = STYLE_CONTROLS[type] ?? [];
 
@@ -180,6 +190,49 @@ export function PropertiesPanel({
             onKeyDown={(event) => event.key === "Enter" && !isComposing(event) && event.currentTarget.blur()}
             placeholder="Frame"
             className="h-8 rounded-lg border border-rule bg-surface px-2 text-sm outline-none focus:border-signal"
+          />
+        </label>
+      )}
+
+      {controls.includes("crop") && selection && (
+        <Section label="Crop">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              aria-pressed={cropping}
+              onClick={onToggleCrop}
+              className={clsx(
+                "flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border text-xs font-medium",
+                cropping ? "border-signal bg-signal/10 text-ink" : "border-rule hover:bg-surface-2",
+              )}
+            >
+              <Crop className="size-3.5" aria-hidden /> {cropping ? "Done" : "Crop"}
+            </button>
+            {values.crop && (
+              <button
+                type="button"
+                onClick={onUncrop}
+                className="h-8 flex-1 rounded-lg border border-rule text-xs font-medium hover:bg-surface-2"
+              >
+                Show all
+              </button>
+            )}
+          </div>
+          {cropping && (
+            <p className="text-xs text-graphite">Drag the handles to choose what shows. Press Esc when you're done.</p>
+          )}
+        </Section>
+      )}
+
+      {controls.includes("alt") && selection && (
+        <label className="grid gap-2">
+          <span className="text-xs font-medium text-graphite">Alt text</span>
+          <textarea
+            value={values.alt ?? ""}
+            onChange={(event) => onChange("alt", event.target.value.slice(0, MAX_ALT_LENGTH))}
+            placeholder="Describe the picture for people who can't see it"
+            rows={3}
+            className="resize-none rounded-lg border border-rule bg-surface px-2 py-1.5 text-sm outline-none focus:border-signal"
           />
         </label>
       )}

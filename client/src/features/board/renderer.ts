@@ -51,6 +51,8 @@ export type RenderOptions = {
   dpr?: number;
   selectedId?: string | null;
   hiddenId?: string | null;
+  // A picture being cropped, which also shows the rest of the picture, faded.
+  croppingId?: string | null;
   background?: string | null;
   dark?: boolean;
   smallImages?: boolean;
@@ -71,6 +73,7 @@ let ink: Ink = sameInk;
 let smallPictures = false;
 let labelScale = 1;
 let picturesDrawn = new Set<string>(); // the image ids drawn in the scene being rendered
+let croppingId: string | null = null;
 
 // Elements are immutable, so generated shapes can be cached per object (and
 // reused for copies that are only moved, as while dragging: see drawCache.ts).
@@ -247,7 +250,25 @@ function drawPicture(ctx: CanvasRenderingContext2D, element: ImageElement) {
   ctx.save();
   if (state === "ready") {
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(image, x, y, width, height);
+    const crop = element.crop;
+    if (!crop) {
+      ctx.drawImage(image, x, y, width, height);
+    } else {
+      const { naturalWidth: w, naturalHeight: h } = image;
+      if (element.id === croppingId) {
+        // The whole picture, where it would be at this scale, so the person cropping sees what they can bring back.
+        ctx.globalAlpha = 0.3;
+        ctx.drawImage(
+          image,
+          x - (crop.x / crop.w) * width,
+          y - (crop.y / crop.h) * height,
+          width / crop.w,
+          height / crop.h,
+        );
+        ctx.globalAlpha = 1;
+      }
+      ctx.drawImage(image, crop.x * w, crop.y * h, crop.w * w, crop.h * h, x, y, width, height);
+    }
   } else {
     ctx.fillStyle = ink("rgba(128, 128, 128, 0.12)");
     ctx.strokeStyle = ink("rgba(128, 128, 128, 0.6)");
@@ -542,6 +563,7 @@ export function renderScene(
     dpr = 1,
     selectedId,
     hiddenId,
+    croppingId: cropping = null,
     background,
     dark = false,
     smallImages = false,
@@ -553,6 +575,7 @@ export function renderScene(
 ): void {
   ink = dark ? darkInk : sameInk;
   smallPictures = smallImages;
+  croppingId = cropping;
   labelScale = screenLabels ? 1 / viewport.zoom : 1;
   picturesDrawn = new Set();
   // The assertion: a canvas that has no other kind of context gives a 2d one.

@@ -48,7 +48,9 @@ export type StyleControl =
   | "font"
   | "fontSize"
   | "noteFill"
-  | "name";
+  | "name"
+  | "crop"
+  | "alt";
 
 // Tools appear in the toolbar in this order; number keys 1–9 follow it too (the
 // tools after the ninth have a letter only).
@@ -180,7 +182,7 @@ export const STYLE_CONTROLS: Record<ElementType, StyleControl[]> = {
   text: ["stroke", "font", "fontSize"],
   sticky: ["noteFill", "font"],
   frame: ["name"],
-  image: [],
+  image: ["crop", "alt"],
 };
 
 export const MIN_ZOOM = 0.1;

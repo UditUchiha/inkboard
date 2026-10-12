@@ -58,6 +58,7 @@ import { useBoardShortcuts } from "./useBoardShortcuts";
 import { drawsOnBoard } from "./useBoardSync";
 import type { BoardSync, Peer } from "./useBoardSync";
 import { sameView, useFollow } from "./useFollow";
+import { uncropImage } from "./transform";
 import { useImageImport } from "./useImageImport";
 import type { ImportView } from "./useImageImport";
 import { useThreads } from "./useThreads";
@@ -135,6 +136,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
   const selected = selectedId ? (store.getElement(selectedId) ?? null) : null;
+  // A picture being cropped: its handles crop it instead of resizing it. Selecting anything else ends it.
+  const [croppingId, setCroppingId] = useState<string | null>(null);
+  useEffect(() => setCroppingId(null), [selectedId]);
   // A guest's scratch board lives in the browser, with nowhere to keep files; pictures can't be suggested.
   const canAddImages = !readOnly && !local && !suggesting;
   const fileInput = useRef<HTMLInputElement>(null);
@@ -432,13 +436,19 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   function changeStyle(key: StyleChange[0], value: StyleChange[1]) {
     // A note's color is its fill, but new notes keep their own color, apart from new shapes' fill.
     const styleKey = panelType === "sticky" && key === "fill" ? "noteFill" : key;
-    if (key !== "name") setStyle((current) => ({ ...current, [styleKey]: value }));
+    if (key !== "name" && key !== "alt") setStyle((current) => ({ ...current, [styleKey]: value }));
     if (selected) {
       store.commit(
         { undo: { upsert: [selected] }, redo: { upsert: [{ ...selected, [key]: value }] } },
         { mergeKey: `style:${selected.id}:${key}` },
       );
     }
+  }
+
+  // Shows all of the selected picture again, at the scale it's shown.
+  function uncropSelected() {
+    if (selected?.type !== "image") return;
+    store.commit({ undo: { upsert: [selected] }, redo: { upsert: [uncropImage(selected)] } });
   }
 
   async function exportAs(exporter: Exporter) {
@@ -510,6 +520,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           onPlaceComment={placeComment}
           onFrameDrawn={selectElement}
           suggestions={suggestionLayer}
+          croppingId={croppingId}
         />
       </ErrorBoundary>
 
@@ -749,6 +760,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
             onDelete={deleteSelected}
             stackMoves={stackMoves}
             onMove={moveSelected}
+            cropping={croppingId !== null}
+            onToggleCrop={() => setCroppingId((id) => (id ? null : selectedId))}
+            onUncrop={uncropSelected}
           />
         </div>
       )}

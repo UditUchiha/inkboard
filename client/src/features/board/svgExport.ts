@@ -127,7 +127,15 @@ function pictureSvg(element: ImageElement, images: ReadonlyMap<string, string>):
   const box = `x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}"`;
   const href = images.get(element.imageId);
   if (!href) return `<rect ${box} fill="#80808020" stroke="#80808099" stroke-dasharray="6 5"/>`;
-  return `<image ${box} preserveAspectRatio="none" xlink:href="${xml(href)}"/>`;
+  const title = element.alt ? `<title>${xml(element.alt)}</title>` : "";
+  const { crop } = element;
+  if (!crop) {
+    const image = `<image ${box} preserveAspectRatio="none" xlink:href="${xml(href)}"`;
+    return title ? `${image}>${title}</image>` : `${image}/>`;
+  }
+  // The box looks at the part of a picture one unit square that is shown, to a fraction of a pixel.
+  const view = [crop.x, crop.y, crop.w, crop.h].map((part) => String(Math.round(part * 1e5) / 1e5)).join(" ");
+  return `<svg ${box} viewBox="${view}" preserveAspectRatio="none">${title}<image width="1" height="1" preserveAspectRatio="none" xlink:href="${xml(href)}"/></svg>`;
 }
 
 const shapeSvg = (element: ShapeElement): string =>
