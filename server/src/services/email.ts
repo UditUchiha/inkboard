@@ -39,7 +39,7 @@ export function emailsSentToday() {
 // allowance is kept for them: a flood of sign-ups (each sends a verification email) can't use it up.
 export const RESERVED_FOR_RESETS = 0.4;
 
-function takeDailySlot(purpose: EmailPurpose) {
+function takeDailySlot(purpose: EmailPurpose | "access-request") {
   const today = new Date().toISOString().slice(0, 10);
   if (today !== budgetDay) {
     budgetDay = today;
@@ -59,7 +59,13 @@ export const emailConfigured = () => Boolean(env.email.brevoApiKey && env.email.
  * Sends one email. Throws if the email service refuses it, or the daily limit is used up. `purpose` is
  * "reset-password" for a password reset, which may use the share of the limit kept for those.
  */
-export async function sendEmail({ to, subject, text, html, purpose }: SentEmail & { purpose: EmailPurpose }) {
+export async function sendEmail({
+  to,
+  subject,
+  text,
+  html,
+  purpose,
+}: SentEmail & { purpose: EmailPurpose | "access-request" }) {
   if (!takeDailySlot(purpose))
     throw new Error(`The daily limit of ${env.email.dailyLimit} emails is used up; "${subject}" wasn't sent.`);
   if (!emailConfigured() || process.env.NODE_ENV === "test") {

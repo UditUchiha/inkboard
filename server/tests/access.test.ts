@@ -11,6 +11,7 @@ import type { ServerInstance, TestUser } from "./helpers.ts";
 
 // After the helpers, which set the environment it reads.
 const { env } = await import("../src/config/env.ts");
+const { outbox } = await import("../src/services/email.ts");
 
 let app: ServerInstance;
 before(async () => {
@@ -509,6 +510,27 @@ describe("asking for access", () => {
     const boardId = await app.createBoard(owner);
     await setLink(owner, boardId, "view");
     assert.equal((await ask(viewer, boardId)).status, 204);
+  });
+
+  it("emails a verified owner once email is set up, but not again while the request is unread", async () => {
+    const saved = { ...env.email };
+    Object.assign(env.email, { brevoApiKey: "test-key", from: "inkboard@example.test" });
+    try {
+      const owner = await app.signUp("Owner");
+      const asker = await app.signUp("Asker");
+      const boardId = await app.createBoard(owner, "Roadmap");
+      const sentToOwner = () => outbox.filter((email) => email.to === owner.email);
+
+      assert.equal((await ask(asker, boardId)).status, 204);
+      const email = await eventually(() => sentToOwner()[0]!);
+      assert.match(email.subject, /Asker asked for access to “Roadmap”/);
+      assert.ok(email.text.includes(`/board/${boardId}?invite=${encodeURIComponent(asker.email)}`));
+
+      assert.equal((await ask(asker, boardId)).status, 204);
+      assert.equal(sentToOwner().length, 1);
+    } finally {
+      Object.assign(env.email, saved);
+    }
   });
 
   it("needs a confirmed address once email is set up, since the owner couldn't invite one that isn't", async () => {

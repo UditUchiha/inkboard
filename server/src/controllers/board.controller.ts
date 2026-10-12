@@ -3,6 +3,7 @@ import type { Element } from "@inkboard/shared/types";
 import { LINK_EXPIRY_MAX_MS, LINK_PASSWORD_MAX, LINK_PASSWORD_MIN } from "@inkboard/shared/limits";
 import type { Request, Response } from "express";
 import mongoose from "mongoose";
+import { emailLinkUrlFor } from "../lib/app-url.ts";
 import { HttpError } from "../lib/http-error.ts";
 import { hashPassword, verifyPasswordHash } from "../lib/passwords.ts";
 import { BoardState } from "../models/board-state.model.ts";
@@ -32,6 +33,7 @@ import {
   withRoom,
 } from "../services/boards.ts";
 import type { BoardDoc, PopulatedMembers } from "../services/boards.ts";
+import { sendAccessRequestEmail } from "../services/account-emails.ts";
 import { emailConfigured } from "../services/email.ts";
 import { newLinkKey, passFor } from "../services/link-pass.ts";
 import { deleteImages } from "../services/image-storage.ts";
@@ -476,7 +478,8 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
 
 /**
  * Asks a board's owner to invite the person asking, who can't open it. The owner is notified with their email address,
- * which the notification's link fills into the Share dialog. A request still unread isn't sent again.
+ * which the notification's link fills into the Share dialog. A request still unread isn't sent again. With email set
+ * up, a verified owner is emailed too (only an address shown to be theirs is sent the asker's).
  */
 export async function requestAccess(req: BoardRequest, res: Response) {
   const { boardId } = req.params;
@@ -491,8 +494,15 @@ export async function requestAccess(req: BoardRequest, res: Response) {
   if (emailConfigured() && !user.emailVerified) {
     throw new HttpError(409, "Confirm your email address first (see Settings), so the owner can invite you.");
   }
-  await notify({ users: [board.owner], type: "access", actor: user, board, excerpt: user.email });
+  const notified = await notify({ users: [board.owner], type: "access", actor: user, board, excerpt: user.email });
   res.status(204).end();
+  if (notified.length === 0 || !emailConfigured()) return;
+  const owner = await User.findById(board.owner).select("name email emailVerified");
+  if (!owner?.emailVerified) return;
+  // Sent after the answer, as in auth.controller: a slow or failing mail service doesn't hold up or fail the request.
+  sendAccessRequestEmail(owner, user, board, emailLinkUrlFor(req)).catch((error: Error) =>
+    console.error(`Couldn't send the access request email: ${error.message}`),
+  );
 }
 
 export async function removeCollaborator(req: Request<{ boardId: string; userId: string }>, res: Response) {
