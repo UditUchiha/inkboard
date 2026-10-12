@@ -64,6 +64,20 @@ Animated GIFs are drawn as a still picture, because the board is a canvas.
 - **Thumbnails use a small copy.** With each picture the browser also uploads a copy about 400 px on the long side (WebP, at most 200 KB, checked like the picture). Dashboard cards and version history draw from it at `/api/images/:id/small`; pictures uploaded before small copies existed fall back to the full file there.
 - **Images count against the board's owner**, not the person who added them, since guests have no account to count against. Someone with an edit link can use up the owner's space; the owner can close the link.
 
+## Moving to Cloudflare R2 (built in, off until you set it up)
+
+The server can keep images' bytes in Cloudflare R2 instead. It stays off until all four `R2_*` variables are set, and the server refuses to start with only some of them. Each image keeps its entry in `images.files`, so the space limits, sweeps and copies work the same way. Only the bytes move: an entry marked `storage: "r2"` has its bytes in the bucket under `images/<id>`, and any other entry has them in `images.chunks`. So pictures uploaded before the switch keep working, served from GridFS, until they're moved.
+
+Images are still served through the server at `/api/images/:id`, with the same cache and cross-origin headers. Requests to R2 are signed with [aws4fetch](https://github.com/mhart/aws4fetch). With R2 on, the app-wide image limit goes from 300 MB to 9 GB (R2's free plan holds 10 GB). The per-board and per-owner limits stay the same.
+
+**To switch:**
+
+1. In Cloudflare, create an R2 bucket (keep it private) and an R2 API token with *Object Read & Write* on that bucket. Note the account id, the token's access key id and secret, and the bucket name.
+2. On Render, set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_BUCKET` on the service, then redeploy. New uploads now go to R2.
+3. Move the pictures already uploaded: with the same four variables and the production `MONGODB_URI` in `server/.env`, run `npm run move-images-to-r2 -w server` once. Each picture is written to R2 before its entry says so, and its chunks are deleted after, so you can stop the script and run it again. Run it when few people are uploading or deleting: a picture deleted while it's being moved can leave its copy behind in the bucket.
+
+**Don't turn R2 off again** once pictures are in it. Images marked `storage: "r2"` can't be read without the keys. There is no script to move them back.
+
 ## The alternatives, for later
 
 The server talks to storage through the functions in `server/src/services/image-storage.ts`: `putImage`, `openImage`, `imageBytes`, `listImages`, `deleteImages` and `deleteBoardImages`. The limits and the sweep in `images.js` only use those. Moving to another service means rewriting that one file. Boards and saved images do not change, because elements only hold the id.
@@ -83,7 +97,7 @@ An S3-compatible object store.
 **Good:** by far the most room for the money, and no bandwidth bill if the app becomes popular. Images can be served straight from R2 (or a custom domain on it), taking load off the Render server.
 **Not so good:** a new account and three more secrets to configure, and the card requirement. We do the shrinking ourselves, as we already do.
 
-**Switching:** use `@aws-sdk/client-s3` pointed at the R2 endpoint. `putImage` becomes a `PutObject` under a key like `boards/<boardId>/<imageId>`, `openImage` a `GetObject` (or a redirect to a public URL, with a cache header), `imageBytes` and `listImages` a listing over a key prefix (or counters and an index kept in MongoDB, which is cheaper than listing a bucket on every upload), and the deletes become `DeleteObjects`. Copy existing GridFS files across once, keeping their ids.
+**Switching:** built in, see [Moving to Cloudflare R2](#moving-to-cloudflare-r2-built-in-off-until-you-set-it-up). Serving straight from R2 (a public bucket or a custom domain on it) would take the load off the server, but it would need public URLs. That isn't built.
 
 ### Cloudinary
 

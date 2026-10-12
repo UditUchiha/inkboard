@@ -107,6 +107,9 @@ export const env = {
     // Brevo's free plan allows 300 emails a day; stay under it so a flood of requests can't use it all up.
     dailyLimit: Number(process.env.EMAIL_DAILY_LIMIT) || 250,
   },
+  // Cloudflare R2, where uploaded images go once all four are set (see docs/image-storage.md). Without them,
+  // images are kept in MongoDB itself (GridFS).
+  r2: r2Settings(),
   // "Continue with Google / GitHub" only appears for providers configured here.
   oauth: {
     google: oauthClient("GOOGLE"),
@@ -132,6 +135,28 @@ if (isProduction && env.email.brevoApiKey && env.email.from && !env.appUrl) {
     `WARNING: APP_URL isn't set, so links in emails point to ${env.renderUrl} (this service's Render address). ` +
       "If people open the app at a custom domain, set APP_URL to it.",
   );
+}
+
+/** Where uploaded images go in Cloudflare R2 (see docs/image-storage.md). */
+export interface R2Settings {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+}
+
+// All four or none: a half-set R2 would otherwise quietly keep images in the database.
+function r2Settings(): R2Settings | null {
+  const names = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"];
+  const [accountId, accessKeyId, secretAccessKey, bucket] = names.map((name) => process.env[name]?.trim() ?? "");
+  const missing = names.filter((name) => !process.env[name]?.trim());
+  if (missing.length === names.length) return null;
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variable: ${missing.join(", ")} (R2 needs all of ${names.join(", ")}).`,
+    );
+  }
+  return { accountId: accountId!, accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey!, bucket: bucket! };
 }
 
 function oauthClient(prefix: string) {

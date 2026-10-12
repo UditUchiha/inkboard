@@ -32,6 +32,10 @@ function load<T = typeof EnvType>(variables: Record<string, string>, script = "c
         TRUST_PROXY: "",
         BREVO_API_KEY: "",
         EMAIL_FROM: "",
+        R2_ACCOUNT_ID: "",
+        R2_ACCESS_KEY_ID: "",
+        R2_SECRET_ACCESS_KEY: "",
+        R2_BUCKET: "",
         ...variables,
       },
       encoding: "utf8",
@@ -177,5 +181,27 @@ describe("addresses and proxies", () => {
     assert.equal(load({ NODE_ENV: "production", MONGODB_URI: "mongodb://db/x", JWT_SECRET: SECRET }).env.trustProxy, 1);
     assert.equal(load({ NODE_ENV: "test" }).env.trustProxy, false);
     assert.equal(load({ NODE_ENV: "test", TRUST_PROXY: "2" }).env.trustProxy, 2);
+  });
+});
+
+describe("R2 for images", () => {
+  const r2 = {
+    R2_ACCOUNT_ID: "account",
+    R2_ACCESS_KEY_ID: "key",
+    R2_SECRET_ACCESS_KEY: "secret",
+    R2_BUCKET: "pictures",
+  };
+
+  it("is used only with all four settings, and refuses to start with some of them", () => {
+    assert.equal(load({ NODE_ENV: "test" }).env.r2, null);
+    assert.deepEqual(load({ NODE_ENV: "test", ...r2 }).env.r2, {
+      accountId: "account",
+      accessKeyId: "key",
+      secretAccessKey: "secret",
+      bucket: "pictures",
+    });
+    const half = load({ NODE_ENV: "test", ...r2, R2_BUCKET: "", R2_SECRET_ACCESS_KEY: " " });
+    assert.equal(half.ok, false);
+    assert.match(half.stderr, /R2_SECRET_ACCESS_KEY, R2_BUCKET/);
   });
 });

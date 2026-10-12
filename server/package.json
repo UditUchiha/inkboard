@@ -8,12 +8,14 @@
     "dev": "node --watch --import ./scripts/dev-env.ts src/index.ts",
     "start": "node src/index.ts",
     "db": "node scripts/dev-db.ts",
+    "move-images-to-r2": "node scripts/move-images-to-r2.ts",
     "test": "node --test --test-concurrency=2",
     "coverage": "node --test --test-concurrency=2 --experimental-test-coverage --test-coverage-exclude=\"**/tests/**\"",
     "typecheck": "tsc -p . && tsc -p tests"
   },
   "dependencies": {
     "@inkboard/shared": "^1.0.0",
+    "aws4fetch": "^1.0.20",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
