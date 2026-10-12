@@ -26,12 +26,12 @@ import type { Exporter } from "./BoardMenu";
 import { BoardTitle } from "./BoardTitle";
 import type { RenamedBoard } from "./BoardTitle";
 import { CommentsLayer } from "./CommentsLayer";
-import { DEFAULT_STYLE, DRAWING_TOOLS } from "./constants";
+import { DEFAULT_STYLE, DRAWING_TOOLS, MAX_ZOOM } from "./constants";
 import type { ToolId } from "./constants";
 import { copyGroup, drawnElement, isConnector, moveGroup } from "./connectors";
 import { ElementList } from "./ElementList";
 import { describeElement } from "./elementLabels";
-import { getBounds, getSceneBounds, isFrame, stackKey, withContents } from "./elements";
+import { getBounds, getSceneBounds, isFrame, slideFrames, stackKey, withContents } from "./elements";
 import type { Connector } from "./elements";
 import { ExportError } from "./exportSize";
 import { fitViewport, zoomAround } from "./geometry";
@@ -39,6 +39,7 @@ import type { Rect, Viewport, XY } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
 import { copyOffset, viewToReveal } from "./placement";
 import { PresenceStack } from "./PresenceStack";
+import { Presenter } from "./Presenter";
 import { PropertiesPanel } from "./PropertiesPanel";
 import type { StyleChange } from "./PropertiesPanel";
 import { RemoteCursors } from "./RemoteCursors";
@@ -262,6 +263,38 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     const bounds = getSceneBounds(store.getElements());
     if (bounds) setViewport(fitViewport(bounds, canvasSize, { padding: 96, maxZoom: 1 }));
   }, [canvasSize, store]);
+
+  // Presenting: the board's frames in reading order, one at a time, filling the screen (see Presenter). Our
+  // pointer is a laser for the others, who follow our view (see useFollow).
+  const [slide, setSlide] = useState<number | null>(null); // the frame on show, by its place in `slides`
+  const slides = useMemo(() => slideFrames(elements), [elements]);
+  const presenting = slide !== null;
+  const shownFrame = presenting ? slides[Math.min(slide, slides.length - 1)] : undefined;
+  const { present, sendCursor } = sync;
+  const startPresenting = () => {
+    setSelectedId(null);
+    setSlide(
+      Math.max(
+        0,
+        slides.findIndex((frame) => frame.id === selectedId),
+      ),
+    ); // from the selected frame, if any
+    present(true);
+  };
+  const stopPresenting = useCallback(() => {
+    setSlide(null);
+    present(false);
+    sendCursor(null); // or the others keep seeing the laser until our pointer moves again
+  }, [present, sendCursor]);
+  const sendLaser = useCallback((point: XY | null) => sendCursor(point, true), [sendCursor]);
+  // Also when the window goes full screen, or someone changes the frame.
+  useEffect(() => {
+    if (shownFrame && canvasSize.width)
+      changeViewport(fitViewport(getBounds(shownFrame), canvasSize, { padding: 24, maxZoom: MAX_ZOOM }));
+  }, [shownFrame, canvasSize, changeViewport]);
+  useEffect(() => {
+    if (presenting && slides.length === 0) stopPresenting(); // every frame was deleted meanwhile
+  }, [presenting, slides.length, stopPresenting]);
 
   const zoomBy = useCallback(
     (factor: number) =>
@@ -515,11 +548,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const edited = editing && (elements.find((element) => element.id === editing.element.id) ?? editing.element);
 
   return (
-    <div className="fixed inset-0 overflow-hidden select-none">
+    <div className={clsx("fixed inset-0 overflow-hidden select-none", presenting && "laser-pointer")}>
       <ErrorBoundary fallback={BoardCrashed}>
         <MemoBoardCanvas
           store={store}
-          tool={readOnly && tool !== "comment" ? "hand" : tool}
+          tool={presenting || (readOnly && tool !== "comment") ? "hand" : tool}
           style={style}
           viewport={viewport}
           onViewportChange={changeViewport}
@@ -528,7 +561,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           editingId={editing?.element.id}
           onEditText={setEditing}
           spacePressed={spacePressed}
-          onCursorMove={sync.sendCursor}
+          onCursorMove={presenting ? sendLaser : sendCursor}
           onSizeChange={setCanvasSize}
           onPlaceComment={placeComment}
           onFrameDrawn={selectElement}
@@ -568,249 +601,263 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
 
       <RemoteCursors cursors={sync.cursors} peers={sync.peers} viewport={viewport} />
 
-      {commentsEnabled && showComments && (
-        <CommentsLayer
-          threads={threads}
-          viewport={viewport}
-          size={canvasSize}
-          activeId={activeThread}
-          onActive={(id) => {
-            setDraft(null);
-            setActiveThread(id);
-          }}
-          draft={draft}
-          onDraftClose={() => setDraft(null)}
-          members={members}
-          canComment={canComment}
-          canResolveAny={drawsOnBoard(role)}
-          canDeleteAny={role === "owner"}
-          selfId={selfId}
-          api={threadApi}
-        />
-      )}
-
-      {showSuggestions && review.groups.length > 0 && (
-        <SuggestionChips
-          groups={review.groups}
-          viewport={viewport}
-          getElement={(id) => getElement(id) ?? boardWithout(id)}
-          canDecide={isMember}
-          onAccept={(group) => review.accept(group.suggestions)}
-          onReject={(group) => review.reject(group.suggestions)}
-          onHover={setHoveredGroup}
-          isOwn={isOwnGroup}
-          onWithdraw={withdraw}
-        />
-      )}
-
-      {editing &&
-        (isConnector(editing.element) ? (
-          <LabelEditor
-            key={editing.element.id}
-            element={editing.element}
-            middle={pathMiddle(
-              connectorPath((drawnElement(elements, editing.element.id) as Connector | undefined) ?? editing.element),
+      {/* While presenting, only the board and the presenter's bar: everything else comes back after. */}
+      {shownFrame ? (
+        <Presenter slides={slides} index={slides.indexOf(shownFrame)} onIndex={setSlide} onExit={stopPresenting} />
+      ) : (
+        !presenting && (
+          <>
+            {commentsEnabled && showComments && (
+              <CommentsLayer
+                threads={threads}
+                viewport={viewport}
+                size={canvasSize}
+                activeId={activeThread}
+                onActive={(id) => {
+                  setDraft(null);
+                  setActiveThread(id);
+                }}
+                draft={draft}
+                onDraftClose={() => setDraft(null)}
+                members={members}
+                canComment={canComment}
+                canResolveAny={drawsOnBoard(role)}
+                canDeleteAny={role === "owner"}
+                selfId={selfId}
+                api={threadApi}
+              />
             )}
-            viewport={viewport}
-            onCommit={commitText}
-          />
-        ) : editing.element.type === "sticky" ? (
-          <NoteEditor
-            key={editing.element.id}
-            element={edited as StickyElement}
-            viewport={viewport}
-            onCommit={commitText}
-          />
-        ) : (
-          <TextEditor
-            key={editing.element.id}
-            element={edited as TextElement}
-            viewport={viewport}
-            onCommit={commitText}
-          />
-        ))}
 
-      {/* Top left: back to boards, title */}
-      <div className="floating-panel absolute top-3 left-3 flex items-center gap-0.5 rounded-xl p-1">
-        <Link
-          to={user ? "/boards" : "/"}
-          title={user ? "All boards" : "Home"}
-          aria-label={user ? "All boards" : "Home"}
-          className="grid size-10 place-items-center rounded-lg transition-colors hover:bg-ink/6"
-        >
-          <LogoMark className="size-6" />
-        </Link>
-        <BoardTitle
-          board={board}
-          rename={renameBoard}
-          readOnly={readOnly || suggesting}
-          onRenamed={(updated) => setMeta((current) => ({ ...current, ...updated }) as BoardMeta)}
-        />
-      </div>
-
-      {/* Tools: top centre on wide screens, bottom on phones. Viewers get a notice instead, and suggesters one too. */}
-      <div className="absolute inset-x-3 bottom-3 flex flex-col-reverse items-center gap-2 md:inset-x-auto md:top-3 md:bottom-auto md:left-1/2 md:-translate-x-1/2 md:flex-col">
-        {readOnly ? (
-          <ViewOnlyNotice
-            signedIn={Boolean(user)}
-            loginHref={`/login?next=${encodeURIComponent(location.pathname + location.search)}`}
-            commenting={canComment ? tool === "comment" : undefined}
-            onToggleComment={() => changeTool(tool === "comment" ? "hand" : "comment")}
-            onRequestEdit={user && !local ? () => api.requestAccess(board.id) : undefined}
-          />
-        ) : (
-          <Toolbar
-            tool={tool}
-            onToolChange={changeTool}
-            onAddImage={canAddImages ? () => fileInput.current?.click() : undefined}
-            withComments={canComment}
-            className="max-md:max-w-full max-md:overflow-x-auto"
-          />
-        )}
-        {suggesting && <SuggestingNotice />}
-      </div>
-
-      {/* Top right: people, share, menu */}
-      <div className="absolute top-3 right-3 flex items-center gap-2">
-        {others.length > 0 && (
-          <div className="max-sm:hidden">
-            <PresenceStack people={others} followingId={followingId} onFollow={follow} />
-          </div>
-        )}
-        {!user && !local && <GuestIdentity socket={sync.socket} />}
-        {(review.suggestions.length > 0 || board.linkAccess === "suggest") && (
-          <Button
-            variant="secondary"
-            icon={MessageSquarePlus}
-            onClick={() => {
-              setHistoryOpen(false);
-              setSuggestionsOpen((open) => !open);
-            }}
-            aria-pressed={suggestionsOpen}
-            className="max-sm:px-3"
-          >
-            <span className="max-sm:sr-only">Suggestions</span>
-            {review.suggestions.length > 0 && (
-              <span className="rounded-full bg-signal px-1.5 text-xs leading-5 font-semibold text-white">
-                {review.suggestions.length}
-              </span>
+            {showSuggestions && review.groups.length > 0 && (
+              <SuggestionChips
+                groups={review.groups}
+                viewport={viewport}
+                getElement={(id) => getElement(id) ?? boardWithout(id)}
+                canDecide={isMember}
+                onAccept={(group) => review.accept(group.suggestions)}
+                onReject={(group) => review.reject(group.suggestions)}
+                onHover={setHoveredGroup}
+                isOwn={isOwnGroup}
+                onWithdraw={withdraw}
+              />
             )}
-          </Button>
-        )}
-        {local ? (
-          <Button icon={Save} onClick={local.onSave} className="max-sm:px-3">
-            <span className="max-sm:sr-only">Save board</span>
-          </Button>
-        ) : (
-          <Button icon={UserPlus} onClick={() => setDialog("share")} className="max-sm:px-3">
-            <span className="max-sm:sr-only">Share</span>
-          </Button>
-        )}
-        <BoardMenu
-          user={user}
-          local={local}
-          readOnly={readOnly || suggesting}
-          isMember={isMember}
-          commentsEnabled={commentsEnabled}
-          showComments={showComments}
-          isEmpty={elements.length === 0}
-          canReplay={canReplay}
-          onReplay={() => setReplayOpen(true)}
-          onExport={exportAs}
-          onImportFile={() => boardFileInput.current?.click()}
-          onCopy={makeCopy}
-          onHistory={() => {
-            setSuggestionsOpen(false);
-            setHistoryOpen(true);
-          }}
-          onTemplate={() => setDialog("template")}
-          onToggleComments={() => setShowComments((shown) => !shown)}
-          onShortcuts={() => setDialog("shortcuts")}
-          onClear={() => setDialog("clear")}
-        />
-      </div>
 
-      {followed && (
-        <div className="absolute top-[4.25rem] left-1/2 -translate-x-1/2 max-md:top-16">
-          <button
-            type="button"
-            onClick={stopFollowing}
-            className="floating-panel flex h-9 items-center gap-2 rounded-full pr-2 pl-4 text-sm transition-colors hover:bg-surface-2"
-          >
-            Following <strong className="font-semibold">{followed.name}</strong>
-            <span className="grid size-5 place-items-center rounded-full bg-ink/8" aria-hidden>
-              <X className="size-3" />
-            </span>
-            <span className="sr-only">Stop following</span>
-          </button>
-        </div>
+            {editing &&
+              (isConnector(editing.element) ? (
+                <LabelEditor
+                  key={editing.element.id}
+                  element={editing.element}
+                  middle={pathMiddle(
+                    connectorPath(
+                      (drawnElement(elements, editing.element.id) as Connector | undefined) ?? editing.element,
+                    ),
+                  )}
+                  viewport={viewport}
+                  onCommit={commitText}
+                />
+              ) : editing.element.type === "sticky" ? (
+                <NoteEditor
+                  key={editing.element.id}
+                  element={edited as StickyElement}
+                  viewport={viewport}
+                  onCommit={commitText}
+                />
+              ) : (
+                <TextEditor
+                  key={editing.element.id}
+                  element={edited as TextElement}
+                  viewport={viewport}
+                  onCommit={commitText}
+                />
+              ))}
+
+            {/* Top left: back to boards, title */}
+            <div className="floating-panel absolute top-3 left-3 flex items-center gap-0.5 rounded-xl p-1">
+              <Link
+                to={user ? "/boards" : "/"}
+                title={user ? "All boards" : "Home"}
+                aria-label={user ? "All boards" : "Home"}
+                className="grid size-10 place-items-center rounded-lg transition-colors hover:bg-ink/6"
+              >
+                <LogoMark className="size-6" />
+              </Link>
+              <BoardTitle
+                board={board}
+                rename={renameBoard}
+                readOnly={readOnly || suggesting}
+                onRenamed={(updated) => setMeta((current) => ({ ...current, ...updated }) as BoardMeta)}
+              />
+            </div>
+
+            {/* Tools: top centre on wide screens, bottom on phones. Viewers get a notice instead, and suggesters one too. */}
+            <div className="absolute inset-x-3 bottom-3 flex flex-col-reverse items-center gap-2 md:inset-x-auto md:top-3 md:bottom-auto md:left-1/2 md:-translate-x-1/2 md:flex-col">
+              {readOnly ? (
+                <ViewOnlyNotice
+                  signedIn={Boolean(user)}
+                  loginHref={`/login?next=${encodeURIComponent(location.pathname + location.search)}`}
+                  commenting={canComment ? tool === "comment" : undefined}
+                  onToggleComment={() => changeTool(tool === "comment" ? "hand" : "comment")}
+                  onRequestEdit={user && !local ? () => api.requestAccess(board.id) : undefined}
+                />
+              ) : (
+                <Toolbar
+                  tool={tool}
+                  onToolChange={changeTool}
+                  onAddImage={canAddImages ? () => fileInput.current?.click() : undefined}
+                  withComments={canComment}
+                  className="max-md:max-w-full max-md:overflow-x-auto"
+                />
+              )}
+              {suggesting && <SuggestingNotice />}
+            </div>
+
+            {/* Top right: people, share, menu */}
+            <div className="absolute top-3 right-3 flex items-center gap-2">
+              {others.length > 0 && (
+                <div className="max-sm:hidden">
+                  <PresenceStack people={others} followingId={followingId} onFollow={follow} />
+                </div>
+              )}
+              {!user && !local && <GuestIdentity socket={sync.socket} />}
+              {(review.suggestions.length > 0 || board.linkAccess === "suggest") && (
+                <Button
+                  variant="secondary"
+                  icon={MessageSquarePlus}
+                  onClick={() => {
+                    setHistoryOpen(false);
+                    setSuggestionsOpen((open) => !open);
+                  }}
+                  aria-pressed={suggestionsOpen}
+                  className="max-sm:px-3"
+                >
+                  <span className="max-sm:sr-only">Suggestions</span>
+                  {review.suggestions.length > 0 && (
+                    <span className="rounded-full bg-signal px-1.5 text-xs leading-5 font-semibold text-white">
+                      {review.suggestions.length}
+                    </span>
+                  )}
+                </Button>
+              )}
+              {local ? (
+                <Button icon={Save} onClick={local.onSave} className="max-sm:px-3">
+                  <span className="max-sm:sr-only">Save board</span>
+                </Button>
+              ) : (
+                <Button icon={UserPlus} onClick={() => setDialog("share")} className="max-sm:px-3">
+                  <span className="max-sm:sr-only">Share</span>
+                </Button>
+              )}
+              <BoardMenu
+                user={user}
+                local={local}
+                readOnly={readOnly || suggesting}
+                isMember={isMember}
+                commentsEnabled={commentsEnabled}
+                showComments={showComments}
+                isEmpty={elements.length === 0}
+                canPresent={slides.length > 0}
+                onPresent={startPresenting}
+                canReplay={canReplay}
+                onReplay={() => setReplayOpen(true)}
+                onExport={exportAs}
+                onImportFile={() => boardFileInput.current?.click()}
+                onCopy={makeCopy}
+                onHistory={() => {
+                  setSuggestionsOpen(false);
+                  setHistoryOpen(true);
+                }}
+                onTemplate={() => setDialog("template")}
+                onToggleComments={() => setShowComments((shown) => !shown)}
+                onShortcuts={() => setDialog("shortcuts")}
+                onClear={() => setDialog("clear")}
+              />
+            </div>
+
+            {followed && (
+              <div className="absolute top-[4.25rem] left-1/2 -translate-x-1/2 max-md:top-16">
+                <button
+                  type="button"
+                  onClick={stopFollowing}
+                  className="floating-panel flex h-9 items-center gap-2 rounded-full pr-2 pl-4 text-sm transition-colors hover:bg-surface-2"
+                >
+                  Following <strong className="font-semibold">{followed.name}</strong>
+                  <span className="grid size-5 place-items-center rounded-full bg-ink/8" aria-hidden>
+                    <X className="size-3" />
+                  </span>
+                  <span className="sr-only">Stop following</span>
+                </button>
+              </div>
+            )}
+
+            {historyOpen && isMember && <VersionHistory boardId={board.id} onClose={() => setHistoryOpen(false)} />}
+            {suggestionsOpen && (
+              <SuggestionsPanel
+                groups={review.groups}
+                getElement={boardWithout}
+                isOwn={isOwnGroup}
+                onWithdraw={withdraw}
+                canDecide={isMember}
+                shown={showSuggestions}
+                onToggleShown={() => setShowSuggestions((shown) => !shown)}
+                onAccept={review.accept}
+                onReject={review.reject}
+                onHover={setHoveredGroup}
+                onFocus={focusOn}
+                onClose={() => setSuggestionsOpen(false)}
+              />
+            )}
+
+            {/* Style panel */}
+            {panelType && (
+              <div className={clsx("absolute left-3 max-md:bottom-[7.5rem] md:top-20", !panelOpen && "max-md:hidden")}>
+                <PropertiesPanel
+                  type={panelType}
+                  values={selected ?? (panelType === "sticky" ? { ...style, fill: style.noteFill } : style)}
+                  onChange={changeStyle}
+                  selection={Boolean(selected && tool === "select")}
+                  onDuplicate={duplicateSelected}
+                  onDelete={deleteSelected}
+                  stackMoves={stackMoves}
+                  onMove={moveSelected}
+                  cropping={croppingId !== null}
+                  onToggleCrop={() => setCroppingId((id) => (id ? null : selectedId))}
+                  onUncrop={uncropSelected}
+                />
+              </div>
+            )}
+
+            <ViewControls
+              store={store}
+              readOnly={readOnly}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              zoom={viewport.zoom}
+              canFit={elements.length > 0}
+              onZoomBy={zoomBy}
+              onResetZoom={resetZoom}
+              onFit={fitToScreen}
+              showStyleButton={Boolean(panelType)}
+              styleOpen={panelOpen}
+              onToggleStyle={() => setPanelOpen((open) => !open)}
+            />
+
+            <div className="absolute right-3 bottom-[4.25rem] flex items-center gap-2 md:bottom-3">
+              <SyncStatus
+                online={sync.online}
+                saving={sync.saving}
+                readOnly={readOnly}
+                local={Boolean(local)}
+                unsaved={sync.unsaved}
+              />
+              <div className="floating-panel rounded-xl p-1 max-md:hidden">
+                <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={() => setDialog("shortcuts")} />
+              </div>
+            </div>
+          </>
+        )
       )}
 
       {replayOpen && !local && <ReplayPlayer title={board.title} load={sync.loadReplay} onClose={closeReplay} />}
-      {historyOpen && isMember && <VersionHistory boardId={board.id} onClose={() => setHistoryOpen(false)} />}
-      {suggestionsOpen && (
-        <SuggestionsPanel
-          groups={review.groups}
-          getElement={boardWithout}
-          isOwn={isOwnGroup}
-          onWithdraw={withdraw}
-          canDecide={isMember}
-          shown={showSuggestions}
-          onToggleShown={() => setShowSuggestions((shown) => !shown)}
-          onAccept={review.accept}
-          onReject={review.reject}
-          onHover={setHoveredGroup}
-          onFocus={focusOn}
-          onClose={() => setSuggestionsOpen(false)}
-        />
-      )}
-
-      {/* Style panel */}
-      {panelType && (
-        <div className={clsx("absolute left-3 max-md:bottom-[7.5rem] md:top-20", !panelOpen && "max-md:hidden")}>
-          <PropertiesPanel
-            type={panelType}
-            values={selected ?? (panelType === "sticky" ? { ...style, fill: style.noteFill } : style)}
-            onChange={changeStyle}
-            selection={Boolean(selected && tool === "select")}
-            onDuplicate={duplicateSelected}
-            onDelete={deleteSelected}
-            stackMoves={stackMoves}
-            onMove={moveSelected}
-            cropping={croppingId !== null}
-            onToggleCrop={() => setCroppingId((id) => (id ? null : selectedId))}
-            onUncrop={uncropSelected}
-          />
-        </div>
-      )}
-
-      <ViewControls
-        store={store}
-        readOnly={readOnly}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        zoom={viewport.zoom}
-        canFit={elements.length > 0}
-        onZoomBy={zoomBy}
-        onResetZoom={resetZoom}
-        onFit={fitToScreen}
-        showStyleButton={Boolean(panelType)}
-        styleOpen={panelOpen}
-        onToggleStyle={() => setPanelOpen((open) => !open)}
-      />
-
-      <div className="absolute right-3 bottom-[4.25rem] flex items-center gap-2 md:bottom-3">
-        <SyncStatus
-          online={sync.online}
-          saving={sync.saving}
-          readOnly={readOnly}
-          local={Boolean(local)}
-          unsaved={sync.unsaved}
-        />
-        <div className="floating-panel rounded-xl p-1 max-md:hidden">
-          <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={() => setDialog("shortcuts")} />
-        </div>
-      </div>
 
       <SaveTemplateDialog
         open={dialog === "template"}

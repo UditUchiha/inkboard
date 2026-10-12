@@ -186,6 +186,7 @@ export function useScratchBoard() {
       sendCursor: NOOP,
       sendViewport: NOOP,
       loadReplay: () => Promise.resolve({ ok: false as const, error: "A board in this browser has no replay." }),
+      present: NOOP,
       subscribeViewport: () => NOOP,
       requestViewport: NOOP,
       socket: null,

@@ -7,6 +7,7 @@ export const LIMITS = {
   cursor: { burst: 40, perSecond: 30 },
   viewport: { burst: 20, perSecond: 10 },
   followRequest: { burst: 5, perSecond: 1 },
+  present: { burst: 5, perSecond: 1 },
   // A replay can be megabytes, read from the database each time.
   replay: { burst: 3, perSecond: 0.1 },
 };

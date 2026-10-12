@@ -43,8 +43,16 @@ export function useFollow({ sync, canvasSize, setViewport }: FollowOptions) {
   const [followingId, setFollowingId] = useState<string | null>(null); // a socket id
   const followedView = useRef<Viewport | null>(null);
 
-  const { subscribeViewport, requestViewport, peers } = sync;
+  const { subscribeViewport, requestViewport, peers, socketId } = sync;
   const stopFollowing = useCallback(() => setFollowingId(null), []);
+
+  // Someone presenting is followed from when they start (or we arrive) until they stop, or we move ourselves.
+  const presenterId = peers.find((peer) => peer.presenting && peer.socketId !== socketId)?.socketId ?? null;
+  useEffect(() => {
+    if (!presenterId) return undefined;
+    setFollowingId(presenterId);
+    return () => setFollowingId((id) => (id === presenterId ? null : id));
+  }, [presenterId]);
 
   useEffect(() => {
     if (!followingId || !canvasSize.width) return undefined;

@@ -113,6 +113,8 @@ export interface SocketData {
   pass?: string;
   // Whether the browser merges changes by the older rules (see prepareOperation).
   legacy?: boolean;
+  // Whether they are presenting the board's frames, which the others are shown (see broadcastPresence).
+  presenting?: boolean;
   // What the socket holds of a group sent in several pieces, and the timer that lets go of it (see holdGroup).
   heldGroup?: HeldGroup | ExpiredGroup | null;
   heldTimer?: ReturnType<typeof setTimeout> | null;
@@ -568,7 +570,10 @@ function handleConnection(socket: RealtimeSocket) {
     const x = Number(payload?.x);
     const y = Number(payload?.y);
     const visible = Number.isFinite(x) && Number.isFinite(y);
-    socket.to(boardId).volatile.emit("cursor", visible ? { socketId: socket.id, x, y } : { socketId: socket.id });
+    const laser = payload?.laser === true ? { laser: true as const } : {};
+    socket
+      .to(boardId)
+      .volatile.emit("cursor", visible ? { socketId: socket.id, x, y, ...laser } : { socketId: socket.id });
   });
 
   // What part of the board someone is looking at, so others can follow along.
@@ -620,6 +625,14 @@ function handleConnection(socket: RealtimeSocket) {
       console.error(error);
       reply({ ok: false, error: "The replay couldn't be loaded. Try again." });
     }
+  });
+
+  // Started or stopped presenting: the others follow the presenter's view (see useFollow).
+  socket.on("present", async (payload) => {
+    const boardId = socket.data.boardId;
+    if (!boardId || !limits.present()) return;
+    socket.data.presenting = payload?.on === true;
+    await broadcastPresence(boardId);
   });
 
   // Suggestions (see suggestions.ts and docs/suggest-mode.md): only a suggester makes them, anyone takes back
@@ -729,6 +742,7 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     socket.data.pass = pass;
     // Browsers still running an older version of the app merge changes by older rules (see prepareOperation).
     socket.data.legacy = payload?.sync !== SYNC_FORMAT;
+    socket.data.presenting = payload?.presenting === true;
     const session = await enterBoard(socket, boardId, requestedId);
     await openOwner(session); // looked up now, so it's known by the time they draw
     watchLinkExpiry(board);
@@ -796,7 +810,7 @@ async function broadcastPresence(boardId: string) {
   // The board's id comes second, so browsers on an older app, which expect just the list, still read it.
   io.to(boardId).emit(
     "presence",
-    sockets.map((s) => ({ socketId: s.id, ...personOf(s) })),
+    sockets.map((s) => ({ socketId: s.id, ...personOf(s), ...(s.data.presenting && { presenting: true }) })),
     { boardId },
   );
 }

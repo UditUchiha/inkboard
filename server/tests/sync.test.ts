@@ -3,7 +3,7 @@ import type { ServerInstance, TestClient, TestOpReply, TestUser } from "./helper
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { applyOperation, groupStamps, withStamps } from "@inkboard/shared/board-merge";
-import type { CursorMessage, OpMessage, RemovedStamp, ResetMessage } from "@inkboard/shared/socket";
+import type { CursorMessage, OpMessage, Peer, RemovedStamp, ResetMessage } from "@inkboard/shared/socket";
 import type { Element, Point, ShapeElement, Stamp, Tombstone } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import { Board } from "../src/models/board.model.ts";
@@ -625,6 +625,32 @@ describe("cursors and views", () => {
     await eventually(() => b.of("cursor").length === 2, { message: "the hide event" });
     assert.equal((b.last("cursor") as CursorMessage).x, undefined);
     assert.equal(a.of("cursor").length, 0);
+  });
+
+  it("pass on a laser pointer only when it says so", async () => {
+    const { a, b } = await pair();
+    a.socket.emit("cursor", { x: 1, y: 2, laser: true });
+    await eventually(() => b.of("cursor").length === 1, { message: "the laser" });
+    a.socket.emit("cursor", { x: 3, y: 4, laser: "yes" }); // cursors are volatile: one at a time, or one may drop
+    await eventually(() => b.of("cursor").length === 2, { message: "the plain cursor" });
+    assert.deepEqual(
+      b.of("cursor").map((cursor) => (cursor as CursorMessage).laser),
+      [true, undefined],
+    );
+  });
+
+  it("show who is presenting, also after they join again, until they stop", async () => {
+    const { owner, id, a, b } = await pair();
+    const presenting = () => (b.last("presence") as Peer[] | undefined)?.filter((peer) => peer.presenting);
+    a.socket.emit("present", { on: true });
+    await eventually(() => presenting()?.[0]?.socketId === a.socket.id, { message: "the presenter" });
+
+    a.socket.emit("present", { on: false });
+    await eventually(() => presenting()?.length === 0, { message: "no presenter" });
+
+    const again = await app.connect(owner); // a reconnect says it presents as it joins
+    await new Promise((resolve) => again.socket.emit("board:join", { boardId: id, presenting: true }, resolve));
+    await eventually(() => presenting()?.[0]?.socketId === again.socket.id, { message: "the rejoined presenter" });
   });
 
   it("only pass on a view when every number is real", async () => {
