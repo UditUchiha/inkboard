@@ -9,6 +9,7 @@ import type { EmailPurpose } from "./email.ts";
 
 // Emails about someone's account: a link to verify their address, and a link
 // to reset their password. Each link holds a random secret that works once.
+// Also the email telling a board's owner that someone asked for access.
 
 const HOUR_MS = 3600 * 1000;
 export const LINK_LIFETIME_MS: Record<EmailPurpose, number> = {
@@ -144,6 +145,30 @@ export function sendPasswordResetEmail(user: Recipient, appUrl: string) {
       }),
     }),
   );
+}
+
+/** Emails a board's owner that `requester` asked for access, with a link that opens Share with their address filled in. */
+export function sendAccessRequestEmail(
+  owner: Recipient,
+  requester: Pick<UserDoc, "name" | "email">,
+  board: { _id: unknown; title: string },
+  appUrl: string,
+) {
+  return sendEmail({
+    to: owner.email,
+    purpose: "access-request",
+    subject: `${requester.name} asked for access to “${board.title}”`,
+    ...linkEmail({
+      greeting: `Hi ${owner.name},`,
+      lines: [
+        `${requester.name} (${requester.email}) asked to edit your board “${board.title}” on Inkboard.`,
+        "If you'd like them to, open the board and invite them: their address is filled in for you.",
+      ],
+      button: "Open the board",
+      link: `${appUrl}/board/${String(board._id)}?invite=${encodeURIComponent(requester.email)}`,
+      footer: "If you don't know them, you can ignore this email: they can't see the board until you invite them.",
+    }),
+  });
 }
 
 const PROVIDER_ACCOUNTS_MIGRATION = "verify-accounts-made-by-providers";

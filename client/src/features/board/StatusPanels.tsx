@@ -1,20 +1,42 @@
 import { CloudCheck, Eye, LoaderCircle, MessageSquare, MessageSquarePlus, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button, ButtonLink } from "../../components/Button";
+import { errorMessage } from "../../lib/api";
 
 /**
  * What the view-only notice takes: whether the person is signed in, and where logging in leads. `commenting` is
  * whether the comment tool is on, for someone who may comment (left out otherwise), and `onToggleComment` turns it.
+ * `onRequestEdit` asks the owner to invite them.
  */
 export type ViewOnlyNoticeProps = {
   signedIn: boolean;
   loginHref: string;
   commenting?: boolean;
   onToggleComment?: () => void;
+  onRequestEdit?: () => Promise<void>;
 };
 
 /** Shown in place of the toolbar to people who can only look (and, signed in, comment). */
-export function ViewOnlyNotice({ signedIn, loginHref, commenting, onToggleComment }: ViewOnlyNoticeProps) {
+export function ViewOnlyNotice({
+  signedIn,
+  loginHref,
+  commenting,
+  onToggleComment,
+  onRequestEdit,
+}: ViewOnlyNoticeProps) {
+  const [request, setRequest] = useState<"sending" | "sent">();
+  async function requestEdit() {
+    setRequest("sending");
+    try {
+      await onRequestEdit!();
+      setRequest("sent");
+      toast.success("Request sent. You'll get a notification when the owner invites you.");
+    } catch (error) {
+      setRequest(undefined);
+      toast.error(errorMessage(error));
+    }
+  }
   return (
     <div className="floating-panel flex h-12 items-center gap-3 rounded-xl pr-2 pl-4 text-sm">
       <Eye className="size-4 shrink-0 text-graphite" aria-hidden />
@@ -22,6 +44,11 @@ export function ViewOnlyNotice({ signedIn, loginHref, commenting, onToggleCommen
       <span className="text-graphite max-lg:hidden">
         {signedIn ? "Ask the owner to invite you to edit" : "Log in if you've been invited to edit"}
       </span>
+      {signedIn && onRequestEdit && (
+        <Button size="sm" loading={request === "sending"} disabled={request === "sent"} onClick={requestEdit}>
+          {request === "sent" ? "Requested" : "Request edit access"}
+        </Button>
+      )}
       {!signedIn && (
         <ButtonLink to={loginHref} size="sm">
           Log in

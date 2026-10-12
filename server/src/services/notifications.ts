@@ -97,11 +97,11 @@ interface Notify extends Links {
  * Notifies each person in `users` (except the actor) and pushes it to their open tabs.
  * Someone who still hasn't read an earlier one of the same kind from the same person
  * about the same board and thread isn't sent another, so inviting, removing and
- * inviting again, or a burst of replies, doesn't pile up.
+ * inviting again, or a burst of replies, doesn't pile up. Resolves with the ids of those it notified.
  */
 export async function notify({ users, type, actor, board, thread = null, excerpt = null }: Notify) {
   const candidates = [...new Set(users.map(idOf))].filter((id) => id !== idOf(actor));
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) return [];
   const unread = await Notification.find({
     user: { $in: candidates },
     type,
@@ -114,7 +114,7 @@ export async function notify({ users, type, actor, board, thread = null, excerpt
     .lean();
   const waiting = new Set(unread.map((notification) => String(notification.user)));
   const recipients = candidates.filter((id) => !waiting.has(id));
-  if (recipients.length === 0) return;
+  if (recipients.length === 0) return [];
   const created = await Notification.insertMany(
     recipients.map((user) => ({
       user,
@@ -129,4 +129,5 @@ export async function notify({ users, type, actor, board, thread = null, excerpt
   for (const notification of created) {
     notifyUser(idOf(notification.user), serializeNotification(notification, { actor, board }));
   }
+  return recipients;
 }

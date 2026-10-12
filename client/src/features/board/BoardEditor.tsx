@@ -643,6 +643,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
             loginHref={`/login?next=${encodeURIComponent(location.pathname + location.search)}`}
             commenting={canComment ? tool === "comment" : undefined}
             onToggleComment={() => changeTool(tool === "comment" ? "hand" : "comment")}
+            onRequestEdit={user && !local ? () => api.requestAccess(board.id) : undefined}
           />
         ) : (
           <Toolbar
