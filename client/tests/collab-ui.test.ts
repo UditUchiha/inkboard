@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { describeElement } from "../src/features/board/elementLabels.ts";
+import { embedCode } from "../src/features/board/embed.ts";
 import { activeMentions, findMentions, isComposing, splitMentions } from "../src/features/board/mentions.ts";
 import { focusAfterClose } from "../src/features/board/popoverFocus.ts";
 import { titleToSave } from "../src/features/board/titleEdit.ts";
@@ -248,5 +249,13 @@ describe("focus after a comment popover closes", () => {
       null,
     );
     assert.equal(focusAfterClose(popover, "field" as unknown as HTMLElement, null), null);
+  });
+});
+
+describe("the embed code", () => {
+  it("frames the board's embed page, with its title made safe for the attribute", () => {
+    const code = embedCode("https://ink.example", { id: "b1", title: `Plan "A" <draft> & more` });
+    assert.match(code, /^<iframe src="https:\/\/ink\.example\/embed\/b1" /);
+    assert.match(code, /title="Plan &quot;A&quot; &lt;draft&gt; &amp; more"/);
   });
 });

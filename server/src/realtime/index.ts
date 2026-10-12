@@ -115,6 +115,8 @@ export interface SocketData {
   legacy?: boolean;
   // Whether they are presenting the board's frames, which the others are shown (see broadcastPresence).
   presenting?: boolean;
+  // Whether it's an embed on another site: it only ever views, and the others aren't shown it (see broadcastPresence).
+  embed?: boolean;
   // What the socket holds of a group sent in several pieces, and the timer that lets go of it (see holdGroup).
   heldGroup?: HeldGroup | ExpiredGroup | null;
   heldTimer?: ReturnType<typeof setTimeout> | null;
@@ -345,6 +347,10 @@ function personOf(socket: Pick<RealtimeSocket, "data">): Participant {
 }
 
 const finite = (value: unknown) => Number.isFinite(Number(value));
+
+// An embed views whatever the person could do on the board, even on an edit link.
+const roleFor = (socket: Pick<RealtimeSocket, "data">, role: Role | null): Role | null =>
+  role && socket.data.embed ? "viewer" : role;
 
 // The small copy sent with an image for thumbnails, or null. It's optional:
 // without one, thumbnails show the image itself, so a bad one is just dropped.
@@ -738,7 +744,8 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     if (socket.data.boardId !== boardId) await leaveBoard(socket);
     // Before the socket is on the board: changes aren't queued behind a join, so one sent for this board
     // while the join still waits (below) would otherwise be checked against the role on the board it left.
-    socket.data.role = roleOf(board, userId, pass);
+    socket.data.embed = payload?.embed === true;
+    socket.data.role = roleFor(socket, roleOf(board, userId, pass));
     socket.data.pass = pass;
     // Browsers still running an older version of the app merge changes by older rules (see prepareOperation).
     socket.data.legacy = payload?.sync !== SYNC_FORMAT;
@@ -746,7 +753,7 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     const session = await enterBoard(socket, boardId, requestedId);
     await openOwner(session); // looked up now, so it's known by the time they draw
     watchLinkExpiry(board);
-    if (userId) recordOpen(userId, boardId);
+    if (userId && !socket.data.embed) recordOpen(userId, boardId); // a board seen on another site isn't "opened"
     // Someone who gave the password as a guest and has logged in since: from now on they don't need the pass.
     if (userId && board.linkKey && !isMemberRole(socket.data.role)) await rememberUnlock(board, userId);
 
@@ -810,7 +817,9 @@ async function broadcastPresence(boardId: string) {
   // The board's id comes second, so browsers on an older app, which expect just the list, still read it.
   io.to(boardId).emit(
     "presence",
-    sockets.map((s) => ({ socketId: s.id, ...personOf(s), ...(s.data.presenting && { presenting: true }) })),
+    sockets
+      .filter((s) => !s.data.embed)
+      .map((s) => ({ socketId: s.id, ...personOf(s), ...(s.data.presenting && { presenting: true }) })),
     { boardId },
   );
 }
@@ -843,7 +852,7 @@ export async function syncAccess(board: BoardDetails) {
   let dropped = false;
   for (const socket of socketsIn(board.id)) {
     const userId = socket.data.user?.id ?? null;
-    const role = roleOf(board, userId, socket.data.pass);
+    const role = roleFor(socket, roleOf(board, userId, socket.data.pass));
     if (!role) {
       // Said when it's the link's password or expiry, so the person can give the password or knows why.
       const locked = (board.linkAccess !== "restricted" && linkLock(board, userId, socket.data.pass)) || undefined;
