@@ -4,12 +4,13 @@ import { getSceneBounds } from "./elements";
 import { downloadBlob, pictureDataUrls, safeFileName } from "./files";
 import { ExportError, MIN_SCALE, exportScale } from "./exportSize";
 import { loadImagesOf, releaseImages } from "./images";
+import { elementsToMermaid } from "./mermaid";
 import { loadCanvasFonts, renderScene } from "./renderer";
 import { buildSvg, fontsUsed } from "./svgExport";
 import { fontFacesFor, measureBaselines } from "./svgFonts";
 
-// Exporting a board: as a picture (PNG), as vectors (SVG), or as a board file
-// (JSON) that can be imported again. Each resolves to false when the board is empty.
+// Exporting a board: as a picture (PNG), as vectors (SVG), as a board file
+// (JSON) that can be imported again, or its diagram as a Mermaid flowchart. Each resolves to false when the board is empty.
 
 export async function exportBoardAsPng(elements: BoardElement[], fileName: string): Promise<boolean> {
   const bounds = getSceneBounds(elements);
@@ -60,5 +61,14 @@ export async function exportBoardAsJson(elements: BoardElement[], title: string)
     new Blob([JSON.stringify(file)], { type: "application/json" }),
     `${safeFileName(title)}${BOARD_FILE_EXTENSION}`,
   );
+  return true;
+}
+
+/** Downloads the board's diagram as a Mermaid flowchart (see mermaid.ts). Throws an ExportError when it has none. */
+export async function exportBoardAsMermaid(elements: BoardElement[], title: string): Promise<boolean> {
+  if (elements.length === 0) return false;
+  const text = elementsToMermaid(elements);
+  if (!text) throw new ExportError("There's no diagram to export: Mermaid needs shapes or sticky notes.");
+  downloadBlob(new Blob([text], { type: "text/plain" }), `${safeFileName(title)}.mmd`);
   return true;
 }

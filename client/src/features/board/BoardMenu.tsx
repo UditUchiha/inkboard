@@ -8,6 +8,7 @@ import {
   FileCode2,
   FileJson,
   FileUp,
+  Workflow,
   History,
   Keyboard,
   LayoutGrid,
@@ -26,7 +27,7 @@ import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../../components/Menu"
 import type { Person } from "../../lib/api";
 import { useTheme } from "../../providers/ThemeProvider";
 import type { ThemePreference } from "../../providers/ThemeProvider";
-import { exportBoardAsJson, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
+import { exportBoardAsJson, exportBoardAsMermaid, exportBoardAsPng, exportBoardAsSvg } from "./exportImage";
 
 /** Exports a board's elements under a name, resolving to false when there is nothing to export (see exportImage). */
 export type Exporter = (elements: BoardElement[], name: string) => Promise<boolean>;
@@ -50,6 +51,7 @@ export type BoardMenuProps = {
   onPresent: () => void;
   onExport: (exporter: Exporter) => void;
   onImportFile: () => void;
+  onImportMermaid: () => void;
   onCopy: () => void;
   onHistory: () => void;
   onTemplate: () => void;
@@ -76,6 +78,7 @@ export function BoardMenu({
   onPresent,
   onExport,
   onImportFile,
+  onImportMermaid,
   onCopy,
   onHistory,
   onTemplate,
@@ -102,10 +105,18 @@ export function BoardMenu({
       <MenuItem icon={FileJson} onSelect={() => onExport(exportBoardAsJson)}>
         Export board file
       </MenuItem>
+      <MenuItem icon={Workflow} onSelect={() => onExport(exportBoardAsMermaid)}>
+        Export as Mermaid
+      </MenuItem>
       {!readOnly && (
-        <MenuItem icon={FileUp} onSelect={onImportFile}>
-          Import board file…
-        </MenuItem>
+        <>
+          <MenuItem icon={FileUp} onSelect={onImportFile}>
+            Import board file…
+          </MenuItem>
+          <MenuItem icon={Workflow} onSelect={onImportMermaid}>
+            Import Mermaid…
+          </MenuItem>
+        </>
       )}
       <MenuSeparator />
       <MenuItem

@@ -32,10 +32,10 @@ import type { ToolId } from "./constants";
 import { copyGroup, drawnElement, isConnector, moveGroup } from "./connectors";
 import { ElementList } from "./ElementList";
 import { describeElement } from "./elementLabels";
-import { getBounds, getSceneBounds, isFrame, slideFrames, stackKey, withContents } from "./elements";
+import { getBounds, getSceneBounds, isFrame, slideFrames, stackKey, translate, withContents } from "./elements";
 import type { Connector } from "./elements";
 import { ExportError } from "./exportSize";
-import { fitViewport, rectContains, unionRects, zoomAround } from "./geometry";
+import { fitViewport, rectContains, rectsOverlap, unionRects, zoomAround } from "./geometry";
 import type { Rect, Viewport, XY } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
 import { copyOffset, viewToReveal } from "./placement";
@@ -55,6 +55,7 @@ import type { BoardStore } from "./store";
 import { suggestionMarks } from "./suggestions";
 import type { OwnSuggestions, SuggestionGroup } from "./suggestions";
 import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } from "./SuggestionsPanel";
+import { MermaidImportDialog } from "./MermaidImportDialog";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
 import { useBoardShortcuts } from "./useBoardShortcuts";
@@ -72,6 +73,7 @@ import { ViewControls } from "./ViewControls";
 const MemoBoardCanvas = memo(BoardCanvas);
 
 const FRAME_COPY_GAP = 80;
+const MERMAID_GAP = 120; // between an imported diagram and what was on the board
 
 // The elements that carry text, which are the ones edited in place.
 type TextBearing = TextElement | StickyElement | Connector;
@@ -119,7 +121,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [editing, setEditing] = useState<TextEdit | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [dialog, setDialog] = useState<"share" | "shortcuts" | "clear" | "template" | "ai" | null>(null);
+  const [dialog, setDialog] = useState<"share" | "shortcuts" | "clear" | "template" | "ai" | "mermaid" | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showComments, setShowComments] = useState(true);
   const [activeThread, setActiveThread] = useState<string | null>(null);
@@ -515,8 +517,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     height: canvasSize.height / viewport.zoom,
   });
 
-  // What Claude drew (see AiDrawDialog): one undo step, brought into view if it isn't all on screen already.
-  function addAiDrawing(drawn: BoardElement[], skipped: number) {
+  // Elements made all at once (drawn by Claude, imported from Mermaid): one undo step, brought into view if they
+  // aren't all on screen already, and a message to undo them by.
+  function addDrawing(drawn: BoardElement[], message: string) {
     const before = drawn.flatMap((element) => store.getElement(element.id) ?? []);
     const added = drawn.filter((element) => !store.getElement(element.id)).map((element) => element.id);
     store.commit({ undo: { upsert: before, remove: added }, redo: { upsert: drawn } });
@@ -526,12 +529,26 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     if (bounds && !(inView(bounds.x, bounds.y) && inView(bounds.x + bounds.width, bounds.y + bounds.height))) {
       changeViewport(fitViewport(bounds, canvasSize, { padding: 96, maxZoom: viewport.zoom }));
     }
-    const count = drawn.length;
-    toastWithUndo(
-      `Claude drew ${count} ${count === 1 ? "element" : "elements"}` +
-        (skipped > 0 ? `; ${skipped} couldn't be drawn` : ""),
-    );
+    toastWithUndo(message);
   }
+  const counted = (count: number) => `${count} ${count === 1 ? "element" : "elements"}`;
+  const addAiDrawing = (drawn: BoardElement[], skipped: number) =>
+    addDrawing(drawn, `Claude drew ${counted(drawn.length)}${skipped > 0 ? `; ${skipped} couldn't be drawn` : ""}`);
+  // An imported diagram goes in the middle of the screen, or beside everything on the board if it would cover something.
+  const addMermaid = (diagram: BoardElement[], skipped: number) => {
+    const area = unionRects(diagram.map(getBounds))!;
+    const board = store.getElements();
+    const covers = board.some((element) => rectsOverlap(getBounds(element), area));
+    const scene = getSceneBounds(board);
+    const drawn =
+      covers && scene
+        ? diagram.map((element) => translate(element, scene.x + scene.width + MERMAID_GAP - area.x, 0))
+        : diagram;
+    addDrawing(
+      drawn,
+      `Imported ${counted(drawn.length)}${skipped > 0 ? `; ${skipped} ${skipped === 1 ? "line" : "lines"} of it couldn't be read` : ""}`,
+    );
+  };
 
   function clearBoard() {
     const all = store.getElements();
@@ -789,6 +806,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                 onReplay={() => setReplayOpen(true)}
                 onExport={exportAs}
                 onImportFile={() => boardFileInput.current?.click()}
+                onImportMermaid={() => setDialog("mermaid")}
                 onCopy={makeCopy}
                 onHistory={() => {
                   setSuggestionsOpen(false);
@@ -887,6 +905,17 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
 
       {replayOpen && !local && <ReplayPlayer title={board.title} load={sync.loadReplay} onClose={closeReplay} />}
 
+      {!readOnly && (
+        <MermaidImportDialog
+          open={dialog === "mermaid"}
+          onClose={() => setDialog(null)}
+          getCentre={() => {
+            const view = visibleArea();
+            return { x: view.x + view.width / 2, y: view.y + view.height / 2 };
+          }}
+          onImported={addMermaid}
+        />
+      )}
       {!readOnly && (
         <AiDrawDialog
           open={dialog === "ai"}
