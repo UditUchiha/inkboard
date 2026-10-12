@@ -215,12 +215,23 @@ type ShareDialogProps = {
   role: Role;
   // Who is looking, or null for a guest.
   currentUser: Person | null;
+  // Filled into the invite field when the dialog opens (from a request for access).
+  initialEmail?: string;
   onBoardChange: (updated: BoardMeta) => void;
   // Called once the person has left the board.
   onLeft: () => void;
 };
 
-export function ShareDialog({ open, onClose, board, role, currentUser, onBoardChange, onLeft }: ShareDialogProps) {
+export function ShareDialog({
+  open,
+  onClose,
+  board,
+  role,
+  currentUser,
+  initialEmail = "",
+  onBoardChange,
+  onLeft,
+}: ShareDialogProps) {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [inviting, setInviting] = useState(false);
@@ -232,10 +243,10 @@ export function ShareDialog({ open, onClose, board, role, currentUser, onBoardCh
   // Start fresh each time the dialog opens.
   useEffect(() => {
     if (!open) return;
-    setEmail("");
+    setEmail(initialEmail);
     setError("");
     setConfirmingId(null);
-  }, [open]);
+  }, [open, initialEmail]);
 
   const isOwner = role === "owner";
   const isViewer = role !== "owner" && role !== "editor"; // viewers and edit-link contributors

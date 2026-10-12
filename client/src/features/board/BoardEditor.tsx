@@ -126,6 +126,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   useEffect(() => {
     if (linkedSuggestions) setSuggestionsOpen(true);
   }, [linkedSuggestions, location.key]);
+  // A request for access links its owner to ?invite=<email>, which opens the Share dialog with the address filled in.
+  const linkedInvite = new URLSearchParams(location.search).get("invite");
+  useEffect(() => {
+    if (linkedInvite !== null && role === "owner") setDialog("share");
+  }, [linkedInvite, role, location.key]);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
@@ -789,6 +794,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           board={board}
           role={role}
           currentUser={user}
+          initialEmail={linkedInvite ?? ""}
           onBoardChange={(updated) => setMeta((current) => ({ ...current, ...updated }))}
           onLeft={() => {
             toast(`You left “${board.title}”`);

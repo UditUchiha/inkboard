@@ -22,9 +22,11 @@ const NotificationsContext = createContext<NotificationsValue | null>(null);
 
 // A notification about a comment opens it, and one about suggestions opens those. A board in the trash can't be
 // opened, so being told about one leads to the dashboard.
-export function notificationLink(notification: Pick<NotificationItem, "board" | "thread" | "type">) {
+export function notificationLink(notification: Pick<NotificationItem, "board" | "thread" | "type" | "excerpt">) {
   if (notification.type === "trashed") return "/boards";
   const board = `/board/${notification.board.id}`;
+  // A request for access opens the Share dialog with the email address of the person asking filled in.
+  if (notification.type === "access") return `${board}?invite=${encodeURIComponent(notification.excerpt ?? "")}`;
   if (notification.thread) return `${board}?thread=${notification.thread}`;
   return notification.type === "suggestion" ? `${board}?suggestions` : board;
 }
@@ -34,10 +36,11 @@ export function describeNotification({ type, actor, board }: Pick<NotificationIt
   if (type === "reply") return `${actor.name} replied to a comment on “${board.title}”`;
   if (type === "suggestion") return `${actor.name} suggested changes to “${board.title}”`;
   if (type === "trashed") return `${actor.name} moved “${board.title}” to the trash`;
+  if (type === "access") return `${actor.name} asked for access to “${board.title}”`;
   return `${actor.name} invited you to “${board.title}”`;
 }
 
-/** Mentions, replies, invites, suggestions and trashed boards for the signed-in person, live over the socket. */
+/** Mentions, replies, invites, suggestions, trashed boards and requests for access for the signed-in person, live over the socket. */
 type NotificationsProviderProps = { children: ReactNode };
 
 export function NotificationsProvider({ children }: NotificationsProviderProps) {

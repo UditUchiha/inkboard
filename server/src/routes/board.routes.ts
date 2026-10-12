@@ -15,6 +15,7 @@ import {
   purgeBoard,
   removeCollaborator,
   renameBoard,
+  requestAccess,
   restoreBoard,
   setLinkAccess,
   starBoard,
@@ -34,6 +35,13 @@ const inviting = limitPerUser({
   windowMs: 10 * 60 * 1000,
   limit: 20,
   message: "You've sent a lot of invites. Wait a few minutes and try again.",
+});
+
+// Each request notifies a board's owner, so they are rationed.
+const askingForAccess = limitPerUser({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  message: "You've asked for access a lot. Wait a few minutes and try again.",
 });
 
 // Guessing at a link's password: a few wrong tries per network address and board, then a wait.
@@ -72,6 +80,7 @@ router.post("/:boardId/restore", restoreBoard);
 router.delete("/:boardId/permanent", purgeBoard);
 router.delete("/:boardId/state", forgetBoard);
 router.post("/:boardId/collaborators", inviting, addCollaborator);
+router.post("/:boardId/access-requests", askingForAccess, requestAccess);
 router.delete("/:boardId/collaborators/:userId", removeCollaborator);
 
 export default router;

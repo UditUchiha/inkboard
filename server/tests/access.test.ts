@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import type { BoardReply } from "@inkboard/shared/api";
+import type { BoardReply, NotificationPage } from "@inkboard/shared/api";
 import type { Peer } from "@inkboard/shared/socket";
 import { Board } from "../src/models/board.model.ts";
 import { Notification } from "../src/models/notification.model.ts";
@@ -8,6 +8,9 @@ import { Template } from "../src/models/template.model.ts";
 import { findBoardForMember } from "../src/services/boards.ts";
 import { eventually, rect, roundTrip, startServer, upsert } from "./helpers.ts";
 import type { ServerInstance, TestUser } from "./helpers.ts";
+
+// After the helpers, which set the environment it reads.
+const { env } = await import("../src/config/env.ts");
 
 let app: ServerInstance;
 before(async () => {
@@ -457,5 +460,68 @@ describe("invites", () => {
     await invite(owner, boardId, b);
     const result = await app.request(`/boards/${boardId}/collaborators/${b.id}`, { method: "DELETE", user: a });
     assert.equal(result.status, 403);
+  });
+});
+
+describe("asking for access", () => {
+  const ask = (user: TestUser, boardId: string) =>
+    app.request<{ error?: string }>(`/boards/${boardId}/access-requests`, { method: "POST", user });
+  const notificationsOf = async (user: TestUser) =>
+    (await app.request<NotificationPage>("/notifications", { user })).data.notifications;
+
+  it("tells the owner, once while unread, with the address to invite", async () => {
+    const owner = await app.signUp("Owner");
+    const stranger = await app.signUp("Stranger");
+    const boardId = await app.createBoard(owner, "Plans");
+
+    assert.equal((await ask(stranger, boardId)).status, 204);
+    assert.equal((await ask(stranger, boardId)).status, 204);
+    const [request, ...rest] = await notificationsOf(owner);
+    assert.equal(rest.length, 0, "a second request while the first is unread isn't sent");
+    assert.equal(request!.type, "access");
+    assert.equal(request!.actor.id, stranger.id);
+    assert.equal(request!.board.title, "Plans");
+    assert.equal(request!.excerpt, stranger.email);
+
+    // Inviting from it lets them in.
+    assert.equal((await invite(owner, boardId, stranger)).status, 201);
+    assert.equal((await (await app.connect(stranger)).join(boardId)).ok, true);
+  });
+
+  it("is refused for members, guests and boards that aren't there", async () => {
+    const owner = await app.signUp("Owner");
+    const editor = await app.signUp("Editor");
+    const boardId = await app.createBoard(owner);
+    await invite(owner, boardId, editor);
+
+    assert.equal((await ask(owner, boardId)).status, 409);
+    assert.equal((await ask(editor, boardId)).status, 409);
+    assert.equal((await app.request(`/boards/${boardId}/access-requests`, { method: "POST" })).status, 401);
+    assert.equal((await ask(editor, "0123456789abcdef01234567")).status, 404);
+    await app.request(`/boards/${boardId}`, { method: "DELETE", user: owner });
+    assert.equal((await ask(await app.signUp("Late"), boardId)).status, 404);
+    assert.equal((await notificationsOf(owner)).length, 0);
+  });
+
+  it("is open to someone who can only view it by its link", async () => {
+    const owner = await app.signUp("Owner");
+    const viewer = await app.signUp("Viewer");
+    const boardId = await app.createBoard(owner);
+    await setLink(owner, boardId, "view");
+    assert.equal((await ask(viewer, boardId)).status, 204);
+  });
+
+  it("needs a confirmed address once email is set up, since the owner couldn't invite one that isn't", async () => {
+    const saved = { ...env.email };
+    Object.assign(env.email, { brevoApiKey: "test-key", from: "inkboard@example.test" });
+    try {
+      const owner = await app.signUp("Owner");
+      const boardId = await app.createBoard(owner);
+      const { status, data } = await ask(await app.signUp("Unconfirmed", { verified: false }), boardId);
+      assert.equal(status, 409);
+      assert.match(data.error!, /Confirm your email/);
+    } finally {
+      Object.assign(env.email, saved);
+    }
   });
 });
