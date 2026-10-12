@@ -52,6 +52,8 @@ export const FIELD_GROUPS: Record<FieldGroup, readonly string[]> = {
     "type",
     "seed",
     "imageId",
+    // Cropping a picture moves its box too, so the two change together.
+    "crop",
     "x1",
     "y1",
     "x2",
@@ -65,7 +67,8 @@ export const FIELD_GROUPS: Record<FieldGroup, readonly string[]> = {
     "angle",
     "fontSize",
   ],
-  text: ["text"],
+  // A picture's description is its text.
+  text: ["text", "alt"],
   stroke: ["stroke"],
   fill: ["fill"],
   strokeWidth: ["strokeWidth"],

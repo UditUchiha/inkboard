@@ -107,6 +107,19 @@ describe("SVG export", () => {
     assert.match(buildSvg([picture])!, /stroke-dasharray/);
   });
 
+  it("shows only a cropped picture's part, and says what a picture shows", () => {
+    const images = new Map([[picture.imageId, "data:image/png;base64,AAAA"]]);
+    const cropped = { ...picture, crop: { x: 0.25, y: 0, w: 1 / 3, h: 1 }, alt: "A cat & a dog" };
+    assert.match(
+      buildSvg([cropped], { images })!,
+      /<svg x="200" y="0" width="100" height="80" viewBox="0.25 0 0.33333 1" preserveAspectRatio="none"><title>A cat &amp; a dog<\/title><image width="1" height="1" preserveAspectRatio="none" xlink:href="data:image\/png;base64,AAAA"\/><\/svg>/,
+    );
+    assert.match(
+      buildSvg([{ ...picture, alt: "Sky" }], { images })!,
+      /xlink:href="data:image\/png;base64,AAAA"><title>Sky<\/title><\/image>/,
+    );
+  });
+
   it("draws a connector's route, broken around its label, and the label", () => {
     const arrow: ShapeElement = {
       id: "a",

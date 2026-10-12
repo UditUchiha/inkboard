@@ -17,10 +17,10 @@ const TYPE_NAMES: Record<ElementType, string> = {
 
 const MAX_TEXT = 60;
 
-/** "Sticky note: Buy milk", "Rectangle", "Frame: Sprint 4". */
+/** "Sticky note: Buy milk", "Rectangle", "Frame: Sprint 4", "Picture: A cat asleep" (from its alt text). */
 export function describeElement(element: AnyElement): string {
   const name = TYPE_NAMES[element.type] ?? "Element";
-  const raw = element.type === "frame" ? element.name : element.text;
+  const raw = element.type === "frame" ? element.name : element.type === "image" ? element.alt : element.text;
   const text = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim() : "";
   if (!text) return name;
   return `${name}: ${text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 1)}…` : text}`;

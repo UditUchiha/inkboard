@@ -4,6 +4,7 @@ import {
   cleanElement,
   COORDINATE_LIMIT,
   cutText,
+  MAX_ALT_LENGTH,
   MAX_FRAME_NAME_LENGTH,
   MAX_STROKE_POINTS,
   MAX_TEXT_LENGTH,
@@ -128,6 +129,35 @@ describe("element rules", () => {
       frame({ x2: undefined }),
     ];
     for (const element of broken) assert.equal(cleanElement(element), null, JSON.stringify(element));
+  });
+
+  it("keeps a picture's crop if it is inside the picture, and its description, cut to length", () => {
+    const crop = { x: 0.25, y: 0, w: 0.5, h: 1 };
+    assert.deepEqual(cleanElement(picture({ crop, alt: "A cat" })), picture({ crop, alt: "A cat" }));
+    // An empty description is kept: it's how one is cleared.
+    assert.equal((cleanElement(picture({ alt: "" })) as { alt?: string }).alt, "");
+    assert.equal(
+      (cleanElement(picture({ alt: "x".repeat(MAX_ALT_LENGTH + 5) })) as { alt: string }).alt.length,
+      MAX_ALT_LENGTH,
+    );
+    // Rounding just past the edge is trimmed; anything else that isn't a crop shows the whole picture.
+    assert.deepEqual((cleanElement(picture({ crop: { x: 0.5, y: 0, w: 0.5000001, h: 1 } })) as { crop: object }).crop, {
+      x: 0.5,
+      y: 0,
+      w: 0.5,
+      h: 1,
+    });
+    for (const bad of [
+      { x: 0.6, y: 0, w: 0.5, h: 1 },
+      { x: -0.1, y: 0, w: 0.5, h: 1 },
+      { x: 0, y: 0, w: 0, h: 1 },
+      { x: "0", y: 0, w: 1, h: 1 },
+      [0, 0, 1, 1],
+      "all",
+    ]) {
+      assert.equal("crop" in cleanElement(picture({ crop: bad }))!, false, JSON.stringify(bad));
+    }
+    assert.equal("alt" in cleanElement(picture({ alt: 42 }))!, false);
   });
 
   it("keeps the shapes a connector is attached to, and drops attachments that can't be", () => {

@@ -109,7 +109,8 @@ export function simplifyPoints<Pt extends readonly number[]>(points: Pt[], toler
 
 // What a thumbnail needs of any element: no sync stamps, and no more text than it could show.
 function slim(element: Fields): Fields {
-  const { version: _version, versionNonce: _versionNonce, stamps: _stamps, ...kept } = element;
+  // A thumbnail shows no picture's description.
+  const { version: _version, versionNonce: _versionNonce, stamps: _stamps, alt: _alt, ...kept } = element;
   if (typeof kept.text === "string" && kept.text.length > PREVIEW_TEXT_LENGTH) {
     kept.text = kept.text.slice(0, PREVIEW_TEXT_LENGTH);
   }

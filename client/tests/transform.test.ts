@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
-import type { Element, PenElement, Point, ShapeElement, TextElement } from "@inkboard/shared/types";
+import type { Element, ImageElement, PenElement, Point, ShapeElement, TextElement } from "@inkboard/shared/types";
 
 // Text is measured with a canvas, which Node doesn't have. This stand-in makes each character half
 // as wide as the font is tall, so text scales with its font size as it does in a browser.
@@ -13,7 +13,7 @@ before(() => {
 });
 
 const { getBounds, getFrame, hitTest } = await import("../src/features/board/elements.ts");
-const { cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } =
+const { cropImage, cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } =
   await import("../src/features/board/transform.ts");
 const {
   DRAG_THRESHOLD,
@@ -182,6 +182,52 @@ describe("selection handles", () => {
       "an east handle on a quarter-turned box pulls vertically",
     );
     assert.equal(cursorForHandle("rotate"), "grab");
+  });
+});
+
+describe("cropping a picture", () => {
+  const picture = (overrides: Partial<ImageElement> = {}): ImageElement => ({
+    id: "p",
+    type: "image",
+    imageId: "a".repeat(32),
+    x1: 0,
+    y1: 0,
+    x2: 200,
+    y2: 100,
+    ...overrides,
+  });
+
+  it("shows less of it from the side dragged, at the same scale and in any proportions", () => {
+    const right = cropImage(picture(), "e", { x: 100, y: 0 });
+    assert.deepEqual(box(right), { x1: 0, y1: 0, x2: 100, y2: 100 });
+    assert.deepEqual(right.crop, { x: 0, y: 0, w: 0.5, h: 1 });
+
+    const corner = cropImage(picture(), "nw", { x: 50, y: 50 });
+    assert.deepEqual(box(corner), { x1: 50, y1: 50, x2: 200, y2: 100 });
+    assert.deepEqual(corner.crop, { x: 0.25, y: 0.5, w: 0.75, h: 0.5 });
+  });
+
+  it("shows more of a cropped picture again, but never past its edges", () => {
+    // The middle half across, shown 100 wide: the whole picture is 200 wide, from 0.
+    const cropped = picture({ x1: 50, x2: 150, crop: { x: 0.25, y: 0, w: 0.5, h: 1 } });
+    const wider = cropImage(cropped, "w", { x: 25, y: 0 });
+    assert.deepEqual(box(wider), { x1: 25, y1: 0, x2: 150, y2: 100 });
+    near(wider.crop!.x, 0.125, "x");
+    near(wider.crop!.w, 0.625, "width");
+
+    const pastEdge = cropImage(cropped, "w", { x: -999, y: 0 });
+    assert.deepEqual(box(pastEdge), { x1: 0, y1: 0, x2: 150, y2: 100 });
+    assert.deepEqual(pastEdge.crop, { x: 0, y: 0, w: 0.75, h: 1 });
+  });
+
+  it("keeps the opposite side in place when the picture is turned", () => {
+    const turned = picture({ angle: Math.PI / 2 });
+    const before = getFrame(turned);
+    const cropped = cropImage(turned, "e", { x: before.cx, y: before.cy });
+    // Turned a quarter, its right side points down: the left (now top) side stays at y = -50.
+    const after = getFrame(cropped);
+    near(after.cy - after.width / 2, before.cy - before.width / 2, "top");
+    assert.deepEqual(cropped.crop, { x: 0, y: 0, w: 0.5, h: 1 });
   });
 });
 

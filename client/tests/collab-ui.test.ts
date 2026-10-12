@@ -196,6 +196,11 @@ describe("element labels for the keyboard list", () => {
     );
     assert.equal(describeElement({ type: "frame", name: "Sprint 4" } as unknown as Element), "Frame: Sprint 4");
     assert.equal(describeElement({ type: "arrow", text: "yes" } as unknown as Element), "Arrow: yes");
+    assert.equal(
+      describeElement({ type: "image", alt: "A cat asleep" } as unknown as Element),
+      "Picture: A cat asleep",
+    );
+    assert.equal(describeElement({ type: "image" } as unknown as Element), "Picture");
     assert.equal(describeElement({ type: "mystery" } as unknown as Element), "Element");
   });
 
