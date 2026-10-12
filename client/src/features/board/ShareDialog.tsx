@@ -68,7 +68,7 @@ const formatWhen = (date: Date) => date.toLocaleString(undefined, { dateStyle: "
 
 type LinkLockSettingsProps = { board: BoardMeta; onBoardChange: (updated: BoardMeta) => void };
 
-/** The owner's protection for a shared link: a password it asks for, and when it stops working. */
+/** The owner's settings for a shared link: a password it asks for, when it stops working, and the replay. */
 function LinkLockSettings({ board, onBoardChange }: LinkLockSettingsProps) {
   const [editing, setEditing] = useState(false);
   const [password, setPassword] = useState("");
@@ -204,6 +204,25 @@ function LinkLockSettings({ board, onBoardChange }: LinkLockSettingsProps) {
               : `Stops working ${formatWhen(expiresAt)}. People you invite keep access.`}
         </p>
       </div>
+
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={board.linkReplay}
+          disabled={saving}
+          onChange={(event) =>
+            save(
+              { linkReplay: event.target.checked },
+              event.target.checked ? "People with the link can watch the replay" : "Only members can watch the replay",
+            )
+          }
+          className="mt-0.5 size-4 accent-signal"
+        />
+        <span>
+          <span className="font-medium">People with the link can watch the replay</span>
+          <span className="block text-graphite">It shows how the board was built, including what was removed.</span>
+        </span>
+      </label>
     </div>
   );
 }

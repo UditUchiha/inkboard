@@ -42,6 +42,7 @@ import { PresenceStack } from "./PresenceStack";
 import { PropertiesPanel } from "./PropertiesPanel";
 import type { StyleChange } from "./PropertiesPanel";
 import { RemoteCursors } from "./RemoteCursors";
+import { ReplayPlayer } from "./ReplayPlayer";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
@@ -132,6 +133,18 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   useEffect(() => {
     if (linkedInvite !== null && role === "owner") setDialog("share");
   }, [linkedInvite, role, location.key]);
+  // The board's replay, for members and (when its owner lets them) link visitors. Its link is the board's with
+  // ?replay, which opens it.
+  const canReplay = !local && (isMember || board.linkReplay);
+  const linkedReplay = new URLSearchParams(location.search).has("replay");
+  const [replayOpen, setReplayOpen] = useState(false);
+  useEffect(() => {
+    if (linkedReplay) setReplayOpen(true);
+  }, [linkedReplay, location.key]);
+  const closeReplay = () => {
+    setReplayOpen(false);
+    if (linkedReplay) navigate(location.pathname, { replace: true }); // so coming back doesn't open it again
+  };
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
@@ -701,6 +714,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           commentsEnabled={commentsEnabled}
           showComments={showComments}
           isEmpty={elements.length === 0}
+          canReplay={canReplay}
+          onReplay={() => setReplayOpen(true)}
           onExport={exportAs}
           onImportFile={() => boardFileInput.current?.click()}
           onCopy={makeCopy}
@@ -731,6 +746,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         </div>
       )}
 
+      {replayOpen && !local && <ReplayPlayer title={board.title} load={sync.loadReplay} onClose={closeReplay} />}
       {historyOpen && isMember && <VersionHistory boardId={board.id} onClose={() => setHistoryOpen(false)} />}
       {suggestionsOpen && (
         <SuggestionsPanel

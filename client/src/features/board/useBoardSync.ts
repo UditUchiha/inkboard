@@ -6,6 +6,7 @@ import type {
   OpMessage,
   OpReply,
   Peer,
+  ReplayReply,
   ResetMessage,
   RevokedMessage,
   RoleMessage,
@@ -505,6 +506,16 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     [socket],
   );
 
+  // The board's replay (see replay.ts), for members and, when the owner lets them, people who came by the link.
+  const loadReplay = useCallback(
+    (): Promise<ReplayReply> =>
+      new Promise((resolve) => {
+        if (!socket || !joined.current) resolve({ ok: false, error: "You're offline. Try again once you're back." });
+        else socket.emit("board:replay", { boardId }, resolve);
+      }),
+    [socket, boardId],
+  );
+
   // A member's decision on suggestions. They go from this screen at once; accepting one is the member's own
   // change to the board, made before this (see acceptance in suggestions.ts).
   const resolveSuggestions = useCallback(
@@ -558,6 +569,7 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     saving,
     sendCursor,
     sendViewport,
+    loadReplay,
     subscribeViewport,
     requestViewport,
     socket,

@@ -203,8 +203,9 @@ export const api = {
   forgetBoard: (id: string) => request<void>(`/boards/${id}/state`, { method: "DELETE" }),
   setLinkAccess: (id: string, linkAccess: LinkAccess) =>
     request<Wire<shared.BoardMetaReply>>(`/boards/${id}/link-access`, { method: "PATCH", body: { linkAccess } }),
-  // A password the link asks for (null for none), and when the link expires (an ISO time, or null for never).
-  setLinkLock: (id: string, lock: { password?: string | null; expiresAt?: string | null }) =>
+  // A password the link asks for (null for none), when the link expires (an ISO time, or null for never), and
+  // whether people who come by it can watch the board's replay.
+  setLinkLock: (id: string, lock: { password?: string | null; expiresAt?: string | null; linkReplay?: boolean }) =>
     request<Wire<shared.BoardMetaReply>>(`/boards/${id}/link-access`, { method: "PATCH", body: lock }),
   // Gives the password a board's link asks for; answers with the pass that opens it (see lib/linkPasses.ts).
   unlockBoard: (id: string, password: string) =>

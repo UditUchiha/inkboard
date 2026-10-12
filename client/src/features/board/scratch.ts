@@ -154,6 +154,7 @@ export function useScratchBoard() {
       linkAccess: "restricted",
       linkPassword: false,
       linkExpiresAt: null,
+      linkReplay: false,
       // Never shown for a scratch board; it was made, and last changed, in this browser.
       createdAt: CREATED_AT,
       updatedAt: CREATED_AT,
@@ -184,6 +185,7 @@ export function useScratchBoard() {
       unsaved,
       sendCursor: NOOP,
       sendViewport: NOOP,
+      loadReplay: () => Promise.resolve({ ok: false as const, error: "A board in this browser has no replay." }),
       subscribeViewport: () => NOOP,
       requestViewport: NOOP,
       socket: null,

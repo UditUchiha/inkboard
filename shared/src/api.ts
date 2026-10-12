@@ -109,6 +109,8 @@ export interface BoardMeta {
   linkPassword: boolean;
   /** When the link stops opening the board, or null if it doesn't. */
   linkExpiresAt: Date | null;
+  /** Whether people who open the board by its link can watch its replay (members always can). */
+  linkReplay: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
