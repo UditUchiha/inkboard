@@ -601,6 +601,12 @@ describe("headers and files the server sends", () => {
     assert.ok(!images.includes("*") && !images.includes("https:"));
   });
 
+  it("lets the app reach Anthropic, for drawing with AI, and nothing else outside", async () => {
+    const csp = (await fetch(`${app.url}/health`)).headers.get("content-security-policy");
+    const connect = csp!.match(/connect-src ([^;]+)/)![1]!.split(" ");
+    assert.deepEqual(connect, ["'self'", "https://api.anthropic.com"]);
+  });
+
   it("stays up (200) while the database is away, and says so", async () => {
     Object.defineProperty(mongoose.connection, "readyState", { value: 0, configurable: true });
     try {
