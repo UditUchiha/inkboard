@@ -184,6 +184,7 @@ export function useScratchBoard() {
       unsaved,
       sendCursor: NOOP,
       sendViewport: NOOP,
+      present: NOOP,
       subscribeViewport: () => NOOP,
       requestViewport: NOOP,
       socket: null,

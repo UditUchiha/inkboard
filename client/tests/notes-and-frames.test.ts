@@ -13,6 +13,7 @@ import {
   getBounds,
   inDrawOrder,
   nextFrameName,
+  slideFrames,
   stackKey,
   translate,
   withContents,
@@ -323,6 +324,22 @@ describe("text measured before the web fonts load", () => {
       "connectors attached to the text start further out",
     );
     perCharacter = 10;
+  });
+});
+
+describe("presenting frames", () => {
+  it("goes row by row from the top, left to right, with slightly lower frames in the same row", () => {
+    const order = slideFrames([
+      frame("below", 0, 300, 100, 400),
+      frame("right", 200, 20, 300, 120), // starts lower than "left", but above its middle
+      box("not-a-frame", 0, 0),
+      frame("left", 0, 0, 100, 100),
+      frame("far-right", 400, 0, 500, 100),
+    ]);
+    assert.deepEqual(
+      order.map((item) => item.id),
+      ["left", "right", "far-right", "below"],
+    );
   });
 });
 
