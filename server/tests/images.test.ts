@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
+import type { ImageUsage } from "@inkboard/shared/api";
 import mongoose from "mongoose";
 import { eventually, rect, remove, startServer, upsert } from "./helpers.ts";
 import type { ServerInstance, TestUser } from "./helpers.ts";
@@ -195,6 +196,40 @@ describe("uploading images", () => {
       assert.equal(reply.full, "owner");
       assert.match(reply.error!, /Your boards are out of image space/);
     });
+  });
+
+  it("tells an owner how much image space their boards use, and which boards use it", async () => {
+    const { owner, boardId, client } = await ownerOnBoard();
+    const usage = () => app.request<ImageUsage>("/boards/image-usage", { user: owner });
+    assert.deepEqual((await usage()).data, {
+      used: 0,
+      limit: IMAGE_LIMITS.owner,
+      boardLimit: IMAGE_LIMITS.board,
+      unverified: false,
+      boards: [],
+    });
+
+    const second = await app.createBoard(owner, "Second");
+    await app.createBoard(owner, "No pictures");
+    ok(await client.image(boardId, png(1000), png(100)));
+    await client.join(second);
+    ok(await client.image(second, png(5000)));
+    // Someone else's pictures on a board of theirs don't count.
+    const other = await ownerOnBoard();
+    ok(await other.client.image(other.boardId, png(9000)));
+    await app.request(`/boards/${second}`, { method: "DELETE", user: owner });
+
+    const { data } = await usage();
+    const first = png(1000).length + png(100).length;
+    assert.equal(data.used, first + png(5000).length, "small copies count");
+    assert.deepEqual(
+      data.boards.map(({ title, bytes, trashed }) => [title, bytes, trashed]),
+      [
+        ["Second", png(5000).length, true],
+        ["A board", first, false],
+      ],
+    );
+    assert.equal((await app.request("/boards/image-usage")).status, 401);
   });
 
   it("gives an account whose email address nobody has confirmed a smaller share, once email is set up", async () => {

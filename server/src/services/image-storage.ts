@@ -152,6 +152,17 @@ export async function imageBytes({ boards }: Pick<ImageFilter, "boards"> = {}) {
   return total?.bytes ?? 0;
 }
 
+/** Bytes of images held by each of some boards (small copies included), by board id. Boards with none are left out. */
+export async function imageBytesByBoard(boards: readonly ObjectIdLike[]) {
+  const totals = await files()
+    .aggregate<{ _id: string; bytes: number }>([
+      { $match: matching({ boards }, { withSmall: true }) },
+      { $group: { _id: "$metadata.board", bytes: { $sum: "$length" } } },
+    ])
+    .toArray();
+  return new Map(totals.map((total) => [total._id, total.bytes]));
+}
+
 /** `[{ id, board }]` for images matching `{ boards, uploadedBefore }` (both optional). */
 export async function listImages(filter?: ImageFilter) {
   const found = await files()

@@ -163,6 +163,19 @@ export interface BoardListReply {
   boards: ListedBoard[];
 }
 
+/**
+ * The image space the boards someone owns use (in bytes, trashed boards included) out of what they may hold, what
+ * one board may hold, whether the limit is the smaller one of an unconfirmed address, and each board that holds
+ * pictures, the biggest first.
+ */
+export interface ImageUsage {
+  used: number;
+  limit: number;
+  boardLimit: number;
+  unverified: boolean;
+  boards: { id: string; title: string; bytes: number; trashed: boolean }[];
+}
+
 /** The boards in the person's trash. */
 export interface TrashListReply {
   boards: TrashedBoard[];

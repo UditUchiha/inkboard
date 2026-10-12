@@ -5,7 +5,7 @@ import type { BoardSummary } from "../src/features/dashboard/sections.ts";
 import { fillPreviews } from "../src/features/dashboard/useBoards.ts";
 import { readStored, writeStored } from "../src/features/dashboard/useStoredState.ts";
 import { isChunkLoadError, reloadOnce, resetReloadOnce, withReload } from "../src/lib/chunkReload.ts";
-import { contrastWithWhite, PEOPLE_COLORS, personColor, readableColor } from "../src/lib/format.ts";
+import { contrastWithWhite, formatBytes, PEOPLE_COLORS, personColor, readableColor } from "../src/lib/format.ts";
 import { mergeNotifications, withNewestPage } from "../src/lib/notifications.ts";
 import type { NotificationItem } from "../src/lib/api.ts";
 import type { Element as BoardElement } from "@inkboard/shared/types";
@@ -195,6 +195,16 @@ describe("dashboard previews", () => {
       [undefined, ["b-now"], undefined],
     );
     assert.equal(fillPreviews(null, found), undefined);
+  });
+});
+
+describe("sizes", () => {
+  it("reads as KB under 100 KB, MB with a decimal under 10 MB, and whole MB above", () => {
+    assert.deepEqual(
+      [0, 1, 360_000, 4_240_000, 25_000_000].map(formatBytes),
+      ["0 KB", "1 KB", "0.4 MB", "4.2 MB", "25 MB"],
+    );
+    assert.equal(formatBytes(99_000), "99 KB");
   });
 });
 

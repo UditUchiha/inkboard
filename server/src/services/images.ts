@@ -1,5 +1,6 @@
 import type { Element } from "@inkboard/shared/types";
 import { IMAGE_MAX_BYTES, IMAGE_MAX_SIDE, IMAGE_SMALL_MAX_BYTES, IMAGE_SMALL_MAX_SIDE } from "@inkboard/shared/limits";
+import type { ImageUsage } from "@inkboard/shared/api";
 import type { ImageLimit } from "@inkboard/shared/socket";
 import mongoose from "mongoose";
 import { keyedQueue } from "../lib/keyed-queue.ts";
@@ -9,7 +10,15 @@ import { Version } from "../models/version.model.ts";
 import { getSession } from "../realtime/sessions.ts";
 import { emailConfigured } from "./email.ts";
 import type { ObjectIdLike } from "./boards.ts";
-import { copyImages, deleteImages, imageBytes, imageBytesAmong, listImages, putImage } from "./image-storage.ts";
+import {
+  copyImages,
+  deleteImages,
+  imageBytes,
+  imageBytesAmong,
+  imageBytesByBoard,
+  listImages,
+  putImage,
+} from "./image-storage.ts";
 import type { CopyImages, ImageContent, ImageFilter } from "./image-storage.ts";
 
 // Rules for uploaded images. The browser shrinks pictures before sending them
@@ -258,13 +267,39 @@ export async function storeImage({
 // they would break, as storeImage resolves with. When they don't, a sweep starts (see sweepSoon). Run in `uploading`.
 async function roomFor(boardId: ObjectIdLike, owner: ObjectIdLike, bytes: number) {
   const ownerBoards = (await Board.find({ owner }).distinct("_id")).map(String);
-  const unverified = emailConfigured() && !(await User.findById(owner).select("emailVerified").lean())?.emailVerified;
-  const ownerLimit = unverified ? IMAGE_LIMITS.unverifiedOwner : IMAGE_LIMITS.owner;
+  const { limit: ownerLimit, unverified } = await ownerImageLimit(owner);
   const full = await limitBroken(boardId, ownerBoards, ownerLimit, bytes);
   if (!full) return null;
   const everyone = full === "total";
   sweepSoon(everyone ? "everyone" : String(owner), { boards: everyone ? undefined : ownerBoards });
   return { full, ...(full === "owner" && unverified && { unverified: true as const }) };
+}
+
+// How much image space `owner`'s boards have together, and whether it's the smaller share of an unconfirmed address.
+async function ownerImageLimit(owner: ObjectIdLike) {
+  const unverified = emailConfigured() && !(await User.findById(owner).select("emailVerified").lean())?.emailVerified;
+  return { limit: unverified ? IMAGE_LIMITS.unverifiedOwner : IMAGE_LIMITS.owner, unverified };
+}
+
+/**
+ * The image space `owner`'s boards use (trashed ones too, until they're erased) out of what they may hold, and each
+ * board that holds pictures, the biggest first. Pictures taken off a board count until a sweep removes them.
+ */
+export async function ownerImageUsage(owner: ObjectIdLike): Promise<ImageUsage> {
+  const boards = await Board.find({ owner }).select("title deletedAt").lean();
+  const bytes = await imageBytesByBoard(boards.map((board) => board._id));
+  const { limit, unverified } = await ownerImageLimit(owner);
+  const used = [...bytes.values()].reduce((sum, size) => sum + size, 0);
+  const holding = boards
+    .filter((board) => bytes.has(String(board._id)))
+    .map((board) => ({
+      id: String(board._id),
+      title: board.title,
+      bytes: bytes.get(String(board._id))!,
+      trashed: Boolean(board.deletedAt),
+    }))
+    .sort((a, b) => b.bytes - a.bytes);
+  return { used, limit, boardLimit: IMAGE_LIMITS.board, unverified, boards: holding };
 }
 
 /**

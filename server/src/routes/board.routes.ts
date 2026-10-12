@@ -9,6 +9,7 @@ import {
   emptyTrash,
   forgetBoard,
   getBoard,
+  imageUsage,
   listBoards,
   listPreviews,
   listTrash,
@@ -60,6 +61,7 @@ router.post("/", makingBoards, createBoard);
 // Fixed paths come before "/:boardId", which would take "trash" or "archive" as an id.
 router.get("/trash", listTrash);
 router.get("/previews", listPreviews);
+router.get("/image-usage", imageUsage);
 router.delete("/trash", emptyTrash);
 router.patch("/archive", archiveBoards);
 router.get("/:boardId", getBoard);

@@ -21,6 +21,12 @@ const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const firstLetter = (word: string): string => graphemes.segment(word)[Symbol.iterator]().next().value?.segment ?? "";
 
 /** One or two capitals for an avatar. Emoji and accented letters stay whole instead of being cut in half. */
+/** A size in bytes as people read it: "350 KB", "4.2 MB", "25 MB". */
+export function formatBytes(bytes: number) {
+  if (bytes < 100_000) return `${Math.max(bytes ? 1 : 0, Math.round(bytes / 1000))} KB`;
+  return bytes < 10_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.round(bytes / 1_000_000)} MB`;
+}
+
 export function initials(name = "") {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
