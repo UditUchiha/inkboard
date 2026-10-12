@@ -28,3 +28,13 @@ services:
       # once you add a custom domain.
       - key: APP_URL
         sync: false
+      # Cloudflare R2 for uploaded images: set all four to keep new images there instead of in MongoDB, or leave
+      # all empty. See docs/image-storage.md, which also says how to move the images already uploaded.
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false

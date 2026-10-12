@@ -35,6 +35,10 @@ for (const key of [
   "CLIENT_ORIGIN",
   "TRUST_PROXY",
   "JWT_EXPIRES_IN",
+  "R2_ACCOUNT_ID",
+  "R2_ACCESS_KEY_ID",
+  "R2_SECRET_ACCESS_KEY",
+  "R2_BUCKET",
 ]) {
   process.env[key] = "";
 }

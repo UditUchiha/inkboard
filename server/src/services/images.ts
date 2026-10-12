@@ -8,6 +8,7 @@ import { Board } from "../models/board.model.ts";
 import { User } from "../models/user.model.ts";
 import { Version } from "../models/version.model.ts";
 import { getSession } from "../realtime/sessions.ts";
+import { env } from "../config/env.ts";
 import { emailConfigured } from "./email.ts";
 import type { ObjectIdLike } from "./boards.ts";
 import {
@@ -36,7 +37,9 @@ export const IMAGE_LIMITS = {
   // What an account whose email address nobody has confirmed can hold (only when email is set up, as for invites):
   // free accounts cost nothing to make, so they get a small share until the address is shown to be real.
   unverifiedOwner: 20_000_000,
-  total: 300_000_000,
+  // The free database holds 512 MB for everything. Images in R2 (see image-storage.ts) don't take any of it, and R2's
+  // free plan holds 10 GB.
+  total: env.r2 ? 9_000_000_000 : 300_000_000,
   // An image nothing shows any more is kept this long after upload, so it can
   // still be placed on the board, or brought back by undo, before it's swept.
   keepUnusedForMs: 60 * 60 * 1000,
