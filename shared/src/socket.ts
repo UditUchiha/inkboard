@@ -30,6 +30,8 @@ export interface JoinPayload {
   sync: typeof SYNC_FORMAT;
   /** The pass given for the link's password (see LinkPassReply), when it asks for one. */
   pass?: string;
+  /** Whether they are presenting, so a reconnect keeps them shown as the presenter (see PresentPayload). */
+  presenting?: boolean;
 }
 
 /** What `board:op` sends: a change to the board, or one piece of a change sent in several (then with its `group`). */
@@ -50,6 +52,13 @@ export interface ImagePayload {
 export interface CursorPayload {
   x?: number;
   y?: number;
+  /** Whether the pointer is a laser, which others see as a red dot (while presenting). */
+  laser?: boolean;
+}
+
+/** What `present` sends: whether they started or stopped presenting the board's frames. */
+export interface PresentPayload {
+  on: boolean;
 }
 
 /** The part of the board someone is looking at: where it is, how far in, and how big their canvas is. */
@@ -165,7 +174,7 @@ export interface Participant {
 }
 
 /** A participant with the id of the connection they are on, which is what follows and pointers are told apart by. */
-export type Peer = Participant & { socketId: string };
+export type Peer = Participant & { socketId: string; presenting?: boolean };
 
 /** What an event about a board says of it: which board, so one meant for a board the browser has left can be told. */
 export interface BoardMessage {
@@ -195,7 +204,9 @@ export interface RoleMessage extends BoardMessage {
 }
 
 /** What `cursor` carries: where someone's pointer is, or no position when it has left the board's view. */
-export type CursorMessage = { socketId: string } & ({ x: number; y: number } | { x?: undefined; y?: undefined });
+export type CursorMessage = { socketId: string } & (
+  { x: number; y: number; laser?: true } | { x?: undefined; y?: undefined; laser?: undefined }
+);
 
 /** One person's view of the board, passed on to the others so they can follow along. */
 export interface ViewportMessage extends SharedView, BoardMessage {
@@ -235,6 +246,7 @@ export interface ClientToServerEvents {
   cursor: (payload: CursorPayload) => void;
   viewport: (payload: ViewportPayload) => void;
   "viewport:request": (payload: ViewportRequestPayload) => void;
+  present: (payload: PresentPayload) => void;
   "guest:rename": (payload: RenamePayload) => void;
   "suggestion:put": (payload: SuggestionPutPayload, ack: (reply: SuggestionPutReply) => void) => void;
   "suggestion:withdraw": (payload: SuggestionWithdrawPayload, ack: (reply: SuggestionReply) => void) => void;

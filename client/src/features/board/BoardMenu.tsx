@@ -14,6 +14,7 @@ import {
   MessageSquare,
   Monitor,
   Moon,
+  Presentation,
   Sun,
   Trash2,
 } from "lucide-react";
@@ -40,6 +41,9 @@ export type BoardMenuProps = {
   commentsEnabled: boolean;
   showComments: boolean;
   isEmpty: boolean;
+  // Whether there are frames to present.
+  canPresent: boolean;
+  onPresent: () => void;
   onExport: (exporter: Exporter) => void;
   onImportFile: () => void;
   onCopy: () => void;
@@ -51,7 +55,7 @@ export type BoardMenuProps = {
 };
 
 /**
- * The "..." menu at the top right: export, import, making a copy, history, templates,
+ * The "..." menu at the top right: export, import, presenting, making a copy, history, templates,
  * comments, shortcuts, theme and clearing the board.
  */
 export function BoardMenu({
@@ -62,6 +66,8 @@ export function BoardMenu({
   commentsEnabled,
   showComments,
   isEmpty,
+  canPresent,
+  onPresent,
   onExport,
   onImportFile,
   onCopy,
@@ -96,6 +102,14 @@ export function BoardMenu({
         </MenuItem>
       )}
       <MenuSeparator />
+      <MenuItem
+        icon={Presentation}
+        onSelect={onPresent}
+        disabled={!canPresent}
+        hint={canPresent ? null : "Add a frame"}
+      >
+        Present frames
+      </MenuItem>
       {/* Anyone signed in who can open the board can copy it to their own boards, viewers too. */}
       {user && !local && (
         <MenuItem icon={Copy} onSelect={onCopy}>

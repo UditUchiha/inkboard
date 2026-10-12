@@ -7,6 +7,7 @@ export const LIMITS = {
   cursor: { burst: 40, perSecond: 30 },
   viewport: { burst: 20, perSecond: 10 },
   followRequest: { burst: 5, perSecond: 1 },
+  present: { burst: 5, perSecond: 1 },
 };
 
 /** How many of an event a connection may send at once, and how many more per second after that. */

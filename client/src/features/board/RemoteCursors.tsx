@@ -18,6 +18,15 @@ export function RemoteCursors({ cursors: store, peers, viewport }: RemoteCursors
         const peer = bySocket.get(socketId);
         if (!peer) return null;
         const { x, y } = toScreen(viewport, point.x, point.y);
+        if (point.laser) {
+          return (
+            <div
+              key={socketId}
+              className="laser-dot absolute top-0 left-0 transition-transform duration-75 ease-linear"
+              style={{ transform: `translate(${x}px, ${y}px)` }}
+            />
+          );
+        }
         const color = personColor(peer);
         return (
           <div

@@ -2,6 +2,7 @@ import type { LinkLock, Wire } from "@inkboard/shared/api";
 import type {
   BoardMessage,
   CursorMessage,
+  CursorPayload,
   JoinReply as SocketJoinReply,
   OpMessage,
   OpReply,
@@ -127,6 +128,7 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
   const joined = useRef(false);
   const loaded = useRef(false);
   const roleRef = useRef<Role>("viewer");
+  const presenting = useRef(false); // see present
   const peerCount = useRef(0);
   const latestViewport = useRef<{ view: SharedView; followed: string | null } | null>(null); // what we're looking at, see sendViewport
   const viewSources = useRef(new Map<string, string>()); // socket id -> whose own view they're showing (see onViewport)
@@ -255,7 +257,8 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
       if (joining || gone) return;
       joining = true;
       const pass = readPass(boardId);
-      socket.emit("board:join", { boardId, sync: SYNC_FORMAT, ...(pass && { pass }) }, (response) => {
+      const presenter = presenting.current && { presenting: true };
+      socket.emit("board:join", { boardId, sync: SYNC_FORMAT, ...(pass && { pass }), ...presenter }, (response) => {
         joining = false;
         if (!active) return;
         if (!response?.ok) {
@@ -328,7 +331,8 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
       setPeers(list);
       cursors.keepOnly(list.map((peer) => peer.socketId));
     };
-    const onCursor = ({ socketId, x, y }: CursorMessage) => cursors.move(socketId, x === undefined ? null : { x, y });
+    const onCursor = ({ socketId, x, y, laser }: CursorMessage) =>
+      cursors.move(socketId, x === undefined ? null : { x, y, ...(laser && { laser }) });
     const onMeta = (next: BoardMeta) => {
       if (!next?.id || String(next.id).toLowerCase() === eventId) setMeta((current) => ({ ...current, ...next }));
     };
@@ -480,27 +484,37 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
   // Throttled, but the last position is always sent, so a pointer that came to rest shows where it stopped.
   const lastCursorAt = useRef(0);
   const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestCursor = useRef<XY | null>(null);
+  const latestCursor = useRef<CursorPayload>({});
   useEffect(() => () => clearTimeout(cursorTimer.current as ReturnType<typeof setTimeout> | undefined), []);
   const sendCursor = useCallback(
-    (point: XY | null) => {
+    (point: XY | null, laser = false) => {
       if (!socket || !joined.current) return;
-      const emit = (position: XY | null) => {
+      const emit = (payload: CursorPayload) => {
         lastCursorAt.current = performance.now();
-        socket.volatile.emit("cursor", position ?? {});
+        socket.volatile.emit("cursor", payload);
       };
-      latestCursor.current = point;
+      latestCursor.current = point ? { ...point, ...(laser && { laser }) } : {};
       const wait = CURSOR_INTERVAL_MS - (performance.now() - lastCursorAt.current);
       if (!point || wait <= 0) {
         clearTimeout(cursorTimer.current as ReturnType<typeof setTimeout> | undefined);
         cursorTimer.current = null;
-        emit(point);
+        emit(latestCursor.current);
       } else {
         cursorTimer.current ??= setTimeout(() => {
           cursorTimer.current = null;
           if (joined.current) emit(latestCursor.current);
         }, wait);
       }
+    },
+    [socket],
+  );
+
+  // Starting or stopping a presentation: the others are shown who presents, and follow them (see useFollow).
+  // Remembered, so a reconnect joins as the presenter again.
+  const present = useCallback(
+    (on: boolean) => {
+      presenting.current = on;
+      if (joined.current) socket?.emit("present", { on });
     },
     [socket],
   );
@@ -558,6 +572,7 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     saving,
     sendCursor,
     sendViewport,
+    present,
     subscribeViewport,
     requestViewport,
     socket,

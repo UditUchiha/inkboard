@@ -161,7 +161,7 @@ Every major competitor has these. They are the cost of being taken seriously as 
 | ~~Sticky notes~~ | Done: see the backlog |
 | ~~Frames~~ | Done: membership is worked out from positions (see the decision log) |
 | ~~Connectors that stay attached to shapes~~ | Done: attached ends are worked out from their shapes when drawn, with connection dots, curved and elbow routes and labels (see the decision log) |
-| Presentation mode, laser pointer | Presentation is paid at Excalidraw+; laser and follow are free in tldraw and Mural |
+| ~~Presentation mode, laser pointer~~ | Done: see the backlog |
 
 ### Common but paid elsewhere
 
@@ -370,7 +370,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 ### P2: growth and niches
 
 - [ ] Replay and shareable timelapse (M)
-- [ ] Presentation mode from frames; laser pointer (M)
+- [x] Presentation mode from frames; laser pointer: **Present frames** shows the frames one at a time, full screen, in reading order (rows from the top, left to right). The others on the board follow the presenter from when they start (or arrive) until they stop or move themselves, and the presenter's pointer is a laser dot for them
 - [ ] Live read-only embed (S)
 - [ ] Math-first board: LaTeX elements (S-M)
 - [ ] Public API and MCP server (M)

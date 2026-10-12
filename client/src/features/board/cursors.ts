@@ -1,14 +1,17 @@
 import { useSyncExternalStore } from "react";
 import type { XY } from "./geometry";
 
+/** Where someone's pointer is, and whether it's a laser (while they present). */
+export type Cursor = XY & { laser?: true };
+
 /** Where each person's pointer is, by socket id. */
-export type Cursors = Record<string, XY>;
+export type Cursors = Record<string, Cursor>;
 
 /** The store of other people's pointers, for useCursors (see useSyncExternalStore). */
 export interface CursorStore {
   subscribe(listener: () => void): () => void;
   getSnapshot(): Cursors;
-  move(socketId: string, point?: XY | null): void;
+  move(socketId: string, point?: Cursor | null): void;
   keepOnly(socketIds: Iterable<string>): void;
   clear(): void;
 }
@@ -35,7 +38,7 @@ export function createCursorStore(): CursorStore {
     },
     getSnapshot: () => cursors,
     /** Someone's pointer is at `point`; without one, it left the board. */
-    move(socketId: string, point?: XY | null) {
+    move(socketId: string, point?: Cursor | null) {
       if (point) {
         set({ ...cursors, [socketId]: point });
       } else if (socketId in cursors) {

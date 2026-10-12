@@ -175,6 +175,24 @@ export function nextFrameName(elements: BoardElement[]): string {
   return `Frame ${number}`;
 }
 
+/**
+ * The board's frames in reading order, which is the order they are presented in: row by row from the top,
+ * left to right within a row. A frame that starts above the middle of a row's first frame is in that row.
+ */
+export function slideFrames(elements: BoardElement[]): FrameElement[] {
+  const frames = elements
+    .filter(isFrame)
+    .map((frame) => ({ frame, box: getBounds(frame) }))
+    .sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x);
+  const rows: (typeof frames)[] = [];
+  for (const item of frames) {
+    const row = rows.at(-1);
+    if (row && item.box.y < row[0].box.y + row[0].box.height / 2) row.push(item);
+    else rows.push([item]);
+  }
+  return rows.flatMap((row) => row.sort((a, b) => a.box.x - b.box.x).map(({ frame }) => frame));
+}
+
 let measureContext: CanvasRenderingContext2D; // made on first use
 
 export const fontFor = (element: TextStyle, scale = 1): string =>
