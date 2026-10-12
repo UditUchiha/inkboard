@@ -200,10 +200,13 @@ describe("dashboard previews", () => {
 
 describe("sizes", () => {
   it("reads as KB under 100 KB, MB with a decimal under 10 MB, and whole MB above", () => {
-    assert.deepEqual(
-      [0, 1, 360_000, 4_240_000, 25_000_000].map(formatBytes),
-      ["0 KB", "1 KB", "0.4 MB", "4.2 MB", "25 MB"],
-    );
+    assert.deepEqual([0, 1, 360_000, 4_240_000, 25_000_000].map(formatBytes), [
+      "0 KB",
+      "1 KB",
+      "0.4 MB",
+      "4.2 MB",
+      "25 MB",
+    ]);
     assert.equal(formatBytes(99_000), "99 KB");
   });
 });
