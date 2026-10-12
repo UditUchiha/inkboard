@@ -3,8 +3,8 @@ import { after, before, describe, it } from "node:test";
 import type { ApiTokenCreatedReply, ApiTokenListReply } from "@inkboard/shared/api";
 import type { Element, ShapeElement } from "@inkboard/shared/types";
 import { Board } from "../src/models/board.model.ts";
-import { fromApiElement, toApiElement } from "../src/services/api-elements.ts";
-import type { ApiElement } from "../src/services/api-elements.ts";
+import { fromApiElement, toApiElement } from "@inkboard/shared/api-elements";
+import type { ApiElement } from "@inkboard/shared/api-elements";
 import { eventually, rect, startServer } from "./helpers.ts";
 import type { ServerInstance, TestUser } from "./helpers.ts";
 

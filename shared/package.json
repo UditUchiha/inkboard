@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     "./api": "./src/api.ts",
+    "./api-elements": "./src/api-elements.ts",
     "./board-merge": "./src/board-merge.ts",
     "./board-order": "./src/board-order.ts",
     "./element-rules": "./src/element-rules.ts",

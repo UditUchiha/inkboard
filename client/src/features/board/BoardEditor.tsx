@@ -19,6 +19,7 @@ import { LogoMark } from "../../components/Logo";
 import { api, errorMessage } from "../../lib/api";
 import type { AccountUser, BoardMeta } from "../../lib/api";
 import { getGuest } from "../../lib/guest";
+import { AiDrawDialog } from "./AiDrawDialog";
 import { BoardCanvas } from "./BoardCanvas";
 import type { TextEdit } from "./BoardCanvas";
 import { BoardMenu } from "./BoardMenu";
@@ -34,7 +35,7 @@ import { describeElement } from "./elementLabels";
 import { getBounds, getSceneBounds, isFrame, slideFrames, stackKey, withContents } from "./elements";
 import type { Connector } from "./elements";
 import { ExportError } from "./exportSize";
-import { fitViewport, zoomAround } from "./geometry";
+import { fitViewport, rectContains, unionRects, zoomAround } from "./geometry";
 import type { Rect, Viewport, XY } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
 import { copyOffset, viewToReveal } from "./placement";
@@ -118,7 +119,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [editing, setEditing] = useState<TextEdit | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
-  const [dialog, setDialog] = useState<"share" | "shortcuts" | "clear" | "template" | null>(null);
+  const [dialog, setDialog] = useState<"share" | "shortcuts" | "clear" | "template" | "ai" | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showComments, setShowComments] = useState(true);
   const [activeThread, setActiveThread] = useState<string | null>(null);
@@ -506,6 +507,32 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     }
   }
 
+  // The part of the board on screen.
+  const visibleArea = () => ({
+    x: -viewport.x,
+    y: -viewport.y,
+    width: canvasSize.width / viewport.zoom,
+    height: canvasSize.height / viewport.zoom,
+  });
+
+  // What Claude drew (see AiDrawDialog): one undo step, brought into view if it isn't all on screen already.
+  function addAiDrawing(drawn: BoardElement[], skipped: number) {
+    const before = drawn.flatMap((element) => store.getElement(element.id) ?? []);
+    const added = drawn.filter((element) => !store.getElement(element.id)).map((element) => element.id);
+    store.commit({ undo: { upsert: before, remove: added }, redo: { upsert: drawn } });
+    const bounds = unionRects(drawn.map(getBounds));
+    const view = visibleArea();
+    const inView = (x: number, y: number) => rectContains(view, x, y);
+    if (bounds && !(inView(bounds.x, bounds.y) && inView(bounds.x + bounds.width, bounds.y + bounds.height))) {
+      changeViewport(fitViewport(bounds, canvasSize, { padding: 96, maxZoom: viewport.zoom }));
+    }
+    const count = drawn.length;
+    toastWithUndo(
+      `Claude drew ${count} ${count === 1 ? "element" : "elements"}` +
+        (skipped > 0 ? `; ${skipped} couldn't be drawn` : ""),
+    );
+  }
+
   function clearBoard() {
     const all = store.getElements();
     store.commit({ undo: { upsert: all }, redo: { remove: all.map((element) => element.id) } });
@@ -704,6 +731,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                   tool={tool}
                   onToolChange={changeTool}
                   onAddImage={canAddImages ? () => fileInput.current?.click() : undefined}
+                  onAiDraw={() => setDialog("ai")}
                   withComments={canComment}
                   className="max-md:max-w-full max-md:overflow-x-auto"
                 />
@@ -859,6 +887,15 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
 
       {replayOpen && !local && <ReplayPlayer title={board.title} load={sync.loadReplay} onClose={closeReplay} />}
 
+      {!readOnly && (
+        <AiDrawDialog
+          open={dialog === "ai"}
+          onClose={() => setDialog(null)}
+          getBoard={store.getElements}
+          getView={visibleArea}
+          onDrawn={addAiDrawing}
+        />
+      )}
       <SaveTemplateDialog
         open={dialog === "template"}
         onClose={() => setDialog(null)}

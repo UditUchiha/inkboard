@@ -10,6 +10,7 @@ import {
   MousePointer2,
   MessageSquarePlus,
   Pencil,
+  Sparkles,
   Square,
   StickyNote,
   Type,
@@ -43,11 +44,13 @@ export type ToolbarProps = {
   onToolChange: (tool: ToolId) => void;
   // Left out where pictures can't be added, which hides the button.
   onAddImage?: (() => void) | undefined;
+  // Opens Draw with AI; left out where nothing can be drawn.
+  onAiDraw?: (() => void) | undefined;
   withComments?: boolean;
   className?: string;
 };
 
-export function Toolbar({ tool, onToolChange, onAddImage, withComments = false, className }: ToolbarProps) {
+export function Toolbar({ tool, onToolChange, onAddImage, onAiDraw, withComments = false, className }: ToolbarProps) {
   const tools = withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS;
   return (
     <div
@@ -111,6 +114,25 @@ export function Toolbar({ tool, onToolChange, onAddImage, withComments = false, 
           </Fragment>
         );
       })}
+      {onAiDraw && (
+        <>
+          <span className="mx-1 h-6 w-px bg-rule" aria-hidden />
+          <button
+            type="button"
+            aria-label="Draw with AI"
+            onClick={onAiDraw}
+            className="group relative grid size-10 place-items-center rounded-lg text-ink transition-colors hover:bg-ink/6"
+          >
+            <Sparkles className="size-[18px]" strokeWidth={1.75} aria-hidden />
+            <span
+              className="pointer-events-none absolute top-full left-1/2 z-20 mt-2 -translate-x-1/2 rounded-md bg-ink px-2 py-1 text-xs whitespace-nowrap text-on-ink opacity-0 transition-opacity delay-300 group-hover:opacity-100 max-md:hidden"
+              aria-hidden
+            >
+              Draw with AI
+            </span>
+          </button>
+        </>
+      )}
     </div>
   );
 }

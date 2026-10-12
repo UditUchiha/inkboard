@@ -43,7 +43,12 @@ export function createApp({ clientDist = defaultClientDist } = {}) {
       // The host terminates HTTPS; upgrading would break plain-HTTP local runs.
       // blob: lets a picture someone just added show straight away from their own copy.
       contentSecurityPolicy: {
-        directives: { upgradeInsecureRequests: null, "img-src": ["'self'", "data:", "blob:", ...PHOTO_HOSTS] },
+        directives: {
+          upgradeInsecureRequests: null,
+          "img-src": ["'self'", "data:", "blob:", ...PHOTO_HOSTS],
+          // Draw with AI calls Anthropic from the browser, with the person's own key (see client aiDraw.ts).
+          "connect-src": ["'self'", "https://api.anthropic.com"],
+        },
       },
     }),
   );

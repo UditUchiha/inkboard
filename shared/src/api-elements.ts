@@ -1,7 +1,5 @@
-import { randomBytes, randomInt } from "node:crypto";
-import { cleanElement } from "@inkboard/shared/element-rules";
-import type { Element } from "@inkboard/shared/types";
-import { HttpError } from "../lib/http-error.ts";
+import { cleanElement } from "./element-rules.ts";
+import type { Element } from "./types.ts";
 
 /**
  * An element as the public API and the MCP server show and take it (see docs/api.md): a box is `x`, `y`, `width`
@@ -18,6 +16,16 @@ const HIDDEN = new Set(["index", "version", "versionNonce", "stamps", "seed", "s
 const HIDDEN_BOX = new Set(["x1", "y1", "x2", "y2"]);
 
 export const MAX_API_ELEMENTS = 500;
+
+/** Why an element in the API's form can't be one, in a sentence for whoever sent it. */
+export class ApiElementError extends Error {}
+
+// Web Crypto, which browsers and Node both have: this runs on the server (the API) and in the app (drawing with AI).
+// The shared code loads neither's types, so the one function used is declared here.
+declare const crypto: { getRandomValues<T extends Uint32Array>(array: T): T };
+const randomWords = (count: number) => crypto.getRandomValues(new Uint32Array(count));
+const newId = () => [...randomWords(3)].map((word) => word.toString(36)).join("");
+const newSeed = () => (randomWords(1)[0] % 2 ** 31) + 1;
 
 /** `element` as the API shows it. */
 export function toApiElement(element: Element): ApiElement {
@@ -62,7 +70,7 @@ function middleOf(element: Element | undefined): [number, number] | undefined {
 /**
  * The element `input` (in the API's form) makes: a new one, or `existing` with what `input` changes. It's whole and
  * unstamped, so the board takes it as the newest edit (see prepareOperation). `find` looks up what a line or arrow
- * is attached to. Throws an HttpError naming `label` when the input can't be an element.
+ * is attached to. Throws an ApiElementError naming `label` when the input can't be an element.
  */
 export function fromApiElement(
   input: unknown,
@@ -71,7 +79,7 @@ export function fromApiElement(
   label: string,
 ): Element {
   const fail = (why: string): never => {
-    throw new HttpError(400, `${label}: ${why}`);
+    throw new ApiElementError(`${label}: ${why}`);
   };
   if (!input || typeof input !== "object" || Array.isArray(input)) fail("send an object.");
   // Stamps sent along are left out too: a change through the API is always the newest edit.
@@ -104,11 +112,11 @@ export function fromApiElement(
   const element: Record<string, unknown> = {
     ...base,
     ...rest,
-    id: existing?.id ?? (typeof id === "string" && id ? id : randomBytes(9).toString("base64url")),
+    id: existing?.id ?? (typeof id === "string" && id ? id : newId()),
     type: kind,
   };
   if (kind === "rectangle" || kind === "ellipse" || CONNECTORS.has(kind as string)) {
-    element.seed ??= randomInt(1, 2 ** 31);
+    element.seed ??= newSeed();
   }
   if (kind === "sticky") element.text ??= "";
 

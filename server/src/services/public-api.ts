@@ -3,7 +3,7 @@ import type { Element } from "@inkboard/shared/types";
 import { HttpError } from "../lib/http-error.ts";
 import { Board } from "../models/board.model.ts";
 import { applyOperation } from "../realtime/index.ts";
-import { fromApiElement, MAX_API_ELEMENTS, toApiElement } from "./api-elements.ts";
+import { ApiElementError, fromApiElement, MAX_API_ELEMENTS, toApiElement } from "@inkboard/shared/api-elements";
 import { canEdit, currentElements, findBoardForViewing, roleOf, withRoom } from "./boards.ts";
 
 // What the public API and the MCP server do (see docs/api.md), for the person whose token it is. Each works like
@@ -82,13 +82,17 @@ export async function writeElements(userId: string, boardId: string, inputs: unk
   const find = (id: string) => made.get(id) ?? onBoard.get(id);
   inputs.forEach((input, at) => {
     const id = (input as { id?: unknown } | null)?.id;
-    const element = fromApiElement(
-      input,
-      typeof id === "string" ? onBoard.get(id) : undefined,
-      find,
-      `Element ${at + 1}`,
-    );
-    made.set(element.id, element);
+    try {
+      const element = fromApiElement(
+        input,
+        typeof id === "string" ? onBoard.get(id) : undefined,
+        find,
+        `Element ${at + 1}`,
+      );
+      made.set(element.id, element);
+    } catch (error) {
+      throw error instanceof ApiElementError ? new HttpError(400, error.message) : error;
+    }
   });
 
   const { reply, session } = await applyOperation(board.id, { upsert: [...made.values()], remove: [] });

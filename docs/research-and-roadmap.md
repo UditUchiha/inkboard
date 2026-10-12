@@ -375,7 +375,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [ ] Math-first board: LaTeX elements (S-M)
 - [x] Public API and MCP server: personal tokens (read, or read and change), a small HTTP API (`/api/v1`: list and create boards, read one, add, change and remove elements in a simpler element form) and an MCP server (`/mcp`, Streamable HTTP, five tools). Writes go through the same pipeline as a browser's change, so they're checked, merged and shown live. See [api.md](api.md)
 - [ ] Mermaid import (M) and export (M-L)
-- [ ] AI prompt-to-board with a bring-your-own-key option (M)
+- [x] AI prompt-to-board with your own key: **Draw with AI** (toolbar) sends the request and what's on the board to Claude from the browser, with the person's Anthropic key (kept only in their browser), and gets elements back as structured output in the public API's element form (`shared/src/api-elements.ts`). They go on the board as one undo step, through the editor like any change (so view-only people can't, and suggesters' become suggestions). No server-side key or allowance yet
 - [ ] Classroom mode (L)
 - [ ] Shape recognition on pen strokes (M)
 - [ ] Timer, voting, private mode (S-M each)
