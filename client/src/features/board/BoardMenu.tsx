@@ -1,6 +1,7 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
 import {
   Check,
+  Clapperboard,
   Copy,
   Download,
   Ellipsis,
@@ -41,6 +42,9 @@ export type BoardMenuProps = {
   commentsEnabled: boolean;
   showComments: boolean;
   isEmpty: boolean;
+  // Whether they may watch the board's replay: members, and link visitors when the owner lets them.
+  canReplay: boolean;
+  onReplay: () => void;
   // Whether there are frames to present.
   canPresent: boolean;
   onPresent: () => void;
@@ -55,7 +59,7 @@ export type BoardMenuProps = {
 };
 
 /**
- * The "..." menu at the top right: export, import, presenting, making a copy, history, templates,
+ * The "..." menu at the top right: export, import, presenting, making a copy, replay, history, templates,
  * comments, shortcuts, theme and clearing the board.
  */
 export function BoardMenu({
@@ -66,6 +70,8 @@ export function BoardMenu({
   commentsEnabled,
   showComments,
   isEmpty,
+  canReplay,
+  onReplay,
   canPresent,
   onPresent,
   onExport,
@@ -114,6 +120,11 @@ export function BoardMenu({
       {user && !local && (
         <MenuItem icon={Copy} onSelect={onCopy}>
           Make a copy
+        </MenuItem>
+      )}
+      {canReplay && (
+        <MenuItem icon={Clapperboard} onSelect={onReplay}>
+          Replay
         </MenuItem>
       )}
       {isMember && !local && (

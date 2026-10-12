@@ -247,7 +247,7 @@ function readLinkExpiry(value: unknown) {
  * link are asked again; invited people never are.
  */
 export async function setLinkAccess(
-  req: BoardRequest<{ linkAccess?: unknown; password?: unknown; expiresAt?: unknown }>,
+  req: BoardRequest<{ linkAccess?: unknown; password?: unknown; expiresAt?: unknown; linkReplay?: unknown }>,
   res: Response,
 ) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
@@ -270,6 +270,7 @@ export async function setLinkAccess(
     board.set("linkUnlocked", []);
   }
   if ("expiresAt" in body) board.linkExpiresAt = readLinkExpiry(body.expiresAt);
+  if ("linkReplay" in body) board.linkReplay = body.linkReplay === true;
   // Sharing isn't editing, so it doesn't move the board up the dashboard.
   await board.save({ timestamps: false });
 

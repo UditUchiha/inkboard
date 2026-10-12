@@ -14,6 +14,7 @@ import { getSession } from "../realtime/sessions.ts";
 import { deleteBoardImages } from "./image-storage.ts";
 import { isPassFor } from "./link-pass.ts";
 import type { Keyed } from "./link-pass.ts";
+import { removeReplay } from "./replay.ts";
 import { removeVersions, savedVersionBytes } from "./versions.ts";
 
 /** A board as Mongoose returns it from the database. */
@@ -61,6 +62,7 @@ interface BoardMeta extends Access {
   title: string;
   owner: Member;
   collaborators: (Member | null)[];
+  linkReplay?: boolean | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -319,6 +321,7 @@ export async function destroyBoard(boardId: ObjectIdLike, { trashedBefore }: { t
   if (claimed.matchedCount === 0) return false;
   await Promise.all([
     removeVersions(boardId),
+    removeReplay(boardId),
     Thread.deleteMany({ board: boardId }),
     Notification.deleteMany({ board: boardId }),
     BoardState.deleteMany({ board: boardId }),
@@ -348,6 +351,7 @@ export function serializeMeta(board: BoardMeta, { redact = false }: { redact?: b
     linkAccess: board.linkAccess as Api.LinkAccess,
     linkPassword: Boolean(board.linkKey),
     linkExpiresAt: board.linkExpiresAt ?? null,
+    linkReplay: board.linkReplay ?? false,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
   };

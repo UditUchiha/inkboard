@@ -7,6 +7,7 @@ import type {
   OpMessage,
   OpReply,
   Peer,
+  ReplayReply,
   ResetMessage,
   RevokedMessage,
   RoleMessage,
@@ -509,6 +510,16 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     [socket],
   );
 
+  // The board's replay (see replay.ts), for members and, when the owner lets them, people who came by the link.
+  const loadReplay = useCallback(
+    (): Promise<ReplayReply> =>
+      new Promise((resolve) => {
+        if (!socket || !joined.current) resolve({ ok: false, error: "You're offline. Try again once you're back." });
+        else socket.emit("board:replay", { boardId }, resolve);
+      }),
+    [socket, boardId],
+  );
+
   // Starting or stopping a presentation: the others are shown who presents, and follow them (see useFollow).
   // Remembered, so a reconnect joins as the presenter again.
   const present = useCallback(
@@ -572,6 +583,7 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
     saving,
     sendCursor,
     sendViewport,
+    loadReplay,
     present,
     subscribeViewport,
     requestViewport,

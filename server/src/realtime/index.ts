@@ -21,6 +21,7 @@ import { keyedQueue } from "../lib/keyed-queue.ts";
 import { userForToken } from "../lib/tokens.ts";
 import {
   canEdit,
+  currentElements,
   findBoardForViewing,
   isMemberRole,
   LinkLockedError,
@@ -34,6 +35,7 @@ import {
   serializeMeta,
 } from "../services/boards.ts";
 import type { PopulatedMembers, Role } from "../services/boards.ts";
+import { replaySteps } from "../services/replay.ts";
 import { Board } from "../models/board.model.ts";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts";
 import { notifySuggestion } from "../services/notifications.ts";
@@ -603,6 +605,26 @@ function handleConnection(socket: RealtimeSocket) {
     if (!limits.followRequest()) return;
     const target = io.sockets.sockets.get(String(payload?.socketId ?? ""));
     if (boardId && target?.data.boardId === boardId) target.emit("viewport:request", { boardId });
+  });
+
+  // The board's replay (see services/replay.ts): for its members, and for people who came by its link when its
+  // owner lets them watch it (it shows what was drawn and later removed).
+  socket.on("board:replay", async (payload, ack) => {
+    const reply = typeof ack === "function" ? ack : () => {};
+    const boardId = socket.data.boardId;
+    if (!boardId || !isOnBoard(socket, payload?.boardId)) return reply({ ok: false, error: "Open the board first." });
+    if (!limits.replay()) return reply({ ok: false, error: "Wait a few seconds and try again." });
+    try {
+      if (!isMemberRole(socket.data.role)) {
+        const board = await Board.findById(boardId).select("linkReplay").lean();
+        if (!board?.linkReplay) return reply({ ok: false, error: "Only the board's members can watch its replay." });
+      }
+      const [steps, elements] = await Promise.all([replaySteps(boardId), currentElements(boardId)]);
+      reply({ ok: true, steps, elements });
+    } catch (error) {
+      console.error(error);
+      reply({ ok: false, error: "The replay couldn't be loaded. Try again." });
+    }
   });
 
   // Started or stopped presenting: the others follow the presenter's view (see useFollow).

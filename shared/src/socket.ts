@@ -97,6 +97,11 @@ export interface SuggestionWithdrawPayload {
   ids: string[];
 }
 
+/** What `board:replay` sends: the board whose replay to send. */
+export interface ReplayPayload {
+  boardId: string;
+}
+
 /** What a member decided about suggestions. Accepting one is the member's own change to the board, sent first. */
 export type SuggestionOutcome = "accepted" | "rejected";
 
@@ -137,6 +142,16 @@ export interface OpRefusal {
 export type OpReply = { ok: true; cleaned?: Element[]; dropped?: string[] } | OpRefusal;
 
 /** The reply to an image: the id it was stored under, or why it wasn't (`error` is a sentence for the person who tried). */
+/** A step of a board's replay: when it ended, the elements that changed (as they ended up) and those removed. */
+export interface ReplayStep {
+  at: number;
+  upsert: Element[];
+  remove: string[];
+}
+
+/** The reply to `board:replay`: the steps, oldest first, and the board as it is now, which the replay ends on. */
+export type ReplayReply = { ok: true; steps: ReplayStep[]; elements: Element[] } | { ok: false; error: string };
+
 export type ImageReply =
   { ok: true; id: string } | { ok: false; error?: string; readOnly?: true; tooLarge?: true; full?: ImageLimit };
 
@@ -243,6 +258,7 @@ export interface ClientToServerEvents {
   "board:leave": () => void;
   "board:op": (payload: OpPayload, ack: (reply: OpReply) => void) => void;
   "board:image": (payload: ImagePayload, ack: (reply: ImageReply) => void) => void;
+  "board:replay": (payload: ReplayPayload, ack: (reply: ReplayReply) => void) => void;
   cursor: (payload: CursorPayload) => void;
   viewport: (payload: ViewportPayload) => void;
   "viewport:request": (payload: ViewportRequestPayload) => void;

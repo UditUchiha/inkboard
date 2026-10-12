@@ -22,6 +22,9 @@ const boardSchema = new mongoose.Schema(
     linkUnlocked: [{ type: ObjectId, ref: "User" }],
     // When the link stops opening the board (for anyone but its members), or null.
     linkExpiresAt: { type: Date, default: null },
+    // Whether people who open the board by its link can watch its replay too (members always can). It shows what
+    // was drawn and later removed, so it's off until the owner turns it on.
+    linkReplay: { type: Boolean, default: false },
     elements: { type: [Mixed], default: [] },
     // Elements removed lately: { id, version, versionNonce, at }. Only needed
     // when the board is opened for editing (see realtime/sessions.ts).

@@ -6,6 +6,7 @@ import { useElementSize } from "../../lib/useElementSize";
 import { useTheme } from "../../providers/ThemeProvider";
 import { getSceneBounds } from "./elements";
 import { fitViewport } from "./geometry";
+import type { Rect } from "./geometry";
 import { imageState, releaseImages, subscribeImages } from "./images";
 import { loadCanvasFonts, renderScene } from "./renderer";
 
@@ -18,12 +19,24 @@ type BoardPreviewProps = {
   // The room left around the drawing, in pixels.
   padding?: number;
   maxZoom?: number;
+  // The part of the board to fit, when not the drawing itself (a replay keeps one view while the drawing grows).
+  bounds?: Rect | null;
+  // Thumbnails draw pictures from their small copies; a preview the size of the screen wants them whole.
+  smallImages?: boolean;
   // Laid over the drawing (a message for an empty board, say).
   children?: ReactNode;
 };
 
 /** A static, scaled-to-fit rendering of a board, used for thumbnails. */
-export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, children }: BoardPreviewProps) {
+export function BoardPreview({
+  elements,
+  className,
+  padding = 18,
+  maxZoom = 1,
+  bounds: fixedBounds,
+  smallImages = true,
+  children,
+}: BoardPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = useElementSize(containerRef);
@@ -64,7 +77,7 @@ export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, c
     [watching],
   );
   const picturesLoaded = useSyncExternalStore(subscribe, () =>
-    watching ? imageIds.map((imageId) => imageState(imageId, { small: true })).join() : "",
+    watching ? imageIds.map((imageId) => imageState(imageId, { small: smallImages })).join() : "",
   );
 
   // The canvas is gone with the card, so the pictures it kept on show (see showingImages) are let go of.
@@ -80,10 +93,10 @@ export function BoardPreview({ elements, className, padding = 18, maxZoom = 1, c
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(size.width * dpr);
     canvas.height = Math.round(size.height * dpr);
-    const bounds = getSceneBounds(elements);
+    const bounds = fixedBounds ?? getSceneBounds(elements);
     const viewport = bounds ? fitViewport(bounds, size, { padding, maxZoom }) : { x: 0, y: 0, zoom: 1 };
-    renderScene(canvas, { elements, viewport, dpr, dark: theme === "dark", smallImages: true });
-  }, [visible, elements, size, padding, maxZoom, fontsReady, picturesLoaded, theme]);
+    renderScene(canvas, { elements, viewport, dpr, dark: theme === "dark", smallImages });
+  }, [visible, elements, size, padding, maxZoom, fixedBounds, smallImages, fontsReady, picturesLoaded, theme]);
 
   return (
     <div ref={containerRef} className={clsx("relative overflow-hidden", className)}>

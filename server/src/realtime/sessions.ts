@@ -7,6 +7,7 @@ import type { Effect, Element, Plan, Stamp, Tombstone, Tombstones } from "@inkbo
 import mongoose from "mongoose";
 import { Board } from "../models/board.model.ts";
 import type { ObjectIdLike } from "../services/boards.ts";
+import { diffElements, hasReplay, recordStep, REPLAY_LIMITS } from "../services/replay.ts";
 import { lastVersionTime, recordVersion } from "../services/versions.ts";
 import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.ts";
 import { readSuggestions, settleSuggestions, suggestionList } from "./suggestions.ts";
@@ -67,6 +68,10 @@ export interface Session {
   // and when the log last said a checkpoint was skipped.
   lastVersionAt: number | null;
   skipWarnedAt: number | null;
+  // The elements as the replay's last step left them, by id (null until the lookup in openSession finishes),
+  // and the step that's due (see takeStep).
+  recorded: Map<string, Element> | null;
+  stepTimer: ReturnType<typeof setTimeout> | null;
 }
 
 // A tombstone as it is saved with a board (see removedList): the stamp of the removal and when it happened.
@@ -256,6 +261,8 @@ function openSession(
     discarded: false,
     lastVersionAt: null,
     skipWarnedAt: null, // when the log last said a checkpoint was skipped for want of room
+    recorded: null,
+    stepTimer: null,
   };
   measure(session);
   // Suggestions the board overtook while it was closed (or that are too old) go now, before anyone sees them.
@@ -267,7 +274,37 @@ function openSession(
       session.lastVersionAt ??= time;
     })
     .catch(() => {});
+  // A board with a replay was saved as its last step left it (steps are taken before a board closes). One
+  // without starts it with its first step, which is then the whole board.
+  const opened = new Map(session.index);
+  hasReplay(boardId)
+    .then((has) => {
+      session.recorded ??= has ? opened : new Map();
+    })
+    .catch(() => {});
   return session;
+}
+
+// What changed since the replay's last step becomes its next one: at most one every REPLAY_LIMITS.stepMs while
+// people work, and one more when the board is saved to close (see closeSession).
+function scheduleStep(session: Session) {
+  session.stepTimer ??= setTimeout(() => takeStep(session), REPLAY_LIMITS.stepMs);
+}
+
+// Resolves once the step is written (or failed, which only the log hears of: a replay is worth less than a save).
+async function takeStep(session: Session) {
+  clearTimeout(session.stepTimer!); // as in persist
+  session.stepTimer = null;
+  if (session.discarded) return;
+  if (!session.recorded) return scheduleStep(session); // the lookup in openSession hasn't finished
+  const { step, next } = diffElements(session.recorded, session.elements);
+  session.recorded = next;
+  if (!step) return;
+  try {
+    await recordStep(session.boardId, step);
+  } catch (error) {
+    console.error(`Could not record a replay step of board ${session.boardId}: ${(error as Error).message}`);
+  }
 }
 
 function checkpoint(session: Session) {
@@ -373,6 +410,7 @@ export function resetSession(session: Session, snapshot: Element[]): Element[] {
 
 function markDirty(session: Session) {
   session.dirty = true;
+  scheduleStep(session);
   session.timer ??= setTimeout(() => persist(session), persistDelay(session));
 }
 
@@ -444,7 +482,7 @@ export async function closeSession(boardId: string) {
   const session = sessions.get(boardId);
   if (!session) return;
   session.closing = true;
-  await persist(session);
+  await Promise.all([session.stepTimer && takeStep(session), persist(session)]);
 }
 
 /** Forgets the board without saving what's left, for a board that's gone. */
@@ -453,11 +491,15 @@ export function discardSession(boardId: string) {
   if (!session) return;
   session.discarded = true;
   clearTimeout(session.timer!); // as in persist
+  clearTimeout(session.stepTimer!);
   session.timer = null;
+  session.stepTimer = null;
   sessions.delete(boardId);
 }
 
 /** Saves every open board, waiting for saves already under way. */
 export function flushAllSessions() {
-  return Promise.all([...sessions.values()].map(persist));
+  return Promise.all(
+    [...sessions.values()].flatMap((session) => [session.stepTimer && takeStep(session), persist(session)]),
+  );
 }
