@@ -17,6 +17,7 @@ import { ThemeProvider, useTheme } from "./providers/ThemeProvider";
 const BoardPage = lazyPage(() => import("./pages/BoardPage"));
 const DashboardPage = lazyPage(() => import("./pages/DashboardPage"));
 const DrawPage = lazyPage(() => import("./pages/DrawPage"));
+const EmbedPage = lazyPage(() => import("./pages/EmbedPage"));
 const SettingsPage = lazyPage(() => import("./pages/SettingsPage"));
 type AuthPageName = "LoginPage" | "RegisterPage" | "ForgotPasswordPage" | "ResetPasswordPage" | "VerifyEmailPage";
 const authPage = (name: AuthPageName) =>
@@ -103,6 +104,7 @@ export default function App() {
                       </RequireAuth>
                     }
                   />
+                  <Route path="/embed/:boardId" element={<EmbedPage />} />
                   <Route path="*" element={<NotFoundPage />} />
                 </Routes>
               </Suspense>

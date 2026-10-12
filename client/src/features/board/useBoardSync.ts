@@ -93,7 +93,11 @@ export type BoardSync = ReturnType<typeof useBoardSync>;
  * Someone who may only suggest has their edits sent as suggestions instead (see
  * suggesting.ts); `selfId` (their account's id, or their guest id) tells theirs apart.
  */
-export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { selfId: string }) {
+export function useBoardSync(
+  boardId: string,
+  store: BoardStore,
+  { selfId, embed = false }: { selfId: string; embed?: boolean },
+) {
   const socket = useSocket();
   const [phase, setPhase] = useState<Phase>({ name: "connecting" });
   const [meta, setMeta] = useState<BoardMeta | null>(null);
@@ -258,8 +262,9 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
       if (joining || gone) return;
       joining = true;
       const pass = readPass(boardId);
-      const presenter = presenting.current && { presenting: true };
-      socket.emit("board:join", { boardId, sync: SYNC_FORMAT, ...(pass && { pass }), ...presenter }, (response) => {
+      // An embed (see EmbedPage) only views, and isn't shown to the others.
+      const flags = { ...(presenting.current && { presenting: true }), ...(embed && { embed }) };
+      socket.emit("board:join", { boardId, sync: SYNC_FORMAT, ...(pass && { pass }), ...flags }, (response) => {
         joining = false;
         if (!active) return;
         if (!response?.ok) {
@@ -450,7 +455,7 @@ export function useBoardSync(boardId: string, store: BoardStore, { selfId }: { s
       socket.off("suggestion:upsert", onSuggestions);
       socket.off("suggestion:delete", onSuggestionsGone);
     };
-  }, [socket, boardId, store, outbox, cursors, suggestions, suggester, flush, send, viewportMessage]);
+  }, [socket, boardId, embed, store, outbox, cursors, suggestions, suggester, flush, send, viewportMessage]);
 
   // What part of the board we're looking at, shared (when anyone else is here) so
   // others can follow along: always what's on screen, also while following someone

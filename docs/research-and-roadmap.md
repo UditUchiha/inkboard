@@ -371,7 +371,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 
 - [x] Replay and shareable timelapse: what changed every few seconds is kept as a step (only the elements that changed), up to 5 MB per board, with the oldest steps folded into the first once it's full. Members watch it from the board menu; the owner can let link visitors watch too, since it shows what was removed. The replay's link is the board's with `?replay`
 - [x] Presentation mode from frames; laser pointer: **Present frames** shows the frames one at a time, full screen, in reading order (rows from the top, left to right). The others on the board follow the presenter from when they start (or arrive) until they stop or move themselves, and the presenter's pointer is a laser dot for them
-- [ ] Live read-only embed (S)
+- [x] Live read-only embed: **Copy embed code** in the Share dialog (when the link is shared) gives an `<iframe>` of `/embed/<id>`, the board live to pan and zoom. The server keeps an embed view-only whatever the link allows and leaves it out of presence; only `/embed/` pages may be framed by other sites
 - [ ] Math-first board: LaTeX elements (S-M)
 - [ ] Public API and MCP server (M)
 - [ ] Mermaid import (M) and export (M-L)

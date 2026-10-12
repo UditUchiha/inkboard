@@ -46,6 +46,14 @@ export function createApp({ clientDist = defaultClientDist } = {}) {
       },
     }),
   );
+  // Embeds (see EmbedPage) are the only pages other sites may show in a frame; the rest keep helmet's
+  // same-origin rule against clickjacking. An embed only ever views the board.
+  app.use("/embed/", (_req, res, next) => {
+    res.removeHeader("X-Frame-Options");
+    const policy = String(res.getHeader("Content-Security-Policy"));
+    res.setHeader("Content-Security-Policy", policy.replace("frame-ancestors 'self'", "frame-ancestors *"));
+    next();
+  });
   // Board data and the app's scripts are text and shrink to a fraction of their size.
   app.use(compression());
   // Credentials: the app asks the API to set the cookie that ties a "connect Google/GitHub" link to its browser.

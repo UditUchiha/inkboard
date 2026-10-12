@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { Check, Globe, KeyRound, Link2, Lock, MessageSquarePlus, Pencil, Timer } from "lucide-react";
+import { Check, Code, Globe, KeyRound, Link2, Lock, MessageSquarePlus, Pencil, Timer } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -10,6 +10,7 @@ import { Dialog } from "../../components/Dialog";
 import { TextField } from "../../components/Field";
 import { api, errorMessage } from "../../lib/api";
 import type { BoardMeta, LinkAccess, Person, Role } from "../../lib/api";
+import { embedCode } from "./embed";
 
 // A way the link can open the board, as the dialog offers it.
 type LinkOption = { value: LinkAccess; icon: LucideIcon; title: string; detail: string };
@@ -257,7 +258,7 @@ export function ShareDialog({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null); // who Remove / Leave is waiting on a second click for
   const [savingAccess, setSavingAccess] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"link" | "embed" | null>(null); // which copy button just did
 
   // Start fresh each time the dialog opens.
   useEffect(() => {
@@ -321,17 +322,25 @@ export function ShareDialog({
     }
   }
 
-  async function copyLink() {
+  // Copies `text`, and says which button did for a moment.
+  async function copy(text: string, which: "link" | "embed") {
     try {
-      // Without ?thread=, which only makes sense to whoever had that comment open.
-      const link = new URL(window.location.href);
-      link.searchParams.delete("thread");
-      await navigator.clipboard.writeText(link.href);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(text);
+      setCopied(which);
+      setTimeout(() => setCopied(null), 2000);
     } catch {
-      toast.error("Couldn't copy the link. Copy it from the address bar instead.");
+      toast.error(
+        which === "link"
+          ? "Couldn't copy the link. Copy it from the address bar instead."
+          : "Couldn't copy the embed code.",
+      );
     }
+  }
+  function copyLink() {
+    // Without ?thread=, which only makes sense to whoever had that comment open.
+    const link = new URL(window.location.href);
+    link.searchParams.delete("thread");
+    return copy(link.href, "link");
   }
 
   // The assertion: the link access is one of the options.
@@ -457,10 +466,23 @@ export function ShareDialog({
         <p className="text-sm text-graphite">
           {isViewer ? "Share this link with others who should see the board." : "Copy the link to share the board."}
         </p>
-        <Button variant="secondary" size="sm" icon={copied ? Check : Link2} onClick={copyLink}>
-          {copied ? "Copied" : "Copy link"}
+        <Button variant="secondary" size="sm" icon={copied === "link" ? Check : Link2} onClick={copyLink}>
+          {copied === "link" ? "Copied" : "Copy link"}
         </Button>
       </div>
+      {linkAccess !== "restricted" && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-2 p-3">
+          <p className="text-sm text-graphite">Show the board live on a website. It can only be viewed there.</p>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={copied === "embed" ? Check : Code}
+            onClick={() => copy(embedCode(window.location.origin, board), "embed")}
+          >
+            {copied === "embed" ? "Copied" : "Copy embed code"}
+          </Button>
+        </div>
+      )}
     </Dialog>
   );
 }

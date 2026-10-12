@@ -32,6 +32,8 @@ export interface JoinPayload {
   pass?: string;
   /** Whether they are presenting, so a reconnect keeps them shown as the presenter (see PresentPayload). */
   presenting?: boolean;
+  /** Whether it's an embed on another site (see EmbedPage): it only ever views, and isn't shown as someone there. */
+  embed?: boolean;
 }
 
 /** What `board:op` sends: a change to the board, or one piece of a change sent in several (then with its `group`). */
