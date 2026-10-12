@@ -1,17 +1,56 @@
 import { FileQuestion, KeyRound, Lock, TimerOff, Trash2, UserX } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useParams } from "react-router";
-import { ButtonLink } from "../components/Button";
+import { Button, ButtonLink } from "../components/Button";
 import { FullPageLoader, FullPageMessage } from "../components/RouteGuards";
 import { APP_NAME } from "../config";
 import { BoardEditor } from "../features/board/BoardEditor";
 import { createEditorStore } from "../features/board/editorStore";
 import { LinkPasswordForm } from "../features/board/LinkPasswordForm";
 import { useBoardSync } from "../features/board/useBoardSync";
+import { api, errorMessage } from "../lib/api";
 import { getGuest } from "../lib/guest";
 import { useAuth } from "../providers/AuthProvider";
 
 type OpenBoardProps = { boardId: string };
+
+// Asks the owner of a board this person can't open to invite them, and says when it's done or why it couldn't be.
+function RequestAccess({ boardId }: OpenBoardProps) {
+  const [state, setState] = useState<{ sending?: boolean; sent?: boolean; error?: string }>({});
+  async function ask() {
+    setState({ sending: true });
+    try {
+      await api.requestAccess(boardId);
+      setState({ sent: true });
+    } catch (error) {
+      setState({ error: errorMessage(error) });
+    }
+  }
+  return (
+    <div className="mt-6 flex flex-col items-center gap-3">
+      {state.sent && (
+        <p role="status" className="font-medium text-ink">
+          Request sent. You'll get a notification when the owner invites you.
+        </p>
+      )}
+      <div className="flex justify-center gap-2">
+        {!state.sent && (
+          <Button loading={state.sending} onClick={ask}>
+            Request access
+          </Button>
+        )}
+        <ButtonLink to="/boards" variant={state.sent ? "primary" : "secondary"}>
+          Go to your boards
+        </ButtonLink>
+      </div>
+      {state.error && (
+        <p role="alert" className="text-sm text-danger">
+          {state.error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const backToBoards = <ButtonLink to="/boards">Go to your boards</ButtonLink>;
 const goHome = <ButtonLink to="/">Go home</ButtonLink>;
@@ -72,9 +111,10 @@ function OpenBoard({ boardId }: OpenBoardProps) {
     if (phase.status === 403) {
       // The server answers a guest with 401, so a 403 is only seen by someone logged in.
       return (
-        <FullPageMessage icon={Lock} title="You don't have access to this board" action={backToBoards}>
-          Ask the owner to invite <strong className="font-medium text-ink">{user!.email}</strong>, then open the link
-          again.
+        <FullPageMessage icon={Lock} title="You don't have access to this board">
+          Ask the owner to invite <strong className="font-medium text-ink">{user!.email}</strong>. Requesting access
+          tells them, with that address.
+          <RequestAccess boardId={boardId} />
         </FullPageMessage>
       );
     }

@@ -20,6 +20,7 @@ import {
   findBoardForMember,
   findBoardForViewing,
   idOf,
+  isMemberRole,
   isOwner,
   LinkLockedError,
   populateMembers,
@@ -465,6 +466,27 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
   await syncAccess(updated);
   await notify({ users: [invitee._id], type: "invite", actor: updated.owner, board: updated });
   res.status(201).json({ board: serializeMeta(updated) } satisfies Api.BoardMetaReply);
+}
+
+/**
+ * Asks a board's owner to invite the person asking, who can't open it. The owner is notified with their email address,
+ * which the notification's link fills into the Share dialog. A request still unread isn't sent again.
+ */
+export async function requestAccess(req: BoardRequest, res: Response) {
+  const { boardId } = req.params;
+  const board = mongoose.isValidObjectId(boardId)
+    ? await Board.findOne({ _id: boardId, deletedAt: null }).select(`${ACCESS_FIELDS} title`)
+    : null;
+  if (!board) throw new HttpError(404, "This board doesn't exist or has been deleted.");
+  if (isMemberRole(roleOf(board, req.userId))) throw new HttpError(409, "You already have access to this board.");
+  const user = await User.findById(req.userId);
+  if (!user) throw new HttpError(401, "Log in to ask for access.");
+  // The owner couldn't invite an unconfirmed address (see addCollaborator), so asking would get nowhere.
+  if (emailConfigured() && !user.emailVerified) {
+    throw new HttpError(409, "Confirm your email address first (see Settings), so the owner can invite you.");
+  }
+  await notify({ users: [board.owner], type: "access", actor: user, board, excerpt: user.email });
+  res.status(204).end();
 }
 
 export async function removeCollaborator(req: Request<{ boardId: string; userId: string }>, res: Response) {

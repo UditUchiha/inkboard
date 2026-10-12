@@ -122,7 +122,8 @@ export async function notify({ users, type, actor, board, thread = null, excerpt
       actor: actor._id,
       board: board._id,
       thread,
-      excerpt: excerpt ? excerptOf(excerpt) : null,
+      // An email address is kept whole, so the owner can invite the person who asked.
+      excerpt: excerpt && (type === "access" ? excerpt : excerptOf(excerpt)),
     })),
   );
   for (const notification of created) {

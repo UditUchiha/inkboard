@@ -120,8 +120,8 @@ export function NotificationsMenu({ className }: { className?: string }) {
       <p className="px-2.5 pt-2 pb-1 text-sm font-semibold">Notifications</p>
       {items.length === 0 && !more ? (
         <p className="px-2.5 pt-1 pb-3 text-sm text-graphite">
-          Nothing yet. You'll hear here when someone mentions you, replies to you, invites you to a board or suggests
-          changes to yours, and when a board you're invited to is moved to the trash.
+          Nothing yet. You'll hear here when someone mentions you, replies to you, invites you to a board, suggests
+          changes to yours or asks for access to it, and when a board you're invited to is moved to the trash.
         </p>
       ) : (
         // With `more` the list can be empty: the server skips a page whose senders are all gone, and older ones remain.

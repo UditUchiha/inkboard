@@ -289,11 +289,12 @@ export interface TemplateReply {
 // Notifications
 
 /** Why someone was notified. */
-export type NotificationType = "mention" | "reply" | "invite" | "suggestion" | "trashed";
+export type NotificationType = "mention" | "reply" | "invite" | "suggestion" | "trashed" | "access";
 
 /**
- * A mention, reply, invite, suggestions on someone's board, or a board they were invited to moved to the trash
- * (see serializeNotification on the server).
+ * A mention, reply, invite, suggestions on someone's board, a board they were invited to moved to the trash, or
+ * someone asking for access to their board, whose email address is then the excerpt (see serializeNotification on
+ * the server).
  */
 export interface NotificationItem {
   id: string;

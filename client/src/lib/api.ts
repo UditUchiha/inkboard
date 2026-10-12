@@ -206,6 +206,8 @@ export const api = {
     request<shared.LinkPassReply>(`/boards/${id}/unlock`, { method: "POST", body: { password } }),
   inviteCollaborator: (id: string, email: string) =>
     request<Wire<shared.BoardMetaReply>>(`/boards/${id}/collaborators`, { method: "POST", body: { email } }),
+  // Asks the owner of a board this person can't open to invite them.
+  requestAccess: (id: string) => request<void>(`/boards/${id}/access-requests`, { method: "POST" }),
   removeCollaborator: (id: string, userId: string) =>
     request<Wire<shared.BoardMetaReply>>(`/boards/${id}/collaborators/${userId}`, { method: "DELETE" }),
 
