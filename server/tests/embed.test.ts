@@ -40,14 +40,5 @@ describe("an embedded board", () => {
     await roundTrip(embed);
     assert.equal(embed.of("board:role").length, 0);
   });
-
-  it("can be framed by other sites, unlike the rest of the app", async () => {
-    const embedded = await fetch(`${app.url}/embed/some-board`);
-    assert.equal(embedded.headers.get("x-frame-options"), null);
-    assert.match(embedded.headers.get("content-security-policy")!, /frame-ancestors \*/);
-
-    const board = await fetch(`${app.url}/board/some-board`);
-    assert.equal(board.headers.get("x-frame-options"), "SAMEORIGIN");
-    assert.match(board.headers.get("content-security-policy")!, /frame-ancestors 'self'/);
-  });
 });
+// That an embed's page can be framed by other sites is checked with the built app (auth-security.test.ts).

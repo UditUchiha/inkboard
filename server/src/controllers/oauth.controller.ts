@@ -464,8 +464,13 @@ async function findOrCreateUser(provider: EnabledProvider, profile: ProviderProf
   if (!profile.email) throw new SignInError("no-email");
   // Emails aren't verified at sign-up, so silently attaching a provider to an
   // existing password account could hand that account to whoever created it.
-  // The owner connects the provider from their settings instead.
-  if (await User.exists({ email: profile.email.toLowerCase() })) throw new SignInError("email-in-use");
+  // The owner connects the provider from their settings instead. The account with the address may be this
+  // person's own, made a moment ago by a sign-in that ran at the same time as this one (after the look-up above).
+  if (await User.exists({ email: profile.email.toLowerCase() })) {
+    const madeMeanwhile = await User.findOne({ [field]: profile.id });
+    if (madeMeanwhile) return madeMeanwhile;
+    throw new SignInError("email-in-use");
+  }
 
   const name = (profile.name ?? "").trim().slice(0, 60) || profile.email.split("@")[0].slice(0, 60);
   // The provider only gives us verified addresses (see above), so this one is verified too.
