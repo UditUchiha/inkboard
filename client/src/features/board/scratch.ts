@@ -187,6 +187,9 @@ export function useScratchBoard() {
       sendViewport: NOOP,
       loadReplay: () => Promise.resolve({ ok: false as const, error: "A board in this browser has no replay." }),
       present: NOOP,
+      // A scratch board is one person's, so it has no shared timer.
+      timer: null,
+      controlTimer: NOOP,
       subscribeViewport: () => NOOP,
       requestViewport: NOOP,
       socket: null,
