@@ -167,6 +167,26 @@ export function createNote({ x, y }: XY, style: Style): StickyElement {
   };
 }
 
+// What Enter puts down with a drawing tool, for drawing without a pointer: [width, height].
+const PLACED_SIZES = { rectangle: [160, 100], ellipse: [160, 100], line: [160, 0], arrow: [160, 0], frame: [640, 400] };
+
+/** A shape, line or frame of a standard size centred on `centre` (see placeFree for keeping it clear of others). */
+export function placedElement(
+  type: keyof typeof PLACED_SIZES,
+  centre: XY,
+  style: Style,
+  elements: BoardElement[],
+): BoardElement {
+  const [width, height] = PLACED_SIZES[type];
+  const x = centre.x - width / 2;
+  const y = centre.y - height / 2;
+  // The cast: none of these types is a pen, so it has a box.
+  const element = createElement(type, { x, y }, style) as ShapeElement | FrameElement;
+  const placed = { ...element, x2: x + width, y2: y + height };
+  if (placed.type === "frame") placed.name = nextFrameName(elements);
+  return placed;
+}
+
 /** "Frame 1", "Frame 2", …: the first such name no frame on the board has. */
 export function nextFrameName(elements: BoardElement[]): string {
   const frames = elements.filter(isFrame);
@@ -623,6 +643,42 @@ export function frameContents(elements: BoardElement[], frame: FrameElement): Bo
 /** `element` and, for a frame, everything inside it. */
 export const withContents = (elements: BoardElement[], element: BoardElement): BoardElement[] =>
   isFrame(element) ? [element, ...frameContents(elements, element)] : [element];
+
+/** An element in the board's outline, with what's inside it if it's a frame. */
+export type OutlineNode = { element: BoardElement; children: OutlineNode[] };
+
+/**
+ * The board as an outline: each frame holds what's directly inside it, and every level reads from the top, left to
+ * right. At most `limit` elements are in it, the first ones in that order.
+ */
+export function boardOutline(elements: BoardElement[], limit = Infinity): OutlineNode[] {
+  const parent = new Map<string, string>();
+  // Smallest frame first, so each element is claimed by the innermost frame around it.
+  const size = (frame: FrameElement) => Math.abs((frame.x2 - frame.x1) * (frame.y2 - frame.y1));
+  const frames = elements.filter(isFrame).sort((a, b) => size(a) - size(b));
+  for (const frame of frames) {
+    for (const inside of frameContents(elements, frame)) if (!parent.has(inside.id)) parent.set(inside.id, frame.id);
+  }
+  const children = new Map<string | null, BoardElement[]>();
+  for (const element of elements) {
+    const key = parent.get(element.id) ?? null;
+    children.set(key, [...(children.get(key) ?? []), element]);
+  }
+  let left = limit;
+  const build = (key: string | null): OutlineNode[] => {
+    const level = (children.get(key) ?? [])
+      .map((element) => ({ element, box: getBounds(element) }))
+      .sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x);
+    const nodes: OutlineNode[] = [];
+    for (const { element } of level) {
+      if (left <= 0) break;
+      left -= 1;
+      nodes.push({ element, children: isFrame(element) ? build(element.id) : [] });
+    }
+    return nodes;
+  };
+  return build(null);
+}
 
 export function translate(element: BoardElement, dx: number, dy: number): BoardElement {
   if (element.type === "pen") {
