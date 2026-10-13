@@ -28,6 +28,7 @@ import {
 } from "../src/realtime/operations.ts";
 import { readRemoved, REMOVED_LIMITS } from "../src/realtime/sessions.ts";
 import { flushAllSessions } from "../src/realtime/index.ts";
+import type { VotingMessage } from "@inkboard/shared/socket";
 
 let app: ServerInstance;
 before(async () => {
@@ -855,5 +856,60 @@ describe("holdPiece", () => {
     assert.equal(holdPiece(null, { id: "x", index: 1, total: 2 }, op("b")).error, "invalid");
     assert.equal(holdPiece(null, { id: "x", index: 0, total: 1 }, op("b")).error, "invalid");
     assert.equal(holdPiece(null, { id: "x", index: 0, total: 2 }, null).error, "invalid");
+  });
+});
+
+describe("dot voting", () => {
+  it("shows each person only their own votes until the round ends, then everyone the results", async () => {
+    const { owner, id, a, b } = await pair();
+    await a.op(id, upsert(rect("x"), rect("y")));
+    const seen = (client: TestClient) => (client.last("voting") as VotingMessage | undefined)?.voting;
+    a.socket.emit("vote", { action: "start", votes: 2 });
+    await eventually(() => seen(b)?.open, { message: "the open round" });
+
+    a.socket.emit("vote", { action: "cast", id: "x" });
+    await eventually(() => seen(a)?.mine.length === 1, { message: "the owner's vote" });
+    b.socket.emit("vote", { action: "cast", id: "x" });
+    b.socket.emit("vote", { action: "cast", id: "y" });
+    await eventually(() => seen(a)?.voters === 2 && seen(b)?.mine.length === 2, { message: "the editor's votes" });
+    assert.deepEqual(seen(a)!.mine, ["x"]);
+    assert.equal(seen(a)!.results, null);
+
+    a.socket.emit("vote", { action: "end" });
+    await eventually(() => seen(b)?.open === false, { message: "the ended round" });
+    assert.deepEqual(seen(b)!.results, { x: 2, y: 1 });
+
+    const late = await app.connect(owner);
+    await late.join(id);
+    await eventually(() => seen(late)?.results?.x === 2, { message: "the results for someone who joins later" });
+  });
+});
+
+describe("a board's timer and voting, when everyone leaves", () => {
+  it("are saved with the board and still there when someone comes back", async () => {
+    const { owner, id, a, b } = await pair();
+    await a.op(id, upsert(rect("x")));
+    a.socket.emit("countdown", { action: "start", seconds: 600 });
+    a.socket.emit("vote", { action: "start", votes: 2 });
+    await eventually(() => (b.last("voting") as VotingMessage | undefined)?.voting?.open, { message: "the round" });
+    b.socket.emit("vote", { action: "cast", id: "x" });
+    await eventually(() => (b.last("voting") as VotingMessage | undefined)?.voting?.mine.length === 1, {
+      message: "the vote",
+    });
+    a.close();
+    b.close();
+    await eventually(async () => (await Board.findById(id).select("+voting").lean())?.voting, {
+      message: "the round saved",
+    });
+    await flushAllSessions();
+
+    const back = await app.connect(owner);
+    const reply = (await back.join(id)) as { countdown?: { total: number; left: number; running: boolean } | null };
+    assert.equal(reply.countdown?.total, 600_000);
+    assert.equal(reply.countdown?.running, true, "it kept counting");
+    back.socket.emit("vote", { action: "end" });
+    await eventually(() => (back.last("voting") as VotingMessage | undefined)?.voting?.results?.x === 1, {
+      message: "the editor's vote, counted after they all came back",
+    });
   });
 });

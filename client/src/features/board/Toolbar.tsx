@@ -14,6 +14,7 @@ import {
   Square,
   StickyNote,
   Type,
+  Vote,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Fragment } from "react";
@@ -33,6 +34,8 @@ const ICONS: Record<ToolId, LucideIcon> = {
   sticky: StickyNote,
   frame: Frame,
   eraser: Eraser,
+  // Not on the toolbar: it's picked while a round of voting is open.
+  vote: Vote,
 };
 
 // Dividers separate navigation, drawing, notes and frames, and erasing.

@@ -177,6 +177,9 @@ export function useScratchBoard() {
       suggestions: noSuggestions,
       resolveSuggestions: NOOP,
       withdrawSuggestions: NOOP,
+      // A scratch board is one person's, so there's nobody to vote with.
+      voting: null,
+      vote: NOOP,
       // A scratch board has no link, so nothing to unlock.
       unlock: () => Promise.resolve(),
       suggestedOver: NOTHING_SUGGESTED_OVER,

@@ -20,6 +20,9 @@ import type {
   SuggestionRemovalMessage,
   SuggestionsMessage,
   ViewportMessage,
+  VotePayload,
+  Voting,
+  VotingMessage,
 } from "@inkboard/shared/socket";
 import type { SuggestionDraft } from "@inkboard/shared/suggestions";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -117,6 +120,7 @@ export function useBoardSync(
   const [saving, setSaving] = useState(false);
   const [cursors] = useState(createCursorStore);
   const [suggestions] = useState(createSuggestionStore);
+  const [voting, setVoting] = useState<Voting | null>(null);
   const [outbox] = useState(() => createOutbox({ onChange: setSaving }));
   // How suggestions are sent: set below, once the socket is known (the suggester is made only once).
   const sendSuggestions = useRef<(drafts: SuggestionDraft[], withdraw: string[]) => Promise<SuggestionPutReply>>(() =>
@@ -267,6 +271,7 @@ export function useBoardSync(
       cursors.clear();
       suggestions.clear();
       suggester.forget();
+      setVoting(null);
     }
 
     const join = () => {
@@ -305,6 +310,8 @@ export function useBoardSync(
         // A suggester sees the board with their suggestions on it.
         if (joinedRole === "suggester") suggester.joined(elements, response.removed);
         setMeta(boardMeta);
+        // A round of voting under way is sent next; one that ended while this browser was away is gone.
+        setVoting(null);
         joined.current = true;
         setPhase({ name: "ready" });
         flush();
@@ -427,6 +434,9 @@ export function useBoardSync(
       suggestions.remove(payload.ids);
       if (own && payload.outcome !== "accepted" && roleRef.current === "suggester") suggester.rebuild();
     };
+    const onVoting = (payload: VotingMessage) => {
+      if (!forOther(payload)) setVoting(payload.voting);
+    };
 
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
@@ -443,6 +453,7 @@ export function useBoardSync(
     socket.on("countdown", onCountdown);
     socket.on("suggestion:upsert", onSuggestions);
     socket.on("suggestion:delete", onSuggestionsGone);
+    socket.on("voting", onVoting);
     if (socket.connected) onConnect();
 
     return () => {
@@ -471,6 +482,7 @@ export function useBoardSync(
       socket.off("countdown", onCountdown);
       socket.off("suggestion:upsert", onSuggestions);
       socket.off("suggestion:delete", onSuggestionsGone);
+      socket.off("voting", onVoting);
     };
   }, [socket, boardId, embed, store, outbox, cursors, suggestions, suggester, flush, send, viewportMessage]);
 
@@ -573,6 +585,14 @@ export function useBoardSync(
     [socket, boardId, suggestions],
   );
 
+  // Dot voting: running a round, and casting or taking back a vote. Everyone hears back the round as they see it.
+  const vote = useCallback(
+    (payload: VotePayload) => {
+      socket?.emit("vote", payload);
+    },
+    [socket],
+  );
+
   // Gives the password the board's link asks for, keeps the pass it gets, and opens the board with it. Rejects
   // with the server's reason (a wrong password, say), for the form to show.
   const unlock = useCallback(
@@ -606,6 +626,8 @@ export function useBoardSync(
     suggestions, // a store too (see suggestions.ts)
     resolveSuggestions,
     withdrawSuggestions,
+    voting,
+    vote,
     unlock,
     // The board as the server has it, without a suggester's own suggestions (see suggesting.ts).
     suggestedOver: suggester.board,

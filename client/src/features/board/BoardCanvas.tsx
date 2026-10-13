@@ -108,6 +108,8 @@ export type BoardCanvasProps = {
   onCursorMove: (point: XY | null) => void;
   onSizeChange?: (size: Size) => void;
   onPlaceComment?: (point: XY) => void;
+  // A click with the vote tool, and the element under it if any (see voting in BoardEditor).
+  onVote?: (point: XY, hit: BoardElement | null) => void;
   onFrameDrawn?: (id: string) => void;
   // Suggestions drawn over the board (see suggestions.ts).
   suggestions?: readonly SuggestionMark[];
@@ -198,6 +200,7 @@ export function BoardCanvas({
   onCursorMove,
   onSizeChange,
   onPlaceComment,
+  onVote,
   onFrameDrawn,
   suggestions = NO_MARKS,
   croppingId = null,
@@ -637,6 +640,10 @@ export function BoardCanvas({
       case "comment":
         onPlaceComment?.(world);
         return;
+      case "vote": {
+        onVote?.(world, elementAt(store.getElements(), world.x, world.y, tolerance) ?? null);
+        return;
+      }
       case "text": {
         const hit = elementAt(store.getElements(), world.x, world.y, tolerance);
         if (hit?.type === "text") onEditText({ element: hit, isNew: false });
@@ -833,6 +840,7 @@ export function BoardCanvas({
   else if (tool === "select") cursor = hovering ? "move" : "default";
   else if (tool === "text") cursor = "text";
   else if (tool === "comment") cursor = "copy";
+  else if (tool === "vote") cursor = "pointer";
   else if (tool === "eraser") cursor = ERASER_CURSOR;
 
   return (
