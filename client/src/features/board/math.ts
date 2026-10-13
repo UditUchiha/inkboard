@@ -1,5 +1,6 @@
+/// <reference types="vite/client" />
+// (The reference is for the server's tests, which load this through the board store and don't know import.meta.glob.)
 import type { Element as BoardElement, TextElement } from "@inkboard/shared/types";
-import { picturesChanged } from "./images";
 
 // Equations. A text written as `$$…$$` is drawn as the TeX between the signs, typeset by MathJax.
 // It stays a text everywhere else (the server, sync, the API), so nothing new is stored. MathJax
@@ -44,9 +45,7 @@ function typeset(tex: string): Entry {
     .then((run) => run(tex))
     .then((formula) => {
       created.formula = formula;
-      // Its text now measures differently.
-      for (const listener of listeners) listener();
-      picturesChanged();
+      changed();
     })
     // Without MathJax (offline, say), the text is drawn as written.
     .catch((error: unknown) => console.warn("Couldn't typeset an equation", error));
@@ -60,8 +59,16 @@ export function formulaOf(text: string): Formula | null {
   return tex ? typeset(tex).formula : null;
 }
 
-/** Calls `listener` each time a formula is typeset, so measurements made from its source can be forgotten. */
-export function onFormulaTypeset(listener: () => void): () => void {
+// A formula was typeset (its text now measures differently) or its picture loaded.
+function changed() {
+  for (const listener of listeners) listener();
+}
+
+/**
+ * Calls `listener` each time a formula is typeset or its picture loads, so measurements made from its source
+ * can be forgotten and canvases redrawn. (A callback, so this module needs nothing of the browser's at load.)
+ */
+export function onFormulasChanged(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
@@ -77,7 +84,7 @@ function pictureOf(formula: Formula, color: string): HTMLImageElement {
   let image = byColor.get(color);
   if (!image) {
     image = new Image();
-    image.onload = picturesChanged;
+    image.onload = changed;
     // Big enough to stay sharp when it's drawn large.
     const scale = 96;
     image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(

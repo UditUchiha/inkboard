@@ -34,9 +34,9 @@ import {
 import type { AnyElement, Connector } from "./elements";
 import { expandRect, normalizeRect, rectCenter, rectsOverlap } from "./geometry";
 import type { Rect, Viewport } from "./geometry";
-import { getImage, showingImages } from "./images";
+import { getImage, picturesChanged, showingImages } from "./images";
 import { darkInk } from "./ink";
-import { formulaOf, formulaPicture, onFormulaTypeset } from "./math";
+import { formulaOf, formulaPicture, onFormulasChanged } from "./math";
 import { forgetNoteMeasurements, noteLayout } from "./notes";
 import { connectorPath, pathData } from "./routes";
 import type { SuggestionMark } from "./suggestions";
@@ -655,4 +655,7 @@ function forgetMeasurements() {
   forgetBounds();
   forgetResolvedConnectors();
 }
-onFormulaTypeset(forgetMeasurements);
+onFormulasChanged(() => {
+  forgetMeasurements();
+  picturesChanged();
+});
