@@ -380,7 +380,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [ ] Shape recognition on pen strokes (M)
 - [x] Timer: one per board, kept with the board's open session and saved with the board (so it keeps counting when everyone has left). The server sends the time left rather than an end time, so a browser with a wrong clock still counts down right. Anyone who can edit starts, pauses, resumes and stops it; everyone, link visitors too, sees it and hears a chime at the end
 - [x] Dot voting: an editor starts a round (1 to 10 votes each); everyone on the board but an embed votes on notes, shapes, text, pictures or frames, one vote each at most. The server sends each person only their own votes (and how many people voted) until the round ends, then everyone the counts, so this is the first per-person filtering of a broadcast. Kept with the board's open session and saved with the board
-- [ ] Private mode (S-M)
+- [x] Private mode: a member turns it on; everyone else who can draw becomes a suggester for the while (their screens join again as such), and the server sends each suggestion only to its author until a member reveals them all, after which they are ordinary suggestions to accept or reject. Built on suggest mode rather than hiding board elements per person, so nothing private reaches exports, the API, versions or the replay. Saved with the board
 - [ ] Accessibility: keyboard-only drawing, an outline view of a board (M)
 - [ ] Large-board performance: viewport culling, spatial index (L)
 

@@ -193,6 +193,8 @@ export function useScratchBoard() {
       // A scratch board is one person's, so it has no shared timer.
       timer: null,
       controlTimer: NOOP,
+      privateMode: null,
+      setPrivate: NOOP,
       subscribeViewport: () => NOOP,
       requestViewport: NOOP,
       socket: null,

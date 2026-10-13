@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { Link, useLocation, useNavigate } from "react-router";
-import { Keyboard, MessageSquarePlus, Save, UserPlus, X } from "lucide-react";
+import { EyeOff, Keyboard, MessageSquarePlus, Save, UserPlus, X } from "lucide-react";
 import { STACK_MOVES } from "@inkboard/shared/board-order";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
 import type {
@@ -57,7 +57,7 @@ import { ReplayPlayer } from "./ReplayPlayer";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
 import { ShareDialog } from "./ShareDialog";
 import { ShortcutsDialog } from "./ShortcutsDialog";
-import { SuggestingNotice, SyncStatus, ViewOnlyNotice } from "./StatusPanels";
+import { PrivateModeNotice, SuggestingNotice, SyncStatus, ViewOnlyNotice } from "./StatusPanels";
 import { connectorPath, pathMiddle } from "./routes";
 import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
@@ -792,7 +792,15 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                   className="max-md:max-w-full max-md:overflow-x-auto"
                 />
               )}
-              {suggesting && <SuggestingNotice />}
+              {sync.privateMode ? (
+                <PrivateModeNotice
+                  by={sync.privateMode.by}
+                  hidden={suggesting}
+                  onReveal={sync.privateMode.canEnd ? () => sync.setPrivate(false) : undefined}
+                />
+              ) : (
+                suggesting && <SuggestingNotice />
+              )}
               {!local && (
                 <BoardTimer timer={sync.timer} canControl={drawsOnBoard(role)} onControl={sync.controlTimer} />
               )}
@@ -955,6 +963,15 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
               {!local && drawsOnBoard(role) && !sync.voting && (
                 <div className="floating-panel rounded-xl p-1">
                   <StartVoting onStart={(votes) => sync.vote({ action: "start", votes })} />
+                </div>
+              )}
+              {!local && isMember && !sync.privateMode && (
+                <div className="floating-panel rounded-xl p-1">
+                  <IconButton
+                    label="Private mode: hide what everyone adds until you reveal it"
+                    icon={EyeOff}
+                    onClick={() => sync.setPrivate(true)}
+                  />
                 </div>
               )}
               <div className="floating-panel rounded-xl p-1 max-md:hidden">
