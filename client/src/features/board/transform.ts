@@ -1,5 +1,5 @@
 import type { Element as BoardElement, ImageCrop, ImageElement, Point } from "@inkboard/shared/types";
-import { canRotate, getFrame, getLocalBounds, measureText } from "./elements";
+import { canRotate, getFrame, getLocalBounds, textSize } from "./elements";
 import type { Connector } from "./elements";
 import { clamp, constrainEnd, rotatePoint } from "./geometry";
 import type { Pair, TurnedRect, XY } from "./geometry";
@@ -205,7 +205,7 @@ export function resizeElement(
         MAX_FONT_SIZE,
       );
       const resized = { ...original, fontSize };
-      const size = measureText(resized);
+      const size = textSize(resized);
       return { ...resized, x1: cx - size.width / 2, y1: cy - size.height / 2 };
     }
     default:

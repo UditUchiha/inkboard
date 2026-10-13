@@ -32,7 +32,16 @@ import type { ToolId } from "./constants";
 import { copyGroup, drawnElement, isConnector, moveGroup } from "./connectors";
 import { ElementList } from "./ElementList";
 import { describeElement } from "./elementLabels";
-import { getBounds, getSceneBounds, isFrame, slideFrames, stackKey, translate, withContents } from "./elements";
+import {
+  createElement,
+  getBounds,
+  getSceneBounds,
+  isFrame,
+  slideFrames,
+  stackKey,
+  translate,
+  withContents,
+} from "./elements";
 import type { Connector } from "./elements";
 import { ExportError } from "./exportSize";
 import { fitViewport, rectContains, rectsOverlap, unionRects, zoomAround } from "./geometry";
@@ -55,6 +64,7 @@ import type { BoardStore } from "./store";
 import { suggestionMarks } from "./suggestions";
 import type { OwnSuggestions, SuggestionGroup } from "./suggestions";
 import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } from "./SuggestionsPanel";
+import { mathSource } from "./math";
 import { MermaidImportDialog } from "./MermaidImportDialog";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
@@ -467,7 +477,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     // An empty sticky note is still a note, and an arrow without a label still an arrow; empty text is nothing.
     const keepEmpty = element.type === "sticky" || isConnector(element);
     if (isNew) {
-      if (!value.trim() && !keepEmpty) return;
+      // An equation left as $$ $$ is as empty as a text left blank.
+      if (!(mathSource(value) ?? value).trim() && !keepEmpty) return;
       const created = { ...element, text: value };
       store.commit({ undo: { remove: [created.id] }, redo: { upsert: [created] } });
       return;
@@ -516,6 +527,15 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     width: canvasSize.width / viewport.zoom,
     height: canvasSize.height / viewport.zoom,
   });
+
+  // An equation is a text written as $$…$$ (see math.ts): one is started in the middle of the screen, ready to type.
+  function addEquation() {
+    const view = visibleArea();
+    // The cast: createElement makes a text when asked for one.
+    const centre = { x: view.x + view.width / 2, y: view.y + view.height / 2 };
+    const element = createElement("text", centre, style) as TextElement;
+    setEditing({ element: { ...element, text: "$$  $$" }, isNew: true });
+  }
 
   // Elements made all at once (drawn by Claude, imported from Mermaid): one undo step, brought into view if they
   // aren't all on screen already, and a message to undo them by.
@@ -748,6 +768,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                   tool={tool}
                   onToolChange={changeTool}
                   onAddImage={canAddImages ? () => fileInput.current?.click() : undefined}
+                  onAddEquation={addEquation}
                   onAiDraw={() => setDialog("ai")}
                   withComments={canComment}
                   className="max-md:max-w-full max-md:overflow-x-auto"

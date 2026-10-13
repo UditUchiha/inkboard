@@ -16,6 +16,7 @@ import {
   STYLE_CONTROLS,
 } from "./constants";
 import type { Choice, Style } from "./constants";
+import { mathSource } from "./math";
 import { isComposing } from "./mentions";
 
 function Section({ label, children }: { label: string; children: ReactNode }) {
@@ -361,7 +362,9 @@ export function PropertiesPanel({
         </Section>
       )}
 
-      {(controls.includes("font") || (controls.includes("labelFont") && values.text)) && (
+      {/* An equation is typeset in its own font. */}
+      {((controls.includes("font") && mathSource(values.text ?? "") === null) ||
+        (controls.includes("labelFont") && values.text)) && (
         <Section label={controls.includes("labelFont") ? "Label font" : "Font"}>
           <Segmented
             // Object.entries gives the keys of FONTS as strings, and they are its fonts.

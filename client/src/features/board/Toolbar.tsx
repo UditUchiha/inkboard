@@ -10,6 +10,7 @@ import {
   MousePointer2,
   MessageSquarePlus,
   Pencil,
+  Sigma,
   Sparkles,
   Square,
   StickyNote,
@@ -44,13 +45,23 @@ export type ToolbarProps = {
   onToolChange: (tool: ToolId) => void;
   // Left out where pictures can't be added, which hides the button.
   onAddImage?: (() => void) | undefined;
+  // Starts an equation; left out where nothing can be written.
+  onAddEquation?: (() => void) | undefined;
   // Opens Draw with AI; left out where nothing can be drawn.
   onAiDraw?: (() => void) | undefined;
   withComments?: boolean;
   className?: string;
 };
 
-export function Toolbar({ tool, onToolChange, onAddImage, onAiDraw, withComments = false, className }: ToolbarProps) {
+export function Toolbar({
+  tool,
+  onToolChange,
+  onAddImage,
+  onAddEquation,
+  onAiDraw,
+  withComments = false,
+  className,
+}: ToolbarProps) {
   const tools = withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS;
   return (
     <div
@@ -108,6 +119,22 @@ export function Toolbar({ tool, onToolChange, onAddImage, onAiDraw, withComments
                   aria-hidden
                 >
                   Add image <kbd className="ml-1 font-sans text-on-ink/60">I</kbd>
+                </span>
+              </button>
+            )}
+            {item.id === "text" && onAddEquation && (
+              <button
+                type="button"
+                aria-label="Add equation"
+                onClick={onAddEquation}
+                className="group relative grid size-10 place-items-center rounded-lg text-ink transition-colors hover:bg-ink/6"
+              >
+                <Sigma className="size-[18px]" strokeWidth={1.75} aria-hidden />
+                <span
+                  className="pointer-events-none absolute top-full left-1/2 z-20 mt-2 -translate-x-1/2 rounded-md bg-ink px-2 py-1 text-xs whitespace-nowrap text-on-ink opacity-0 transition-opacity delay-300 group-hover:opacity-100 max-md:hidden"
+                  aria-hidden
+                >
+                  Equation (LaTeX)
                 </span>
               </button>
             )}

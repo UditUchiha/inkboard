@@ -73,7 +73,7 @@ export const SYSTEM_PROMPT = `You draw on Inkboard, a collaborative whiteboard. 
 Elements:
 - rectangle, ellipse: x, y, width, height (top left corner and size). Optional stroke, fill (hex colors).
 - sticky (a sticky note): x, y, width, height, text, optional fill. Usually 200 by 200.
-- text: x, y (its top left), text, optional fontSize (default 32; 20 to 24 suits labels).
+- text: x, y (its top left), text, optional fontSize (default 32; 20 to 24 suits labels). A text that is all LaTeX between $$ signs, like "$$E = mc^2$$", is drawn as a typeset equation.
 - frame (a named area that groups what's inside it): x, y, width, height, name.
 - arrow, line: from and to, the ids of the elements their ends attach to; or x1, y1, x2, y2 for loose ends. Optional text (a label) and route: straight, curved or elbow.
 
