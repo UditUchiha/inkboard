@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ElementType } from "@inkboard/shared/types";
-import { nextVoting, votingFor } from "../src/realtime/voting.ts";
+import { nextVoting, readVoting, savedVoting, votingFor } from "../src/realtime/voting.ts";
 import type { Voter, VotingState } from "../src/realtime/voting.ts";
 
 const board: Record<string, ElementType> = { a: "sticky", b: "rectangle", c: "frame", line: "arrow", ink: "pen" };
@@ -77,5 +77,35 @@ describe("dot voting", () => {
     ]) {
       assert.equal(nextVoting(null, payload, runner), undefined, JSON.stringify(payload));
     }
+  });
+});
+
+describe("a saved round of voting", () => {
+  it("reads back as it was saved", () => {
+    const state = apply(null, [runner, { action: "start", votes: 2 }], [viewer, { action: "cast", id: "a" }]);
+    assert.deepEqual(readVoting(JSON.parse(JSON.stringify(savedVoting(state)))), state);
+    assert.equal(savedVoting(null), null);
+  });
+
+  it("is none when what was saved isn't one, and keeps only ballots that are", () => {
+    for (const saved of [
+      null,
+      "x",
+      {},
+      { open: true, votes: 0, ballots: [] },
+      { open: "yes", votes: 2, ballots: [] },
+    ]) {
+      assert.equal(readVoting(saved), null, JSON.stringify(saved));
+    }
+    const read = readVoting({
+      open: true,
+      votes: 1,
+      ballots: [
+        ["p", ["a", "b"]],
+        ["q", "a"],
+        [3, ["a"]],
+      ],
+    })!;
+    assert.deepEqual([...read.ballots], [["p", new Set(["a"])]]);
   });
 });

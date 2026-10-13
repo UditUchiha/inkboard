@@ -9,10 +9,12 @@ import { Board } from "../models/board.model.ts";
 import type { ObjectIdLike } from "../services/boards.ts";
 import { diffElements, hasReplay, recordStep, REPLAY_LIMITS } from "../services/replay.ts";
 import { lastVersionTime, recordVersion } from "../services/versions.ts";
+import { readCountdown } from "./countdown.ts";
 import type { CountdownState } from "./countdown.ts";
 import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.ts";
 import { readSuggestions, settleSuggestions, suggestionList } from "./suggestions.ts";
 import type { SuggestionState } from "./suggestions.ts";
+import { readVoting, savedVoting } from "./voting.ts";
 import type { VotingState } from "./voting.ts";
 
 // Boards that are open in at least one browser live in memory, so every
@@ -58,8 +60,10 @@ export interface Session {
   // The suggestions open on the board (see suggestions.ts), and whether they have changed since they were saved.
   suggestions: SuggestionState;
   suggestionsDirty: boolean;
-  // The board's round of dot voting, while there is one (see voting.ts). It isn't saved.
+  // The board's round of dot voting, while there is one (see voting.ts).
   voting: VotingState | null;
+  // Whether the timer or the round of voting changed since they were saved.
+  facilitationDirty: boolean;
   // Changes not saved yet, the save (or its retry) that's due, and the save in progress.
   dirty: boolean;
   timer: ReturnType<typeof setTimeout> | null;
@@ -76,7 +80,7 @@ export interface Session {
   // and the step that's due (see takeStep).
   recorded: Map<string, Element> | null;
   stepTimer: ReturnType<typeof setTimeout> | null;
-  // The board's timer, while there is one (see countdown.ts). It isn't saved.
+  // The board's timer, while there is one (see countdown.ts).
   countdown: CountdownState | null;
 }
 
@@ -105,9 +109,11 @@ export function acquireSession(boardId: string): Promise<Session> {
   let pending = opening.get(boardId);
   if (!pending) {
     pending = Board.findById(boardId)
-      .select("elements removed suggestions owner")
+      .select("elements removed suggestions owner countdown voting")
       .lean()
-      .then((saved) => openSession(boardId, saved?.elements ?? [], saved?.removed, saved?.owner, saved?.suggestions))
+      .then((saved) =>
+        openSession(boardId, saved?.elements ?? [], saved?.removed, saved?.owner, saved?.suggestions, saved ?? {}),
+      )
       .finally(() => opening.delete(boardId));
     opening.set(boardId, pending);
   }
@@ -247,6 +253,7 @@ function openSession(
   removed: SavedRemoval[] = [],
   owner: ObjectIdLike | null = null,
   suggestions: unknown = [],
+  { countdown = null, voting = null }: { countdown?: unknown; voting?: unknown } = {},
 ): Session {
   // A board saved before elements had places in the stack gets them now, in the order it was saved,
   // and elements saved before they had every field their kind has now get those (see withDefaults).
@@ -260,7 +267,8 @@ function openSession(
     buriedBytes: 0,
     suggestions: readSuggestions(suggestions),
     suggestionsDirty: false,
-    voting: null,
+    voting: readVoting(voting),
+    facilitationDirty: false,
     dirty: false, // changes not saved yet
     timer: null, // the save (or its retry) that's due
     saving: null, // the save in progress, a promise
@@ -270,7 +278,7 @@ function openSession(
     skipWarnedAt: null, // when the log last said a checkpoint was skipped for want of room
     recorded: null,
     stepTimer: null,
-    countdown: null,
+    countdown: readCountdown(countdown),
   };
   measure(session);
   // Suggestions the board overtook while it was closed (or that are too old) go now, before anyone sees them.
@@ -428,6 +436,12 @@ export function markSuggestionsDirty(session: Session) {
   session.timer ??= setTimeout(() => persist(session), BASE_PERSIST_DELAY_MS);
 }
 
+/** Notes that the board's timer or round of voting changed, so they're saved soon (without the elements, if those haven't). */
+export function markFacilitationDirty(session: Session) {
+  session.facilitationDirty = true;
+  session.timer ??= setTimeout(() => persist(session), BASE_PERSIST_DELAY_MS);
+}
+
 /**
  * Saves the board, resolving once nothing is left unsaved (or a save failed,
  * which is tried again soon). Only one save runs at a time per board, so an
@@ -444,10 +458,11 @@ function persist(session: Session) {
 }
 
 async function save(session: Session) {
-  while ((session.dirty || session.suggestionsDirty) && !session.discarded) {
-    const { dirty, suggestionsDirty } = session;
+  while ((session.dirty || session.suggestionsDirty || session.facilitationDirty) && !session.discarded) {
+    const { dirty, suggestionsDirty, facilitationDirty } = session;
     session.dirty = false;
     session.suggestionsDirty = false;
+    session.facilitationDirty = false;
     try {
       // The plain driver is two to three times faster than Mongoose for a big array of
       // elements, so it is used here; updatedAt is kept current by hand. Only what changed is
@@ -467,6 +482,7 @@ async function save(session: Session) {
                 }
               : {}),
             ...(suggestionsDirty ? { suggestions: suggestionList(session.suggestions) } : {}),
+            ...(facilitationDirty ? { countdown: session.countdown, voting: savedVoting(session.voting) } : {}),
           },
         },
       );
@@ -475,12 +491,14 @@ async function save(session: Session) {
       console.error(`Could not save board ${session.boardId}: ${(error as Error).message}`);
       session.dirty ||= dirty;
       session.suggestionsDirty ||= suggestionsDirty;
+      session.facilitationDirty ||= facilitationDirty;
       if (!session.discarded) session.timer ??= setTimeout(() => persist(session), MAX_PERSIST_DELAY_MS);
       return;
     }
   }
   // Saved, and nobody came back to it meanwhile: it can go.
-  if (session.closing && !session.dirty && !session.suggestionsDirty && sessions.get(session.boardId) === session) {
+  const unsaved = session.dirty || session.suggestionsDirty || session.facilitationDirty;
+  if (session.closing && !unsaved && sessions.get(session.boardId) === session) {
     sessions.delete(session.boardId);
   }
 }

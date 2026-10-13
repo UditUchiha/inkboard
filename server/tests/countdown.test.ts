@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { countdownAt, nextCountdown } from "../src/realtime/countdown.ts";
+import { countdownAt, nextCountdown, readCountdown } from "../src/realtime/countdown.ts";
 
 describe("the board's timer", () => {
   it("counts down from when it was started", () => {
@@ -46,6 +46,22 @@ describe("the board's timer", () => {
       { action: "explode" },
     ]) {
       assert.equal(nextCountdown(null, payload, 0), undefined, JSON.stringify(payload));
+    }
+  });
+});
+
+describe("a saved timer", () => {
+  it("reads back as it was saved, or is none", () => {
+    const started = nextCountdown(null, { action: "start", seconds: 60 }, 5)!;
+    assert.deepEqual(readCountdown(JSON.parse(JSON.stringify(started))), started);
+    for (const saved of [
+      null,
+      {},
+      { total: 1, left: -1, since: null },
+      { total: "1", left: 1, since: null },
+      { total: 1, left: 1 },
+    ]) {
+      assert.equal(readCountdown(saved), null, JSON.stringify(saved));
     }
   });
 });

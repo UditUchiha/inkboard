@@ -64,6 +64,7 @@ import {
   getSession,
   holdSession,
   removedStamps,
+  markFacilitationDirty,
   markSuggestionsDirty,
   resetSession,
   updateSession,
@@ -689,6 +690,7 @@ function handleConnection(socket: RealtimeSocket) {
     });
     if (next === undefined) return;
     session.voting = next;
+    markFacilitationDirty(session);
     for (const other of socketsIn(boardId)) {
       other.emit("voting", { boardId, voting: votingFor(next, personOf(other).userId) });
     }
@@ -712,6 +714,7 @@ function handleConnection(socket: RealtimeSocket) {
     const next = nextCountdown(session.countdown, payload, now);
     if (next === undefined) return;
     session.countdown = next;
+    markFacilitationDirty(session);
     io.to(boardId).emit("countdown", { boardId, countdown: countdownAt(next, now) });
   });
 

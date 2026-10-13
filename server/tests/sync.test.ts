@@ -884,3 +884,32 @@ describe("dot voting", () => {
     await eventually(() => seen(late)?.results?.x === 2, { message: "the results for someone who joins later" });
   });
 });
+
+describe("a board's timer and voting, when everyone leaves", () => {
+  it("are saved with the board and still there when someone comes back", async () => {
+    const { owner, id, a, b } = await pair();
+    await a.op(id, upsert(rect("x")));
+    a.socket.emit("countdown", { action: "start", seconds: 600 });
+    a.socket.emit("vote", { action: "start", votes: 2 });
+    await eventually(() => (b.last("voting") as VotingMessage | undefined)?.voting?.open, { message: "the round" });
+    b.socket.emit("vote", { action: "cast", id: "x" });
+    await eventually(() => (b.last("voting") as VotingMessage | undefined)?.voting?.mine.length === 1, {
+      message: "the vote",
+    });
+    a.close();
+    b.close();
+    await eventually(async () => (await Board.findById(id).select("+voting").lean())?.voting, {
+      message: "the round saved",
+    });
+    await flushAllSessions();
+
+    const back = await app.connect(owner);
+    const reply = (await back.join(id)) as { countdown?: { total: number; left: number; running: boolean } | null };
+    assert.equal(reply.countdown?.total, 600_000);
+    assert.equal(reply.countdown?.running, true, "it kept counting");
+    back.socket.emit("vote", { action: "end" });
+    await eventually(() => (back.last("voting") as VotingMessage | undefined)?.voting?.results?.x === 1, {
+      message: "the editor's vote, counted after they all came back",
+    });
+  });
+});

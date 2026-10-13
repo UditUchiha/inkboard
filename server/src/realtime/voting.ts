@@ -5,7 +5,7 @@ import type { ElementType } from "@inkboard/shared/types";
 // Dot voting on a board. Someone who can edit starts a round, giving each person a few votes to put on notes,
 // shapes, text, pictures or frames, one each at most. Each person sees only their own votes (and how many people
 // have voted) until the round ends, so nobody follows the crowd; then everyone sees the results. A round lives
-// with the board's open session: once everyone has left, it's gone.
+// with the board's open session and is saved with the board, so it's still there when everyone has left and comes back.
 
 /** A round as the session keeps it: whether it's open, the votes each person has, and each person's votes, by their id. */
 export type VotingState = { open: boolean; votes: number; ballots: Map<string, Set<string>> };
@@ -71,4 +71,25 @@ export function votingFor(state: VotingState | null, voterId: string): Voting | 
     voters: sets.filter((ids) => ids.size > 0).length,
     results,
   };
+}
+
+/** A round as it's saved with the board: each person's votes as [their id, element ids] (a Map doesn't save). */
+export type SavedVoting = { open: boolean; votes: number; ballots: [string, string[]][] };
+
+export const savedVoting = (state: VotingState | null): SavedVoting | null =>
+  state && { open: state.open, votes: state.votes, ballots: [...state.ballots].map(([id, ids]) => [id, [...ids]]) };
+
+/** A round as it was saved with the board, or null if what's there isn't one. Ballots that aren't any are left out. */
+export function readVoting(saved: unknown): VotingState | null {
+  if (!saved || typeof saved !== "object") return null;
+  const { open, votes, ballots } = saved as { open?: unknown; votes?: unknown; ballots?: unknown };
+  if (typeof open !== "boolean" || !Number.isInteger(votes)) return null;
+  if (!((votes as number) >= 1 && (votes as number) <= MAX_VOTES_PER_PERSON) || !Array.isArray(ballots)) return null;
+  const kept = new Map<string, Set<string>>();
+  for (const ballot of ballots) {
+    if (!Array.isArray(ballot) || typeof ballot[0] !== "string" || !Array.isArray(ballot[1])) continue;
+    const ids = (ballot[1] as unknown[]).filter((id): id is string => typeof id === "string");
+    kept.set(ballot[0], new Set(ids.slice(0, votes as number)));
+  }
+  return { open, votes: votes as number, ballots: kept };
 }
