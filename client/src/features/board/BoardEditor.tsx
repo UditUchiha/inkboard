@@ -57,6 +57,7 @@ import type { OwnSuggestions, SuggestionGroup } from "./suggestions";
 import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } from "./SuggestionsPanel";
 import { MermaidImportDialog } from "./MermaidImportDialog";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
+import { BoardTimer, StartTimer } from "./BoardTimer";
 import { Toolbar } from "./Toolbar";
 import { useBoardShortcuts } from "./useBoardShortcuts";
 import { drawsOnBoard } from "./useBoardSync";
@@ -754,6 +755,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                 />
               )}
               {suggesting && <SuggestingNotice />}
+              {!local && (
+                <BoardTimer timer={sync.timer} canControl={drawsOnBoard(role)} onControl={sync.controlTimer} />
+              )}
             </div>
 
             {/* Top right: people, share, menu */}
@@ -895,6 +899,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                 local={Boolean(local)}
                 unsaved={sync.unsaved}
               />
+              {!local && drawsOnBoard(role) && !sync.timer && (
+                <div className="floating-panel rounded-xl p-1">
+                  <StartTimer onStart={(seconds) => sync.controlTimer({ action: "start", seconds })} />
+                </div>
+              )}
               <div className="floating-panel rounded-xl p-1 max-md:hidden">
                 <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={() => setDialog("shortcuts")} />
               </div>

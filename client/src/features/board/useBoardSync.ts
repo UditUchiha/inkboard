@@ -1,6 +1,9 @@
 import type { LinkLock, Wire } from "@inkboard/shared/api";
 import type {
   BoardMessage,
+  Countdown,
+  CountdownMessage,
+  CountdownPayload,
   CursorMessage,
   CursorPayload,
   JoinReply as SocketJoinReply,
@@ -93,6 +96,12 @@ export type BoardSync = ReturnType<typeof useBoardSync>;
  * Someone who may only suggest has their edits sent as suggestions instead (see
  * suggesting.ts); `selfId` (their account's id, or their guest id) tells theirs apart.
  */
+/** The board's timer as this browser keeps it: as the server last said, and when (by this browser's clock) it heard. */
+export type BoardTimer = Countdown & { at: number };
+
+const timerFrom = (countdown: Countdown | null | undefined): BoardTimer | null =>
+  countdown ? { ...countdown, at: Date.now() } : null;
+
 export function useBoardSync(
   boardId: string,
   store: BoardStore,
@@ -103,6 +112,7 @@ export function useBoardSync(
   const [meta, setMeta] = useState<BoardMeta | null>(null);
   const [role, setRole] = useState<Role>("viewer"); // "owner" | "editor" can draw; "viewer" can only look
   const [peers, setPeers] = useState<Peer[]>([]);
+  const [timer, setTimer] = useState<BoardTimer | null>(null);
   const [online, setOnline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cursors] = useState(createCursorStore);
@@ -253,6 +263,7 @@ export function useBoardSync(
       setMeta(null);
       setRole("viewer");
       setPeers([]);
+      setTimer(null);
       cursors.clear();
       suggestions.clear();
       suggester.forget();
@@ -290,6 +301,7 @@ export function useBoardSync(
         }
         // A server from before suggestions doesn't send any.
         suggestions.load(response.suggestions ?? []);
+        setTimer(timerFrom(response.countdown));
         // A suggester sees the board with their suggestions on it.
         if (joinedRole === "suggester") suggester.joined(elements, response.removed);
         setMeta(boardMeta);
@@ -401,6 +413,9 @@ export function useBoardSync(
       if (suggesting) suggester.forget();
       if (lostEditing || suggesting) resync.current(); // drop unsent edits and history
     };
+    const onCountdown = (payload: CountdownMessage) => {
+      if (!forOther(payload)) setTimer(timerFrom(payload.countdown));
+    };
     const onSuggestions = (payload: SuggestionsMessage) => {
       if (!forOther(payload)) suggestions.upsert(payload.suggestions);
     };
@@ -425,6 +440,7 @@ export function useBoardSync(
     socket.on("board:reset", onReset);
     socket.on("viewport", onViewport);
     socket.on("viewport:request", onViewportRequest);
+    socket.on("countdown", onCountdown);
     socket.on("suggestion:upsert", onSuggestions);
     socket.on("suggestion:delete", onSuggestionsGone);
     if (socket.connected) onConnect();
@@ -452,6 +468,7 @@ export function useBoardSync(
       socket.off("board:reset", onReset);
       socket.off("viewport", onViewport);
       socket.off("viewport:request", onViewportRequest);
+      socket.off("countdown", onCountdown);
       socket.off("suggestion:upsert", onSuggestions);
       socket.off("suggestion:delete", onSuggestionsGone);
     };
@@ -535,6 +552,14 @@ export function useBoardSync(
     [socket],
   );
 
+  // Starting, pausing, resuming or stopping the board's timer. Everyone, this browser too, hears back what it is now.
+  const controlTimer = useCallback(
+    (payload: CountdownPayload) => {
+      socket?.emit("countdown", payload);
+    },
+    [socket],
+  );
+
   // A member's decision on suggestions. They go from this screen at once; accepting one is the member's own
   // change to the board, made before this (see acceptance in suggestions.ts).
   const resolveSuggestions = useCallback(
@@ -590,6 +615,8 @@ export function useBoardSync(
     sendViewport,
     loadReplay,
     present,
+    timer,
+    controlTimer,
     subscribeViewport,
     requestViewport,
     socket,
