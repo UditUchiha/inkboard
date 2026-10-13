@@ -53,6 +53,7 @@ import {
 import type { ExpiredGroup, GroupError, HeldGroup, RawOperation } from "./operations.ts";
 import { createLimiter, LIMITS } from "./rate-limit.ts";
 import type { Limiter } from "./rate-limit.ts";
+import { nextVoting, votingFor } from "./voting.ts";
 import {
   acquireSession,
   admit,
@@ -673,6 +674,25 @@ function handleConnection(socket: RealtimeSocket) {
     }
   });
 
+  // Dot voting (see voting.ts): anyone on the board votes, and those who can edit it run the round. Each person is
+  // sent the round as they see it, which only their own votes change while it's open.
+  socket.on("vote", (payload) => {
+    const boardId = socket.data.boardId;
+    if (!boardId || socket.data.embed || !limits.vote()) return;
+    const session = getSession(boardId);
+    if (!session) return;
+    const next = nextVoting(session.voting, payload, {
+      id: personOf(socket).userId,
+      canRun: canEdit(socket.data.role),
+      typeOf: (id) => session.index.get(id)?.type,
+    });
+    if (next === undefined) return;
+    session.voting = next;
+    for (const other of socketsIn(boardId)) {
+      other.emit("voting", { boardId, voting: votingFor(next, personOf(other).userId) });
+    }
+  });
+
   // Started or stopped presenting: the others follow the presenter's view (see useFollow).
   socket.on("present", async (payload) => {
     const boardId = socket.data.boardId;
@@ -805,6 +825,8 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
       removed: removedStamps(session.tombstones),
       suggestions: suggestionList(session.suggestions),
     });
+    // A round of voting under way, after the reply, which clears any this browser had.
+    if (session.voting) socket.emit("voting", { boardId, voting: votingFor(session.voting, personOf(socket).userId) });
     await broadcastPresence(boardId);
   } catch (error) {
     // Anything can be thrown; the board and database lookups throw Errors, which may carry a status.

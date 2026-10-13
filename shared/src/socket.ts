@@ -82,6 +82,14 @@ export interface ViewportRequestPayload {
   socketId: string;
 }
 
+/**
+ * What `vote` sends. Someone who can edit the board starts a round of dot voting with `votes` for each person (at
+ * most MAX_VOTES_PER_PERSON), ends it, which shows everyone the results, or clears it away. Anyone on the board
+ * casts a vote on an element, one each at most, or takes it back, while the round is open.
+ */
+export type VotePayload =
+  { action: "start"; votes: number } | { action: "end" | "clear" } | { action: "cast" | "retract"; id: string };
+
 /** What `guest:rename` sends: the guest's new name. */
 export interface RenamePayload {
   name: string;
@@ -237,6 +245,24 @@ export interface ThreadRemoval {
   id: string;
 }
 
+/**
+ * A round of dot voting as one person sees it: whether it's open, how many votes each person has, the elements
+ * this person voted for and how many people have voted so far. Nobody sees anyone else's votes until the round
+ * ends; then `results` has the votes each element got.
+ */
+export interface Voting {
+  open: boolean;
+  votes: number;
+  mine: string[];
+  voters: number;
+  results: Record<string, number> | null;
+}
+
+/** What `voting` carries: the board's round of voting as this person sees it, or null when there's none. */
+export interface VotingMessage extends BoardMessage {
+  voting: Voting | null;
+}
+
 /** What `suggestion:upsert` carries: suggestions made or changed, as the board keeps them. */
 export interface SuggestionsMessage extends BoardMessage {
   suggestions: Suggestion[];
@@ -266,6 +292,7 @@ export interface ClientToServerEvents {
   "viewport:request": (payload: ViewportRequestPayload) => void;
   present: (payload: PresentPayload) => void;
   "guest:rename": (payload: RenamePayload) => void;
+  vote: (payload: VotePayload) => void;
   "suggestion:put": (payload: SuggestionPutPayload, ack: (reply: SuggestionPutReply) => void) => void;
   "suggestion:withdraw": (payload: SuggestionWithdrawPayload, ack: (reply: SuggestionReply) => void) => void;
   "suggestion:resolve": (payload: SuggestionResolvePayload, ack: (reply: SuggestionReply) => void) => void;
@@ -290,4 +317,5 @@ export interface ServerToClientEvents {
   "thread:delete": (thread: ThreadRemoval) => void;
   "suggestion:upsert": (message: SuggestionsMessage) => void;
   "suggestion:delete": (message: SuggestionRemovalMessage) => void;
+  voting: (message: VotingMessage) => void;
 }

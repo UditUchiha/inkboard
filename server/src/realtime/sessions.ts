@@ -12,6 +12,7 @@ import { lastVersionTime, recordVersion } from "../services/versions.ts";
 import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.ts";
 import { readSuggestions, settleSuggestions, suggestionList } from "./suggestions.ts";
 import type { SuggestionState } from "./suggestions.ts";
+import type { VotingState } from "./voting.ts";
 
 // Boards that are open in at least one browser live in memory, so every
 // stroke can be broadcast immediately. Changes are written to MongoDB shortly
@@ -56,6 +57,8 @@ export interface Session {
   // The suggestions open on the board (see suggestions.ts), and whether they have changed since they were saved.
   suggestions: SuggestionState;
   suggestionsDirty: boolean;
+  // The board's round of dot voting, while there is one (see voting.ts). It isn't saved.
+  voting: VotingState | null;
   // Changes not saved yet, the save (or its retry) that's due, and the save in progress.
   dirty: boolean;
   timer: ReturnType<typeof setTimeout> | null;
@@ -254,6 +257,7 @@ function openSession(
     buriedBytes: 0,
     suggestions: readSuggestions(suggestions),
     suggestionsDirty: false,
+    voting: null,
     dirty: false, // changes not saved yet
     timer: null, // the save (or its retry) that's due
     saving: null, // the save in progress, a promise

@@ -13,7 +13,9 @@ export type ToolId =
   | "sticky"
   | "frame"
   | "eraser"
-  | "comment";
+  | "comment"
+  // Casting votes while a round of dot voting is open (see voting in BoardEditor).
+  | "vote";
 
 /** A tool as the toolbar lists it: its name and the key that picks it. */
 export type Tool = { id: ToolId; label: string; key: string };

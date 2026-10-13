@@ -379,6 +379,7 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [ ] Classroom mode (L)
 - [ ] Shape recognition on pen strokes (M)
 - [ ] Timer, voting, private mode (S-M each)
+  - [x] Dot voting: an editor starts a round (1 to 10 votes each); everyone on the board but an embed votes on notes, shapes, text, pictures or frames, one vote each at most. The server sends each person only their own votes (and how many people voted) until the round ends, then everyone the counts, so this is the first per-person filtering of a broadcast. Kept with the board's open session, not saved
 - [ ] Accessibility: keyboard-only drawing, an outline view of a board (M)
 - [ ] Large-board performance: viewport culling, spatial index (L)
 

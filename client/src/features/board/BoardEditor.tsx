@@ -58,6 +58,7 @@ import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } fr
 import { MermaidImportDialog } from "./MermaidImportDialog";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { Toolbar } from "./Toolbar";
+import { StartVoting, VotesLayer, VotingBar, voteFor, voteTarget } from "./Voting";
 import { useBoardShortcuts } from "./useBoardShortcuts";
 import { drawsOnBoard } from "./useBoardSync";
 import type { BoardSync, Peer } from "./useBoardSync";
@@ -257,6 +258,20 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setTool(next);
     if (next !== "select") setSelectedId(null);
   }, []);
+
+  // Dot voting (see Voting.tsx): when a round opens, everyone's pointer votes; when it ends, it goes back to what it was
+  // for. Clicking an element with the vote tool casts or takes back a vote on it.
+  const votingOpen = Boolean(sync.voting?.open);
+  useEffect(() => {
+    if (votingOpen) changeTool("vote");
+    else setTool((current) => (current === "vote" ? (readOnly ? "hand" : "select") : current));
+  }, [votingOpen, readOnly, changeTool]);
+  function castVote(point: XY, hit: BoardElement | null) {
+    const element = voteTarget(store.getElements(), point, hit);
+    const choice = element && voteFor(sync.voting, element);
+    if (choice && "refused" in choice) toast(choice.refused);
+    else if (choice) sync.vote(choice);
+  }
 
   // Fit existing drawings into view once, when the board first opens.
   const fitted = useRef(false);
@@ -596,7 +611,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       <ErrorBoundary fallback={BoardCrashed}>
         <MemoBoardCanvas
           store={store}
-          tool={presenting || (readOnly && tool !== "comment") ? "hand" : tool}
+          tool={presenting || (readOnly && tool !== "comment" && tool !== "vote") ? "hand" : tool}
           style={style}
           viewport={viewport}
           onViewportChange={changeViewport}
@@ -608,6 +623,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           onCursorMove={presenting ? sendLaser : sendCursor}
           onSizeChange={setCanvasSize}
           onPlaceComment={placeComment}
+          onVote={castVote}
           onFrameDrawn={selectElement}
           suggestions={suggestionLayer}
           croppingId={croppingId}
@@ -651,6 +667,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       ) : (
         !presenting && (
           <>
+            {sync.voting && <VotesLayer voting={sync.voting} elements={elements} viewport={viewport} />}
             {commentsEnabled && showComments && (
               <CommentsLayer
                 threads={threads}
@@ -754,6 +771,16 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                 />
               )}
               {suggesting && <SuggestingNotice />}
+              {sync.voting && (
+                <VotingBar
+                  voting={sync.voting}
+                  canRun={drawsOnBoard(role)}
+                  voteToolOn={tool === "vote"}
+                  onVoteTool={() => changeTool("vote")}
+                  onEnd={() => sync.vote({ action: "end" })}
+                  onClear={() => sync.vote({ action: "clear" })}
+                />
+              )}
             </div>
 
             {/* Top right: people, share, menu */}
@@ -895,6 +922,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                 local={Boolean(local)}
                 unsaved={sync.unsaved}
               />
+              {!local && drawsOnBoard(role) && !sync.voting && (
+                <div className="floating-panel rounded-xl p-1">
+                  <StartVoting onStart={(votes) => sync.vote({ action: "start", votes })} />
+                </div>
+              )}
               <div className="floating-panel rounded-xl p-1 max-md:hidden">
                 <IconButton label="Keyboard shortcuts" icon={Keyboard} onClick={() => setDialog("shortcuts")} />
               </div>
