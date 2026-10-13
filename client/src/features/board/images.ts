@@ -183,7 +183,8 @@ const listeners = new Set<() => void>();
 let version = 0;
 let evictionDue = false;
 
-function changed() {
+/** Has every canvas that draws pictures redraw: one has finished loading (an equation's too, see math.ts). */
+export function picturesChanged() {
   version += 1;
   for (const listener of listeners) listener();
 }
@@ -258,13 +259,13 @@ function track(
   image.onload = () => {
     entry.state = "ready";
     entry.failures = 0;
-    changed();
+    picturesChanged();
   };
   image.onerror = () => {
     entry.state = "failed";
     entry.failedAt = Date.now();
     entry.failures += 1;
-    changed();
+    picturesChanged();
   };
   image.src = src;
   return entry;

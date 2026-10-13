@@ -53,6 +53,7 @@ Other rules:
 
 - **Colors** are hex, like `#e03131`.
 - **Fonts** are `hand`, `sans` or `code`.
+- **Equations:** a `text` that is all LaTeX between `$$` signs, like `$$\frac{a}{b}$$`, is drawn as a typeset equation. It's stored and returned as written.
 - **Lines and arrows** need either both ends' coordinates or what they're attached to. An attached end is drawn at the edge of its shape, wherever the coordinates say.
 - **Stacking:** new elements go on top.
 

@@ -4,6 +4,7 @@ import { getSceneBounds } from "./elements";
 import { downloadBlob, pictureDataUrls, safeFileName } from "./files";
 import { ExportError, MIN_SCALE, exportScale } from "./exportSize";
 import { loadImagesOf, releaseImages } from "./images";
+import { loadFormulas } from "./math";
 import { elementsToMermaid } from "./mermaid";
 import { loadCanvasFonts, renderScene } from "./renderer";
 import { buildSvg, fontsUsed } from "./svgExport";
@@ -13,9 +14,10 @@ import { fontFacesFor, measureBaselines } from "./svgFonts";
 // (JSON) that can be imported again, or its diagram as a Mermaid flowchart. Each resolves to false when the board is empty.
 
 export async function exportBoardAsPng(elements: BoardElement[], fileName: string): Promise<boolean> {
-  const bounds = getSceneBounds(elements);
-  if (!bounds) return false;
-  await Promise.all([loadCanvasFonts(), loadImagesOf(elements)]);
+  if (!getSceneBounds(elements)) return false;
+  await Promise.all([loadCanvasFonts(), loadImagesOf(elements), loadFormulas(elements)]);
+  // Measured once fonts have loaded and equations are typeset. The assertion: the board isn't empty.
+  const bounds = getSceneBounds(elements)!;
 
   const padding = 32;
   const width = bounds.width + padding * 2;
@@ -45,7 +47,7 @@ export async function exportBoardAsPng(elements: BoardElement[], fileName: strin
 
 export async function exportBoardAsSvg(elements: BoardElement[], fileName: string): Promise<boolean> {
   if (!getSceneBounds(elements)) return false;
-  await loadCanvasFonts();
+  await Promise.all([loadCanvasFonts(), loadFormulas(elements)]);
   const fonts = fontsUsed(elements);
   const [fontFaces, images] = await Promise.all([fontFacesFor(fonts), pictureDataUrls(elements)]);
   // The assertion: buildSvg gives null only for a board with nothing to draw, which is checked above.

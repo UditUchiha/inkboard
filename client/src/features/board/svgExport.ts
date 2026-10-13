@@ -21,6 +21,7 @@ import { isConnector, resolveConnectors } from "./connectors";
 import { canRotate, connectorLabel, frameLabel, getBounds, getLocalBounds, inDrawOrder, isFrame } from "./elements";
 import { expandRect, normalizeRect, rectCenter, unionRects } from "./geometry";
 import type { Rect } from "./geometry";
+import { formulaOf } from "./math";
 import { noteLayout } from "./notes";
 import { penOutline, shapePaths } from "./renderer";
 
@@ -68,6 +69,11 @@ function turned(element: BoardElement, inner: string): string {
 }
 
 function textSvg(element: TextElement, baselines: Baselines): string {
+  const formula = formulaOf(element.text);
+  if (formula) {
+    const { x, y, width, height } = getLocalBounds(element);
+    return `<svg x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}" viewBox="${formula.viewBox}" color="${xml(element.stroke)}">${formula.body}</svg>`;
+  }
   const font = fontKey(element.font);
   const family = FONTS[font].family;
   const lineHeight = element.fontSize * LINE_HEIGHT;

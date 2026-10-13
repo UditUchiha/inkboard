@@ -7,6 +7,7 @@ import { fontFor, measureText } from "./elements";
 import type { Connector } from "./elements";
 import { normalizeRect, toScreen } from "./geometry";
 import type { Viewport, XY } from "./geometry";
+import { mathSource } from "./math";
 import { noteLayout } from "./notes";
 
 // What the server keeps of a text (see MAX_TEXT_LENGTH), without half an emoji left at the end.
@@ -48,7 +49,12 @@ function useInlineEditor(
       if (!textarea) return;
       textarea.focus();
       if (selectAll) textarea.select();
-      else textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      else {
+        // In an equation ($$…$$), the caret goes inside, before the closing signs.
+        const closing = mathSource(textarea.value) === null ? null : /\s*\$\$\s*$/.exec(textarea.value);
+        const end = closing?.index ?? textarea.value.length;
+        textarea.setSelectionRange(end, end);
+      }
     }, 0);
     return () => clearTimeout(timer);
   }, [selectAll]);

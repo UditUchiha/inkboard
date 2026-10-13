@@ -22,6 +22,9 @@ export default defineConfig({
       },
     },
   },
+  // MathJax loads its font's rarer parts on demand (see math.ts). Pre-bundled for the dev server, it would get
+  // its own copy of the font, which those parts can't add to.
+  optimizeDeps: { exclude: ["@mathjax/src", "@mathjax/mathjax-newcm-font"] },
   server: {
     port: 5173,
     proxy: {

@@ -37,6 +37,7 @@ import {
   unionRects,
 } from "./geometry";
 import type { Pair, Rect, Size, TurnedRect, XY } from "./geometry";
+import { formulaOf } from "./math";
 import { charactersOf } from "./notes";
 import { approachTo, connectorPath, pathExtremes, pathLength, pathMiddle, pathPolyline } from "./routes";
 
@@ -207,6 +208,14 @@ export function measureText(element: TextStyle & { text?: string }, text = eleme
   return { width, height: lines.length * element.fontSize * LINE_HEIGHT, lines };
 }
 
+/** How big a text is drawn: an equation's typeset size (see math.ts), or its lines' size. */
+export function textSize(element: TextElement): Size {
+  const formula = formulaOf(element.text);
+  return formula
+    ? { width: formula.width * element.fontSize, height: formula.height * element.fontSize }
+    : measureText(element);
+}
+
 let labels = new WeakMap<FrameElement, { scale: number; label: FrameLabel }>(); // frame -> { scale, label }, see frameLabel
 
 /**
@@ -340,7 +349,7 @@ export function getLocalBounds(element: BoardElement): Rect {
       break;
     }
     case "text": {
-      const { width, height } = measureText(element);
+      const { width, height } = textSize(element);
       bounds = { x: element.x1, y: element.y1, width, height };
       break;
     }
@@ -407,7 +416,7 @@ export function getFrame(element: AnyElement): TurnedRect {
     const y = Math.min(...ys);
     box = { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
   } else if (element.type === "text") {
-    const { width, height } = measureText(element);
+    const { width, height } = textSize(element);
     box = { x: element.x1, y: element.y1, width, height };
   } else {
     box = normalizeRect(element.x1, element.y1, element.x2, element.y2);

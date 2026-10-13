@@ -34,8 +34,9 @@ import {
 import type { AnyElement, Connector } from "./elements";
 import { expandRect, normalizeRect, rectCenter, rectsOverlap } from "./geometry";
 import type { Rect, Viewport } from "./geometry";
-import { getImage, showingImages } from "./images";
+import { getImage, picturesChanged, showingImages } from "./images";
 import { darkInk } from "./ink";
+import { formulaOf, formulaPicture, onFormulasChanged } from "./math";
 import { forgetNoteMeasurements, noteLayout } from "./notes";
 import { connectorPath, pathData } from "./routes";
 import type { SuggestionMark } from "./suggestions";
@@ -368,6 +369,14 @@ function drawUnturned(ctx: CanvasRenderingContext2D, roughCanvas: RoughCanvas, e
   }
 
   if (element.type === "text") {
+    const formula = formulaOf(element.text);
+    if (formula) {
+      // Nothing until its picture has loaded, which is a moment: canvases redraw then.
+      const picture = formulaPicture(formula, ink(element.stroke));
+      const { width, height } = getLocalBounds(element);
+      if (picture) ctx.drawImage(picture, element.x1, element.y1, width, height);
+      return;
+    }
     ctx.save();
     ctx.font = fontFor(element);
     ctx.fillStyle = ink(element.stroke);
@@ -634,12 +643,19 @@ export function loadCanvasFonts(): Promise<void> {
     ),
   )
     .catch(() => {})
-    .then(() => {
-      forgetNoteMeasurements();
-      forgetFrameLabels();
-      forgetConnectorLabels();
-      forgetBounds();
-      forgetResolvedConnectors();
-    });
+    .then(forgetMeasurements);
   return fontsPromise;
 }
+
+// Text measures differently once web fonts have loaded, and an equation once it is typeset.
+function forgetMeasurements() {
+  forgetNoteMeasurements();
+  forgetFrameLabels();
+  forgetConnectorLabels();
+  forgetBounds();
+  forgetResolvedConnectors();
+}
+onFormulasChanged(() => {
+  forgetMeasurements();
+  picturesChanged();
+});
