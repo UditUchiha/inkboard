@@ -177,6 +177,9 @@ export function useScratchBoard() {
       suggestions: noSuggestions,
       resolveSuggestions: NOOP,
       withdrawSuggestions: NOOP,
+      // A scratch board is one person's, so there's nobody to vote with.
+      voting: null,
+      vote: NOOP,
       // A scratch board has no link, so nothing to unlock.
       unlock: () => Promise.resolve(),
       suggestedOver: NOTHING_SUGGESTED_OVER,
@@ -187,6 +190,9 @@ export function useScratchBoard() {
       sendViewport: NOOP,
       loadReplay: () => Promise.resolve({ ok: false as const, error: "A board in this browser has no replay." }),
       present: NOOP,
+      // A scratch board is one person's, so it has no shared timer.
+      timer: null,
+      controlTimer: NOOP,
       subscribeViewport: () => NOOP,
       requestViewport: NOOP,
       socket: null,

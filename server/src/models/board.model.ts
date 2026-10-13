@@ -32,6 +32,10 @@ const boardSchema = new mongoose.Schema(
     // Changes people with a "suggest" link proposed, for a member to accept or reject (see
     // shared/src/suggestions.ts). Kept and saved with the open board, like its elements.
     suggestions: { type: [Mixed], default: [], select: false },
+    // The board's timer and its round of dot voting, while there are any (see realtime/countdown.ts and
+    // realtime/voting.ts). Saved with the open board, so they carry on when everyone has left and comes back.
+    countdown: { type: Mixed, default: null, select: false },
+    voting: { type: Mixed, default: null, select: false },
     // People who starred the board on their dashboard.
     starredBy: [{ type: ObjectId, ref: "User", index: true }],
     // Set when the owner moves the board to the trash; it's deleted for good 30 days later.
