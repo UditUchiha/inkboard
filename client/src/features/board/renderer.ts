@@ -75,6 +75,13 @@ let smallPictures = false;
 let labelScale = 1;
 let picturesDrawn = new Set<string>(); // the image ids drawn in the scene being rendered
 let croppingId: string | null = null;
+let zoomNow = 1; // screen pixels per board unit, in the scene being rendered
+
+// Zoomed far out, what can't be seen isn't drawn in full, which is much of what drawing a big board costs: text
+// smaller than this many screen pixels can't be read, and a note smaller than NOTE_SHADOW_MIN shows no shadow.
+const READABLE_TEXT = 3;
+const NOTE_SHADOW_MIN = 24;
+const readable = (fontSize: number) => fontSize * zoomNow >= READABLE_TEXT;
 
 // Elements are immutable, so generated shapes can be cached per object (and
 // reused for copies that are only moved, as while dragging: see drawCache.ts).
@@ -230,7 +237,7 @@ function drawConnector(
   ctx.clip("evenodd");
   drawUnturned(ctx, roughCanvas, element);
   ctx.restore();
-  if (hideLabel) return;
+  if (hideLabel || !readable(label.fontSize)) return;
   ctx.save();
   ctx.font = label.font;
   ctx.fillStyle = ink(element.stroke);
@@ -296,14 +303,17 @@ function drawNote(ctx: CanvasRenderingContext2D, element: StickyElement) {
   const transform = ctx.getTransform();
   const pixels = Math.hypot(transform.a, transform.b); // device pixels per board unit
   ctx.save();
-  ctx.shadowColor = "rgba(22, 33, 58, 0.18)";
-  ctx.shadowBlur = Math.min(width, height) * 0.05 * pixels;
-  ctx.shadowOffsetY = Math.min(width, height) * 0.015 * pixels;
+  if (Math.min(width, height) * zoomNow >= NOTE_SHADOW_MIN) {
+    ctx.shadowColor = "rgba(22, 33, 58, 0.18)";
+    ctx.shadowBlur = Math.min(width, height) * 0.05 * pixels;
+    ctx.shadowOffsetY = Math.min(width, height) * 0.015 * pixels;
+  }
   ctx.fillStyle = ink(element.fill);
   ctx.fillRect(x, y, width, height);
   ctx.restore();
 
   const layout = noteLayout(element);
+  if (!readable(layout.fontSize)) return;
   ctx.save();
   // Only the lines that fit are drawn (see layoutNote); on a note too small for
   // even one, it's cut off at the note's edge.
@@ -378,8 +388,16 @@ function drawUnturned(ctx: CanvasRenderingContext2D, roughCanvas: RoughCanvas, e
       return;
     }
     ctx.save();
-    ctx.font = fontFor(element);
     ctx.fillStyle = ink(element.stroke);
+    if (!readable(element.fontSize)) {
+      // Too small to read: a faint bar where the text is.
+      const box = getLocalBounds(element);
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(box.x, box.y + box.height / 4, box.width, box.height / 2);
+      ctx.restore();
+      return;
+    }
+    ctx.font = fontFor(element);
     ctx.textBaseline = "top";
     const lineHeight = element.fontSize * LINE_HEIGHT;
     // Match the half-leading a <textarea> adds, so editing doesn't shift text.
@@ -586,6 +604,7 @@ export function renderScene(
   smallPictures = smallImages;
   croppingId = cropping;
   labelScale = screenLabels ? 1 / viewport.zoom : 1;
+  zoomNow = viewport.zoom;
   picturesDrawn = new Set();
   // The assertion: a canvas that has no other kind of context gives a 2d one.
   const ctx = canvas.getContext("2d")!;
