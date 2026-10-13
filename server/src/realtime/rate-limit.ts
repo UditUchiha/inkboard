@@ -8,6 +8,7 @@ export const LIMITS = {
   viewport: { burst: 20, perSecond: 10 },
   followRequest: { burst: 5, perSecond: 1 },
   present: { burst: 5, perSecond: 1 },
+  countdown: { burst: 5, perSecond: 1 },
   // A replay can be megabytes, read from the database each time.
   replay: { burst: 3, perSecond: 0.1 },
   // Votes come a click at a time.

@@ -63,6 +63,12 @@ export interface PresentPayload {
   on: boolean;
 }
 
+/**
+ * What `countdown` sends: start the board's timer for `seconds` (at most MAX_COUNTDOWN_SECONDS), or pause, resume or stop it. Only someone who
+ * can edit the board may.
+ */
+export type CountdownPayload = { action: "start"; seconds: number } | { action: "pause" | "resume" | "stop" };
+
 /** The part of the board someone is looking at: where it is, how far in, and how big their canvas is. */
 export interface SharedView {
   x: number;
@@ -132,7 +138,7 @@ export type RemovedStamp = Stamp & { id: string };
  * and the suggestions open on it.
  */
 export type JoinReply =
-  | { ok: true; board: BoardDetails; removed: RemovedStamp[]; suggestions: Suggestion[] }
+  | { ok: true; board: BoardDetails; removed: RemovedStamp[]; suggestions: Suggestion[]; countdown?: Countdown | null }
   | { ok: false; status: number; error: string; locked?: LinkLock };
 
 /**
@@ -233,6 +239,22 @@ export type CursorMessage = { socketId: string } & (
   { x: number; y: number; laser?: true } | { x?: undefined; y?: undefined; laser?: undefined }
 );
 
+/**
+ * The board's timer, which everyone on it sees: how long it was set for and how long was left when this was
+ * sent, in milliseconds, and whether it's counting down (or paused). Time left rather than an end time, so a
+ * browser whose clock is wrong still counts down right.
+ */
+export interface Countdown {
+  total: number;
+  left: number;
+  running: boolean;
+}
+
+/** What `countdown` carries: the board's timer as it is now, or null once it was stopped. */
+export interface CountdownMessage extends BoardMessage {
+  countdown: Countdown | null;
+}
+
 /** One person's view of the board, passed on to the others so they can follow along. */
 export interface ViewportMessage extends SharedView, BoardMessage {
   socketId: string;
@@ -291,6 +313,7 @@ export interface ClientToServerEvents {
   viewport: (payload: ViewportPayload) => void;
   "viewport:request": (payload: ViewportRequestPayload) => void;
   present: (payload: PresentPayload) => void;
+  countdown: (payload: CountdownPayload) => void;
   "guest:rename": (payload: RenamePayload) => void;
   vote: (payload: VotePayload) => void;
   "suggestion:put": (payload: SuggestionPutPayload, ack: (reply: SuggestionPutReply) => void) => void;
@@ -311,6 +334,7 @@ export interface ServerToClientEvents {
   cursor: (message: CursorMessage) => void;
   viewport: (message: ViewportMessage) => void;
   "viewport:request": (message: BoardMessage) => void;
+  countdown: (message: CountdownMessage) => void;
   notification: (notification: NotificationItem) => void;
   // A comment thread as it is listed, or the id of one that is gone.
   "thread:upsert": (thread: Thread) => void;

@@ -44,3 +44,6 @@ export const LINK_EXPIRY_MAX_MS = 366 * 24 * 3600 * 1000;
 // Comments: how many threads a board can have, and the reactions a comment can be given.
 export const MAX_THREADS_PER_BOARD = 500;
 export const REACTION_EMOJI = ["👍", "❤️", "😂", "🎉", "👀", "✅"] as const;
+
+/** The longest a board's timer can be set for: a whole day, in seconds (see CountdownPayload in socket.ts). */
+export const MAX_COUNTDOWN_SECONDS = 24 * 60 * 60;

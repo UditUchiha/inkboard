@@ -378,8 +378,9 @@ Priorities are suggestions. Move items as decisions are made. Each item can link
 - [x] AI prompt-to-board with your own key: **Draw with AI** (toolbar) sends the request and what's on the board to Claude from the browser, with the person's Anthropic key (kept only in their browser), and gets elements back as structured output in the public API's element form (`shared/src/api-elements.ts`). They go on the board as one undo step, through the editor like any change (so view-only people can't, and suggesters' become suggestions). No server-side key or allowance yet
 - [ ] Classroom mode (L)
 - [ ] Shape recognition on pen strokes (M)
-- [ ] Timer, voting, private mode (S-M each)
-  - [x] Dot voting: an editor starts a round (1 to 10 votes each); everyone on the board but an embed votes on notes, shapes, text, pictures or frames, one vote each at most. The server sends each person only their own votes (and how many people voted) until the round ends, then everyone the counts, so this is the first per-person filtering of a broadcast. Kept with the board's open session, not saved
+- [x] Timer: one per board, kept with the board's open session (not saved, so it ends when everyone leaves). The server sends the time left rather than an end time, so a browser with a wrong clock still counts down right. Anyone who can edit starts, pauses, resumes and stops it; everyone, link visitors too, sees it and hears a chime at the end
+- [x] Dot voting: an editor starts a round (1 to 10 votes each); everyone on the board but an embed votes on notes, shapes, text, pictures or frames, one vote each at most. The server sends each person only their own votes (and how many people voted) until the round ends, then everyone the counts, so this is the first per-person filtering of a broadcast. Kept with the board's open session, not saved
+- [ ] Private mode (S-M)
 - [ ] Accessibility: keyboard-only drawing, an outline view of a board (M)
 - [ ] Large-board performance: viewport culling, spatial index (L)
 

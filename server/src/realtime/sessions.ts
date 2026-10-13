@@ -9,6 +9,7 @@ import { Board } from "../models/board.model.ts";
 import type { ObjectIdLike } from "../services/boards.ts";
 import { diffElements, hasReplay, recordStep, REPLAY_LIMITS } from "../services/replay.ts";
 import { lastVersionTime, recordVersion } from "../services/versions.ts";
+import type { CountdownState } from "./countdown.ts";
 import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.ts";
 import { readSuggestions, settleSuggestions, suggestionList } from "./suggestions.ts";
 import type { SuggestionState } from "./suggestions.ts";
@@ -75,6 +76,8 @@ export interface Session {
   // and the step that's due (see takeStep).
   recorded: Map<string, Element> | null;
   stepTimer: ReturnType<typeof setTimeout> | null;
+  // The board's timer, while there is one (see countdown.ts). It isn't saved.
+  countdown: CountdownState | null;
 }
 
 // A tombstone as it is saved with a board (see removedList): the stamp of the removal and when it happened.
@@ -267,6 +270,7 @@ function openSession(
     skipWarnedAt: null, // when the log last said a checkpoint was skipped for want of room
     recorded: null,
     stepTimer: null,
+    countdown: null,
   };
   measure(session);
   // Suggestions the board overtook while it was closed (or that are too old) go now, before anyone sees them.

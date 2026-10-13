@@ -57,6 +57,7 @@ import type { OwnSuggestions, SuggestionGroup } from "./suggestions";
 import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } from "./SuggestionsPanel";
 import { MermaidImportDialog } from "./MermaidImportDialog";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
+import { BoardTimer, StartTimer } from "./BoardTimer";
 import { Toolbar } from "./Toolbar";
 import { StartVoting, VotesLayer, VotingBar, voteFor, voteTarget } from "./Voting";
 import { useBoardShortcuts } from "./useBoardShortcuts";
@@ -771,6 +772,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                 />
               )}
               {suggesting && <SuggestingNotice />}
+              {!local && (
+                <BoardTimer timer={sync.timer} canControl={drawsOnBoard(role)} onControl={sync.controlTimer} />
+              )}
               {sync.voting && (
                 <VotingBar
                   voting={sync.voting}
@@ -922,6 +926,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                 local={Boolean(local)}
                 unsaved={sync.unsaved}
               />
+              {!local && drawsOnBoard(role) && !sync.timer && (
+                <div className="floating-panel rounded-xl p-1">
+                  <StartTimer onStart={(seconds) => sync.controlTimer({ action: "start", seconds })} />
+                </div>
+              )}
               {!local && drawsOnBoard(role) && !sync.voting && (
                 <div className="floating-panel rounded-xl p-1">
                   <StartVoting onStart={(votes) => sync.vote({ action: "start", votes })} />

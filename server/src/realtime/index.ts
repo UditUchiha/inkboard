@@ -42,6 +42,7 @@ import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts
 import { notifySuggestion } from "../services/notifications.ts";
 import type { ImageLimit } from "../services/images.ts";
 import { effectOf, planOperation } from "@inkboard/shared/board-merge";
+import { countdownAt, nextCountdown } from "./countdown.ts";
 import {
   holdPiece,
   isOversized,
@@ -701,6 +702,19 @@ function handleConnection(socket: RealtimeSocket) {
     await broadcastPresence(boardId);
   });
 
+  // The board's timer (see countdown.ts): anyone who can edit the board sets it, and everyone on it is told.
+  socket.on("countdown", (payload) => {
+    const boardId = socket.data.boardId;
+    if (!boardId || !limits.countdown() || !canEdit(socket.data.role)) return;
+    const session = getSession(boardId);
+    if (!session) return;
+    const now = Date.now();
+    const next = nextCountdown(session.countdown, payload, now);
+    if (next === undefined) return;
+    session.countdown = next;
+    io.to(boardId).emit("countdown", { boardId, countdown: countdownAt(next, now) });
+  });
+
   // Suggestions (see suggestions.ts and docs/suggest-mode.md): only a suggester makes them, anyone takes back
   // their own, and a member accepts them (by making the change, then saying so here) or rejects them. Each
   // counts against the same limit as a change to the board. Returns the board's open session, or null after
@@ -824,6 +838,7 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
       board: serializeBoard(board, userId, session.elements, undefined, socket.data.role!),
       removed: removedStamps(session.tombstones),
       suggestions: suggestionList(session.suggestions),
+      countdown: countdownAt(session.countdown, Date.now()),
     });
     // A round of voting under way, after the reply, which clears any this browser had.
     if (session.voting) socket.emit("voting", { boardId, voting: votingFor(session.voting, personOf(socket).userId) });
