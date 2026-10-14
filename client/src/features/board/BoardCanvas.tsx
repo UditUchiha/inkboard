@@ -1,4 +1,4 @@
-import type { Element as BoardElement, PenElement, Point, Side } from "@inkboard/shared/types";
+import type { Element as BoardElement, PenElement, Point, ShapeElement, Side } from "@inkboard/shared/types";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent, PointerEvent } from "react";
 import { useElementSize } from "../../lib/useElementSize";
@@ -43,6 +43,7 @@ import {
 } from "./geometry";
 import type { HeldPointer, Size, Viewport, XY } from "./geometry";
 import { imagesVersion, subscribeImages } from "./images";
+import { recognizeStroke } from "./recognize";
 import { loadCanvasFonts, renderScene } from "./renderer";
 import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
@@ -123,7 +124,8 @@ const NO_MARKS: readonly SuggestionMark[] = [];
 type PanGesture = { kind: "pan"; startScreen: XY; startViewport: Viewport };
 type PinchGesture = { kind: "pinch"; startDistance: number; startMid: XY; startViewport: Viewport };
 // A stroke or shape being drawn. `created` is whether it is on the board yet, `done` the earlier strokes of a
-// long one, and `select` whether to select it once it's finished.
+// long one, and `select` whether to select it once it's finished. `hold` is where a pen stroke last stopped, and the
+// timer that turns it into a shape if it stays there; `snapped`, that it has.
 type DrawGesture = {
   kind: "draw";
   element: BoardElement;
@@ -131,7 +133,12 @@ type DrawGesture = {
   created: boolean;
   done: BoardElement[];
   select?: boolean;
+  hold?: { at: XY; timer: ReturnType<typeof setTimeout> };
+  snapped?: boolean;
 };
+
+const HOLD_MS = 600; // how long a pen is held still at the end of a stroke for it to become a shape
+const MIN_SHAPE = 24; // screen pixels: a stroke smaller than this is never made a shape
 // What has been erased, by id. `released` is the connectors let go of what's erased as they were before, and
 // `letGo` as they are now.
 type EraseGesture = {
@@ -511,6 +518,7 @@ export function BoardCanvas({
     if (!g) return;
 
     setHint(NO_HINT);
+    if (g.kind === "draw") clearTimeout(g.hold?.timer);
     const live = (element: BoardElement) => Boolean(store.getElement(element.id));
     if (g.kind === "draw" && g.created) {
       const strokes = [...g.done, g.element].filter(live); // a long stroke is made of several
@@ -542,6 +550,22 @@ export function BoardCanvas({
       setTurning(false);
       setHandle(null);
     }
+  }
+
+  // A pen stroke held still at its end becomes the shape it was drawn as, if it looks like one (see recognize.ts),
+  // in the stroke's color. A long stroke made of several is left as it is.
+  function snapToShape(g: DrawGesture) {
+    if (gesture.current !== g || g.element.type !== "pen" || g.done.length > 0 || !store.getElement(g.element.id))
+      return;
+    const { style, viewport } = latest.current;
+    const shape = recognizeStroke(g.element.points, MIN_SHAPE / viewport.zoom);
+    if (!shape) return;
+    // The cast: none of these types is a pen, so it has a box.
+    const made = createElement(shape.type, { x: shape.x1, y: shape.y1 }, { ...style, stroke: g.element.stroke });
+    const drawn = { ...(made as ShapeElement), x2: shape.x2, y2: shape.y2 };
+    store.apply({ remove: [g.element.id], upsert: [drawn] });
+    g.element = drawn;
+    g.snapped = true;
   }
 
   function startPan(screen: XY) {
@@ -714,6 +738,7 @@ export function BoardCanvas({
         return;
       }
       case "draw": {
+        if (g.snapped) return; // it's a shape now, drawn where the pen stopped
         if (!g.created) {
           if (!hasDragged(g.startScreen, screen)) return;
           g.created = true;
@@ -731,6 +756,11 @@ export function BoardCanvas({
         // Made from the step before, so a color someone picks mid-draw isn't painted over.
         store.apply({ upsert: [next] }, { base: [g.element] });
         g.element = next;
+        // Each time the pen moves on, the wait for it to be held still starts again.
+        if (next.type === "pen" && (!g.hold || hasDragged(g.hold.at, screen))) {
+          clearTimeout(g.hold?.timer);
+          g.hold = { at: screen, timer: setTimeout(() => snapToShape(g), HOLD_MS) };
+        }
         if (next.type === "pen" && next.points.length >= STROKE_SPLIT_POINTS) {
           // Carry on as a new stroke from where this one ends.
           g.done.push(next);
