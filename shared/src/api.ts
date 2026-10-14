@@ -304,7 +304,8 @@ export interface TemplateReply {
 // Notifications
 
 /** Why someone was notified. */
-export type NotificationType = "mention" | "reply" | "invite" | "suggestion" | "trashed" | "access";
+export type NotificationType =
+  "mention" | "reply" | "invite" | "suggestion" | "trashed" | "access" | "visitors" | "removals";
 
 /**
  * A mention, reply, invite, suggestions on someone's board, a board they were invited to moved to the trash, or
