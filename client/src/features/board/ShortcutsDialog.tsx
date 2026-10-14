@@ -32,6 +32,8 @@ const EDIT_ACTIONS: Action[] = [
   { label: "Duplicate selection", keys: [MOD, "D"] },
   { label: "Delete selection", keys: ["Delete / Backspace"] },
   { label: "Nudge selection", keys: ["Arrow keys"] },
+  { label: "Resize selection", keys: [MOD, "Arrow keys"] },
+  { label: "Put a shape, line, frame, text or note in the middle", keys: ["Tool key", "Enter"] },
   { label: "Edit selected text, note or label", keys: ["Enter"] },
   { label: "Bring forward / send backward", keys: [MOD, "] / ["] },
   { label: "Bring to front / send to back", keys: [MOD, "Shift", "] / ["] },

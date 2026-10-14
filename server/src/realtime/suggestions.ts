@@ -31,7 +31,7 @@ const KINDS = new Set<SuggestionKind>(["add", "change", "remove"]);
 const sizeOf = (suggestion: Suggestion) => mongoose.mongo.BSON.calculateObjectSize({ suggestion });
 
 /** Whether two people are the same author: the same account, or the same guest. */
-const sameAuthor = (a: Participant, b: Participant) => a.userId === b.userId && a.guest === b.guest;
+export const sameAuthor = (a: Participant, b: Participant) => a.userId === b.userId && a.guest === b.guest;
 
 export function emptySuggestions(): SuggestionState {
   return { byId: new Map(), sizes: new Map(), bytes: 0 };

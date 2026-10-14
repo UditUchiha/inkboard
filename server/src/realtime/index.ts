@@ -10,10 +10,12 @@ import type {
   OpReply,
   Participant,
   PieceGroup,
+  PrivateMode,
   ServerToClientEvents,
   SuggestionRefusal,
   ThreadRemoval,
 } from "@inkboard/shared/socket";
+import type { Suggestion } from "@inkboard/shared/suggestions";
 import type { Element } from "@inkboard/shared/types";
 import { Server } from "socket.io";
 import type { Socket } from "socket.io";
@@ -73,6 +75,7 @@ import type { Session } from "./sessions.ts";
 import {
   putSuggestions,
   resolveSuggestions,
+  sameAuthor,
   settleSuggestions,
   suggestionList,
   withdrawSuggestions,
@@ -113,6 +116,8 @@ export interface SocketData {
   requestedId?: string;
   // What this person may do on the board (see roleOf). Treated as no access until the first join sets it.
   role: Role | null;
+  // What the board itself lets them do, which private mode can make suggesting for a while (see effectiveRole).
+  boardRole?: Role | null;
   // The pass for the board's link password the socket joined with, if any (see link-pass.ts).
   pass?: string;
   // Whether the browser merges changes by the older rules (see prepareOperation).
@@ -355,6 +360,22 @@ const finite = (value: unknown) => Number.isFinite(Number(value));
 // An embed views whatever the person could do on the board, even on an edit link.
 const roleFor = (socket: Pick<RealtimeSocket, "data">, role: Role | null): Role | null =>
   role && socket.data.embed ? "viewer" : role;
+
+// Private mode (see "private" below): while it's on, everyone who could change the board, bar whoever turned it on,
+// suggests instead, and their suggestions are sent only to themselves until it's turned off.
+function effectiveRole(socket: Pick<RealtimeSocket, "data">, session: Session | undefined): Role | null {
+  const role = socket.data.boardRole ?? null;
+  const by = session?.privateMode?.by;
+  return by && canEdit(role) && personOf(socket).userId !== by ? "suggester" : role;
+}
+
+// Private mode as `socket` is told it.
+const privateModeFor = (session: Session, socket: Pick<RealtimeSocket, "data">): PrivateMode | null =>
+  session.privateMode && { by: session.privateMode.name, canEnd: isMemberRole(socket.data.boardRole ?? null) };
+
+// Whether `socket` is shown a suggestion: in private mode, only its author is.
+const showsSuggestion = (session: Session, socket: Pick<RealtimeSocket, "data">) => (suggestion: Suggestion) =>
+  !session.privateMode || sameAuthor(suggestion.author, personOf(socket));
 
 // The small copy sent with an image for thumbnails, or null. It's optional:
 // without one, thumbnails show the image itself, so a bad one is just dropped.
@@ -718,6 +739,30 @@ function handleConnection(socket: RealtimeSocket) {
     io.to(boardId).emit("countdown", { boardId, countdown: countdownAt(next, now) });
   });
 
+  // Private mode: a member (the owner or an invited editor) turns it on or off, not a guest on an edit link. Turning it on makes the others who can edit
+  // suggesters (see effectiveRole), whose screens join again as such; turning it off makes them editors again and
+  // shows everyone every suggestion, for a member to accept or reject as usual.
+  socket.on("private", (payload) => {
+    const boardId = socket.data.boardId;
+    if (!boardId || !limits.privateMode() || !isMemberRole(socket.data.boardRole ?? null)) return;
+    const session = getSession(boardId);
+    const on = payload?.on === true;
+    if (!session || on === Boolean(session.privateMode)) return;
+    const { userId, name } = personOf(socket);
+    session.privateMode = on ? { by: userId, name } : null;
+    markFacilitationDirty(session);
+    for (const other of socketsIn(boardId)) {
+      const role = effectiveRole(other, session);
+      if (role !== other.data.role) {
+        other.data.role = role;
+        // The assertion: a socket on a board has a role there.
+        other.emit("board:role", { boardId, role: role! });
+      }
+      other.emit("private", { boardId, privateMode: privateModeFor(session, other) });
+    }
+    if (!on) io.to(boardId).emit("suggestion:upsert", { boardId, suggestions: suggestionList(session.suggestions) });
+  });
+
   // Suggestions (see suggestions.ts and docs/suggest-mode.md): only a suggester makes them, anyone takes back
   // their own, and a member accepts them (by making the change, then saying so here) or rejects them. Each
   // counts against the same limit as a change to the board. Returns the board's open session, or null after
@@ -745,14 +790,21 @@ function handleConnection(socket: RealtimeSocket) {
     if (!Array.isArray(drafts)) return reply(SUGGESTION_INVALID);
     const { boardId } = session;
     const result = putSuggestions(session.suggestions, session, personOf(socket), drafts);
-    if (result.stored.length > 0) socket.to(boardId).emit("suggestion:upsert", { boardId, suggestions: result.stored });
+    if (result.stored.length > 0) {
+      for (const other of socketsIn(boardId)) {
+        // In private mode, only to their author's other screens (they are all this person's).
+        if (other !== socket && showsSuggestion(session, other)(result.stored[0])) {
+          other.emit("suggestion:upsert", { boardId, suggestions: result.stored });
+        }
+      }
+    }
     if (result.withdrawn.length > 0) {
       socket.to(boardId).emit("suggestion:delete", { boardId, ids: result.withdrawn, outcome: "withdrawn" });
     }
     if (result.stored.length + result.withdrawn.length > 0) markSuggestionsDirty(session);
     // A new suggestion (not one changed again) lets the owner know, looked into at most once a minute per open board.
     const made = result.stored.some((suggestion) => suggestion.createdAt === suggestion.updatedAt);
-    if (made && Date.now() - (suggestionsNoted.get(session) ?? 0) > SUGGESTION_NOTICE_MS) {
+    if (made && !session.privateMode && Date.now() - (suggestionsNoted.get(session) ?? 0) > SUGGESTION_NOTICE_MS) {
       suggestionsNoted.set(session, Date.now());
       notifySuggestion(boardId, personOf(socket)).catch((error: unknown) => console.error(error));
     }
@@ -822,12 +874,14 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     // Before the socket is on the board: changes aren't queued behind a join, so one sent for this board
     // while the join still waits (below) would otherwise be checked against the role on the board it left.
     socket.data.embed = payload?.embed === true;
-    socket.data.role = roleFor(socket, roleOf(board, userId, pass));
+    socket.data.boardRole = roleFor(socket, roleOf(board, userId, pass));
+    socket.data.role = effectiveRole(socket, getSession(boardId));
     socket.data.pass = pass;
     // Browsers still running an older version of the app merge changes by older rules (see prepareOperation).
     socket.data.legacy = payload?.sync !== SYNC_FORMAT;
     socket.data.presenting = payload?.presenting === true;
     const session = await enterBoard(socket, boardId, requestedId);
+    socket.data.role = effectiveRole(socket, session); // the board may have been opened just now, in private mode
     await openOwner(session); // looked up now, so it's known by the time they draw
     watchLinkExpiry(board);
     if (userId && !socket.data.embed) recordOpen(userId, boardId); // a board seen on another site isn't "opened"
@@ -840,8 +894,9 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
       ok: true,
       board: serializeBoard(board, userId, session.elements, undefined, socket.data.role!),
       removed: removedStamps(session.tombstones),
-      suggestions: suggestionList(session.suggestions),
+      suggestions: suggestionList(session.suggestions).filter(showsSuggestion(session, socket)),
       countdown: countdownAt(session.countdown, Date.now()),
+      privateMode: privateModeFor(session, socket),
     });
     // A round of voting under way, after the reply, which clears any this browser had.
     if (session.voting) socket.emit("voting", { boardId, voting: votingFor(session.voting, personOf(socket).userId) });
@@ -941,9 +996,13 @@ export async function syncAccess(board: BoardDetails) {
       socket.data.boardId = null;
       holdGroup(socket, null);
       dropped = true;
-    } else if (role !== socket.data.role) {
-      socket.data.role = role;
-      socket.emit("board:role", { boardId: board.id, role });
+    } else {
+      socket.data.boardRole = role;
+      const effective = effectiveRole(socket, getSession(board.id));
+      if (effective !== socket.data.role) {
+        socket.data.role = effective;
+        socket.emit("board:role", { boardId: board.id, role: effective! }); // has a role: it's a board role or suggesting
+      }
     }
   }
   if (dropped) await handleDeparture(board.id);

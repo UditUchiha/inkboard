@@ -148,6 +148,10 @@ Each step is its own `feat/suggest-…` branch and PR. Each leaves `main` deploy
 
 Steps 3 and 4 are the largest. Step 4 is where the sandbox's merge with live remote edits needs the most testing: a suggester moving a box while its owner recolors and then deletes it.
 
+## Private mode
+
+Private mode reuses suggestions. While a member has it on, everyone else who could change the board is a suggester (`effectiveRole` in `server/src/realtime/index.ts`; their screens are sent `board:role` and join again), and each suggestion goes only to its author's screens, on joining as well. A member's **Reveal** turns it off: roles go back, and every open suggestion is sent to everyone. Whoever turned it on keeps editing, and a guest on an edit link can neither turn it on nor reveal. It is saved with the board (`privateMode`), like the timer.
+
 ## Later
 
 - A note on a suggestion group, which could reuse comment threads.

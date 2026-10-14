@@ -8,6 +8,8 @@ import type {
   CursorPayload,
   JoinReply as SocketJoinReply,
   OpMessage,
+  PrivateMode,
+  PrivateModeMessage,
   OpReply,
   Peer,
   ReplayReply,
@@ -116,6 +118,7 @@ export function useBoardSync(
   const [role, setRole] = useState<Role>("viewer"); // "owner" | "editor" can draw; "viewer" can only look
   const [peers, setPeers] = useState<Peer[]>([]);
   const [timer, setTimer] = useState<BoardTimer | null>(null);
+  const [privateMode, setPrivateMode] = useState<PrivateMode | null>(null);
   const [online, setOnline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cursors] = useState(createCursorStore);
@@ -268,6 +271,7 @@ export function useBoardSync(
       setRole("viewer");
       setPeers([]);
       setTimer(null);
+      setPrivateMode(null);
       cursors.clear();
       suggestions.clear();
       suggester.forget();
@@ -307,6 +311,7 @@ export function useBoardSync(
         // A server from before suggestions doesn't send any.
         suggestions.load(response.suggestions ?? []);
         setTimer(timerFrom(response.countdown));
+        setPrivateMode(response.privateMode ?? null);
         // A suggester sees the board with their suggestions on it.
         if (joinedRole === "suggester") suggester.joined(elements, response.removed);
         setMeta(boardMeta);
@@ -423,6 +428,9 @@ export function useBoardSync(
     const onCountdown = (payload: CountdownMessage) => {
       if (!forOther(payload)) setTimer(timerFrom(payload.countdown));
     };
+    const onPrivateMode = (payload: PrivateModeMessage) => {
+      if (!forOther(payload)) setPrivateMode(payload.privateMode);
+    };
     const onSuggestions = (payload: SuggestionsMessage) => {
       if (!forOther(payload)) suggestions.upsert(payload.suggestions);
     };
@@ -451,6 +459,7 @@ export function useBoardSync(
     socket.on("viewport", onViewport);
     socket.on("viewport:request", onViewportRequest);
     socket.on("countdown", onCountdown);
+    socket.on("private", onPrivateMode);
     socket.on("suggestion:upsert", onSuggestions);
     socket.on("suggestion:delete", onSuggestionsGone);
     socket.on("voting", onVoting);
@@ -480,6 +489,7 @@ export function useBoardSync(
       socket.off("viewport", onViewport);
       socket.off("viewport:request", onViewportRequest);
       socket.off("countdown", onCountdown);
+      socket.off("private", onPrivateMode);
       socket.off("suggestion:upsert", onSuggestions);
       socket.off("suggestion:delete", onSuggestionsGone);
       socket.off("voting", onVoting);
@@ -572,6 +582,14 @@ export function useBoardSync(
     [socket],
   );
 
+  // Turning private mode on or off (see PrivateMode). Everyone, this browser too, hears back what it is now.
+  const setPrivate = useCallback(
+    (on: boolean) => {
+      socket?.emit("private", { on });
+    },
+    [socket],
+  );
+
   // A member's decision on suggestions. They go from this screen at once; accepting one is the member's own
   // change to the board, made before this (see acceptance in suggestions.ts).
   const resolveSuggestions = useCallback(
@@ -639,6 +657,8 @@ export function useBoardSync(
     present,
     timer,
     controlTimer,
+    privateMode,
+    setPrivate,
     subscribeViewport,
     requestViewport,
     socket,
