@@ -106,6 +106,8 @@ export type BoardStore = {
   applyRemote(op: Operation): void;
   /** Shows what the server stored, where it differs from what was sent. */
   reconcile(reply: Reconciliation): void;
+  /** Forgets the undo and redo history (it would put things back where they can't go). */
+  forgetHistory(): void;
   /** A live, in-progress change, not in history. Returns the connectors it let go of. */
   apply(op: Operation, options?: { base?: readonly BoardElement[] }): ConnectorChange[];
   /** Adds a finished change to history (its redo state is already applied). */
@@ -487,6 +489,11 @@ export function createBoardStore({
      * removed here that the server kept (in classroom mode, a student's outside their frame): they
      * come back as the server has them, and are no longer remembered as removed.
      */
+    forgetHistory() {
+      undoStack = [];
+      redoStack = [];
+      publish();
+    },
     reconcile({ cleaned = [], dropped = [], restored = [], sent = new Map() }) {
       const refused = new Set(dropped);
       const stored = new Map(cleaned.map((element) => [element.id, element]));

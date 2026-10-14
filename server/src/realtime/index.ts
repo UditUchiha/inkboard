@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Server as HttpServer } from "node:http";
 import type { NotificationItem, PublicUser, Thread } from "@inkboard/shared/api";
 import { cleanElement, cutText } from "@inkboard/shared/element-rules";
@@ -42,6 +43,7 @@ import {
 import type { PopulatedMembers, Role } from "../services/boards.ts";
 import { replaySteps } from "../services/replay.ts";
 import { Board } from "../models/board.model.ts";
+import { GuestKey } from "../models/guest-key.model.ts";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts";
 import { notifySuggestion } from "../services/notifications.ts";
 import type { ImageLimit } from "../services/images.ts";
@@ -324,19 +326,41 @@ export function cleanGuestName(value: unknown) {
   return name || "Guest";
 }
 
+const GUEST_KEY = /^[a-z0-9_-]{16,128}$/i;
+
+/**
+ * The id a guest goes by: the one their browser keeps, when it also sends the key that id was first used with (see
+ * GuestKey), or else one for this connection alone. Ids are shown to everyone on a board, so without the key, taking
+ * someone's id would let a person act as them (in classroom mode, draw in their frame). A browser too old to send a
+ * key gets one for the connection too.
+ */
+async function guestIdentity(socket: RealtimeSocket, id: unknown, key: unknown): Promise<string> {
+  const fallback = `g_${socket.id.replace(/[^a-z0-9]/gi, "")}`;
+  // Strings first: a pattern turns what it's given into one, so ["g_abcdef"] would pass it.
+  if (typeof id !== "string" || !GUEST_ID.test(id) || typeof key !== "string" || !GUEST_KEY.test(key)) return fallback;
+  const hash = createHash("sha256").update(key).digest("base64url");
+  // The first key an id comes with is the one it keeps.
+  const kept = await GuestKey.findOneAndUpdate(
+    { _id: id },
+    { $setOnInsert: { hash }, $set: { seenAt: new Date() } },
+    { upsert: true, new: true },
+  ).lean();
+  return kept.hash === hash ? id : fallback;
+}
+
 // Connecting without a token is allowed: guests can open boards whose link is
-// shared. They pick a name (and keep a random id) so others can see who they are.
+// shared. They pick a name (and keep a random id, and a key that proves it's theirs) so others can see who they are.
 async function authenticate(socket: RealtimeSocket, next: (error?: Error) => void) {
   // The handshake's auth is whatever the browser put in it.
-  const { token, guest }: { token?: unknown; guest?: { id?: unknown; name?: unknown } } = socket.handshake.auth ?? {};
+  const { token, guest }: { token?: unknown; guest?: { id?: unknown; name?: unknown; key?: unknown } } =
+    socket.handshake.auth ?? {};
   if (!token) {
     socket.data.user = null;
-    const id = guest?.id;
-    socket.data.guest = {
-      // A string first: the pattern turns what it's given into one, so ["g_abcdef"] would pass it.
-      id: typeof id === "string" && GUEST_ID.test(id) ? id : `g_${socket.id.replace(/[^a-z0-9]/gi, "")}`,
-      name: cleanGuestName(guest?.name),
-    };
+    try {
+      socket.data.guest = { id: await guestIdentity(socket, guest?.id, guest?.key), name: cleanGuestName(guest?.name) };
+    } catch {
+      return next(new Error("Couldn't connect. Try again."));
+    }
     return next();
   }
   try {
@@ -671,6 +695,11 @@ function handleConnection(socket: RealtimeSocket) {
     const boardId = socket.data.boardId as string;
     if (!isOnBoard(socket, payload?.boardId)) return reply({ ok: false, error: "Open the board first." });
     if (!canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
+    // In classroom mode, students add no pictures (see docs/classroom-mode.md).
+    const open = getSession(boardId);
+    if (open && zoneIn(open, personOf(socket).userId, socket.data.boardRole) !== undefined) {
+      return reply({ ok: false, error: "In classroom mode, pictures can't be added." });
+    }
 
     const buffer = payload?.data;
     if (!Buffer.isBuffer(buffer) || buffer.length === 0)
@@ -1121,11 +1150,14 @@ export async function syncAccess(board: BoardDetails) {
       dropped = true;
     } else {
       socket.data.boardRole = role;
-      const effective = effectiveRole(socket, getSession(board.id));
+      const session = getSession(board.id);
+      const effective = effectiveRole(socket, session);
       if (effective !== socket.data.role) {
         socket.data.role = effective;
         socket.emit("board:role", { boardId: board.id, role: effective! }); // has a role: it's a board role or suggesting
       }
+      // Invited, or no longer, they may have become a student in classroom mode, or stopped being one.
+      if (session?.classroom) socket.emit("classroom", { boardId: board.id, classroom: classroomOf(session, socket) });
     }
   }
   if (dropped) await handleDeparture(board.id);

@@ -46,6 +46,10 @@ invited editors are teachers. Viewers can only look, as always.
 
 - Everything inside a student's frame is theirs to change, including what the teacher put there (the question on a
   worksheet, say). Undo puts it back.
-- A guest is known by an id kept in their browser. On another device, the teacher frees their frame and they claim it
-  again. A signed-in student keeps their frame on any device.
+- A guest is known by an id kept in their browser, with a secret key that proves the id is theirs. Ids are shown to
+  everyone on a board; keys never are, and the server binds each id to the first key it comes with
+  (`server/src/models/guest-key.model.ts`), so nobody can act as another student. On another device, the teacher
+  frees their frame and they claim it again. A signed-in student keeps their frame on any device.
+- A student's undo history is forgotten when the teacher moves or resizes their frame, since going back would put
+  things outside it.
 - The whole class shares one board's limits: 5,000 elements and 12 MB, about 160 elements each for 30 students.

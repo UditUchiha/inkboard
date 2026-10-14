@@ -39,8 +39,8 @@ async function classroom() {
   const host = await app.connect(teacher);
   await host.join(id);
   await host.op(id, upsert(frame("f1", 0), frame("f2", 500), rect("theirs", 1000, 0)));
-  const asha = await app.connect(null, { guest: { id: "g_asha", name: "Asha" } });
-  const ben = await app.connect(null, { guest: { id: "g_ben", name: "Ben" } });
+  const asha = await app.connect(null, { guest: { id: "g_asha01", name: "Asha" } });
+  const ben = await app.connect(null, { guest: { id: "g_ben001", name: "Ben" } });
   await asha.join(id);
   await ben.join(id);
   return { teacher, id, host, asha, ben };
@@ -161,6 +161,34 @@ describe("classroom mode", () => {
     assert.equal(reply.ok, true);
     assert.equal(reply.suggestions.length, 1);
     assert.deepEqual(reply.dropped?.sort(), ["stray", "theirs"]);
+  });
+
+  it("doesn't let someone take a student's frame by going by their id", async () => {
+    const { id, host, asha } = await classroom();
+    await act(host, { action: "start" });
+    await act(asha, { action: "claim", frameId: "f1" });
+    // Asha's id is shown to everyone; her key isn't.
+    const impostor = await app.connect(null, { guest: { id: "g_asha01", name: "Asha", key: "not-ashas-key-1234" } });
+    const joined = (await impostor.join(id)) as { classroom?: Classroom };
+    assert.equal(joined.classroom?.claims.find((claim) => claim.frameId === "f1")?.mine, false, "not theirs");
+    const reply = (await impostor.op(id, upsert(rect("mine-now", 10, 10)))) as Reply;
+    assert.deepEqual(reply.dropped, ["mine-now"], "no frame for them");
+    const back = await app.connect(null, { guest: { id: "g_asha01", name: "Asha" } }); // her own browser, with her key
+    await back.join(id);
+    assert.equal(((await back.op(id, upsert(rect("hers", 10, 10)))) as Reply).outside, undefined);
+  });
+
+  it("tells someone invited mid-lesson they're no longer a student, and refuses a student's pictures", async () => {
+    const { teacher, id, host, asha } = await classroom();
+    await act(host, { action: "start" });
+    const image = (await asha.image(id, Buffer.from("not really a picture"))) as { ok: boolean; error?: string };
+    assert.equal(image.ok, false);
+    assert.match(image.error ?? "", /classroom mode/);
+    const student = await app.signUp("Signed In");
+    const client = await app.connect(student);
+    await client.join(id);
+    await app.request(`/boards/${id}/collaborators`, { method: "POST", user: teacher, body: { email: student.email } });
+    await eventually(() => seen(client)?.restricted === false, { message: "told they're a teacher now" });
   });
 
   it("is saved with the board, claims and all", async () => {

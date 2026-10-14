@@ -222,6 +222,22 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     [classroom],
   );
   const [claiming, setClaiming] = useState<FrameElement | null>(null);
+  // A student's undo history holds where things were. Once the teacher moves or resizes their frame, going back would
+  // put things outside it, so it's let go.
+  const zonePlace = zone ? `${zone.id}:${zone.x1},${zone.y1},${zone.x2},${zone.y2}` : "";
+  const lastZonePlace = useRef(zonePlace);
+  useEffect(() => {
+    if (lastZonePlace.current && zonePlace && zonePlace !== lastZonePlace.current) store.forgetHistory();
+    lastZonePlace.current = zonePlace;
+  }, [zonePlace, store]);
+  // Editing the text of something: in classroom mode, only of what a student may change (an element picked from the
+  // outline may not be theirs).
+  const editText = useCallback(
+    (edit: TextEdit) => {
+      if (edit.isNew || canChange(edit.element, zone)) setEditing(edit);
+    },
+    [zone],
+  );
   // Bumped when a guest renames themselves from the claim dialog, so their name shows there anew.
   const [guestVersion, setGuestVersion] = useState(0);
   // A suggester's screen shows the board with their suggestions in it; this is the board without them (see
@@ -518,7 +534,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setSelectedId,
     setDraft,
     setActiveThread,
-    setEditing,
+    setEditing: editText,
     setDialog,
   });
 
@@ -808,10 +824,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           style={style}
           viewport={viewport}
           onViewportChange={changeViewport}
-          selectedId={selectedId}
+          // A student's selection of what they can't change (picked from the outline) has no handles to drag.
+          selectedId={selected && !canChange(selected, zone) ? null : selectedId}
           onSelect={setSelectedId}
           editingId={editing?.element.id}
-          onEditText={setEditing}
+          onEditText={editText}
           spacePressed={spacePressed}
           onCursorMove={presenting ? sendLaser : sendCursor}
           onSizeChange={setCanvasSize}
