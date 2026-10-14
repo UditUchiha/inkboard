@@ -82,6 +82,8 @@ export interface Session {
   stepTimer: ReturnType<typeof setTimeout> | null;
   // The board's timer, while there is one (see countdown.ts).
   countdown: CountdownState | null;
+  // Private mode, while it's on: who turned it on (their id, and their name to show). See "private" in index.ts.
+  privateMode: PrivateModeState | null;
 }
 
 // A tombstone as it is saved with a board (see removedList): the stamp of the removal and when it happened.
@@ -109,7 +111,7 @@ export function acquireSession(boardId: string): Promise<Session> {
   let pending = opening.get(boardId);
   if (!pending) {
     pending = Board.findById(boardId)
-      .select("elements removed suggestions owner countdown voting")
+      .select("elements removed suggestions owner countdown voting privateMode")
       .lean()
       .then((saved) =>
         openSession(boardId, saved?.elements ?? [], saved?.removed, saved?.owner, saved?.suggestions, saved ?? {}),
@@ -247,13 +249,26 @@ function forget(session: Session, id: string) {
 }
 
 // Opens the board `boardId` with `elements` and its saved tombstones (`removed`).
+/** Private mode as a session keeps it: who turned it on. */
+export type PrivateModeState = { by: string; name: string };
+
+// Written by this server; still looked at before it's used.
+function readPrivateMode(saved: unknown): PrivateModeState | null {
+  const { by, name } = (saved ?? {}) as Partial<PrivateModeState>;
+  return typeof by === "string" && typeof name === "string" ? { by, name } : null;
+}
+
 function openSession(
   boardId: string,
   elements: Element[],
   removed: SavedRemoval[] = [],
   owner: ObjectIdLike | null = null,
   suggestions: unknown = [],
-  { countdown = null, voting = null }: { countdown?: unknown; voting?: unknown } = {},
+  {
+    countdown = null,
+    voting = null,
+    privateMode = null,
+  }: { countdown?: unknown; voting?: unknown; privateMode?: unknown } = {},
 ): Session {
   // A board saved before elements had places in the stack gets them now, in the order it was saved,
   // and elements saved before they had every field their kind has now get those (see withDefaults).
@@ -279,6 +294,7 @@ function openSession(
     recorded: null,
     stepTimer: null,
     countdown: readCountdown(countdown),
+    privateMode: readPrivateMode(privateMode),
   };
   measure(session);
   // Suggestions the board overtook while it was closed (or that are too old) go now, before anyone sees them.
@@ -482,7 +498,9 @@ async function save(session: Session) {
                 }
               : {}),
             ...(suggestionsDirty ? { suggestions: suggestionList(session.suggestions) } : {}),
-            ...(facilitationDirty ? { countdown: session.countdown, voting: savedVoting(session.voting) } : {}),
+            ...(facilitationDirty
+              ? { countdown: session.countdown, voting: savedVoting(session.voting), privateMode: session.privateMode }
+              : {}),
           },
         },
       );

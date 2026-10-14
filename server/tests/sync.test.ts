@@ -28,7 +28,7 @@ import {
 } from "../src/realtime/operations.ts";
 import { readRemoved, REMOVED_LIMITS } from "../src/realtime/sessions.ts";
 import { flushAllSessions } from "../src/realtime/index.ts";
-import type { VotingMessage } from "@inkboard/shared/socket";
+import type { PrivateModeMessage, SuggestionsMessage, VotingMessage } from "@inkboard/shared/socket";
 
 let app: ServerInstance;
 before(async () => {
@@ -911,5 +911,54 @@ describe("a board's timer and voting, when everyone leaves", () => {
     await eventually(() => (back.last("voting") as VotingMessage | undefined)?.voting?.results?.x === 1, {
       message: "the editor's vote, counted after they all came back",
     });
+  });
+});
+
+describe("private mode", () => {
+  it("makes the others suggest, shows each only their own until it ends, then everyone everything", async () => {
+    const { owner, editor, id, a, b } = await pair();
+    const mode = (client: TestClient) => (client.last("private") as PrivateModeMessage | undefined)?.privateMode;
+    const role = (client: TestClient) => (client.last("board:role") as { role?: string } | undefined)?.role;
+    const seenIds = (client: TestClient) =>
+      client.of("suggestion:upsert").flatMap((message) => (message as SuggestionsMessage).suggestions.map((s) => s.id));
+
+    b.socket.emit("private", { on: true });
+    await eventually(() => role(a) === "suggester" && mode(a)?.canEnd === true, { message: "the owner suggests" });
+    assert.equal(mode(b)?.by, "Editor");
+    assert.equal(role(b), undefined, "whoever turned it on still edits");
+
+    const other = await app.connect(owner); // the owner's second screen sees their own suggestions only
+    const joined = (await other.join(id)) as { board: { role: string }; privateMode?: { by: string } };
+    assert.equal(joined.board.role, "suggester");
+    assert.equal(joined.privateMode?.by, "Editor");
+    const reply = (await a.suggest(id, [{ kind: "add", element: rect("idea") }])) as { ok: boolean };
+    assert.equal(reply.ok, true);
+    await eventually(() => seenIds(other).length === 1, { message: "the owner's other screen" });
+    assert.deepEqual(seenIds(b), [], "hidden from the editor");
+    const later = await app.connect(editor);
+    assert.deepEqual(((await later.join(id)) as { suggestions: unknown[] }).suggestions, [], "and from a later join");
+
+    b.socket.emit("private", { on: false });
+    await eventually(() => seenIds(b).length === 1 && role(a) === "owner", { message: "everything shown" });
+    assert.equal(mode(a), null);
+  });
+
+  it("is run by members only, not a guest on an edit link, and is saved with the board", async () => {
+    const { owner, id, a } = await pair();
+    await app.request(`/boards/${id}/link-access`, { method: "PATCH", user: owner, body: { linkAccess: "edit" } });
+    const guest = await app.connect(null);
+    await guest.join(id);
+    guest.socket.emit("private", { on: true });
+    await roundTrip(guest);
+    assert.equal(guest.last("private"), undefined, "the guest can't turn it on");
+    a.socket.emit("private", { on: true });
+    await eventually(() => (a.last("private") as PrivateModeMessage | undefined)?.privateMode, { message: "on" });
+    a.close();
+    await eventually(async () => (await Board.findById(id).select("+privateMode").lean())?.privateMode, {
+      message: "saved",
+    });
+    await flushAllSessions();
+    const back = await app.connect(owner);
+    assert.equal(((await back.join(id)) as { privateMode?: { by: string } }).privateMode?.by, "Owner");
   });
 });

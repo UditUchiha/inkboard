@@ -36,6 +36,8 @@ const boardSchema = new mongoose.Schema(
     // realtime/voting.ts). Saved with the open board, so they carry on when everyone has left and comes back.
     countdown: { type: Mixed, default: null, select: false },
     voting: { type: Mixed, default: null, select: false },
+    // Private mode, while it's on (see "private" in realtime/index.ts): who turned it on. Saved the same way.
+    privateMode: { type: Mixed, default: null, select: false },
     // People who starred the board on their dashboard.
     starredBy: [{ type: ObjectId, ref: "User", index: true }],
     // Set when the owner moves the board to the trash; it's deleted for good 30 days later.
