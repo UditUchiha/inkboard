@@ -20,6 +20,8 @@ export type ShortcutActions = {
   moveSelected: (where: StackMove) => void;
   deleteSelected: () => void;
   nudgeSelected: (dx: number, dy: number) => void;
+  resizeSelected: (dx: number, dy: number) => void;
+  placeWithTool: () => void;
   zoomBy: (factor: number) => void;
   resetZoom: () => void;
   fitToScreen: () => void;
@@ -78,6 +80,8 @@ export function useBoardShortcuts({
     moveSelected,
     deleteSelected,
     nudgeSelected,
+    resizeSelected,
+    placeWithTool,
     zoomBy,
     resetZoom,
     fitToScreen,
@@ -107,6 +111,11 @@ export function useBoardShortcuts({
     "-": () => zoomBy(0.8),
     0: resetZoom,
   };
+  // Ctrl (⌘) + an arrow key resizes the selection, as nudging moves it: by 1, or 10 with Shift.
+  for (const [name, [dx, dy]] of Object.entries(ARROW_KEYS)) {
+    withModifier[name.toLowerCase()] = (event) =>
+      resizeSelected(dx * (event.shiftKey ? 10 : 1), dy * (event.shiftKey ? 10 : 1));
+  }
   const plain: Record<string, () => void> = {
     " ": () => setSpacePressed(true),
     delete: deleteSelected,
@@ -123,13 +132,17 @@ export function useBoardShortcuts({
       const element = (selectedId && store.getElement(selectedId)) as BoardElement | null | undefined;
       const editable = element?.type === "text" || element?.type === "sticky" || (element && isConnector(element));
       if (editable) setEditing({ element, isNew: false });
+      // With nothing to edit, a drawing tool puts down what it draws (drawing without a pointer).
+      else if (!element) placeWithTool();
     },
     "?": () => setDialog("shortcuts"),
     "!": fitToScreen, // Shift + 1
   };
 
   if (readOnly) {
-    for (const key of ["z", "y", "d", "]", "}", "[", "{"]) delete withModifier[key];
+    for (const key of ["z", "y", "d", "]", "}", "[", "{", "arrowup", "arrowdown", "arrowleft", "arrowright"]) {
+      delete withModifier[key];
+    }
     for (const key of ["delete", "backspace", "enter"]) delete plain[key];
   }
 

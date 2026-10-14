@@ -34,9 +34,11 @@ import { ElementList } from "./ElementList";
 import { describeElement } from "./elementLabels";
 import {
   createElement,
+  createNote,
   getBounds,
   getSceneBounds,
   isFrame,
+  placedElement,
   slideFrames,
   stackKey,
   translate,
@@ -47,7 +49,7 @@ import { ExportError } from "./exportSize";
 import { fitViewport, rectContains, rectsOverlap, unionRects, zoomAround } from "./geometry";
 import type { Rect, Viewport, XY } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
-import { copyOffset, viewToReveal } from "./placement";
+import { copyOffset, placeFree, viewToReveal } from "./placement";
 import { PresenceStack } from "./PresenceStack";
 import { Presenter } from "./Presenter";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -74,7 +76,7 @@ import { useBoardShortcuts } from "./useBoardShortcuts";
 import { drawsOnBoard } from "./useBoardSync";
 import type { BoardSync, Peer } from "./useBoardSync";
 import { sameView, useFollow } from "./useFollow";
-import { uncropImage } from "./transform";
+import { getSelectionBox, resizeElement, uncropImage } from "./transform";
 import { useImageImport } from "./useImageImport";
 import type { ImportView } from "./useImageImport";
 import { useThreads } from "./useThreads";
@@ -133,6 +135,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [editing, setEditing] = useState<TextEdit | null>(null);
   const [spacePressed, setSpacePressed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [dialog, setDialog] = useState<"share" | "shortcuts" | "clear" | "template" | "ai" | "mermaid" | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showComments, setShowComments] = useState(true);
@@ -471,6 +474,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       moveSelected,
       deleteSelected,
       nudgeSelected,
+      resizeSelected,
+      placeWithTool,
       zoomBy,
       resetZoom,
       fitToScreen,
@@ -551,6 +556,39 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     const centre = { x: view.x + view.width / 2, y: view.y + view.height / 2 };
     const element = createElement("text", centre, style) as TextElement;
     setEditing({ element: { ...element, text: "$$  $$" }, isNew: true });
+  }
+
+  // Drawing without a pointer: Enter with a drawing tool puts one of its elements in the middle of the screen. A shape
+  // is selected, ready to be moved with the arrow keys; a text or note is opened, ready to type.
+  function placeWithTool() {
+    const view = visibleArea();
+    const centre = { x: view.x + view.width / 2, y: view.y + view.height / 2 };
+    if (tool === "text") setEditing({ element: createElement("text", centre, style), isNew: true });
+    else if (tool === "sticky") {
+      setEditing({ element: placeFree(store.getElements(), createNote(centre, style)), isNew: true });
+    } else if (tool === "rectangle" || tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "frame") {
+      const element = placeFree(store.getElements(), placedElement(tool, centre, style, store.getElements()));
+      store.commit({ undo: { remove: [element.id] }, redo: { upsert: [element] } });
+      selectElement(element.id);
+    }
+  }
+
+  // Resizing from the keyboard: the bottom right corner (a line's end) moves by (dx, dy), as if dragged.
+  function resizeSelected(dx: number, dy: number) {
+    const element = selectedId && store.getElement(selectedId);
+    if (!element) return;
+    const box = getSelectionBox(element, viewport.zoom);
+    // The assertion: a box has a bottom right corner, a line an end.
+    const handle = box.handles.find((each) => each.id === "se" || each.id === "end")!;
+    const next = resizeElement(
+      element,
+      handle.id,
+      { x: handle.x + dx, y: handle.y + dy },
+      {
+        pad: box.kind === "box" ? box.pad : 0,
+      },
+    );
+    store.commit({ undo: { upsert: [element] }, redo: { upsert: [next] } }, { mergeKey: `resize:${element.id}` });
   }
 
   // Elements made all at once (drawn by Claude, imported from Mermaid): one undo step, brought into view if they
@@ -675,7 +713,13 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         }}
       />
 
-      <ElementList elements={elements} selectedId={selectedId} onSelect={selectElement} />
+      <ElementList
+        elements={elements}
+        selectedId={selectedId}
+        onSelect={selectElement}
+        open={outlineOpen && !presenting}
+        onOpenChange={setOutlineOpen}
+      />
       <div role="status" className="sr-only">
         {selected ? `Selected: ${describeElement(selected)}` : ""}
       </div>
@@ -945,6 +989,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
               showStyleButton={Boolean(panelType)}
               styleOpen={panelOpen}
               onToggleStyle={() => setPanelOpen((open) => !open)}
+              outlineOpen={outlineOpen}
+              onToggleOutline={() => setOutlineOpen((open) => !open)}
             />
 
             <div className="absolute right-3 bottom-[4.25rem] flex items-center gap-2 md:bottom-3">
