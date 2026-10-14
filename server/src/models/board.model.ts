@@ -38,6 +38,9 @@ const boardSchema = new mongoose.Schema(
     voting: { type: Mixed, default: null, select: false },
     // Private mode, while it's on (see "private" in realtime/index.ts): who turned it on. Saved the same way.
     privateMode: { type: Mixed, default: null, select: false },
+    // Classroom mode, once the board has used it: whether it's on and the frames students claimed (see
+    // realtime/classroom.ts). Saved the same way.
+    classroom: { type: Mixed, default: null, select: false },
     // People who starred the board on their dashboard.
     starredBy: [{ type: ObjectId, ref: "User", index: true }],
     // Set when the owner moves the board to the trash; it's deleted for good 30 days later.

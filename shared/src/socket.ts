@@ -150,24 +150,32 @@ export type JoinReply =
       suggestions: Suggestion[];
       countdown?: Countdown | null;
       privateMode?: PrivateMode | null;
+      classroom?: Classroom | null;
     }
   | { ok: false; status: number; error: string; locked?: LinkLock };
 
 /**
  * Why a change was refused. `tooLarge` and `readOnly` are also set where older browsers, which look for
  * them, need to see them. "rate", "noSession" (join the board first), "invalid", "tooLarge", "forbidden",
- * "expired" (the server stopped waiting for the rest of a change sent in pieces) and "ownerFull" (the board's
- * owner has no space left) are what `reason` can say.
+ * "expired" (the server stopped waiting for the rest of a change sent in pieces), "ownerFull" (the board's
+ * owner has no space left) and "outside" (in classroom mode, a change outside the student's frame) are what
+ * `reason` can say.
  */
 export interface OpRefusal {
   ok: false;
-  reason: "rate" | "noSession" | "invalid" | "tooLarge" | "forbidden" | "expired" | "ownerFull";
+  reason: "rate" | "noSession" | "invalid" | "tooLarge" | "forbidden" | "expired" | "ownerFull" | "outside";
   tooLarge?: true;
   readOnly?: true;
 }
 
-/** The reply to a change: taken in (with `cleaned`, elements as the board stored them where that isn't how they were sent, and `dropped`, ids of elements it refused), or refused. */
-export type OpReply = { ok: true; cleaned?: Element[]; dropped?: string[] } | OpRefusal;
+/**
+ * The reply to a change: taken in (with `cleaned`, elements as the board stored them where that isn't how they were
+ * sent, and `dropped`, ids of new elements it refused), or refused. In classroom mode, what a student changed outside
+ * their frame is left out (`outside`): changes come back in `cleaned`, new elements in `dropped`, and elements they
+ * removed in `restored`, as the board has them.
+ */
+export type OpReply =
+  { ok: true; cleaned?: Element[]; dropped?: string[]; restored?: Element[]; outside?: true } | OpRefusal;
 
 /** A step of a board's replay: when it ended, the elements that changed (as they ended up) and those removed. */
 export interface ReplayStep {
@@ -276,6 +284,34 @@ export interface PrivateMode {
   canEnd: boolean;
 }
 
+/**
+ * What `classroom` sends (see docs/classroom-mode.md): a member starts or stops classroom mode, or frees a claimed
+ * frame; a student claims an empty frame as theirs.
+ */
+export type ClassroomPayload = { action: "start" | "stop" } | { action: "claim" | "release"; frameId: string };
+
+/** A frame someone claimed in classroom mode: the name to show on it, and whether it's this person's. */
+export interface FrameClaim {
+  frameId: string;
+  name: string;
+  mine: boolean;
+}
+
+/**
+ * Classroom mode as one person sees it: whether it's on, the frames claimed, and whether this person is a student,
+ * who may change only what's inside their own frame while it's on.
+ */
+export interface Classroom {
+  on: boolean;
+  restricted: boolean;
+  claims: FrameClaim[];
+}
+
+/** What `classroom` carries: classroom mode as this person sees it, or null when the board has never used it. */
+export interface ClassroomMessage extends BoardMessage {
+  classroom: Classroom | null;
+}
+
 /** What `private` carries: the board's private mode as this person sees it, or null once it was turned off. */
 export interface PrivateModeMessage extends BoardMessage {
   privateMode: PrivateMode | null;
@@ -341,6 +377,7 @@ export interface ClientToServerEvents {
   present: (payload: PresentPayload) => void;
   countdown: (payload: CountdownPayload) => void;
   private: (payload: PrivatePayload) => void;
+  classroom: (payload: ClassroomPayload, ack: (reply: { ok: boolean }) => void) => void;
   "guest:rename": (payload: RenamePayload) => void;
   vote: (payload: VotePayload) => void;
   "suggestion:put": (payload: SuggestionPutPayload, ack: (reply: SuggestionPutReply) => void) => void;
@@ -363,6 +400,7 @@ export interface ServerToClientEvents {
   "viewport:request": (message: BoardMessage) => void;
   countdown: (message: CountdownMessage) => void;
   private: (message: PrivateModeMessage) => void;
+  classroom: (message: ClassroomMessage) => void;
   notification: (notification: NotificationItem) => void;
   // A comment thread as it is listed, or the id of one that is gone.
   "thread:upsert": (thread: Thread) => void;

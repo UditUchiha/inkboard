@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import type { Server as HttpServer } from "node:http";
 import type { NotificationItem, PublicUser, Thread } from "@inkboard/shared/api";
-import { cutText } from "@inkboard/shared/element-rules";
+import { cleanElement, cutText } from "@inkboard/shared/element-rules";
 import type {
   ClientToServerEvents,
   JoinPayload,
@@ -9,6 +10,7 @@ import type {
   OpRefusal,
   OpReply,
   Participant,
+  Classroom,
   PieceGroup,
   PrivateMode,
   ServerToClientEvents,
@@ -16,7 +18,8 @@ import type {
   ThreadRemoval,
 } from "@inkboard/shared/socket";
 import type { Suggestion } from "@inkboard/shared/suggestions";
-import type { Element } from "@inkboard/shared/types";
+import { insideZone } from "@inkboard/shared/zones";
+import type { Element, FrameElement } from "@inkboard/shared/types";
 import { Server } from "socket.io";
 import type { Socket } from "socket.io";
 import { env } from "../config/env.ts";
@@ -40,10 +43,12 @@ import {
 import type { PopulatedMembers, Role } from "../services/boards.ts";
 import { replaySteps } from "../services/replay.ts";
 import { Board } from "../models/board.model.ts";
+import { GuestKey } from "../models/guest-key.model.ts";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts";
 import { notifySuggestion } from "../services/notifications.ts";
 import type { ImageLimit } from "../services/images.ts";
 import { effectOf, planOperation } from "@inkboard/shared/board-merge";
+import { classroomFor, nextClassroom, outsideZone, zoneOf } from "./classroom.ts";
 import { countdownAt, nextCountdown } from "./countdown.ts";
 import {
   holdPiece,
@@ -321,19 +326,41 @@ export function cleanGuestName(value: unknown) {
   return name || "Guest";
 }
 
+const GUEST_KEY = /^[a-z0-9_-]{16,128}$/i;
+
+/**
+ * The id a guest goes by: the one their browser keeps, when it also sends the key that id was first used with (see
+ * GuestKey), or else one for this connection alone. Ids are shown to everyone on a board, so without the key, taking
+ * someone's id would let a person act as them (in classroom mode, draw in their frame). A browser too old to send a
+ * key gets one for the connection too.
+ */
+async function guestIdentity(socket: RealtimeSocket, id: unknown, key: unknown): Promise<string> {
+  const fallback = `g_${socket.id.replace(/[^a-z0-9]/gi, "")}`;
+  // Strings first: a pattern turns what it's given into one, so ["g_abcdef"] would pass it.
+  if (typeof id !== "string" || !GUEST_ID.test(id) || typeof key !== "string" || !GUEST_KEY.test(key)) return fallback;
+  const hash = createHash("sha256").update(key).digest("base64url");
+  // The first key an id comes with is the one it keeps.
+  const kept = await GuestKey.findOneAndUpdate(
+    { _id: id },
+    { $setOnInsert: { hash }, $set: { seenAt: new Date() } },
+    { upsert: true, new: true },
+  ).lean();
+  return kept.hash === hash ? id : fallback;
+}
+
 // Connecting without a token is allowed: guests can open boards whose link is
-// shared. They pick a name (and keep a random id) so others can see who they are.
+// shared. They pick a name (and keep a random id, and a key that proves it's theirs) so others can see who they are.
 async function authenticate(socket: RealtimeSocket, next: (error?: Error) => void) {
   // The handshake's auth is whatever the browser put in it.
-  const { token, guest }: { token?: unknown; guest?: { id?: unknown; name?: unknown } } = socket.handshake.auth ?? {};
+  const { token, guest }: { token?: unknown; guest?: { id?: unknown; name?: unknown; key?: unknown } } =
+    socket.handshake.auth ?? {};
   if (!token) {
     socket.data.user = null;
-    const id = guest?.id;
-    socket.data.guest = {
-      // A string first: the pattern turns what it's given into one, so ["g_abcdef"] would pass it.
-      id: typeof id === "string" && GUEST_ID.test(id) ? id : `g_${socket.id.replace(/[^a-z0-9]/gi, "")}`,
-      name: cleanGuestName(guest?.name),
-    };
+    try {
+      socket.data.guest = { id: await guestIdentity(socket, guest?.id, guest?.key), name: cleanGuestName(guest?.name) };
+    } catch {
+      return next(new Error("Couldn't connect. Try again."));
+    }
     return next();
   }
   try {
@@ -367,6 +394,48 @@ function effectiveRole(socket: Pick<RealtimeSocket, "data">, session: Session | 
   const role = socket.data.boardRole ?? null;
   const by = session?.privateMode?.by;
   return by && canEdit(role) && personOf(socket).userId !== by ? "suggester" : role;
+}
+
+// Classroom mode (see classroom.ts): a student is someone the board lets edit who isn't one of its members, and while
+// it's on, they may change only what's inside the frame they claimed.
+const isStudent = (role: Role | null | undefined) => canEdit(role ?? null) && !isMemberRole(role ?? null);
+const frameIn = (session: Session) => (id: string) => {
+  const element = session.index.get(id);
+  return element?.type === "frame" ? element : undefined;
+};
+const restrictedIn = (session: Session, role: Role | null | undefined) =>
+  Boolean(session.classroom?.on) && isStudent(role);
+const classroomOf = (session: Session, socket: Pick<RealtimeSocket, "data">): Classroom | null =>
+  classroomFor(session.classroom, personOf(socket).userId, restrictedIn(session, socket.data.boardRole), (id) =>
+    Boolean(frameIn(session)(id)),
+  );
+// The frame a person may change things in (see zoneOf).
+const zoneIn = (session: Session, userId: string, role: Role | null | undefined) =>
+  zoneOf(session.classroom, userId, restrictedIn(session, role), frameIn(session));
+
+// Whether a student's suggestion lies inside their frame (`zone`; nothing does when it's null), before and after.
+// A suggestion as a browser sent it, not yet checked (see readDraft in suggestions.ts).
+type RawDraft = { kind?: unknown; target?: unknown; element?: { id?: unknown } } | null | undefined;
+
+function draftInside(draft: RawDraft, zone: FrameElement | null, session: Session) {
+  if (!zone) return false;
+  const current = (id: unknown) => (typeof id === "string" ? session.index.get(id) : undefined);
+  if (draft?.kind === "remove") {
+    const target = current(draft.target);
+    return Boolean(target && insideZone(target, zone));
+  }
+  const element = cleanElement(draft?.element);
+  if (!element || !insideZone(element, zone)) return false;
+  const before = current(element.id);
+  return draft?.kind === "add" ? !before : Boolean(before && insideZone(before, zone));
+}
+
+// Saves classroom mode soon, and tells everyone on the board it as they see it.
+function announceClassroom(session: Session) {
+  markFacilitationDirty(session);
+  for (const socket of socketsIn(session.boardId)) {
+    socket.emit("classroom", { boardId: session.boardId, classroom: classroomOf(session, socket) });
+  }
 }
 
 // Private mode as `socket` is told it.
@@ -425,6 +494,10 @@ function isOnBoard(socket: RealtimeSocket, claimed: unknown) {
 interface Sender {
   boardId: string;
   legacy?: boolean | undefined;
+  // In classroom mode, the student's frame (null: they have none), outside which nothing they change is taken in;
+  // `whole` refuses the whole change when any of it is outside, for a change that isn't made on a screen.
+  zone?: FrameElement | null | undefined;
+  whole?: boolean;
   broadcast: (message: OpMessage) => void;
   present: () => boolean;
 }
@@ -437,6 +510,10 @@ function socketSender(socket: RealtimeSocket): Sender {
     legacy: socket.data.legacy,
     broadcast: (message) => socket.to(boardId).emit("board:op", message),
     present: () => socket.data.boardId === boardId,
+    zone: (() => {
+      const session = getSession(boardId);
+      return session && zoneIn(session, personOf(socket).userId, socket.data.boardRole);
+    })(),
   };
 }
 
@@ -454,11 +531,26 @@ function takeOperation(
   if (isOversized(operation)) return reply(TOO_LARGE);
   const sanitized = sanitizeOperation(operation);
   if (!sanitized) return reply({ ok: false, reason: "invalid" });
-  const op = prepareOperation(session.elements, sanitized, session.tombstones, {
+  let op = prepareOperation(session.elements, sanitized, session.tombstones, {
     legacy: sender.legacy,
     index: session.index,
   });
-  const plan = planOperation(session.elements, op, session.tombstones, { index: session.index, remember: false });
+  let plan = planOperation(session.elements, op, session.tombstones, { index: session.index, remember: false });
+  // In classroom mode, what a student would change outside their frame is left out, and they're told (see below).
+  const outside =
+    sender.zone === undefined
+      ? null
+      : outsideZone(plan, (id) => session.index.get(id) ?? session.tombstones.get(id)?.element, sender.zone);
+  if (outside && outside.upsert.length + outside.remove.length > 0) {
+    if (sender.whole) return reply({ ok: false, reason: "outside" });
+    const skipped = new Set([...outside.upsert, ...outside.remove]);
+    op = {
+      ...op,
+      upsert: op.upsert.filter((element) => !skipped.has(element.id)),
+      remove: op.remove.filter((removal) => !skipped.has(removal.id)),
+    };
+    plan = planOperation(session.elements, op, session.tombstones, { index: session.index, remember: false });
+  }
   // What actually changes: edits that newer ones already replaced are left out.
   // Others are sent each element as the server now has it, merged.
   const effect = effectOf(plan);
@@ -495,15 +587,19 @@ function takeOperation(
 
   // The sender made these changes on its own screen, so it's told where the board differs.
   const cleaned = sanitized.changed;
-  for (const id of sanitized.refused) {
+  for (const id of [...sanitized.refused, ...(outside?.upsert ?? [])]) {
     const stored = session.index.get(id);
     if (stored) cleaned.push(stored);
     else dropped.add(id);
   }
+  // What a student removed outside their frame is still on the board, as they're sent it.
+  const restored = (outside?.remove ?? []).flatMap((id) => session.index.get(id) ?? []);
   reply({
     ok: true,
     ...(cleaned.length > 0 ? { cleaned } : {}),
     ...(dropped.size > 0 ? { dropped: [...dropped] } : {}),
+    ...(restored.length > 0 ? { restored } : {}),
+    ...(outside && outside.upsert.length + outside.remove.length > 0 ? { outside: true as const } : {}),
   });
 }
 
@@ -513,7 +609,11 @@ function takeOperation(
  * is, and the board is saved and let go afterwards if nobody has it open. Resolves to the reply a browser would get,
  * and the board's open session.
  */
-export async function applyOperation(boardId: string, operation: RawOperation) {
+export async function applyOperation(
+  boardId: string,
+  operation: RawOperation,
+  writer: { userId: string; role: Role | null },
+) {
   let session: Session;
   do session = await acquireSession(boardId);
   while (!holdSession(session)); // closed, and saved, since: open it again
@@ -521,6 +621,9 @@ export async function applyOperation(boardId: string, operation: RawOperation) {
     boardId,
     broadcast: (message) => io.to(boardId).emit("board:op", message),
     present: () => true,
+    // In classroom mode a student's change is taken in whole, inside their frame, or not at all.
+    zone: zoneIn(session, writer.userId, writer.role),
+    whole: true,
   };
   const reply = await new Promise<OpReply>((resolve) => takeOperation(sender, session, operation, resolve, true));
   if (!io.sockets.adapter.rooms.get(boardId)?.size) await closeSession(boardId);
@@ -592,6 +695,11 @@ function handleConnection(socket: RealtimeSocket) {
     const boardId = socket.data.boardId as string;
     if (!isOnBoard(socket, payload?.boardId)) return reply({ ok: false, error: "Open the board first." });
     if (!canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
+    // In classroom mode, students add no pictures (see docs/classroom-mode.md).
+    const open = getSession(boardId);
+    if (open && zoneIn(open, personOf(socket).userId, socket.data.boardRole) !== undefined) {
+      return reply({ ok: false, error: "In classroom mode, pictures can't be added." });
+    }
 
     const buffer = payload?.data;
     if (!Buffer.isBuffer(buffer) || buffer.length === 0)
@@ -763,6 +871,27 @@ function handleConnection(socket: RealtimeSocket) {
     if (!on) io.to(boardId).emit("suggestion:upsert", { boardId, suggestions: suggestionList(session.suggestions) });
   });
 
+  // Classroom mode (see classroom.ts): members start and stop it and free frames, and a student claims an empty frame.
+  // The reply says whether it was done (a frame two students reach for at once goes to the first).
+  socket.on("classroom", (payload, ack) => {
+    const reply = typeof ack === "function" ? ack : () => {};
+    const boardId = socket.data.boardId;
+    const session = boardId && !socket.data.embed && limits.classroom() ? getSession(boardId) : undefined;
+    if (!session) return reply({ ok: false });
+    const { userId, name } = personOf(socket);
+    const next = nextClassroom(session.classroom, payload, {
+      id: userId,
+      name,
+      member: isMemberRole(socket.data.boardRole ?? null),
+      student: isStudent(socket.data.boardRole),
+      isFrame: (id) => Boolean(frameIn(session)(id)),
+    });
+    if (next === undefined) return reply({ ok: false });
+    session.classroom = next;
+    announceClassroom(session);
+    reply({ ok: true });
+  });
+
   // Suggestions (see suggestions.ts and docs/suggest-mode.md): only a suggester makes them, anyone takes back
   // their own, and a member accepts them (by making the change, then saying so here) or rejects them. Each
   // counts against the same limit as a change to the board. Returns the board's open session, or null after
@@ -786,10 +915,23 @@ function handleConnection(socket: RealtimeSocket) {
     if (!session) return;
     if (socket.data.role !== "suggester") return reply(SUGGESTION_FORBIDDEN);
     // The assertions: suggestionSession found a board id in the payload, so it is there.
-    const drafts = payload!.suggestions;
-    if (!Array.isArray(drafts)) return reply(SUGGESTION_INVALID);
+    const sent = payload!.suggestions;
+    if (!Array.isArray(sent)) return reply(SUGGESTION_INVALID);
     const { boardId } = session;
+    // In classroom mode, a student's suggestions outside their frame are left out, as their changes are.
+    const zone = zoneIn(session, personOf(socket).userId, socket.data.boardRole);
+    const outside: string[] = [];
+    const drafts =
+      zone === undefined
+        ? sent
+        : (sent as RawDraft[]).filter((draft) => {
+            if (draftInside(draft, zone, session)) return true;
+            const id = draft?.kind === "remove" ? draft.target : draft?.element?.id;
+            if (typeof id === "string") outside.push(id);
+            return false;
+          });
     const result = putSuggestions(session.suggestions, session, personOf(socket), drafts);
+    result.dropped.push(...outside);
     if (result.stored.length > 0) {
       for (const other of socketsIn(boardId)) {
         // In private mode, only to their author's other screens (they are all this person's).
@@ -850,7 +992,16 @@ function handleConnection(socket: RealtimeSocket) {
     if (socket.data.user) return;
     // A socket without an account was given a guest by authenticate.
     socket.data.guest!.name = cleanGuestName(payload?.name);
-    if (socket.data.boardId) await broadcastPresence(socket.data.boardId);
+    if (!socket.data.boardId) return;
+    // A frame they claimed in classroom mode shows their new name.
+    const session = getSession(socket.data.boardId);
+    const { userId, name } = personOf(socket);
+    const claims = session?.classroom?.claims;
+    if (session && claims && [...claims.values()].some((claim) => claim.by === userId)) {
+      for (const [frameId, claim] of claims) if (claim.by === userId) claims.set(frameId, { ...claim, name });
+      announceClassroom(session);
+    }
+    await broadcastPresence(socket.data.boardId);
   });
 
   // In turn too: a join still under way may put the socket in a room after it went.
@@ -897,6 +1048,7 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
       suggestions: suggestionList(session.suggestions).filter(showsSuggestion(session, socket)),
       countdown: countdownAt(session.countdown, Date.now()),
       privateMode: privateModeFor(session, socket),
+      classroom: classroomOf(session, socket),
     });
     // A round of voting under way, after the reply, which clears any this browser had.
     if (session.voting) socket.emit("voting", { boardId, voting: votingFor(session.voting, personOf(socket).userId) });
@@ -998,11 +1150,14 @@ export async function syncAccess(board: BoardDetails) {
       dropped = true;
     } else {
       socket.data.boardRole = role;
-      const effective = effectiveRole(socket, getSession(board.id));
+      const session = getSession(board.id);
+      const effective = effectiveRole(socket, session);
       if (effective !== socket.data.role) {
         socket.data.role = effective;
         socket.emit("board:role", { boardId: board.id, role: effective! }); // has a role: it's a board role or suggesting
       }
+      // Invited, or no longer, they may have become a student in classroom mode, or stopped being one.
+      if (session?.classroom) socket.emit("classroom", { boardId: board.id, classroom: classroomOf(session, socket) });
     }
   }
   if (dropped) await handleDeparture(board.id);

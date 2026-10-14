@@ -178,6 +178,12 @@ export const rect = (id: string, x = 0, y = 0): ShapeElement => ({
 export const upsert = (...elements: unknown[]): FullOperation => ({ upsert: elements as Element[], remove: [] });
 export const remove = (...ids: string[]): Operation => ({ upsert: [], remove: ids });
 
+// A test guest's key: the same for the same id, as a browser keeps it.
+function withKey(guest: unknown) {
+  const { id, key } = (guest ?? {}) as { id?: unknown; key?: unknown };
+  return typeof id === "string" && key === undefined ? { ...(guest as object), key: `${id}-test-key-123` } : guest;
+}
+
 /**
  * Starts the real app (REST and sockets) on a free port against a throwaway
  * in-memory MongoDB. Each test file gets its own, so files can run in parallel.
@@ -240,7 +246,8 @@ export async function startServer(): Promise<ServerInstance> {
     { guest }: { guest?: unknown } = {},
   ): Promise<TestClient> {
     const socket = connectSocket(url, {
-      auth: user ? { token: user.token } : { guest },
+      // A guest with an id comes with the key that id is theirs by (see guestIdentity), unless the test gives one.
+      auth: user ? { token: user.token } : { guest: withKey(guest) },
       transports: ["websocket"],
       reconnection: false,
     });

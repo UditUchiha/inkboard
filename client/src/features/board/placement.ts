@@ -66,3 +66,29 @@ export function viewToReveal(viewport: Viewport, canvasSize: Size, bounds: Rect)
     y: visible.height / 2 - (bounds.y + bounds.height / 2),
   };
 }
+
+/**
+ * Where `count` copies of `frame` (made for a class, see ClassroomPanels) go: rows of them to the right of everything
+ * on the board, `gap` apart, as near square as can be. Returns each one's offset `[dx, dy]` from the frame.
+ */
+export function copyGrid(elements: BoardElement[], frame: BoardElement, count: number, gap = 80): Pair[] {
+  const box = getBounds(frame);
+  // The non-null assertion: the frame is on the board, so the board has bounds.
+  const scene = getSceneBounds(elements)!;
+  const columns = Math.ceil(Math.sqrt(count));
+  return Array.from({ length: count }, (_, i): Pair => [
+    scene.x + scene.width + gap + (i % columns) * (box.width + gap) - box.x,
+    scene.y + Math.floor(i / columns) * (box.height + gap) - box.y,
+  ]);
+}
+
+/** `count` names for copies of a frame called `name`: "Group 1", "Group 2", …, skipping any a frame on the board has. */
+export function copyNames(elements: BoardElement[], name: string, count: number): string[] {
+  const base = name.replace(/\s*\d+$/, "") || "Frame";
+  const taken = new Set(elements.flatMap((element) => (element.type === "frame" ? [element.name] : [])));
+  const names: string[] = [];
+  for (let number = 1; names.length < count; number += 1) {
+    if (!taken.has(`${base} ${number}`)) names.push(`${base} ${number}`);
+  }
+  return names;
+}

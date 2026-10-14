@@ -18,6 +18,7 @@ const REFUSED: Record<string, [status: number, message: string]> = {
   tooLarge: [413, "That would make the board bigger than a board can be."],
   ownerFull: [403, "The board's owner has used up their space."],
   forbidden: [403, "You can only view this board."],
+  outside: [403, "This board is in classroom mode: you can change only what's inside the frame you claimed."],
 };
 
 function refuse(reply: OpReply): asserts reply is OpReply & { ok: true } {
@@ -62,11 +63,11 @@ export async function readBoard(userId: string, boardId: string) {
   return { id: board.id, title: board.title, role, elements: elements.map(toApiElement) };
 }
 
-// The board, if the person may change it.
+// The board, if the person may change it, and what they may do there.
 async function openForEditing(userId: string, boardId: string) {
   const opened = await open(userId, boardId);
   if (!canEdit(opened.role)) throw new HttpError(403, "You can only view this board.");
-  return opened.board;
+  return opened;
 }
 
 /**
@@ -76,7 +77,7 @@ async function openForEditing(userId: string, boardId: string) {
 export async function writeElements(userId: string, boardId: string, inputs: unknown) {
   if (!Array.isArray(inputs) || inputs.length === 0) throw new HttpError(400, "Send `elements`, a list of elements.");
   if (inputs.length > MAX_API_ELEMENTS) throw new HttpError(400, `Send at most ${MAX_API_ELEMENTS} elements at once.`);
-  const board = await openForEditing(userId, boardId);
+  const { board, role } = await openForEditing(userId, boardId);
   const onBoard = new Map((await currentElements(board.id)).map((element) => [element.id, element]));
   const made = new Map<string, Element>();
   const find = (id: string) => made.get(id) ?? onBoard.get(id);
@@ -95,7 +96,8 @@ export async function writeElements(userId: string, boardId: string, inputs: unk
     }
   });
 
-  const { reply, session } = await applyOperation(board.id, { upsert: [...made.values()], remove: [] });
+  const writer = { userId, role };
+  const { reply, session } = await applyOperation(board.id, { upsert: [...made.values()], remove: [] }, writer);
   refuse(reply);
   const dropped = new Set(reply.dropped);
   const elements = [...made.keys()].filter((id) => !dropped.has(id)).map((id) => session.index.get(id));
@@ -108,9 +110,11 @@ export async function removeElements(userId: string, boardId: string, ids: unkno
     throw new HttpError(400, "Send `ids`, a list of element ids.");
   }
   if (ids.length > MAX_API_ELEMENTS) throw new HttpError(400, `Send at most ${MAX_API_ELEMENTS} ids at once.`);
-  const board = await openForEditing(userId, boardId);
+  const { board, role } = await openForEditing(userId, boardId);
   const onBoard = new Set((await currentElements(board.id)).map((element) => element.id));
   const removing = [...new Set(ids as string[])].filter((id) => onBoard.has(id));
-  if (removing.length > 0) refuse((await applyOperation(board.id, { upsert: [], remove: removing })).reply);
+  if (removing.length > 0) {
+    refuse((await applyOperation(board.id, { upsert: [], remove: removing }, { userId, role })).reply);
+  }
   return { removed: removing };
 }

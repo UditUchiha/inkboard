@@ -1,4 +1,11 @@
-import type { Element as BoardElement, PenElement, Point, ShapeElement, Side } from "@inkboard/shared/types";
+import type {
+  Element as BoardElement,
+  PenElement,
+  Point,
+  ShapeElement,
+  Side,
+  StickyElement,
+} from "@inkboard/shared/types";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { MouseEvent, PointerEvent } from "react";
 import { useElementSize } from "../../lib/useElementSize";
@@ -43,6 +50,8 @@ import {
 } from "./geometry";
 import type { HeldPointer, Size, Viewport, XY } from "./geometry";
 import { imagesVersion, subscribeImages } from "./images";
+import { canChange, clampPoint, clampShift, edgeRoom, fitInside, pointInside, staysInside } from "./classroom";
+import type { Zone } from "./classroom";
 import { recognizeStroke } from "./recognize";
 import { loadCanvasFonts, renderScene } from "./renderer";
 import { useBoardSnapshot } from "./store";
@@ -116,6 +125,12 @@ export type BoardCanvasProps = {
   suggestions?: readonly SuggestionMark[];
   // A picture being cropped: dragging its handles crops it instead of resizing it.
   croppingId?: string | null;
+  // Classroom mode: where this person may change things (see classroom.ts), and what to do when they press
+  // somewhere they may not, which pans instead.
+  zone?: Zone;
+  onOutsideZone?: (point: XY) => void;
+  // Classroom mode: who claimed each frame, by its id, shown on its name.
+  frameClaims?: ReadonlyMap<string, { name: string; mine: boolean }>;
 };
 
 const NO_MARKS: readonly SuggestionMark[] = [];
@@ -178,7 +193,10 @@ type Gesture = (PanGesture | PinchGesture | DrawGesture | EraseGesture | MoveGes
 type Held = HeldPointer & { type: string; at: number; screen: XY };
 
 // What the pointer handlers read from the latest render (see `latest`).
-type Latest = Pick<BoardCanvasProps, "tool" | "style" | "viewport" | "spacePressed" | "editingId" | "selectedId"> & {
+type Latest = Pick<
+  BoardCanvasProps,
+  "tool" | "style" | "viewport" | "spacePressed" | "editingId" | "selectedId" | "zone"
+> & {
   hovering: boolean;
   handle: string | null;
   finishGesture: (options?: { cancelled?: boolean }) => void;
@@ -211,6 +229,9 @@ export function BoardCanvas({
   onFrameDrawn,
   suggestions = NO_MARKS,
   croppingId = null,
+  zone,
+  onOutsideZone,
+  frameClaims,
 }: BoardCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -231,7 +252,18 @@ export function BoardCanvas({
   // Pointer handlers read the latest props from here instead of re-binding.
   // The assertion: it is set on every render, before any handler can run.
   const latest = useRef<Latest>(null!);
-  latest.current = { tool, style, viewport, spacePressed, editingId, hovering, selectedId, handle, finishGesture };
+  latest.current = {
+    tool,
+    style,
+    viewport,
+    spacePressed,
+    editingId,
+    hovering,
+    selectedId,
+    handle,
+    finishGesture,
+    zone,
+  };
 
   useEffect(() => {
     onSizeChange?.(size);
@@ -257,6 +289,7 @@ export function BoardCanvas({
       dots: hint.dots,
       suggestions,
       croppingId,
+      frameClaims,
     });
   }, [
     elements,
@@ -270,6 +303,7 @@ export function BoardCanvas({
     hint,
     suggestions,
     croppingId,
+    frameClaims,
   ]);
 
   const showHint = (next: Hint) => setHint((current) => (sameHint(current, next) ? current : next));
@@ -279,9 +313,12 @@ export function BoardCanvas({
     setHint(NO_HINT);
   }, [tool]);
 
-  // What's under a point, frame names included (they're sized on screen).
-  const pick = (world: XY, vp: Viewport) =>
-    elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom, { labelScale: 1 / vp.zoom });
+  // What's under a point, frame names included (they're sized on screen); in classroom mode, only what a student may
+  // change.
+  const pick = (world: XY, vp: Viewport) => {
+    const hit = elementAt(store.getElements(), world.x, world.y, HIT_TOLERANCE / vp.zoom, { labelScale: 1 / vp.zoom });
+    return hit && canChange(hit, latest.current.zone) ? hit : null;
+  };
 
   // What a connector end at `world` would attach to (never `except`, the other end's): { target, side },
   // see connectionAt.
@@ -378,6 +415,25 @@ export function BoardCanvas({
     });
     const points = appendPoints(element.points, added);
     return points === element.points ? element : { ...element, points };
+  }
+
+  // Where something drawn with `tool` starts: at `world`, or in classroom mode, far enough inside the student's frame for
+  // its stroke.
+  function startPoint(world: XY, tool: ToolId, style: Style): XY {
+    const { zone: inside } = latest.current;
+    return inside ? clampPoint(world, inside, edgeRoom({ type: tool as BoardElement["type"], ...style })) : world;
+  }
+
+  // A stroke's points moved inside a student's frame in classroom mode (see Zone); as it is otherwise.
+  function keepInside(stroke: PenElement, inside: Zone): PenElement {
+    if (!inside) return stroke;
+    return {
+      ...stroke,
+      points: stroke.points.map(([x, y, pressure]): Point => {
+        const point = clampPoint({ x, y }, inside, edgeRoom(stroke));
+        return [point.x, point.y, pressure];
+      }),
+    };
   }
 
   function resizeShape(element: Exclude<BoardElement, PenElement>, world: XY, constrained: boolean) {
@@ -482,7 +538,7 @@ export function BoardCanvas({
       for (let i = 0; i <= steps; i += 1) {
         const x = from.x + ((to.x - from.x) * i) / steps;
         const y = from.y + ((to.y - from.y) * i) / steps;
-        if (hitTest(element, x, y, radius)) {
+        if (canChange(element, latest.current.zone) && hitTest(element, x, y, radius)) {
           // As it was before this stroke, if the stroke has already let it go of a shape.
           // The assertion: it was read from the board just now.
           hits.set(element.id, g.released.get(element.id) ?? store.getElement(element.id)!);
@@ -563,6 +619,7 @@ export function BoardCanvas({
     // The cast: none of these types is a pen, so it has a box.
     const made = createElement(shape.type, { x: shape.x1, y: shape.y1 }, { ...style, stroke: g.element.stroke });
     const drawn = { ...(made as ShapeElement), x2: shape.x2, y2: shape.y2 };
+    if (!staysInside(drawn, latest.current.zone)) return;
     store.apply({ remove: [g.element.id], upsert: [drawn] });
     g.element = drawn;
     g.snapped = true;
@@ -619,6 +676,15 @@ export function BoardCanvas({
       startPan(screen);
       return;
     }
+    // Classroom mode: a student's press outside their frame (or before they have one, or with the frame tool, frames
+    // being the teacher's) pans instead, and the editor says why, or offers them the frame they pressed on.
+    const { zone: allowed } = latest.current;
+    const free = activeTool === "comment" || activeTool === "vote";
+    if (allowed !== undefined && !free && (activeTool === "frame" || !(allowed && pointInside(world, allowed)))) {
+      onOutsideZone?.(world);
+      startPan(screen);
+      return;
+    }
 
     switch (activeTool) {
       case "select": {
@@ -670,23 +736,29 @@ export function BoardCanvas({
       }
       case "text": {
         const hit = elementAt(store.getElements(), world.x, world.y, tolerance);
-        if (hit?.type === "text") onEditText({ element: hit, isNew: false });
+        if (hit?.type === "text" && canChange(hit, allowed)) onEditText({ element: hit, isNew: false });
         else onEditText({ element: createElement("text", world, activeStyle), isNew: true });
         return;
       }
       case "sticky": {
         const hit = elementAt(store.getElements(), world.x, world.y, tolerance);
-        if (hit?.type === "sticky") onEditText({ element: hit, isNew: false });
-        else onEditText({ element: createNote(world, activeStyle), isNew: true });
+        if (hit?.type === "sticky" && canChange(hit, allowed)) {
+          onEditText({ element: hit, isNew: false });
+          return;
+        }
+        // In classroom mode, a note put down near the edge of a student's frame is moved to fit inside it.
+        const note = allowed ? fitInside(createNote(world, activeStyle), allowed) : createNote(world, activeStyle);
+        // The cast: fitInside moves a note, which is still a note.
+        if (note) onEditText({ element: note as StickyElement, isNew: true });
         return;
       }
       case "arrow":
       case "line":
-        startConnector(activeTool, world, screen, vp, activeStyle);
+        startConnector(activeTool, startPoint(world, activeTool, activeStyle), screen, vp, activeStyle);
         return;
       default: {
         const pressure = event.pointerType === "pen" ? event.pressure : undefined;
-        const element = createElement(activeTool, world, activeStyle, pressure);
+        const element = createElement(activeTool, startPoint(world, activeTool, activeStyle), activeStyle, pressure);
         if (element.type === "frame") element.name = nextFrameName(store.getElements());
         startDraw(element, screen);
       }
@@ -747,12 +819,19 @@ export function BoardCanvas({
           finishGesture({ cancelled: true }); // someone removed it
           return;
         }
+        // In classroom mode, a student's stroke or shape stops at the edge of their frame.
+        const { zone: inside } = latest.current;
+        const point = inside ? clampPoint(world, inside, edgeRoom(g.element)) : world;
         let next =
-          g.element.type === "pen" ? extendStroke(g.element, event, vp) : resizeShape(g.element, world, event.shiftKey);
+          g.element.type === "pen"
+            ? keepInside(extendStroke(g.element, event, vp), inside)
+            : resizeShape(g.element, point, event.shiftKey);
         if (isConnector(next)) {
-          const { target, side } = connectAt(world, vp, next.startId);
+          const { target, side } = connectAt(point, vp, next.startId);
           next = attachEnd(next, "end", target, side);
         }
+        // A step that would still reach outside it (an arrow's end on something outside) isn't taken.
+        if (!staysInside(next, inside)) return;
         // Made from the step before, so a color someone picks mid-draw isn't painted over.
         store.apply({ upsert: [next] }, { base: [g.element] });
         g.element = next;
@@ -788,9 +867,14 @@ export function BoardCanvas({
         }
         // Whatever someone removes mid-drag stays removed.
         // The assertion: `ready` is set along with `originals`.
+        // In classroom mode, the move stops at the edge of the student's frame.
+        const { zone: inside } = latest.current;
+        const [dx, dy] = inside
+          ? clampShift(g.ready!, inside, world.x - g.start.x, world.y - g.start.y)
+          : [world.x - g.start.x, world.y - g.start.y];
         const moved = g
           .ready!.filter((element) => store.getElement(element.id))
-          .map((element) => translate(element, world.x - g.start.x, world.y - g.start.y));
+          .map((element) => translate(element, dx, dy));
         if (moved.length === 0) {
           finishGesture({ cancelled: true });
           return;
@@ -820,6 +904,8 @@ export function BoardCanvas({
           const { target, side } = connectAt(world, vp, other);
           next = attachEnd(next as Connector, g.handle, target, side);
         }
+        // In classroom mode, a resize or turn that would reach outside the student's frame stops where it was.
+        if (!staysInside(next, latest.current.zone)) return;
         store.apply({ upsert: [next] }, { base: [g.current ?? g.original] });
         g.current = next;
         return;

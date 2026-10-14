@@ -13,7 +13,8 @@
     "./limits": "./src/limits.ts",
     "./socket": "./src/socket.ts",
     "./suggestions": "./src/suggestions.ts",
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./zones": "./src/zones.ts"
   },
   "scripts": {
     "test": "node --test",

@@ -60,7 +60,8 @@ export type RenderOptions = {
   screenLabels?: boolean;
   connectTargetId?: string | null;
   dots?: { id: string; side: Side | null } | null;
-  suggestions?: readonly SuggestionMark[];
+  suggestions?: readonly SuggestionMark[]; // Classroom mode: who claimed each frame, by its id, shown after its name; this person's own is outlined.
+  frameClaims?: ReadonlyMap<string, { name: string; mine: boolean }> | undefined;
 };
 
 const generator = rough.generator();
@@ -76,6 +77,7 @@ let labelScale = 1;
 let picturesDrawn = new Set<string>(); // the image ids drawn in the scene being rendered
 let croppingId: string | null = null;
 let zoomNow = 1; // screen pixels per board unit, in the scene being rendered
+let claimsNow: ReadonlyMap<string, { name: string; mine: boolean }> = new Map(); // classroom mode's, see RenderOptions
 
 // Zoomed far out, what can't be seen isn't drawn in full, which is much of what drawing a big board costs: text
 // smaller than this many screen pixels can't be read, and a note smaller than NOTE_SHADOW_MIN shows no shadow.
@@ -336,8 +338,10 @@ function drawFrame(ctx: CanvasRenderingContext2D, element: FrameElement) {
   ctx.save();
   ctx.fillStyle = ink(FRAME_FILL);
   ctx.fillRect(x, y, width, height);
-  ctx.strokeStyle = ink(FRAME_BORDER);
-  ctx.lineWidth = labelScale;
+  // A student's own frame in classroom mode stands out from the rest.
+  const own = claimsNow.get(element.id)?.mine;
+  ctx.strokeStyle = own ? ink(SELECTION_COLOR) : ink(FRAME_BORDER);
+  ctx.lineWidth = own ? 2.5 * labelScale : labelScale;
   ctx.strokeRect(x, y, width, height);
   ctx.restore();
 }
@@ -352,6 +356,12 @@ function drawFrameName(ctx: CanvasRenderingContext2D, element: FrameElement, vie
   ctx.fillStyle = ink(FRAME_LABEL_COLOR);
   ctx.textBaseline = "bottom";
   ctx.fillText(label.text, label.x, label.bottom);
+  // In classroom mode, who claimed it, after its name.
+  const claim = claimsNow.get(element.id);
+  if (claim) {
+    ctx.fillStyle = ink(claim.mine ? SELECTION_COLOR : FRAME_LABEL_COLOR);
+    ctx.fillText(` · ${claim.mine ? "You" : claim.name}`, label.x + ctx.measureText(label.text).width, label.bottom);
+  }
   ctx.restore();
 }
 
@@ -598,6 +608,7 @@ export function renderScene(
     connectTargetId = null,
     dots = null,
     suggestions = [],
+    frameClaims = new Map(),
   }: RenderOptions,
 ): void {
   ink = dark ? darkInk : sameInk;
@@ -605,6 +616,7 @@ export function renderScene(
   croppingId = cropping;
   labelScale = screenLabels ? 1 / viewport.zoom : 1;
   zoomNow = viewport.zoom;
+  claimsNow = frameClaims;
   picturesDrawn = new Set();
   // The assertion: a canvas that has no other kind of context gives a 2d one.
   const ctx = canvas.getContext("2d")!;
