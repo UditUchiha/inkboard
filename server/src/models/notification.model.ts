@@ -2,7 +2,17 @@ import mongoose from "mongoose";
 
 const { ObjectId } = mongoose.Schema.Types;
 
-export const NOTIFICATION_TYPES = ["mention", "reply", "invite", "suggestion", "trashed", "access"];
+// "visitors" and "removals" warn an owner about what people from a board's link did there (see realtime/link-watch.ts).
+export const NOTIFICATION_TYPES = [
+  "mention",
+  "reply",
+  "invite",
+  "suggestion",
+  "trashed",
+  "access",
+  "visitors",
+  "removals",
+];
 
 const notificationSchema = new mongoose.Schema(
   {
