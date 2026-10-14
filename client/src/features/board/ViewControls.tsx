@@ -1,4 +1,4 @@
-import { Maximize, Minus, Palette, Plus, Redo2, Undo2 } from "lucide-react";
+import { ListTree, Maximize, Minus, Palette, Plus, Redo2, Undo2 } from "lucide-react";
 import { IconButton } from "../../components/Button";
 import type { BoardStore } from "./store";
 
@@ -16,9 +16,11 @@ export type ViewControlsProps = {
   showStyleButton: boolean;
   styleOpen: boolean;
   onToggleStyle: () => void;
+  outlineOpen: boolean;
+  onToggleOutline: () => void;
 };
 
-/** Bottom left: undo and redo, zoom, and (on phones) the button that opens the style panel. */
+/** Bottom left: undo and redo, zoom, the board's outline and (on phones) the button that opens the style panel. */
 export function ViewControls({
   store,
   readOnly,
@@ -32,6 +34,8 @@ export function ViewControls({
   showStyleButton,
   styleOpen,
   onToggleStyle,
+  outlineOpen,
+  onToggleOutline,
 }: ViewControlsProps) {
   return (
     <div className="absolute bottom-[4.25rem] left-3 flex items-center gap-2 md:bottom-3">
@@ -53,6 +57,9 @@ export function ViewControls({
         </button>
         <IconButton label="Zoom in" icon={Plus} onClick={() => onZoomBy(1.25)} />
         <IconButton label="Fit drawing to screen" icon={Maximize} onClick={onFit} disabled={!canFit} />
+      </div>
+      <div className="floating-panel rounded-xl p-1">
+        <IconButton label="Board outline" icon={ListTree} active={outlineOpen} onClick={onToggleOutline} />
       </div>
       {showStyleButton && (
         <div className="floating-panel rounded-xl p-1 md:hidden">

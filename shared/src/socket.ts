@@ -69,6 +69,11 @@ export interface PresentPayload {
  */
 export type CountdownPayload = { action: "start"; seconds: number } | { action: "pause" | "resume" | "stop" };
 
+/** What `private` sends: turn the board's private mode on or off. Only a member (the owner or an editor) may. */
+export interface PrivatePayload {
+  on: boolean;
+}
+
 /** The part of the board someone is looking at: where it is, how far in, and how big their canvas is. */
 export interface SharedView {
   x: number;
@@ -138,7 +143,14 @@ export type RemovedStamp = Stamp & { id: string };
  * and the suggestions open on it.
  */
 export type JoinReply =
-  | { ok: true; board: BoardDetails; removed: RemovedStamp[]; suggestions: Suggestion[]; countdown?: Countdown | null }
+  | {
+      ok: true;
+      board: BoardDetails;
+      removed: RemovedStamp[];
+      suggestions: Suggestion[];
+      countdown?: Countdown | null;
+      privateMode?: PrivateMode | null;
+    }
   | { ok: false; status: number; error: string; locked?: LinkLock };
 
 /**
@@ -255,6 +267,20 @@ export interface CountdownMessage extends BoardMessage {
   countdown: Countdown | null;
 }
 
+/**
+ * The board's private mode, as one person sees it: while it's on, what everyone but `by` (who turned it on) draws is
+ * a suggestion only they see, until it's turned off and all of it is shown. `canEnd`: whether this person may turn it off.
+ */
+export interface PrivateMode {
+  by: string;
+  canEnd: boolean;
+}
+
+/** What `private` carries: the board's private mode as this person sees it, or null once it was turned off. */
+export interface PrivateModeMessage extends BoardMessage {
+  privateMode: PrivateMode | null;
+}
+
 /** One person's view of the board, passed on to the others so they can follow along. */
 export interface ViewportMessage extends SharedView, BoardMessage {
   socketId: string;
@@ -314,6 +340,7 @@ export interface ClientToServerEvents {
   "viewport:request": (payload: ViewportRequestPayload) => void;
   present: (payload: PresentPayload) => void;
   countdown: (payload: CountdownPayload) => void;
+  private: (payload: PrivatePayload) => void;
   "guest:rename": (payload: RenamePayload) => void;
   vote: (payload: VotePayload) => void;
   "suggestion:put": (payload: SuggestionPutPayload, ack: (reply: SuggestionPutReply) => void) => void;
@@ -335,6 +362,7 @@ export interface ServerToClientEvents {
   viewport: (message: ViewportMessage) => void;
   "viewport:request": (message: BoardMessage) => void;
   countdown: (message: CountdownMessage) => void;
+  private: (message: PrivateModeMessage) => void;
   notification: (notification: NotificationItem) => void;
   // A comment thread as it is listed, or the id of one that is gone.
   "thread:upsert": (thread: Thread) => void;

@@ -1,4 +1,4 @@
-import { CloudCheck, Eye, LoaderCircle, MessageSquare, MessageSquarePlus, WifiOff } from "lucide-react";
+import { CloudCheck, Eye, EyeOff, LoaderCircle, MessageSquare, MessageSquarePlus, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button, ButtonLink } from "../../components/Button";
@@ -77,6 +77,29 @@ export function SuggestingNotice() {
       <MessageSquarePlus className="size-3.5 shrink-0 text-signal" aria-hidden />
       <span className="font-medium">Suggesting</span>
       <span className="text-graphite max-md:hidden">What you change goes to the owner to accept or reject</span>
+    </div>
+  );
+}
+
+/** What the private mode notice takes: who turned it on, whether this person's own work is hidden, and how to end it. */
+export type PrivateModeNoticeProps = { by: string; hidden: boolean; onReveal?: () => void };
+
+/** Private mode is on: what each person adds is theirs alone until it's revealed. `onReveal` for those who may. */
+export function PrivateModeNotice({ by, hidden, onReveal }: PrivateModeNoticeProps) {
+  return (
+    <div className="floating-panel flex h-8 items-center gap-2 rounded-full px-3 text-xs">
+      <EyeOff className="size-3.5 shrink-0 text-signal" aria-hidden />
+      <span className="font-medium">Private mode</span>
+      <span className="text-graphite max-md:hidden">
+        {hidden
+          ? `Only you see what you add until it's revealed (started by ${by})`
+          : "The others' work is hidden until it's revealed"}
+      </span>
+      {onReveal && (
+        <button type="button" onClick={onReveal} className="font-medium text-signal underline-offset-2 hover:underline">
+          Reveal
+        </button>
+      )}
     </div>
   );
 }

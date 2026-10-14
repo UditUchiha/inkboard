@@ -1,5 +1,5 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import { getBounds, getSceneBounds } from "./elements";
+import { getBounds, getSceneBounds, isFrame, translate } from "./elements";
 import { rectsOverlap } from "./geometry";
 import type { Pair, Rect, Size, Viewport } from "./geometry";
 
@@ -34,6 +34,18 @@ export function copyOffset(elements: BoardElement[], group: BoardElement[], gap 
   // Crowded all round: beyond everything.
   const scene = getSceneBounds(elements)!;
   return [scene.x + scene.width + gap - box.x, 0];
+}
+
+/**
+ * `element`, put down from the keyboard, where it is if that's clear, or else the nearest clear spot beside it, so
+ * it doesn't hide what's already there. A shape may still go inside a frame; a frame keeps clear of everything.
+ */
+export function placeFree(elements: BoardElement[], element: BoardElement): BoardElement {
+  const others = isFrame(element) ? elements : elements.filter((other) => !isFrame(other));
+  const box = getBounds(element);
+  if (!others.some((other) => rectsOverlap(getBounds(other), box))) return element;
+  const [dx, dy] = copyOffset(others, [element], 24);
+  return translate(element, dx, dy);
 }
 
 /**
