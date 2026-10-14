@@ -53,6 +53,8 @@ export type ToolbarProps = {
   // Opens Draw with AI; left out where nothing can be drawn.
   onAiDraw?: (() => void) | undefined;
   withComments?: boolean;
+  // Classroom mode: a student has no frame tool, frames being the teacher's.
+  withoutFrames?: boolean;
   className?: string;
 };
 
@@ -63,9 +65,12 @@ export function Toolbar({
   onAddEquation,
   onAiDraw,
   withComments = false,
+  withoutFrames = false,
   className,
 }: ToolbarProps) {
-  const tools = withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS;
+  const tools = (withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS).filter(
+    (item) => !(withoutFrames && item.id === "frame"),
+  );
   return (
     <div
       role="toolbar"

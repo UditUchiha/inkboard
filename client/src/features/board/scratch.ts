@@ -195,6 +195,8 @@ export function useScratchBoard() {
       controlTimer: NOOP,
       privateMode: null,
       setPrivate: NOOP,
+      classroom: null,
+      changeClassroom: () => Promise.resolve(false),
       subscribeViewport: () => NOOP,
       requestViewport: NOOP,
       socket: null,

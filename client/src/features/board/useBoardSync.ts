@@ -1,6 +1,9 @@
 import type { LinkLock, Wire } from "@inkboard/shared/api";
 import type {
   BoardMessage,
+  Classroom,
+  ClassroomMessage,
+  ClassroomPayload,
   Countdown,
   CountdownMessage,
   CountdownPayload,
@@ -63,7 +66,11 @@ const REFUSED: Record<string, string> = {
   ownerFull:
     "This board's owner has used up their space, so that change was undone. Delete something or empty the trash to make room.",
   invalid: "That change couldn't be saved, so it was undone.",
+  outside: "That change was outside your frame, so it was undone.",
 };
+
+/** Told when, in classroom mode, something a student did outside their frame was put back (see useBoardSync). */
+export const OUTSIDE_FRAME = "In classroom mode you can change only what's inside your frame, so that was put back.";
 
 // The shapes of what the socket carries are declared once, in @inkboard/shared/socket, and are exported from here
 // by the names the rest of the app uses. A reply that carries dates arrives with them as strings (see Wire).
@@ -119,6 +126,7 @@ export function useBoardSync(
   const [peers, setPeers] = useState<Peer[]>([]);
   const [timer, setTimer] = useState<BoardTimer | null>(null);
   const [privateMode, setPrivateMode] = useState<PrivateMode | null>(null);
+  const [classroom, setClassroom] = useState<Classroom | null>(null);
   const [online, setOnline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cursors] = useState(createCursorStore);
@@ -193,8 +201,12 @@ export function useBoardSync(
 
   onReply.current = (result: SettleResult) => {
     if (result.kind === "ok") {
-      if (result.cleaned.length > 0 || result.dropped.length > 0) store.reconcile(result);
-      if (result.dropped.length > 0) {
+      if (result.cleaned.length > 0 || result.dropped.length > 0 || result.restored.length > 0) {
+        store.reconcile(result);
+      }
+      // In classroom mode, what a student did outside their frame was left out (and put back here).
+      if (result.outside) toast(OUTSIDE_FRAME, { id: OUTSIDE_FRAME });
+      else if (result.dropped.length > 0) {
         const count = result.dropped.length;
         toast.error(
           `The board is full, so ${count === 1 ? "1 element" : `${count} elements`} couldn't be added. Delete something or start a new board.`,
@@ -272,6 +284,7 @@ export function useBoardSync(
       setPeers([]);
       setTimer(null);
       setPrivateMode(null);
+      setClassroom(null);
       cursors.clear();
       suggestions.clear();
       suggester.forget();
@@ -312,6 +325,7 @@ export function useBoardSync(
         suggestions.load(response.suggestions ?? []);
         setTimer(timerFrom(response.countdown));
         setPrivateMode(response.privateMode ?? null);
+        setClassroom(response.classroom ?? null);
         // A suggester sees the board with their suggestions on it.
         if (joinedRole === "suggester") suggester.joined(elements, response.removed);
         setMeta(boardMeta);
@@ -428,6 +442,9 @@ export function useBoardSync(
     const onCountdown = (payload: CountdownMessage) => {
       if (!forOther(payload)) setTimer(timerFrom(payload.countdown));
     };
+    const onClassroom = (payload: ClassroomMessage) => {
+      if (!forOther(payload)) setClassroom(payload.classroom);
+    };
     const onPrivateMode = (payload: PrivateModeMessage) => {
       if (!forOther(payload)) setPrivateMode(payload.privateMode);
     };
@@ -460,6 +477,7 @@ export function useBoardSync(
     socket.on("viewport:request", onViewportRequest);
     socket.on("countdown", onCountdown);
     socket.on("private", onPrivateMode);
+    socket.on("classroom", onClassroom);
     socket.on("suggestion:upsert", onSuggestions);
     socket.on("suggestion:delete", onSuggestionsGone);
     socket.on("voting", onVoting);
@@ -490,6 +508,7 @@ export function useBoardSync(
       socket.off("viewport:request", onViewportRequest);
       socket.off("countdown", onCountdown);
       socket.off("private", onPrivateMode);
+      socket.off("classroom", onClassroom);
       socket.off("suggestion:upsert", onSuggestions);
       socket.off("suggestion:delete", onSuggestionsGone);
       socket.off("voting", onVoting);
@@ -590,6 +609,21 @@ export function useBoardSync(
     [socket],
   );
 
+  // Classroom mode (see Classroom): a member starts or stops it or frees a frame, a student claims one. Resolves with
+  // whether it was done; everyone, this browser too, hears back what it is now.
+  const changeClassroom = useCallback(
+    (payload: ClassroomPayload) =>
+      new Promise<boolean>((resolve) => {
+        if (!socket?.connected) return resolve(false);
+        socket
+          .timeout(10_000)
+          .emit("classroom", payload, (error: Error | null, reply?: { ok: boolean }) =>
+            resolve(!error && reply?.ok === true),
+          );
+      }),
+    [socket],
+  );
+
   // A member's decision on suggestions. They go from this screen at once; accepting one is the member's own
   // change to the board, made before this (see acceptance in suggestions.ts).
   const resolveSuggestions = useCallback(
@@ -659,6 +693,8 @@ export function useBoardSync(
     controlTimer,
     privateMode,
     setPrivate,
+    classroom,
+    changeClassroom,
     subscribeViewport,
     requestViewport,
     socket,

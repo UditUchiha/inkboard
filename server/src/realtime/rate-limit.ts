@@ -10,6 +10,7 @@ export const LIMITS = {
   present: { burst: 5, perSecond: 1 },
   countdown: { burst: 5, perSecond: 1 },
   privateMode: { burst: 5, perSecond: 1 },
+  classroom: { burst: 10, perSecond: 2 },
   // A replay can be megabytes, read from the database each time.
   replay: { burst: 3, perSecond: 0.1 },
   // Votes come a click at a time.
