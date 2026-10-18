@@ -33,7 +33,15 @@ import { ClaimFrameDialog, ClassroomNotice, FrameClassroom } from "./ClassroomPa
 import { CommentsLayer } from "./CommentsLayer";
 import { DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, MAX_ZOOM } from "./constants";
 import type { ToolId } from "./constants";
-import { copyGroup, drawnElement, isConnector, moveGroup } from "./connectors";
+import {
+  canConnectTo,
+  connectArrow,
+  connectTargets,
+  copyGroup,
+  drawnElement,
+  isConnector,
+  moveGroup,
+} from "./connectors";
 import { ElementList } from "./ElementList";
 import { describeElement } from "./elementLabels";
 import {
@@ -243,6 +251,21 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     },
     [zone],
   );
+  // Connecting two shapes from the keyboard (see connectTargets): K with a shape selected offers the shapes an arrow
+  // from it could go to, nearest first, one at a time, and Enter draws the arrow. Selecting anything else stops it.
+  const [connecting, setConnecting] = useState<{ fromId: string; targetId?: string } | null>(null);
+  useEffect(() => setConnecting(null), [selectedId]);
+  const connectFrom = connecting?.fromId === selectedId ? selected : null;
+  const connectOptions = useMemo(
+    // In classroom mode, a student is offered only what they may change.
+    () => (connectFrom ? connectTargets(elements, connectFrom).filter((target) => canChange(target, zone)) : []),
+    [connectFrom, elements, zone],
+  );
+  const connectIndex = Math.max(
+    0,
+    connectOptions.findIndex((target) => target.id === connecting?.targetId),
+  );
+  const connectTo = connectOptions.at(connectIndex) ?? null;
   // Bumped when a guest renames themselves from the claim dialog, so their name shows there anew.
   const [guestVersion, setGuestVersion] = useState(0);
   // A suggester's screen shows the board with their suggestions in it; this is the board without them (see
@@ -496,14 +519,16 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   view.current = { viewport, canvasSize };
 
   // Picking an element from the keyboard-reachable list can select one that is off screen: bring it into view.
-  // Only when the selection changes, not when the window is resized, and without leaving someone we follow.
+  // Only when the selection changes, not when the window is resized, and without leaving someone we follow. So can
+  // the shape on offer while connecting from the keyboard.
+  const inSight = connectTo?.id ?? selectedId;
   useEffect(() => {
     const { viewport, canvasSize } = view.current;
-    const element = selectedId && canvasSize.width ? store.getElement(selectedId) : null;
+    const element = inSight && canvasSize.width ? store.getElement(inSight) : null;
     if (!element) return;
     const next = viewToReveal(viewport, canvasSize, getBounds(element));
     if (next !== viewport) setViewport(next);
-  }, [selectedId, store]);
+  }, [inSight, store]);
   const { addImages, importBoardFile } = useImageImport({
     store,
     socket: sync.socket,
@@ -521,6 +546,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     canComment,
     canAddImages,
     selectedId,
+    connecting: Boolean(connectTo),
     fileInput,
     actions: {
       duplicateSelected,
@@ -529,6 +555,10 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       nudgeSelected,
       resizeSelected,
       placeWithTool,
+      startConnect,
+      stepConnect,
+      finishConnect,
+      cancelConnect: () => setConnecting(null),
       zoomBy,
       resetZoom,
       fitToScreen,
@@ -672,6 +702,47 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     );
     if (!staysInside(next, zone)) return; // in classroom mode, it stops at the edge of the student's frame
     store.commit({ undo: { upsert: [element] }, redo: { upsert: [next] } }, { mergeKey: `resize:${element.id}` });
+  }
+
+  // Connecting from the keyboard (see `connecting`): K starts from the selected shape, if there's something to go to.
+  function startConnect() {
+    if (!selected) {
+      toast("Select a shape first, then press K to connect it to another.");
+      return;
+    }
+    if (!canChange(selected, zone)) {
+      toast(zone ? KEEP_INSIDE : CLAIM_FIRST, { id: CLASSROOM_TOAST });
+      return;
+    }
+    if (!canConnectTo(selected)) {
+      toast("Arrows connect shapes, notes, pictures and text. Select one of those, then press K.");
+      return;
+    }
+    if (!connectTargets(store.getElements(), selected).some((target) => canChange(target, zone))) {
+      toast(zone ? "There's nothing else in your frame to connect it to." : "There's nothing else to connect it to.");
+      return;
+    }
+    setConnecting({ fromId: selected.id });
+  }
+
+  // The next shape on offer (`by` 1), or the one before (-1), going round.
+  function stepConnect(by: number) {
+    if (!connecting || !connectTo) return;
+    const count = connectOptions.length;
+    setConnecting({ ...connecting, targetId: connectOptions[(connectIndex + by + count) % count].id });
+  }
+
+  // The arrow to the shape on offer, drawn as a drag from one to the other would be: one undo step, then selected, so
+  // Enter gives it a label.
+  function finishConnect() {
+    if (!connectFrom || !connectTo) return;
+    const arrow = connectArrow(connectFrom, connectTo, style);
+    if (!staysInside(arrow, zone)) {
+      toast(KEEP_INSIDE, { id: CLASSROOM_TOAST });
+      return;
+    }
+    store.commit({ undo: { remove: [arrow.id] }, redo: { upsert: [arrow] } });
+    selectElement(arrow.id);
   }
 
   // Elements made all at once (drawn by Claude, imported from Mermaid): one undo step, brought into view if they
@@ -834,6 +905,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           // A student's selection of what they can't change (picked from the outline) has no handles to drag.
           selectedId={selected && !canChange(selected, zone) ? null : selectedId}
           onSelect={setSelectedId}
+          connectTargetId={connectTo?.id}
           editingId={editing?.element.id}
           onEditText={editText}
           spacePressed={spacePressed}
@@ -881,8 +953,21 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         open={outlineOpen && !presenting}
         onOpenChange={setOutlineOpen}
       />
-      <div role="status" className="sr-only">
-        {selected ? `Selected: ${describeElement(selected)}` : ""}
+      {/* What's selected, for screen readers. While connecting from the keyboard, the shape on offer, shown to all
+          under the toolbar (toasts come up from the bottom). */}
+      <div
+        role="status"
+        className={
+          connectTo
+            ? "floating-panel absolute top-20 left-1/2 z-20 w-max max-w-[calc(100vw-1.5rem)] -translate-x-1/2 rounded-xl px-3 py-2 text-sm"
+            : "sr-only"
+        }
+      >
+        {connectTo
+          ? `Arrow to ${describeElement(connectTo)} (${connectIndex + 1} of ${connectOptions.length}). Tab for the next, Enter to draw it, Esc to stop.`
+          : selected
+            ? `Selected: ${describeElement(selected, getElement)}`
+            : ""}
       </div>
 
       <RemoteCursors cursors={sync.cursors} peers={sync.peers} viewport={viewport} />
