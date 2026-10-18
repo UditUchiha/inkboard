@@ -208,6 +208,8 @@ The repository includes a [Render](https://render.com) Blueprint (`render.yaml`)
 3. In Render, choose **New → Blueprint** and select the repository.
 4. Paste the Atlas connection string when asked for `MONGODB_URI`. `JWT_SECRET` is generated for you. Leave `APP_URL` empty unless the app will have a custom domain (then enter it, e.g. `https://inkboard.example.com`).
 
+What's left to run it well (the service sleeping, moving pictures to R2, an email domain, more than one server, and a one-off script after the 2026-10-18 release) is in [docs/operations.md](docs/operations.md).
+
 ### Health check and keep-alive
 
 `GET /health` returns the server and database status, with HTTP 503 if the database is unreachable. Render uses it as the service's health check.
