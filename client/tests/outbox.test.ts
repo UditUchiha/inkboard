@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { spliceOf, textBefore } from "@inkboard/shared/text-merge";
 import type { Effect, Element, Stamp } from "@inkboard/shared/types";
 import { createCursorStore } from "../src/features/board/cursors.ts";
 import { createOutbox } from "../src/features/board/outbox.ts";
 import type { Piece } from "../src/features/board/outbox.ts";
+import type { Typing } from "../src/features/board/store.ts";
 
 interface SettleRetry {
   kind: "retry";
@@ -17,6 +19,7 @@ interface SettleOk {
   cleaned: Element[];
   dropped: string[];
   sent: Map<string, Stamp>;
+  typed?: Typing;
   next?: Piece;
 }
 
@@ -285,6 +288,49 @@ describe("outbox and changes sent in pieces", () => {
     const piece = outbox.take()!;
     const result = outbox.settle(piece.seq, null, { ok: true, cleaned: [rect("a", 2)] }) as SettleOk;
     assert.deepEqual(result.sent.get("a"), { version: 4, versionNonce: 1 });
+  });
+});
+
+describe("outbox and typing", () => {
+  // A note typed into: `text` now, typed against `was` (see text-merge.ts).
+  const typed = (text: string, was: string, version = 2): Element =>
+    ({ ...rect("n", version), type: "sticky", text, base: { text: spliceOf(was, text) } }) as unknown as Element;
+  const baseOf = (element: Element) => textBefore((element as { text: string }).text, element.base!.text!);
+
+  it("sends typing queued twice as one change, typed against what the text was before both", () => {
+    const outbox = createOutbox();
+    outbox.add({ upsert: [typed("ab", "a")] });
+    outbox.add({ upsert: [typed("abc", "ab", 3)] });
+    const [sent] = outbox.take()!.op.upsert;
+    assert.equal(baseOf(sent!), "a");
+    assert.deepEqual([...outbox.typing()], [["n", new Set(["text"])]], "unanswered until the reply");
+  });
+
+  it("sends typing again without its base when it may have been taken in already", () => {
+    const outbox = createOutbox();
+    outbox.add({ upsert: [typed("ab", "a")] });
+    const piece = outbox.take()!;
+    const result = outbox.settle(piece.seq, new Error("timeout"), undefined) as SettleRetry;
+    assert.equal("base" in result.again.upsert[0]!, false);
+    assert.equal(outbox.typing().size, 0);
+  });
+
+  it("puts typing the server turned away under newer typing queued meanwhile", () => {
+    const outbox = createOutbox();
+    outbox.add({ upsert: [typed("ab", "a")] });
+    const piece = outbox.take()!;
+    outbox.add({ upsert: [typed("abc", "ab", 3)] });
+    outbox.settle(piece.seq, null, { ok: false, reason: "rate" });
+    const [sent] = outbox.take()!.op.upsert;
+    assert.equal(baseOf(sent!), "a", "the server never had the first");
+  });
+
+  it("says what the answered change typed into", () => {
+    const outbox = createOutbox();
+    outbox.add({ upsert: [typed("ab", "a")] });
+    const piece = outbox.take()!;
+    const result = outbox.settle(piece.seq, null, { ok: true, cleaned: [rect("n", 3)] }) as SettleOk;
+    assert.deepEqual([...result.typed!], [["n", new Set(["text"])]]);
   });
 });
 

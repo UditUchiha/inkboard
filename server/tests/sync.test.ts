@@ -12,7 +12,8 @@ import type {
   RemovedStamp,
   ResetMessage,
 } from "@inkboard/shared/socket";
-import type { Element, Point, ShapeElement, Stamp, Tombstone } from "@inkboard/shared/types";
+import { spliceOf } from "@inkboard/shared/text-merge";
+import type { Element, Point, ShapeElement, Stamp, StickyElement, Tombstone } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import { Board } from "../src/models/board.model.ts";
 import {
@@ -21,6 +22,7 @@ import {
   MAX_BOARD_BYTES,
   MAX_ELEMENT_BYTES,
   MAX_ELEMENTS_PER_BOARD,
+  MAX_TYPED_PER_CHANGE,
   prepareOperation,
   RESTORE_LEAD,
   sanitizeOperation,
@@ -239,6 +241,61 @@ describe("changes that cross", () => {
     assert.equal((await b.op(id, upsert(at(3, 4)))).ok, true, "a newer edit (an undo, say)");
     await flushAllSessions();
     assert.deepEqual((await Board.findById(id).lean())!.elements, [at(3, 4)]);
+  });
+
+  // A sticky note saying "hello", as the board stores one.
+  const note = () =>
+    ({
+      id: "x",
+      type: "sticky",
+      x1: 0,
+      y1: 0,
+      x2: 100,
+      y2: 100,
+      text: "hello",
+      fill: "#ffec99",
+      font: "hand",
+      index: "a0",
+      version: 1,
+      versionNonce: 0,
+    }) as StickyElement;
+
+  it("keep both people's typing in the same note, and tell the second what it was merged into", async () => {
+    const { id, a, b } = await pair({ sync: SYNC_FORMAT });
+    const start = note();
+    await a.op(id, upsert(start));
+    await eventually(() => b.of("board:op").length === 1, { message: "the note reaching b" });
+
+    // Both type from "hello": a at the end, b at the start. Each change says what the text was on its screen.
+    const typed = (text: string, versionNonce: number) => ({
+      ...edit(start, ["text"], { version: 2, versionNonce }, { text }),
+      base: { text: spliceOf("hello", text) },
+    });
+    assert.deepEqual(await a.op(id, upsert(typed("hello world", 5))), { ok: true });
+    const reply = await b.op(id, upsert(typed("Hey, hello", 9)));
+    const merged = reply.ok && (reply.cleaned?.[0] as StickyElement);
+    assert.ok(merged, "b is sent the merged text");
+    assert.equal(merged.text, "Hey, hello world");
+    assert.equal("base" in merged, false);
+    await eventually(() => a.of("board:op").some(({ op }) => (op.upsert[0] as StickyElement)?.text === merged.text), {
+      message: "the merged text reaching a",
+    });
+    await flushAllSessions();
+    assert.deepEqual((await Board.findById(id).lean())!.elements, [merged]);
+  });
+
+  it("take typing from browsers running the older app whole, the newer text winning, as before", async () => {
+    const { owner, id, a } = await pair({ sync: SYNC_FORMAT });
+    const older = await app.connect(owner);
+    await older.join(id);
+    const start = note();
+    await a.op(id, upsert(start));
+    const typed = (text: string) => ({ ...start, text, version: 2, versionNonce: 0 });
+    await a.op(id, upsert(edit(start, ["text"], { version: 2, versionNonce: 5 }, { text: "hello world" })));
+    await older.op(id, upsert({ ...typed("Hey, hello"), base: { text: spliceOf("hello", "Hey, hello") } }));
+    await flushAllSessions();
+    const [saved] = (await Board.findById(id).lean())!.elements as StickyElement[];
+    assert.equal(saved!.text, "Hey, hello", "its base is ignored");
   });
 
   it("still take changes from browsers running the older app, as the newest edit", async () => {
@@ -795,6 +852,16 @@ describe("operation rules", () => {
       [{ id: "b", version: 3, versionNonce: 9 }, { id: "c" }, { id: "d" }],
     );
     assert.equal(sanitizeOperation({ upsert: "x", remove: 5 }), null);
+  });
+
+  it("keep what typing was typed against where it fits, for at most MAX_TYPED_PER_CHANGE elements", () => {
+    const typed = (id: string, base: unknown) => ({ ...rect(id), type: "arrow", text: "yes", base });
+    const kept = sanitizeOperation({ upsert: [typed("a", { text: [3, 0, "!"] }), typed("b", { text: [9, 9, ""] })] })!;
+    assert.deepEqual(kept.upsert[0]!.base, { text: [3, 0, "!"] });
+    assert.equal("base" in kept.upsert[1]!, false, "a base that doesn't fit the text is dropped");
+    const many = Array.from({ length: MAX_TYPED_PER_CHANGE + 5 }, (_, n) => typed(`t${n}`, { text: [0, 0, ""] }));
+    const some = sanitizeOperation({ upsert: many })!.upsert.filter((element) => element.base);
+    assert.equal(some.length, MAX_TYPED_PER_CHANGE);
   });
 });
 

@@ -543,7 +543,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setDialog,
   });
 
-  function commitText(text: string) {
+  // `base` is the text as the board had it when the editor last took in others' typing (see TextEditor.tsx).
+  function commitText(text: string, base: string) {
     // The editors that call this are shown only while something is being edited.
     const { element, isNew } = editing!;
     setEditing(null);
@@ -559,13 +560,14 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     }
     // The cast: only elements that carry text are edited, so the one on the board does too.
     const current = (store.getElement(element.id) ?? element) as TextBearing;
-    if (value === (current.text ?? "")) return;
+    if (value === base || value === (current.text ?? "")) return;
     if (!value.trim() && !keepEmpty) {
       store.commit({ undo: { upsert: [current] }, redo: { remove: [current.id] } });
       return;
     }
+    // Made from the text it was typed against, so typing that reached the board since is kept (see store.ts).
     const changed = keepInZone({ ...current, text: value });
-    if (changed) store.commit({ undo: { upsert: [current] }, redo: { upsert: [changed] } });
+    if (changed) store.commit({ undo: { upsert: [{ ...current, text: base }] }, redo: { upsert: [changed] } });
   }
 
   // In classroom mode, `element` moved as little as puts it inside the student's frame, or null (and they're told) when
@@ -931,7 +933,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
               (isConnector(editing.element) ? (
                 <LabelEditor
                   key={editing.element.id}
-                  element={editing.element}
+                  element={edited as Connector}
                   middle={pathMiddle(
                     connectorPath(
                       (drawnElement(elements, editing.element.id) as Connector | undefined) ?? editing.element,
