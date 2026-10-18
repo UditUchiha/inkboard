@@ -1,6 +1,16 @@
 import type { ConnectorFields, Element as BoardElement, Side } from "@inkboard/shared/types";
-import { duplicate, elementAt, getBounds, getFrame, inDrawOrder, isFrame, newId, translate } from "./elements";
-import type { AnyElement, Connector } from "./elements";
+import {
+  createElement,
+  duplicate,
+  elementAt,
+  getBounds,
+  getFrame,
+  inDrawOrder,
+  isFrame,
+  newId,
+  translate,
+} from "./elements";
+import type { AnyElement, Connector, ElementStyle } from "./elements";
 import { expandRect, rectContains, rotatePoint } from "./geometry";
 import type { Pair, Rect, TurnedRect, XY } from "./geometry";
 import { setEndDirections } from "./routes";
@@ -478,4 +488,43 @@ export function copyGroup(
     if (copy.endId) copy.endId = ids.get(copy.endId);
   }
   return copies;
+}
+
+// Connecting from the keyboard: with a shape selected, K offers the shapes an arrow from it could go to, nearest
+// first, and Enter draws the arrow to the one on offer (see BoardEditor). It's the arrow a drag from one shape to the
+// other draws, so it follows them, syncs and undoes like any other.
+
+/**
+ * What an arrow from `from` could be drawn to: the board's other shapes, notes, pictures and text, nearest first.
+ * Text lying on a shape is left out, as a drag leaves it: it's the shape's label, and the shape is offered instead.
+ */
+export function connectTargets(elements: BoardElement[], from: BoardElement): Connectable[] {
+  const start = middleOf(from);
+  const away = (element: BoardElement) => {
+    const { x, y } = middleOf(element);
+    return Math.hypot(x - start.x, y - start.y);
+  };
+  return elements
+    .filter(
+      (element) =>
+        element.id !== from.id &&
+        canConnectTo(element) &&
+        (element.type !== "text" || connectTargetAt(elements, middleOf(element), 0)?.type === "text"),
+    )
+    .sort((a, b) => away(a) - away(b));
+}
+
+/**
+ * A new arrow, drawn with `style`, from `from` to `to`, both ends floating on their shapes. Its stored ends are where
+ * it's drawn now: where it stays if a shape goes, and what classroom mode holds inside a student's frame.
+ */
+export function connectArrow(from: Connectable, to: Connectable, style: ElementStyle): Connector {
+  // The casts: an arrow is made as a connector, and a connector is drawn as one.
+  const arrow = attachEnd(
+    attachEnd(createElement("arrow", middleOf(from), style) as Connector, "start", from),
+    "end",
+    to,
+  );
+  const { x1, y1, x2, y2 } = resolveConnectors([from, to, arrow])[2] as Connector;
+  return { ...arrow, x1, y1, x2, y2 };
 }
