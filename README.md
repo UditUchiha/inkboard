@@ -66,7 +66,7 @@ Account features:
 - **Templates**: start from a built-in kanban, flowchart, retrospective, SWOT or brainstorm board, or save any board as a template of your own.
 - **API and MCP server**: personal tokens (Settings → API tokens, read-only or read-and-change) for a small HTTP API at `/api/v1` and an MCP server at `/mcp`, so scripts and AI assistants can list, read and draw on boards. Changes go through the same checks as the app's and show up live. See [docs/api.md](docs/api.md).
 - **Stars and trash**: star boards, and deleted boards stay in a trash for 30 days before they are removed for good. The people invited to a board are notified when its owner moves it to the trash.
-- **Profile**: your name, color and photo appear on your cursor and avatar. Connect or disconnect Google and GitHub, or set a password for an account that signed up through one of them.
+- **Profile**: your name, color and photo appear on your cursor and avatar. Connect or disconnect Google and GitHub, or set a password for an account that signed up through one of them. Changing or resetting your password logs out your other devices, and **Log out everywhere** logs out all of them, this one included.
 
 ## Tech stack
 
