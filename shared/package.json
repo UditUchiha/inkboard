@@ -13,6 +13,7 @@
     "./limits": "./src/limits.ts",
     "./socket": "./src/socket.ts",
     "./suggestions": "./src/suggestions.ts",
+    "./text-merge": "./src/text-merge.ts",
     "./types": "./src/types.ts",
     "./zones": "./src/zones.ts"
   },

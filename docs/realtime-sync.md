@@ -17,7 +17,7 @@ An element's fields are split into groups that change independently:
 | Group | Fields |
 |---|---|
 | `shape` | `type`, `seed`, `imageId`, `x1`, `y1`, `x2`, `y2`, `startId`, `endId`, `startAnchor`, `endAnchor`, `points`, `pressure`, `angle`, `fontSize` |
-| `text` | `text` |
+| `text` | `text`, `alt` (a picture's description) |
 | `stroke`, `fill`, `strokeWidth`, `penSize`, `sketchy`, `font`, `name`, `route`, `startHead` | one field each |
 | `index` | `index` (its place in the stack) |
 
@@ -38,6 +38,25 @@ The store ([`store.js`](../client/src/features/board/store.ts)) stamps only the 
 - otherwise, the element as it is now.
 
 A new element is stamped whole and placed on top. One coming back (an undo of a removal) is stamped whole and goes back to its old place in the stack.
+
+## Typing in the same text
+
+The fields people type into are a text's, note's or label's `text`, a frame's `name` and a picture's `alt`. Each is still one value in its group, but two people typing in the same one at once both keep what they typed: the changes are merged letter by letter ([`text-merge.ts`](../shared/src/text-merge.ts)).
+
+**How.** A change that types into a field carries its `base`: what the field was on the screen it was made on. Where the board's text has changed since (someone else's typing got there first), the server makes a three-way merge: what the base became on the board, and what it became on that screen, are worked out as character diffs (Myers' diff, the fewest letters added and removed), and both are applied. A letter either deleted is gone, and what either typed is kept where they typed it; typed at the same spot, what got to the board first goes ahead. The result is stamped one version past the newer of the two, with the change's nonce, so a copy of either change sent again can't replace it, and the same two changes merge to the same element anywhere. A merge that comes to the newer side's text as it is just keeps that side, as last writer wins would.
+
+**Why not a text CRDT.** A sequence CRDT (Yjs, Automerge, or a small one of our own) gives every letter an id, which means storing and sending those ids with every text, a new format for saved boards, the API and previews, and a second kind of merge next to the stamps. A three-way merge needs none of that: elements stay as they are, and only a change on its way carries one extra field. What it gives up is that it depends on the order changes arrive in, which a state-based CRDT doesn't; here that order exists anyway, because the server takes changes one at a time and everyone takes the board from it.
+
+**Keeping it small.** The editor sends a text once, when it's committed (on blur), not per keystroke; the frame name and a picture's description are sent as they're typed, and are short. The base goes as a splice against the new text, `[prefix, suffix, middle]` (the letters at either end that are the same, and what was between them), usually a few letters. A diff stops after about a millisecond's work (two unrelated long texts), and so does a merge that would pass the field's length limit: the newer text then wins whole, as before. The server merges at most 20 elements per change.
+
+**In the browser.**
+
+- The store makes its change from the text it was typed against (the editor passes it to `commitText`), so typing that reached this screen while the editor was open is merged in, not overwritten; so is an undo of typing, which takes out only that typing (`typedOnto` in [`store.ts`](../client/src/features/board/store.ts)). The change's base is the text as this screen has it.
+- The editor takes in someone else's typing while it's open, merged with what's being typed, and the caret keeps its place among the letters around it (`followText`; text typed right at the caret goes after it). It waits while an input method is composing.
+- Until the server answers a change that typed, others' changes to that text don't replace it on this screen (`outbox.typing()`, `store.applyRemote`): the server merges the two, and its answer brings the result (`cleaned`, see below), which replaces the text whatever its stamp. Otherwise what was just typed would disappear for a moment, and anything typed meanwhile would be typed against a text without it.
+- Two changes queued before sending are one change, typed against what the text was before both. A change sent again without knowing whether the server took it in (a timeout, a dropped connection) goes without its base, so it can't be merged in twice: it's taken whole, as before.
+
+**Older apps.** A browser on an older app sends no bases, and one that doesn't say `sync: 2` has any it sends dropped, so its typing replaces the text whole, the newer winning, as it always did. Saved boards need no change: bases are never stored.
 
 ## Removals and tombstones
 
@@ -62,7 +81,7 @@ For each `board:op` the server ([`realtime/index.ts`](../server/src/realtime/ind
 4. **checks sizes** against what would actually change (`admit`), including changes to removed elements, each of which must fit as an element;
 5. **commits** it and passes on what changed (`effectOf`): each element as the server now has it, merged.
 
-The sender's acknowledgement is `{ ok: true }`, plus `cleaned` (elements as the board stored them, where that isn't how they were sent, such as a label cut to the length limit, or the stored copy of an element whose change was refused) and `dropped` (ids of elements it refused, including new ones left out because the board is at its element cap). Or `{ ok: false, reason }`: `noSession` (join the board first), `invalid`, `tooLarge`, `forbidden` or `rate`. Only `noSession` (after joining again) and `rate` are worth sending again.
+The sender's acknowledgement is `{ ok: true }`, plus `cleaned` (elements as the board stored them, where that isn't how they were sent, such as a label cut to the length limit, a text its typing was merged into, or the stored copy of an element whose change was refused) and `dropped` (ids of elements it refused, including new ones left out because the board is at its element cap). Or `{ ok: false, reason }`: `noSession` (join the board first), `invalid`, `tooLarge`, `forbidden` or `rate`. Only `noSession` (after joining again) and `rate` are worth sending again.
 
 Removed elements' data is kept in memory while a board is open, up to 12 MB (a browser keeps up to about 4 MB of it). Past that the oldest keep only their stamp. An element that would come back on a board already at its element cap stays removed, tombstone and all. Stamps are also **saved with the board** (`removed`, hidden from ordinary queries), for 30 days and up to 5,000, so an edit from someone who was offline while everyone left can't bring back what was removed since. A removal of an id the board has never had leaves no tombstone, so made-up ids can't push real ones out.
 
@@ -79,11 +98,12 @@ A browser that reconnects takes the board as the server has it, with its unsent 
 ## Tests
 
 - [`shared/tests/board-merge.test.ts`](../shared/tests/board-merge.test.ts): the rules, including the defining property. Random changes are applied in many orders, and every order must give the same board, stacking order included (500 sets × 6 orders).
-- [`server/tests/convergence.test.ts`](../server/tests/convergence.test.ts): three real browser stores and the real server rules, adding, dragging, recoloring, removing, undoing and redoing, with messages delivered in random order. Every browser must match the server exactly (400 sessions; 6,000 longer ones were also run while building this).
+- [`server/tests/convergence.test.ts`](../server/tests/convergence.test.ts): three real browser stores and the real server rules, adding, dragging, recoloring, removing, undoing and redoing, with messages delivered in random order. Every browser must match the server exactly (400 sessions; 6,000 longer ones were also run while building this). The same file plays three people typing into one note and a frame's name at once, through the real store, outbox and editor merge: inserting and deleting at their own and the same places, committing, undoing and recoloring while others' typing arrives. Every browser must match the server (500 sessions), and with nothing deleted every letter anyone typed must be on the board (300). Without bases the newer text wins whole, and letters are lost in nearly all of those sessions. 20,000 sessions were run while building this (10,000 with deletes, 10,000 without): none diverged, none lost a letter; without merging, 9,936 of the 10,000 lost some.
+- [`shared/tests/text-merge.test.ts`](../shared/tests/text-merge.test.ts): diffs, merges, carets and bases.
 - [`server/tests/sync.test.ts`](../server/tests/sync.test.ts): the same over real sockets, older apps, saved removals and restores.
 
 ## Known limits
 
 - Two edits with the same version *and* the same random nonce (about 1 in 2 billion per pair of crossing edits) can be resolved differently on different screens until a reload.
-- Text is one register: two people typing in the same text box at once keep one person's text, not both. Merging characters would need a text CRDT (e.g. Yjs).
+- Typing is merged as character diffs, so where a diff can line up the same letters more than one way, someone's typing can land a letter off where they meant (a CRDT would know). Two people typing at the same spot get both, one after the other, not interleaved word by word. Typing sent again without its base (after a timeout or a dropped connection) wins whole, as all typing did before. The frame-name and description fields in the properties panel show others' typing as it arrives, but don't keep the caret's place among the letters as the canvas editors do (it can jump to the end).
 - If a board's removed-element data passes the in-memory budget, or after a board is closed and reopened, a removed element brought back by a partial edit returns with that edit's data only. The server's copy stays the reference, and screens match it after a reconnect.

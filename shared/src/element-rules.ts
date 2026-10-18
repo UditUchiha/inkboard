@@ -1,5 +1,6 @@
 import { cleanStamps, groupStamps, isNonce, isVersion, withStamps } from "./board-merge.ts";
 import { isOrderKey } from "./board-order.ts";
+import { MAX_ALT_LENGTH, MAX_FRAME_NAME_LENGTH, MAX_TEXT_LENGTH } from "./limits.ts";
 import type {
   ConnectorFields,
   Element,
@@ -26,9 +27,7 @@ import type {
 // - Fields the app doesn't use are dropped.
 
 export const COORDINATE_LIMIT = 10_000_000; // far beyond any real drawing
-export const MAX_TEXT_LENGTH = 20_000;
-export const MAX_FRAME_NAME_LENGTH = 200;
-export const MAX_ALT_LENGTH = 1000;
+export { MAX_ALT_LENGTH, MAX_FRAME_NAME_LENGTH, MAX_TEXT_LENGTH };
 // The smallest part of a picture a crop can keep, as a fraction of its side.
 const MIN_CROP = 0.001;
 // A stroke past this is refused before anything is done with it. About what fits in an

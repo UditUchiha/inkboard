@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
+import { followText } from "@inkboard/shared/text-merge";
 import type { StickyElement, TextElement } from "@inkboard/shared/types";
 import { FONTS, LABEL_FONT_SIZE, LINE_HEIGHT, NOTE_TEXT_COLOR, fontKey } from "./constants";
 import { fontFor, measureText } from "./elements";
@@ -29,18 +30,39 @@ const finishesLabel = (event: InlineKeyEvent) => event.key === "Escape" || (even
 
 /**
  * What the three inline editors share: a textarea that takes focus when it opens (with the
- * caret at the end, or everything selected if `selectAll`), commits once (on blur, which
- * is also how a key that `finishes` the edit ends it), and keeps its keys to itself.
- * Spread `inputProps` onto the textarea.
+ * caret at the end, or everything selected if `selectAll`), starts from `board` (the text
+ * as the board has it) and takes in what others type in it meanwhile (see followText),
+ * commits once (on blur, which is also how a key that `finishes` the edit ends it) with the
+ * text and what it was typed against, and keeps its keys to itself. Spread `inputProps`
+ * onto the textarea.
  */
 function useInlineEditor(
-  initial: string,
-  onCommit: (text: string) => void,
+  board: string,
+  onCommit: (text: string, base: string) => void,
   { finishes, selectAll = false }: { finishes: (event: InlineKeyEvent) => boolean; selectAll?: boolean },
 ) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const committed = useRef(false);
-  const [value, setValue] = useState(initial);
+  const [value, setValue] = useState(board);
+  // The text on the board this edit is typed against: as it was when editing began, or when someone else last changed it.
+  const base = useRef(board);
+  // Whether an input method is composing: what it holds isn't in the textarea's value yet, so merging waits.
+  const composingNow = useRef(false);
+  const latestBoard = useRef(board);
+  latestBoard.current = board;
+
+  const catchUp = useCallback(() => {
+    const textarea = ref.current;
+    if (!textarea || composingNow.current || latestBoard.current === base.current) return;
+    const { selectionStart: start, selectionEnd: end } = textarea;
+    const next = followText({ value: textarea.value, base: base.current, start, end }, latestBoard.current);
+    base.current = next.base;
+    // Set here rather than left to React, so the selection can be put back straight after.
+    textarea.value = next.value;
+    if (document.activeElement === textarea) textarea.setSelectionRange(next.start, next.end);
+    setValue(next.value);
+  }, []);
+  useLayoutEffect(catchUp, [board, catchUp]);
 
   useEffect(() => {
     // Deferred so the click that opened the editor doesn't immediately blur it.
@@ -62,7 +84,7 @@ function useInlineEditor(
   const commit = () => {
     if (committed.current) return;
     committed.current = true;
-    onCommit(cutText(value));
+    onCommit(cutText(value), base.current);
   };
 
   const inputProps = {
@@ -70,6 +92,13 @@ function useInlineEditor(
     value,
     maxLength: MAX_TEXT_LENGTH,
     onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setValue(event.target.value),
+    onCompositionStart: () => {
+      composingNow.current = true;
+    },
+    onCompositionEnd: () => {
+      composingNow.current = false;
+      catchUp();
+    },
     onBlur: commit,
     onKeyDown: (event: InlineKeyEvent) => {
       event.stopPropagation();
@@ -85,9 +114,9 @@ function useInlineEditor(
 }
 
 /** What each inline editor takes: the viewport it is placed by, and what to do with the text once it is done. */
-type EditorProps = { viewport: Viewport; onCommit: (text: string) => void };
+type EditorProps = { viewport: Viewport; onCommit: (text: string, base: string) => void };
 
-/** What the text editor takes: the text being edited. */
+/** What the text editor takes: the text being edited, as the board has it now. */
 export type TextEditorProps = EditorProps & { element: TextElement };
 
 export function TextEditor({ element, viewport, onCommit }: TextEditorProps) {
@@ -120,7 +149,7 @@ export function TextEditor({ element, viewport, onCommit }: TextEditorProps) {
   );
 }
 
-/** What the note editor takes: the sticky note being edited. */
+/** What the note editor takes: the sticky note being edited, as the board has it now. */
 export type NoteEditorProps = EditorProps & { element: StickyElement };
 
 /**
@@ -168,7 +197,7 @@ export function NoteEditor({ element, viewport, onCommit }: NoteEditorProps) {
   );
 }
 
-/** What the label editor takes: the line or arrow being labelled, and the point halfway along it. */
+/** What the label editor takes: the line or arrow being labelled, as the board has it now, and the point halfway along it. */
 export type LabelEditorProps = EditorProps & { element: Connector; middle: XY };
 
 /**
