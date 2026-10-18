@@ -8,7 +8,16 @@ export const MAX_ELEMENTS_PER_BOARD = 5000;
 // The most votes each person can be given in a round of dot voting (see VotePayload in socket.ts).
 export const MAX_VOTES_PER_PERSON = 20;
 // What can be voted on: strokes, lines and arrows are how things are drawn and joined, not things to choose between.
-export const VOTABLE_TYPES: readonly string[] = ["sticky", "rectangle", "ellipse", "text", "image", "frame"];
+export const VOTABLE_TYPES: readonly string[] = [
+  "sticky",
+  "rectangle",
+  "ellipse",
+  "triangle",
+  "diamond",
+  "text",
+  "image",
+  "frame",
+];
 
 // The rules for merging changes the current app follows (it says so when it joins a board): 2, each
 // element's property groups carry their own stamps (see board-merge.js). A browser that doesn't say

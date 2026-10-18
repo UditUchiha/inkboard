@@ -9,7 +9,8 @@ import type { Element } from "./types.ts";
  */
 export type ApiElement = { id: string; type: string; [field: string]: unknown };
 
-const BOX_TYPES = new Set(["rectangle", "ellipse", "sticky", "frame", "image"]);
+const BOX_TYPES = new Set(["rectangle", "ellipse", "triangle", "diamond", "sticky", "frame", "image"]);
+const SHAPES = new Set(["rectangle", "ellipse", "triangle", "diamond", "line", "arrow"]);
 const CONNECTORS = new Set(["line", "arrow"]);
 // Left out of what the API shows: the app's bookkeeping, and fields shown another way.
 const HIDDEN = new Set(["index", "version", "versionNonce", "stamps", "seed", "startId", "endId", "points"]);
@@ -115,9 +116,7 @@ export function fromApiElement(
     id: existing?.id ?? (typeof id === "string" && id ? id : newId()),
     type: kind,
   };
-  if (kind === "rectangle" || kind === "ellipse" || CONNECTORS.has(kind as string)) {
-    element.seed ??= newSeed();
-  }
+  if (SHAPES.has(kind as string)) element.seed ??= newSeed();
   if (kind === "sticky") element.text ??= "";
 
   if (BOX_TYPES.has(kind as string) && [x, y, width, height].some((value) => value !== undefined)) {

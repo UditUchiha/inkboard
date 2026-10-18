@@ -1,6 +1,7 @@
 import { ApiElementError, fromApiElement } from "@inkboard/shared/api-elements";
 import type { ApiElement } from "@inkboard/shared/api-elements";
 import type { Element as BoardElement } from "@inkboard/shared/types";
+import { FILLABLE_TYPES } from "./constants";
 import { getBounds, isFrame } from "./elements";
 import { rectContains } from "./geometry";
 import type { Rect } from "./geometry";
@@ -297,14 +298,14 @@ export function layoutFlowchart(chart: Flowchart, prefix: string, measure: Measu
     let width = Math.max(120, text.width + 40);
     let height = Math.max(60, text.height + 30);
     if (node.shape === "ellipse") [width, height] = [width * 1.3, height * 1.4];
-    if (node.shape === "diamond") width = height = Math.max(width, height) * 1.25; // the square, turned on its corner
+    // A square diamond, big enough for the label between its slanted sides.
+    if (node.shape === "diamond") width = height = Math.max(width, height) * 1.25 * Math.SQRT2;
     sizes.set(node.id, { width, height, text });
   }
-  // The space a node takes along the flow (`major`) and across it (`minor`). A diamond's turned square reaches its corners.
+  // The space a node takes along the flow (`major`) and across it (`minor`).
   const span = (id: string) => {
     const { width, height } = sizes.get(id)!;
-    const reach = chart.nodes.get(id)!.shape === "diamond" ? Math.SQRT2 : 1;
-    return vertical ? { major: height * reach, minor: width * reach } : { major: width * reach, minor: height * reach };
+    return vertical ? { major: height, minor: width } : { major: width, minor: height };
   };
 
   const centres = new Map<string, { x: number; y: number }>();
@@ -336,21 +337,14 @@ export function layoutFlowchart(chart: Flowchart, prefix: string, measure: Measu
   for (const node of chart.nodes.values()) {
     const { x, y } = centres.get(node.id)!;
     const { width, height, text } = sizes.get(node.id)!;
-    const reach = node.shape === "diamond" ? (width * Math.SQRT2) / 2 : 0;
-    boxes.set(
-      node.id,
-      reach
-        ? { x: x - reach, y: y - reach, width: reach * 2, height: reach * 2 }
-        : { x: x - width / 2, y: y - height / 2, width, height },
-    );
+    boxes.set(node.id, { x: x - width / 2, y: y - height / 2, width, height });
     nodeElements.push({
       id: id(node.id),
-      type: node.shape === "ellipse" ? "ellipse" : "rectangle",
+      type: node.shape,
       x: x - width / 2,
       y: y - height / 2,
       width,
       height,
-      ...(node.shape === "diamond" && { angle: Math.PI / 4 }),
       ...(node.fill && { fill: node.fill }),
     });
     nodeElements.push({
@@ -437,14 +431,12 @@ const middleOf = (box: Rect) => ({ x: box.x + box.width / 2, y: box.y + box.heig
 const area = (box: Rect) => box.width * box.height;
 
 /**
- * The board's diagram as a Mermaid flowchart: rectangles, ellipses and sticky notes are its nodes (labelled by the
+ * The board's diagram as a Mermaid flowchart: shapes and sticky notes are its nodes (labelled by the
  * note's text, or the text inside the shape), lines and arrows attached at both ends its edges, and frames its
  * subgraphs. Returns null when there's no node to export.
  */
 export function elementsToMermaid(elements: BoardElement[]): string | null {
-  const shapes = elements.filter(
-    (element) => element.type === "rectangle" || element.type === "ellipse" || element.type === "sticky",
-  );
+  const shapes = elements.filter((element) => element.type === "sticky" || FILLABLE_TYPES.has(element.type));
   if (shapes.length === 0) return null;
   const boxes = new Map(shapes.map((shape) => [shape.id, getBounds(shape)]));
   const nodeId = new Map(shapes.map((shape, index) => [shape.id, `n${index + 1}`]));
@@ -485,9 +477,10 @@ export function elementsToMermaid(elements: BoardElement[]): string | null {
   const nodeLine = (shape: BoardElement) => {
     const label = shape.type === "sticky" ? shape.text : (labels.get(shape.id) ?? []).join("\n");
     const text = quote(label || " ");
+    // A rectangle turned on its corner is how a diamond was made before there were diamonds.
     const turned =
       shape.type === "rectangle" && Math.abs((Math.abs(shape.angle ?? 0) % (Math.PI / 2)) - Math.PI / 4) < 0.01;
-    if (turned) return `${nodeId.get(shape.id)}{${text}}`;
+    if (turned || shape.type === "diamond") return `${nodeId.get(shape.id)}{${text}}`;
     return shape.type === "ellipse" ? `${nodeId.get(shape.id)}([${text}])` : `${nodeId.get(shape.id)}[${text}]`;
   };
   const write = (parent: string | null, indent: string) => {
@@ -511,7 +504,7 @@ export function elementsToMermaid(elements: BoardElement[]): string | null {
     lines.push(`  ${from} ${link}${element.text ? `|${quote(element.text)}|` : ""} ${to}`);
   }
   for (const shape of shapes) {
-    const fill = shape.type === "sticky" || shape.type === "rectangle" || shape.type === "ellipse" ? shape.fill : null;
+    const fill = "fill" in shape ? shape.fill : null;
     if (fill) lines.push(`  style ${nodeId.get(shape.id)} fill:${fill}`);
   }
   return `${lines.join("\n")}\n`;

@@ -131,14 +131,15 @@ export type ConnectorFields = {
 };
 
 /**
- * A line, arrow, rectangle or ellipse. They are one kind here because they share their geometry and look
- * and merge the same way. Only a rectangle or ellipse can be filled (it's null on the others, and they
- * can't be turned), and only a line or arrow has the connector fields: the elements its ends are
- * attached to, a route, a label and its font, and for an arrow an arrowhead at the start.
+ * A line, arrow, rectangle, ellipse, triangle or diamond. They are one kind here because they share their
+ * geometry and look and merge the same way. A line or arrow can't be filled (its fill is null) or turned,
+ * and only a line or arrow has the connector fields: the elements its ends are attached to, a route, a
+ * label and its font, and for an arrow an arrowhead at the start. A triangle points up from its base along
+ * the bottom of its box, and a diamond's corners are the middles of its box's sides.
  */
 export type ShapeElement = Common &
   ConnectorFields & {
-    type: "line" | "arrow" | "rectangle" | "ellipse";
+    type: "line" | "arrow" | "rectangle" | "ellipse" | "triangle" | "diamond";
     seed: number;
     x1: number;
     y1: number;

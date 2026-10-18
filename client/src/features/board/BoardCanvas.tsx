@@ -618,7 +618,7 @@ export function BoardCanvas({
     if (!shape) return;
     // The cast: none of these types is a pen, so it has a box.
     const made = createElement(shape.type, { x: shape.x1, y: shape.y1 }, { ...style, stroke: g.element.stroke });
-    const drawn = { ...(made as ShapeElement), x2: shape.x2, y2: shape.y2 };
+    const drawn = { ...(made as ShapeElement), x2: shape.x2, y2: shape.y2, ...(shape.angle && { angle: shape.angle }) };
     if (!staysInside(drawn, latest.current.zone)) return;
     store.apply({ remove: [g.element.id], upsert: [drawn] });
     g.element = drawn;
