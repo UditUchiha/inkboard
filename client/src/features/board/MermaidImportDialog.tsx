@@ -12,14 +12,17 @@ type MermaidImportDialogProps = {
   onClose: () => void;
   // Where the diagram goes: the middle of the screen.
   getCentre: () => { x: number; y: number };
-  // Puts the diagram on the board, and says how many lines of the text weren't understood.
-  onImported: (elements: BoardElement[], skipped: number) => void;
+  // Puts the diagram on the board, and says which lines of the text weren't understood.
+  onImported: (elements: BoardElement[], skipped: string[]) => void;
 };
 
 // Labels measured as the board draws them, so they sit in the middle of their shapes.
 const measure: Measure = (text, fontSize) => measureText({ fontSize, font: "hand" }, text);
 
-/** Pastes a Mermaid flowchart onto the board as shapes, labels, arrows and frames (see mermaid.ts). */
+/**
+ * Pastes a Mermaid flowchart or sequence diagram onto the board as shapes, labels, arrows, notes and frames (see
+ * mermaid.ts). Which it is comes from its first line.
+ */
 export function MermaidImportDialog({ open, onClose, getCentre, onImported }: MermaidImportDialogProps) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
@@ -46,11 +49,11 @@ export function MermaidImportDialog({ open, onClose, getCentre, onImported }: Me
       open={open}
       onClose={onClose}
       title="Import Mermaid"
-      description="Paste a Mermaid flowchart. It's laid out on the board as shapes and arrows you can edit."
+      description="Paste a Mermaid flowchart or sequence diagram. It's laid out on the board as shapes and arrows you can edit."
     >
       <form onSubmit={submit} className="grid gap-4">
         <label className="grid gap-1.5">
-          <span className="sr-only">Mermaid flowchart</span>
+          <span className="sr-only">Mermaid diagram</span>
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}

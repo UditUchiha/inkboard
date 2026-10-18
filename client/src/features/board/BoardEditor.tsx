@@ -79,6 +79,7 @@ import { suggestionMarks } from "./suggestions";
 import type { OwnSuggestions, SuggestionGroup } from "./suggestions";
 import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } from "./SuggestionsPanel";
 import { mathSource } from "./math";
+import { describeSkipped } from "./mermaid";
 import { MermaidImportDialog } from "./MermaidImportDialog";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
 import { BoardTimer, StartTimer } from "./BoardTimer";
@@ -763,7 +764,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const addAiDrawing = (drawn: BoardElement[], skipped: number) =>
     addDrawing(drawn, `Claude drew ${counted(drawn.length)}${skipped > 0 ? `; ${skipped} couldn't be drawn` : ""}`);
   // An imported diagram goes in the middle of the screen, or beside everything on the board if it would cover something.
-  const addMermaid = (diagram: BoardElement[], skipped: number) => {
+  const addMermaid = (diagram: BoardElement[], skipped: string[]) => {
     const area = unionRects(diagram.map(getBounds))!;
     const board = store.getElements();
     const covers = board.some((element) => rectsOverlap(getBounds(element), area));
@@ -772,10 +773,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       covers && scene
         ? diagram.map((element) => translate(element, scene.x + scene.width + MERMAID_GAP - area.x, 0))
         : diagram;
-    addDrawing(
-      drawn,
-      `Imported ${counted(drawn.length)}${skipped > 0 ? `; ${skipped} ${skipped === 1 ? "line" : "lines"} of it couldn't be read` : ""}`,
-    );
+    addDrawing(drawn, `Imported ${counted(drawn.length)}${skipped.length > 0 ? `; ${describeSkipped(skipped)}` : ""}`);
   };
 
   // Classroom mode, for the teacher: started once there are frames for students to claim.
