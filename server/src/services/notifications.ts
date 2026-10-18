@@ -80,6 +80,26 @@ export async function notifySuggestion(boardId: string, author: Participant) {
   notifyUser(String(board.owner), serializeNotification(notification, { actor, board }));
 }
 
+/**
+ * Warns a board's owner about what people from its link did there (see realtime/link-watch.ts): many of them
+ * joined ("visitors"), or they removed much of it ("removals"). `excerpt` says what happened. Not sent again while
+ * one of the same kind about the board is unread.
+ */
+export async function warnOwner(boardId: string, type: "visitors" | "removals", excerpt: string) {
+  const board = await Board.findById(boardId).select("title owner").lean();
+  if (!board) return;
+  if (await Notification.exists({ user: board.owner, type, board: board._id, read: false })) return;
+  // Named for whom it's about, as a guest is: the list leaves out notifications with no one behind them.
+  const notification = await Notification.create({
+    user: board.owner,
+    type,
+    actorName: "People from its edit link",
+    board: board._id,
+    excerpt,
+  });
+  notifyUser(String(board.owner), serializeNotification(notification, { actor: null, board }));
+}
+
 const EXCERPT_LENGTH = 140;
 
 // The one-line start of a comment, as notifications show it.

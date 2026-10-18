@@ -138,6 +138,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [dialog, setDialog] = useState<"share" | "shortcuts" | "clear" | "template" | "ai" | "mermaid" | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // A warning that much of the board was removed links to ?history, which opens its version history.
+  const linkedHistory = new URLSearchParams(location.search).has("history");
+  useEffect(() => {
+    if (linkedHistory) setHistoryOpen(true);
+  }, [linkedHistory, location.key]);
   const [showComments, setShowComments] = useState(true);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [draft, setDraft] = useState<XY | null>(null); // where a new comment is being written
