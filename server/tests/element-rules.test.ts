@@ -86,6 +86,8 @@ describe("element rules", () => {
     for (const element of [
       rect("r"),
       { ...rect("e"), type: "ellipse", fill: "#b2f2bb" },
+      { ...rect("t"), type: "triangle", fill: "#ffc9c9", angle: Math.PI },
+      { ...rect("d"), type: "diamond" },
       line(),
       arrow(),
       pen(),
@@ -347,7 +349,7 @@ describe("element rules", () => {
     assert.equal(
       (cleanElement(line({ fill: "#ffffff" })) as unknown as { fill?: unknown }).fill,
       null,
-      "only rectangles and ellipses are filled",
+      "only shapes drawn in a box are filled",
     );
     assert.deepEqual(cleanElement(note({ fill: "yellow", font: "comic" })), note({ fill: "#ffec99", font: "hand" }));
     assert.equal((cleanElement(frame({ name: 42 })) as FrameElement).name, "", "a name that isn't text");

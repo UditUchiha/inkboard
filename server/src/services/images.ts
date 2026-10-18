@@ -339,7 +339,12 @@ async function imagesShownBy(boardId: string | undefined) {
   const onBoard = live
     ? live.filter((element) => element.type === "image").map((element) => element.imageId)
     : await imageIdsIn(Board, { _id });
-  return new Set([...onBoard, ...(await imageIdsIn(Version, { board: _id }))]);
+  // Versions saved before they were compressed show theirs in their elements; newer ones list them.
+  const inVersions = [
+    ...(await imageIdsIn(Version, { board: _id })),
+    ...(await Version.distinct("imageIds", { board: _id })),
+  ];
+  return new Set([...onBoard, ...inVersions]);
 }
 
 /**

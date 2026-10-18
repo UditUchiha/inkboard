@@ -1,3 +1,5 @@
+import { promisify } from "node:util";
+import zlib from "node:zlib";
 import type { Element } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import type { Types } from "mongoose";
@@ -34,9 +36,9 @@ interface Fits {
   full: boolean;
 }
 
-// Every version is a full copy of the board (up to 12 MB), and the free
-// database holds 512 MB for everything, so each board's history has a budget.
-// Tests lower these.
+// Every version is a full copy of the board (up to 12 MB, about a fifth of that
+// once compressed), and the free database holds 512 MB for everything, so each
+// board's history has a budget. Tests lower these.
 export const VERSION_LIMITS = {
   // Automatic checkpoints: at most this many, fewer when the history is over
   // its budget. Over budget the newest `keepAuto` go last; a new automatic version
@@ -50,14 +52,43 @@ export const VERSION_LIMITS = {
   // instead a new one is refused once there are this many, or they'd take more
   // than the whole budget; people can delete old ones.
   named: 50,
-  // All of a board's versions together, as MongoDB stores them. The history is
+  // All of a board's versions together, as MongoDB stores them (compressed). The history is
   // never left bigger than this. Only the saved (named) versions count towards their
   // owner's space (see ownerBytes in services/boards.ts); the automatic ones are bounded
   // by this alone, per board.
   bytes: 30_000_000,
 };
 
-const sizeOf = (elements: Element[]) => mongoose.mongo.BSON.calculateObjectSize({ elements });
+const gzip = promisify(zlib.gzip);
+const gunzip = promisify(zlib.gunzip);
+
+/** A drawing as a version keeps it (see packElements). */
+export interface PackedElements {
+  packed: Buffer;
+  imageIds: string[];
+  elementCount: number;
+  bytes: number;
+}
+
+/**
+ * A drawing compressed the way versions keep it: as gzipped JSON, with the pictures it shows listed
+ * beside it and its size as MongoDB stores that. A board is about a fifth of its size this way
+ * (brotli at its best is a little smaller but takes seconds). Compressing the biggest boards takes a
+ * fifth of a second, so it runs on zlib's own threads; turning the drawing into text first is
+ * quicker, and takes the copy at once, so changes made meanwhile don't reach it.
+ */
+export async function packElements(elements: Element[]): Promise<PackedElements> {
+  const json = JSON.stringify(elements);
+  const imageIds = [...new Set(elements.flatMap((element) => (element.type === "image" ? [element.imageId] : [])))];
+  const packed = await gzip(json);
+  const bytes = mongoose.mongo.BSON.calculateObjectSize({ packed, imageIds });
+  return { packed, imageIds, elementCount: elements.length, bytes };
+}
+
+/** A version's elements, unpacked, or as they are for one saved before versions were compressed. */
+export async function versionElements(version: { elements: Element[]; packed?: Buffer | null }) {
+  return version.packed ? (JSON.parse(String(await gunzip(version.packed))) as Element[]) : version.elements;
+}
 
 // Writing a version looks at the whole history, decides what goes to make room, and then
 // writes; for one board at a time, so autosaves, restores and saves arriving together can't
@@ -138,14 +169,14 @@ function makeRoom(history: Entry[], incoming: Pick<Entry, "kind" | "bytes"> | nu
  * this resolves with null (the caller decides whether to say so). That only happens when the
  * board's saved versions and this copy of the board together fill the budget, since all other
  * automatic history gives way. A board that is being erased, or is gone, gets no new versions
- * (see removeVersions).
+ * (see removeVersions). `drawing` can come packed already, by a caller that needed its size first.
  */
-export function recordVersion(
+export async function recordVersion(
   boardId: ObjectIdLike,
-  elements: Element[],
+  drawing: Element[] | PackedElements,
   { kind = "auto", label = null, author = null }: VersionOptions = {},
 ) {
-  const bytes = sizeOf(elements);
+  const { packed, imageIds, elementCount, bytes } = Array.isArray(drawing) ? await packElements(drawing) : drawing;
   return writing(String(boardId), async () => {
     // Checked inside the queue: erasing the board waits behind writes already running, and one that
     // starts later finds the board marked as being erased, so no version can outlive its board.
@@ -164,8 +195,9 @@ export function recordVersion(
       kind,
       label,
       author,
-      elements,
-      elementCount: elements.length,
+      packed,
+      imageIds,
+      elementCount,
       bytes,
     });
     // Written first and pruned after, so a failure in between leaves an extra version (pruned
@@ -223,4 +255,20 @@ export async function savedVersionBytes(boardIds: Types.ObjectId[]) {
 export async function lastVersionTime(boardId: ObjectIdLike) {
   const latest = await Version.findOne({ board: boardId }).sort({ createdAt: -1 }).select("createdAt");
   return latest?.createdAt.getTime() ?? 0;
+}
+
+/**
+ * Compresses the versions saved before versions were compressed, for the one-off script
+ * (scripts/compress-versions.ts). Each is rewritten in a single update, so the server, which reads
+ * both forms, can keep running meanwhile. Resolves with how many were compressed.
+ */
+export async function compressOldVersions(onProgress?: (count: number) => void) {
+  let count = 0;
+  for await (const version of Version.find({ packed: null }).select("elements").lean()) {
+    const { packed, imageIds, elementCount, bytes } = await packElements(version.elements);
+    await Version.updateOne({ _id: version._id }, { $set: { packed, imageIds, elementCount, bytes, elements: [] } });
+    count += 1;
+    onProgress?.(count);
+  }
+  return count;
 }

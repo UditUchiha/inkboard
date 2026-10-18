@@ -7,7 +7,9 @@ import {
   DOT_CORE,
   DOT_GAP,
   attachEnd,
+  connectArrow,
   connectTargetAt,
+  connectTargets,
   connectionAt,
   connectionDots,
   copyGroup,
@@ -112,6 +114,18 @@ describe("attached connector ends", () => {
     const corner = outlinePoint(turned, { x: 1000, y: 50 });
     near(corner.y, 50);
     near(corner.x - 50, (50 + EDGE) * Math.SQRT2, "to the turned box's corner");
+  });
+
+  it("stop at a diamond's and a triangle's slanted sides, which are what's hit of them", () => {
+    const diamond = shape("d", 0, 0, 100, 100, "diamond");
+    near(outlinePoint(diamond, { x: 1000, y: 1000 }).x - 50, (50 + EDGE) / 2, "halfway along its side");
+    const triangle = shape("t", 0, 0, 100, 100, "triangle");
+    near(outlinePoint(triangle, { x: 50, y: 1000 }).y, 100 + EDGE, "its base");
+    near(outlinePoint(triangle, { x: -1000, y: 50 }).x, 50 - (50 + EDGE) / 2, "its slanted side, at the middle");
+    assert.ok(hitTest(triangle, 25, 50, 1), "on its side");
+    assert.equal(hitTest(triangle, 50, 60, 1), false, "inside, not filled");
+    assert.equal(hitTest({ ...triangle, fill: "#ffffff" }, 50, 60, 1), true, "inside, filled");
+    assert.equal(hitTest({ ...triangle, fill: "#ffffff" }, 8, 20, 1), false, "in its box, beside it");
   });
 
   it("aim at the free end when only one end is attached", () => {
@@ -756,5 +770,65 @@ describe("built-in templates", () => {
       "three steps and the way back",
     );
     assert.doesNotMatch(flowchart.detail, /two endings/);
+  });
+});
+
+describe("connecting from the keyboard", () => {
+  const label = (id: string, x: number): TextElement =>
+    ({
+      id,
+      type: "text",
+      x1: x,
+      y1: 10,
+      text: "Hi",
+      stroke: "#000",
+      fontSize: 20,
+      font: "hand",
+    }) as unknown as TextElement;
+
+  it("offers the other shapes, notes, pictures and text nearest first, but not a shape's own label", () => {
+    const elements: Element[] = [
+      shape("far", 900, 0, 1000, 100),
+      shape("from", 0, 0, 100, 100),
+      label("own-label", 10),
+      shape("near", 200, 0, 300, 100, "ellipse"),
+      shape("note", 0, 400, 100, 500, "sticky"),
+      label("loose-text", 500),
+      arrow("old", "from", "near"),
+      { id: "frame", type: "frame", x1: 120, y1: 0, x2: 180, y2: 60, name: "F" } as unknown as FrameElement,
+    ];
+    assert.deepEqual(
+      connectTargets(elements, byId(elements, "from")).map((target) => target.id),
+      ["near", "note", "loose-text", "far"],
+    );
+  });
+
+  it("draws an arrow attached at both ends, in the style of the moment, stored where it's drawn", () => {
+    const [from, to] = [shape("a", 0, 0, 100, 100), shape("b", 300, 0, 400, 100)];
+    const style = { stroke: "#ff0000", strokeWidth: 2, sketchy: false, route: "elbow", startHead: true, font: "hand" };
+    const made = connectArrow(from, to, style as unknown as Style);
+    assert.equal(made.type, "arrow");
+    assert.equal(made.startId, "a");
+    assert.equal(made.endId, "b");
+    assert.equal("startAnchor" in made || "endAnchor" in made, false, "both ends float, as dropped on the shape");
+    assert.equal(made.stroke, "#ff0000");
+    assert.equal(made.route, "elbow");
+    assert.equal(made.startHead, true);
+    const drawn = byId(resolveConnectors([from, to, made]), made.id);
+    assert.deepEqual([made.x1, made.y1, made.x2, made.y2], [drawn.x1, drawn.y1, drawn.x2, drawn.y2]);
+  });
+
+  it("follows its shapes, and is undone in one step", () => {
+    const store = createBoardStore({ release: releaseFrom });
+    const shapes = [shape("a", 0, 0, 100, 100), shape("b", 300, 0, 400, 100)];
+    store.commit({ undo: { remove: ["a", "b"] }, redo: { upsert: shapes } });
+    const made = connectArrow(shapes[0], shapes[1], { stroke: "#000", strokeWidth: 2 } as unknown as Style);
+    store.commit({ undo: { remove: [made.id] }, redo: { upsert: [made] } });
+    store.commit({ undo: { upsert: [shapes[1]] }, redo: { upsert: [shape("b", 300, 300, 400, 400)] } });
+    near(byId(resolveConnectors(store.getElements()), made.id).y2, 300 - EDGE, "the end went with the shape");
+    store.undo();
+    store.undo();
+    assert.equal(store.getElement(made.id), undefined, "one undo for the move, one for the arrow");
+    assert.ok(store.getElement("a") && store.getElement("b"));
   });
 });

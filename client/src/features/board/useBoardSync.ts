@@ -202,7 +202,7 @@ export function useBoardSync(
   onReply.current = (result: SettleResult) => {
     if (result.kind === "ok") {
       if (result.cleaned.length > 0 || result.dropped.length > 0 || result.restored.length > 0) {
-        store.reconcile(result);
+        store.reconcile({ ...result, typing: outbox.typing() });
       }
       // In classroom mode, what a student did outside their frame was left out (and put back here).
       if (result.outside) toast(OUTSIDE_FRAME, { id: OUTSIDE_FRAME });
@@ -366,7 +366,7 @@ export function useBoardSync(
       Boolean(payload?.boardId) && String(payload.boardId).toLowerCase() !== eventId;
     const onOp = (payload: OpMessage) => {
       if (forOther(payload)) return;
-      store.applyRemote(payload.op);
+      store.applyRemote(payload.op, outbox.typing());
       if (roleRef.current === "suggester") suggester.remote(payload.op);
     };
     const onPresence = (list: Peer[], about: BoardMessage) => {

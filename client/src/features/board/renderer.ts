@@ -32,7 +32,7 @@ import {
   isFrame,
 } from "./elements";
 import type { AnyElement, Connector } from "./elements";
-import { expandRect, normalizeRect, rectCenter, rectsOverlap } from "./geometry";
+import { expandRect, normalizeRect, polygonCorners, rectCenter, rectsOverlap } from "./geometry";
 import type { Rect, Viewport } from "./geometry";
 import { getImage, picturesChanged, showingImages } from "./images";
 import { darkInk } from "./ink";
@@ -135,6 +135,11 @@ function buildDrawables(element: ShapeElement, paint: Ink = ink): Drawable[] {
       if (r.width < 1 || r.height < 1) return [];
       return [generator.ellipse(r.x + r.width / 2, r.y + r.height / 2, r.width, r.height, options)];
     }
+    case "triangle":
+    case "diamond": {
+      // The assertion: a triangle and a diamond have corners.
+      return [generator.polygon(polygonCorners(element.type, normalizeRect(x1, y1, x2, y2))!, options)];
+    }
     default:
       return [];
   }
@@ -186,7 +191,7 @@ function drawMoved({ dx, dy }: Moved, ctx: CanvasRenderingContext2D, draw: () =>
 }
 
 /**
- * A line, arrow, rectangle or ellipse as the SVG paths the canvas draws, in its
+ * A line, arrow or shape as the SVG paths the canvas draws, in its
  * stored colors: `[{ d, stroke, strokeWidth, fill }]`.
  */
 export function shapePaths(element: ShapeElement): PathInfo[] {
@@ -486,8 +491,12 @@ function drawConnectTarget(ctx: CanvasRenderingContext2D, element: AnyElement, z
   ctx.globalAlpha = 0.7;
   ctx.lineWidth = 2.5 / zoom;
   ctx.beginPath();
-  if (element.type === "ellipse") ctx.ellipse(0, 0, width / 2 + pad, height / 2 + pad, 0, 0, Math.PI * 2);
-  else ctx.rect(-width / 2 - pad, -height / 2 - pad, width + pad * 2, height + pad * 2);
+  const box = { x: -width / 2 - pad, y: -height / 2 - pad, width: width + pad * 2, height: height + pad * 2 };
+  const corners = polygonCorners(element.type, box);
+  if (element.type === "ellipse") ctx.ellipse(0, 0, box.width / 2, box.height / 2, 0, 0, Math.PI * 2);
+  else if (corners) for (const [x, y] of corners) ctx.lineTo(x, y);
+  else ctx.rect(box.x, box.y, box.width, box.height);
+  ctx.closePath();
   ctx.stroke();
   ctx.restore();
 }
