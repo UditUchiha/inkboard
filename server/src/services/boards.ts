@@ -216,7 +216,10 @@ export async function findBoardForViewing(
 // for each board, so at most that times `perOwner` boards. Tests lower these.
 export const BOARD_LIMITS = { perOwner: 200, ownerBytes: 100_000_000 };
 
-/** How much space a drawing takes as MongoDB stores it, the way boards, versions and templates are measured. */
+/**
+ * How much space a drawing takes as MongoDB stores it, the way boards and templates are measured.
+ * (Versions are stored compressed, and measured that way: see packElements in services/versions.ts.)
+ */
 export const drawingBytes = (elements: Element[]) => mongoose.mongo.BSON.calculateObjectSize({ elements });
 
 const asObjectId = (id: ObjectIdLike) => new mongoose.Types.ObjectId(String(id));

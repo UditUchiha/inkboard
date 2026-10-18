@@ -7,7 +7,6 @@ import { Version } from "../models/version.model.ts";
 import { replaceElements } from "../realtime/index.ts";
 import {
   currentElements,
-  drawingBytes,
   findBoardForMember,
   idOf,
   isOwner,
@@ -16,7 +15,7 @@ import {
   withRoom,
 } from "../services/boards.ts";
 import type { BoardDoc, Person } from "../services/boards.ts";
-import { recordVersion, VERSION_LIMITS } from "../services/versions.ts";
+import { packElements, recordVersion, VERSION_LIMITS, versionElements } from "../services/versions.ts";
 import type { BoardRequest } from "./board.controller.ts";
 
 // Version history is for members (the owner and invited editors).
@@ -58,7 +57,7 @@ export async function listVersions(req: BoardRequest, res: Response) {
     .sort({ createdAt: -1 })
     // A board can keep this many (see VERSION_LIMITS), and the history shows all of them.
     .limit(VERSION_LIMITS.auto + VERSION_LIMITS.restore + VERSION_LIMITS.named)
-    .select("-elements")
+    .select("-elements -packed -imageIds")
     .populate<PopulatedAuthor>("author", PERSON_FIELDS);
   res.json({ versions: versions.map(serializeVersion) } satisfies Api.VersionListReply);
 }
@@ -69,7 +68,10 @@ export async function getVersion(req: VersionRequest, res: Response) {
   await version.populate("author", PERSON_FIELDS);
   // `populate` fills in the author on the version itself, which the types can't see.
   res.json({
-    version: { ...serializeVersion(version as typeof version & PopulatedAuthor), elements: version.elements },
+    version: {
+      ...serializeVersion(version as typeof version & PopulatedAuthor),
+      elements: await versionElements(version),
+    },
   } satisfies Api.FullVersionReply);
 }
 
@@ -80,15 +82,16 @@ export async function saveVersion(req: BoardRequest<{ label?: unknown }>, res: R
   if (!label) throw new HttpError(400, "Give this version a name.");
   if (label.length > 60) throw new HttpError(400, "Use 60 characters or fewer for the name.");
 
-  const elements = await currentElements(board.id);
+  // Packed first, so the owner's space is checked against what the version will take, compressed.
+  const drawing = await packElements(await currentElements(board.id));
   // A saved version counts towards the space of the board's owner, whoever saves it. (recordVersion
   // holds it to the board's own count and budget, one write at a time per board.)
   const full = isOwner(board, req.userId)
     ? undefined
     : "The board's owner has used up their space, so it can't keep another saved version. Ask them to make room.";
   // Only an automatic version can come back null (skipped); a named one that doesn't fit is refused with an error.
-  const version = (await withRoom(idOf(board.owner), { bytes: drawingBytes(elements), full }, () =>
-    recordVersion(board._id, elements, { kind: "named", label, author: req.userId }),
+  const version = (await withRoom(idOf(board.owner), { bytes: drawing.bytes, full }, () =>
+    recordVersion(board._id, drawing, { kind: "named", label, author: req.userId }),
   ))!;
   await version.populate("author", PERSON_FIELDS);
   // `populate` fills in the author on the version itself, which the types can't see.
@@ -111,7 +114,7 @@ export async function restoreVersion(req: VersionRequest, res: Response) {
     label: "Before restoring an earlier version",
     author: req.userId,
   });
-  const elements = await replaceElements(board.id, version.elements, actor);
+  const elements = await replaceElements(board.id, await versionElements(version), actor);
   res.json({ elements } satisfies Api.RestoredVersionReply);
 }
 
