@@ -58,6 +58,8 @@ import { useBoardSnapshot } from "./store";
 import type { BoardStore } from "./store";
 import type { SuggestionMark } from "./suggestions";
 import { cropImage, cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } from "./transform";
+import { createTileCache } from "./zoomedOutCache";
+import type { TileCache } from "./zoomedOutCache";
 
 const ERASER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="9" fill="white" fill-opacity=".6" stroke="#16213a" stroke-width="1.5"/></svg>',
@@ -248,6 +250,9 @@ export function BoardCanvas({
   const [hint, setHint] = useState(NO_HINT); // see NO_HINT
   const gesture = useRef<Gesture | null>(null);
   const pointers = useRef(new Map<number, Held>());
+  // What's drawn of the board while it is zoomed far out, as pictures that hold memory until they are closed.
+  const [tiles] = useState((): TileCache => createTileCache((tile) => tile.bitmap.close()));
+  useEffect(() => () => tiles.clear(), [tiles]);
 
   // Pointer handlers read the latest props from here instead of re-binding.
   // The assertion: it is set on every render, before any handler can run.
@@ -290,6 +295,7 @@ export function BoardCanvas({
       suggestions,
       croppingId,
       frameClaims,
+      tiles,
     });
   }, [
     elements,
@@ -304,6 +310,7 @@ export function BoardCanvas({
     suggestions,
     croppingId,
     frameClaims,
+    tiles,
   ]);
 
   const showHint = (next: Hint) => setHint((current) => (sameHint(current, next) ? current : next));
