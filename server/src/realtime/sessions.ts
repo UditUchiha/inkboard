@@ -9,6 +9,8 @@ import { Board } from "../models/board.model.ts";
 import type { ObjectIdLike } from "../services/boards.ts";
 import { diffElements, hasReplay, recordStep, REPLAY_LIMITS } from "../services/replay.ts";
 import { lastVersionTime, recordVersion } from "../services/versions.ts";
+import { readClassroom, savedClassroom } from "./classroom.ts";
+import type { ClassroomState } from "./classroom.ts";
 import { readCountdown } from "./countdown.ts";
 import type { CountdownState } from "./countdown.ts";
 import { elementBytes, MAX_BOARD_BYTES, MAX_ELEMENT_BYTES, MAX_ELEMENTS_PER_BOARD, restoreOver } from "./operations.ts";
@@ -84,6 +86,8 @@ export interface Session {
   countdown: CountdownState | null;
   // Private mode, while it's on: who turned it on (their id, and their name to show). See "private" in index.ts.
   privateMode: PrivateModeState | null;
+  // Classroom mode, once the board has used it: whether it's on, and the frames students claimed (see classroom.ts).
+  classroom: ClassroomState | null;
 }
 
 // A tombstone as it is saved with a board (see removedList): the stamp of the removal and when it happened.
@@ -111,7 +115,7 @@ export function acquireSession(boardId: string): Promise<Session> {
   let pending = opening.get(boardId);
   if (!pending) {
     pending = Board.findById(boardId)
-      .select("elements removed suggestions owner countdown voting privateMode")
+      .select("elements removed suggestions owner countdown voting privateMode classroom")
       .lean()
       .then((saved) =>
         openSession(boardId, saved?.elements ?? [], saved?.removed, saved?.owner, saved?.suggestions, saved ?? {}),
@@ -268,7 +272,8 @@ function openSession(
     countdown = null,
     voting = null,
     privateMode = null,
-  }: { countdown?: unknown; voting?: unknown; privateMode?: unknown } = {},
+    classroom = null,
+  }: { countdown?: unknown; voting?: unknown; privateMode?: unknown; classroom?: unknown } = {},
 ): Session {
   // A board saved before elements had places in the stack gets them now, in the order it was saved,
   // and elements saved before they had every field their kind has now get those (see withDefaults).
@@ -295,6 +300,7 @@ function openSession(
     stepTimer: null,
     countdown: readCountdown(countdown),
     privateMode: readPrivateMode(privateMode),
+    classroom: readClassroom(classroom),
   };
   measure(session);
   // Suggestions the board overtook while it was closed (or that are too old) go now, before anyone sees them.
@@ -452,7 +458,7 @@ export function markSuggestionsDirty(session: Session) {
   session.timer ??= setTimeout(() => persist(session), BASE_PERSIST_DELAY_MS);
 }
 
-/** Notes that the board's timer or round of voting changed, so they're saved soon (without the elements, if those haven't). */
+/** Notes that the board's timer, round of voting, private mode or classroom mode changed, so they're saved soon (without the elements, if those haven't). */
 export function markFacilitationDirty(session: Session) {
   session.facilitationDirty = true;
   session.timer ??= setTimeout(() => persist(session), BASE_PERSIST_DELAY_MS);
@@ -499,7 +505,12 @@ async function save(session: Session) {
               : {}),
             ...(suggestionsDirty ? { suggestions: suggestionList(session.suggestions) } : {}),
             ...(facilitationDirty
-              ? { countdown: session.countdown, voting: savedVoting(session.voting), privateMode: session.privateMode }
+              ? {
+                  countdown: session.countdown,
+                  voting: savedVoting(session.voting),
+                  privateMode: session.privateMode,
+                  classroom: savedClassroom(session.classroom),
+                }
               : {}),
           },
         },

@@ -1,11 +1,12 @@
 import clsx from "clsx";
 import { Link, useLocation, useNavigate } from "react-router";
-import { EyeOff, Keyboard, MessageSquarePlus, Save, UserPlus, X } from "lucide-react";
+import { EyeOff, GraduationCap, Keyboard, MessageSquarePlus, Save, UserPlus, X } from "lucide-react";
 import { STACK_MOVES } from "@inkboard/shared/board-order";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
 import type {
   Element as BoardElement,
   ElementType,
+  FrameElement,
   StackMove,
   StickyElement,
   TextElement,
@@ -18,7 +19,7 @@ import { BoardCrashed, ErrorBoundary } from "../../components/ErrorBoundary";
 import { LogoMark } from "../../components/Logo";
 import { api, errorMessage } from "../../lib/api";
 import type { AccountUser, BoardMeta } from "../../lib/api";
-import { getGuest } from "../../lib/guest";
+import { getGuest, setGuestName } from "../../lib/guest";
 import { AiDrawDialog } from "./AiDrawDialog";
 import { BoardCanvas } from "./BoardCanvas";
 import type { TextEdit } from "./BoardCanvas";
@@ -26,8 +27,11 @@ import { BoardMenu } from "./BoardMenu";
 import type { Exporter } from "./BoardMenu";
 import { BoardTitle } from "./BoardTitle";
 import type { RenamedBoard } from "./BoardTitle";
+import { canChange, clampShift, fitInside, frameAt, staysInside } from "./classroom";
+import type { Zone } from "./classroom";
+import { ClaimFrameDialog, ClassroomNotice, FrameClassroom } from "./ClassroomPanels";
 import { CommentsLayer } from "./CommentsLayer";
-import { DEFAULT_STYLE, DRAWING_TOOLS, MAX_ZOOM } from "./constants";
+import { DEFAULT_STYLE, DRAWING_TOOLS, MAX_ELEMENTS_PER_BOARD, MAX_ZOOM } from "./constants";
 import type { ToolId } from "./constants";
 import { copyGroup, drawnElement, isConnector, moveGroup } from "./connectors";
 import { ElementList } from "./ElementList";
@@ -49,7 +53,7 @@ import { ExportError } from "./exportSize";
 import { fitViewport, rectContains, rectsOverlap, unionRects, zoomAround } from "./geometry";
 import type { Rect, Viewport, XY } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
-import { copyOffset, placeFree, viewToReveal } from "./placement";
+import { copyGrid, copyNames, copyOffset, placeFree, viewToReveal } from "./placement";
 import { PresenceStack } from "./PresenceStack";
 import { Presenter } from "./Presenter";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -87,6 +91,11 @@ import { ViewControls } from "./ViewControls";
 const MemoBoardCanvas = memo(BoardCanvas);
 
 const FRAME_COPY_GAP = 80;
+
+// What classroom mode tells a student, each once at a time (see pressOutsideZone).
+const CLASSROOM_TOAST = "classroom";
+const KEEP_INSIDE = "In classroom mode you can draw only inside your frame.";
+const CLAIM_FIRST = "Click an empty frame to make it yours, then draw in it.";
 const MERMAID_GAP = 120; // between an imported diagram and what was on the board
 
 // The elements that carry text, which are the ones edited in place.
@@ -122,6 +131,10 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const readOnly = role === "viewer";
   const suggesting = role === "suggester";
   const isMember = role === "owner" || role === "editor";
+  // Classroom mode (see classroom.ts): while it's on, a student may change only what's inside the frame they claimed.
+  const classroom = local ? null : sync.classroom;
+  const classroomOn = Boolean(classroom?.on);
+  const student = classroomOn && Boolean(classroom?.restricted);
   // Comments are for signed-in people, and all of them can comment, viewers and suggesters too.
   const commentsEnabled = Boolean(user) && !local;
   const canComment = commentsEnabled;
@@ -177,7 +190,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [croppingId, setCroppingId] = useState<string | null>(null);
   useEffect(() => setCroppingId(null), [selectedId]);
   // A guest's scratch board lives in the browser, with nowhere to keep files; pictures can't be suggested.
-  const canAddImages = !readOnly && !local && !suggesting;
+  const canAddImages = !readOnly && !local && !suggesting && !student;
   const fileInput = useRef<HTMLInputElement>(null);
   const boardFileInput = useRef<HTMLInputElement>(null);
 
@@ -205,6 +218,33 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const review = useSuggestionReview(sync, store);
   const elementById = useMemo(() => new Map(elements.map((element) => [element.id, element])), [elements]);
   const getElement = useCallback((id: string) => elementById.get(id), [elementById]);
+  const myClaim = classroom?.claims.find((claim) => claim.mine && elementById.get(claim.frameId)?.type === "frame");
+  // The cast: the claim's frame was just found to be one.
+  const myFrame = myClaim ? (elementById.get(myClaim.frameId) as FrameElement) : null;
+  const zone: Zone = student ? myFrame : undefined;
+  const frameClaims = useMemo(
+    () => (classroom?.on ? new Map(classroom.claims.map((claim) => [claim.frameId, claim])) : undefined),
+    [classroom],
+  );
+  const [claiming, setClaiming] = useState<FrameElement | null>(null);
+  // A student's undo history holds where things were. Once the teacher moves or resizes their frame, going back would
+  // put things outside it, so it's let go.
+  const zonePlace = zone ? `${zone.id}:${zone.x1},${zone.y1},${zone.x2},${zone.y2}` : "";
+  const lastZonePlace = useRef(zonePlace);
+  useEffect(() => {
+    if (lastZonePlace.current && zonePlace && zonePlace !== lastZonePlace.current) store.forgetHistory();
+    lastZonePlace.current = zonePlace;
+  }, [zonePlace, store]);
+  // Editing the text of something: in classroom mode, only of what a student may change (an element picked from the
+  // outline may not be theirs).
+  const editText = useCallback(
+    (edit: TextEdit) => {
+      if (edit.isNew || canChange(edit.element, zone)) setEditing(edit);
+    },
+    [zone],
+  );
+  // Bumped when a guest renames themselves from the claim dialog, so their name shows there anew.
+  const [guestVersion, setGuestVersion] = useState(0);
   // A suggester's screen shows the board with their suggestions in it; this is the board without them (see
   // suggesting.ts), which their removals are drawn from and the panel reads. (Empty for everyone else.)
   const { elements: underneath } = useBoardSnapshot(sync.suggestedOver);
@@ -348,8 +388,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   // copied and nudged together.
   const selectedGroup = useCallback(() => {
     const element = selectedId && store.getElement(selectedId);
-    return element ? withContents(store.getElements(), element) : [];
-  }, [selectedId, store]);
+    // In classroom mode, a student can't change what isn't in their frame, even picked from the outline.
+    return element && canChange(element, zone) ? withContents(store.getElements(), element) : [];
+  }, [selectedId, store, zone]);
 
   // A message with an Undo button for the step just taken. It goes away once anything else is done,
   // because then Undo would undo that instead.
@@ -389,21 +430,25 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     // A frame's copy goes beside it, so the two don't overlap and claim each other's contents.
     const [dx, dy] = isFrame(group[0]) ? copyOffset(store.getElements(), group, FRAME_COPY_GAP) : [16, 16];
     const copies = copyGroup(store.getElements(), group, dx, dy);
+    if (!copies.every((copy) => staysInside(copy, zone))) {
+      toast("There's no room for a copy inside your frame there. Move it first.", { id: CLASSROOM_TOAST });
+      return;
+    }
     store.commit({ undo: { remove: copies.map((copy) => copy.id) }, redo: { upsert: copies } });
     setSelectedId(copies[0].id);
-  }, [selectedGroup, store]);
+  }, [selectedGroup, store, zone]);
 
   // "front", "forward", "backward" or "back" in the stack. Only the element's
   // stacking key changes, so it merges with anyone else's edits to it.
   const moveSelected = useCallback(
     (where: StackMove) => {
       const element = selectedId && store.getElement(selectedId);
-      if (!element) return;
+      if (!element || !canChange(element, zone)) return;
       const index = stackKey(store.getElements(), element, where);
       if (!index) return;
       store.commit({ undo: { upsert: [element] }, redo: { upsert: [{ ...element, index }] } });
     },
-    [selectedId, store],
+    [selectedId, store, zone],
   );
   // Which stack moves are possible takes a pass over the board for each, so it's worked out
   // when the board is quiet, not on every step of a drag.
@@ -423,15 +468,18 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     (dx: number, dy: number) => {
       const group = selectedGroup();
       if (group.length === 0) return;
+      // In classroom mode, a nudge stops at the edge of the student's frame.
+      const [x, y] = zone ? clampShift(group, zone, dx, dy) : [dx, dy];
+      if (x === 0 && y === 0) return;
       // Nudges in a row are one undo step while they move the same things. A
       // frame nudged over something takes it along from then on, and that's a
       // new step: the first one's undo doesn't know where it was.
       store.commit(
-        { undo: { upsert: group }, redo: { upsert: moveGroup(store.getElements(), group, dx, dy) } },
+        { undo: { upsert: group }, redo: { upsert: moveGroup(store.getElements(), group, x, y) } },
         { mergeKey: `nudge:${group.map((element) => element.id).join(",")}` },
       );
     },
-    [selectedGroup, store],
+    [selectedGroup, store, zone],
   );
 
   // Selecting with the select tool, so the element's own panel shows (Delete, Duplicate) and Enter edits it:
@@ -461,7 +509,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     socket: sync.socket,
     boardId: board.id,
     local,
-    readOnly: readOnly || suggesting, // nothing pasted, dropped or imported is suggested
+    readOnly: readOnly || suggesting || student, // nothing pasted, dropped or imported is suggested, or a student's
     view,
     setTool,
     setSelectedId,
@@ -491,7 +539,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setSelectedId,
     setDraft,
     setActiveThread,
-    setEditing,
+    setEditing: editText,
     setDialog,
   });
 
@@ -505,8 +553,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     if (isNew) {
       // An equation left as $$ $$ is as empty as a text left blank.
       if (!(mathSource(value) ?? value).trim() && !keepEmpty) return;
-      const created = { ...element, text: value };
-      store.commit({ undo: { remove: [created.id] }, redo: { upsert: [created] } });
+      const created = keepInZone({ ...element, text: value });
+      if (created) store.commit({ undo: { remove: [created.id] }, redo: { upsert: [created] } });
       return;
     }
     // The cast: only elements that carry text are edited, so the one on the board does too.
@@ -514,9 +562,20 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     if (value === (current.text ?? "")) return;
     if (!value.trim() && !keepEmpty) {
       store.commit({ undo: { upsert: [current] }, redo: { remove: [current.id] } });
-    } else {
-      store.commit({ undo: { upsert: [current] }, redo: { upsert: [{ ...current, text: value }] } });
+      return;
     }
+    const changed = keepInZone({ ...current, text: value });
+    if (changed) store.commit({ undo: { upsert: [current] }, redo: { upsert: [changed] } });
+  }
+
+  // In classroom mode, `element` moved as little as puts it inside the student's frame, or null (and they're told) when
+  // it can't be; as it is otherwise.
+  function keepInZone<T extends BoardElement>(element: T): T | null {
+    if (zone === undefined) return element;
+    // The cast: fitInside only moves an element.
+    const fitted = zone && (fitInside(element, zone) as T | null);
+    if (!fitted) toast("That doesn't fit inside your frame, so it was left out.", { id: CLASSROOM_TOAST });
+    return fitted;
   }
 
   function changeStyle(key: StyleChange[0], value: StyleChange[1]) {
@@ -524,6 +583,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     const styleKey = panelType === "sticky" && key === "fill" ? "noteFill" : key;
     if (key !== "name" && key !== "alt") setStyle((current) => ({ ...current, [styleKey]: value }));
     if (selected) {
+      // In classroom mode, a change that would take it outside the student's frame (a bigger font, say) isn't made.
+      if (!staysInside({ ...selected, [key]: value } as BoardElement, zone)) {
+        toast(KEEP_INSIDE, { id: CLASSROOM_TOAST });
+        return;
+      }
       store.commit(
         { undo: { upsert: [selected] }, redo: { upsert: [{ ...selected, [key]: value }] } },
         { mergeKey: `style:${selected.id}:${key}` },
@@ -566,13 +630,24 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   // Drawing without a pointer: Enter with a drawing tool puts one of its elements in the middle of the screen. A shape
   // is selected, ready to be moved with the arrow keys; a text or note is opened, ready to type.
   function placeWithTool() {
+    // In classroom mode, a student's goes in their frame, or nowhere before they have one, and never a frame.
+    if (zone === null || (zone && tool === "frame")) {
+      toast(zone ? "In classroom mode, frames are the teacher's." : CLAIM_FIRST, { id: CLASSROOM_TOAST });
+      return;
+    }
     const view = visibleArea();
-    const centre = { x: view.x + view.width / 2, y: view.y + view.height / 2 };
+    const centre = zone
+      ? { x: (zone.x1 + zone.x2) / 2, y: (zone.y1 + zone.y2) / 2 }
+      : { x: view.x + view.width / 2, y: view.y + view.height / 2 };
     if (tool === "text") setEditing({ element: createElement("text", centre, style), isNew: true });
     else if (tool === "sticky") {
-      setEditing({ element: placeFree(store.getElements(), createNote(centre, style)), isNew: true });
+      const note = keepInZone(placeFree(store.getElements(), createNote(centre, style)));
+      if (note) setEditing({ element: note, isNew: true });
     } else if (tool === "rectangle" || tool === "ellipse" || tool === "line" || tool === "arrow" || tool === "frame") {
-      const element = placeFree(store.getElements(), placedElement(tool, centre, style, store.getElements()));
+      const element = keepInZone(
+        placeFree(store.getElements(), placedElement(tool, centre, style, store.getElements())),
+      );
+      if (!element) return;
       store.commit({ undo: { remove: [element.id] }, redo: { upsert: [element] } });
       selectElement(element.id);
     }
@@ -581,7 +656,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   // Resizing from the keyboard: the bottom right corner (a line's end) moves by (dx, dy), as if dragged.
   function resizeSelected(dx: number, dy: number) {
     const element = selectedId && store.getElement(selectedId);
-    if (!element) return;
+    if (!element || !canChange(element, zone)) return;
     const box = getSelectionBox(element, viewport.zoom);
     // The assertion: a box has a bottom right corner, a line an end.
     const handle = box.handles.find((each) => each.id === "se" || each.id === "end")!;
@@ -593,6 +668,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         pad: box.kind === "box" ? box.pad : 0,
       },
     );
+    if (!staysInside(next, zone)) return; // in classroom mode, it stops at the edge of the student's frame
     store.commit({ undo: { upsert: [element] }, redo: { upsert: [next] } }, { mergeKey: `resize:${element.id}` });
   }
 
@@ -629,6 +705,79 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     );
   };
 
+  // Classroom mode, for the teacher: started once there are frames for students to claim.
+  async function startClassroom() {
+    if (!store.getElements().some(isFrame)) {
+      toast("Add a frame for each student first: draw one, select it, and use Make copies.");
+      return;
+    }
+    if (await sync.changeClassroom({ action: "start" })) {
+      toast("Classroom mode is on. Each student claims an empty frame, and draws only in theirs.");
+    }
+  }
+  const releaseFrame = async (frameId: string) => {
+    if (await sync.changeClassroom({ action: "release", frameId })) toast("That frame is free for a student to claim.");
+  };
+
+  // `count` copies of a frame, with what's in it (a worksheet, say), one for each student: in rows beside the board.
+  function copyFrameForClass(frame: FrameElement, count: number) {
+    const board = store.getElements();
+    const group = withContents(board, frame);
+    if (board.length + group.length * count > MAX_ELEMENTS_PER_BOARD) {
+      toast.error(`That many copies would be more than a board can hold (${MAX_ELEMENTS_PER_BOARD} elements).`);
+      return;
+    }
+    const names = copyNames(board, frame.name, count);
+    // A frame's copy comes first in its group, so it takes the name.
+    const copies = copyGrid(board, frame, count).flatMap(([dx, dy], i) =>
+      copyGroup(board, group, dx, dy).map((copy, j) => (j === 0 ? { ...copy, name: names[i] } : copy)),
+    );
+    addDrawing(copies, `Made ${count === 1 ? "a copy" : `${count} copies`} of “${frame.name || "the frame"}”`);
+  }
+
+  // Shows a student their frame.
+  function goToMyFrame() {
+    if (myFrame) changeViewport(fitViewport(getBounds(myFrame), canvasSize, { padding: 48 }));
+  }
+
+  // A student's claim on the frame they pressed on, as `name` when they're a guest who chose one.
+  async function claimFrame(name: string | null) {
+    const frame = claiming;
+    if (!frame) return;
+    if (name !== null && name !== getGuest().name) {
+      sync.socket?.emit("guest:rename", { name: setGuestName(name) });
+      setGuestVersion((version) => version + 1);
+    }
+    const claimed = await sync.changeClassroom({ action: "claim", frameId: frame.id });
+    setClaiming(null);
+    if (!claimed) {
+      toast.error("Someone took that frame just now. Pick another empty one.");
+      return;
+    }
+    toast.success(`“${frame.name || "This frame"}” is yours. Draw away!`);
+    changeViewport(fitViewport(getBounds(frame), canvasSize, { padding: 48 }));
+  }
+
+  // A student pressed where they may not change anything (see BoardCanvas): offer them the frame they pressed on when
+  // they have none, or say why not. Read through a ref, so the canvas isn't drawn again for a new function each render.
+  const outsideZone = useRef((_point: XY) => {});
+  outsideZone.current = (point: XY) => {
+    if (tool === "frame") {
+      toast("In classroom mode, frames are the teacher's.", { id: CLASSROOM_TOAST });
+      return;
+    }
+    if (zone) {
+      if (tool !== "select") toast(KEEP_INSIDE, { id: CLASSROOM_TOAST });
+      return;
+    }
+    const frame = frameAt(store.getElements(), point);
+    const claim = frame && classroom?.claims.find((each) => each.frameId === frame.id);
+    if (!frame) toast(CLAIM_FIRST, { id: CLASSROOM_TOAST });
+    else if (claim) toast(`That frame is ${claim.name}'s. Pick an empty one.`, { id: CLASSROOM_TOAST });
+    else setClaiming(frame);
+  };
+  const pressOutsideZone = useCallback((point: XY) => outsideZone.current(point), []);
+
   function clearBoard() {
     const all = store.getElements();
     store.commit({ undo: { upsert: all }, redo: { remove: all.map((element) => element.id) } });
@@ -637,7 +786,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     toastWithUndo("Board cleared");
   }
 
-  const panelType = readOnly ? null : styleTarget(tool, selected);
+  // A student in classroom mode gets no panel for what they can't change.
+  const panelType = readOnly || (selected && !canChange(selected, zone)) ? null : styleTarget(tool, selected);
   const others = useMemo(() => {
     const seen = new Map<string, Peer>();
     for (const peer of sync.peers) {
@@ -679,16 +829,20 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           style={style}
           viewport={viewport}
           onViewportChange={changeViewport}
-          selectedId={selectedId}
+          // A student's selection of what they can't change (picked from the outline) has no handles to drag.
+          selectedId={selected && !canChange(selected, zone) ? null : selectedId}
           onSelect={setSelectedId}
           editingId={editing?.element.id}
-          onEditText={setEditing}
+          onEditText={editText}
           spacePressed={spacePressed}
           onCursorMove={presenting ? sendLaser : sendCursor}
           onSizeChange={setCanvasSize}
           onPlaceComment={placeComment}
           onVote={castVote}
           onFrameDrawn={selectElement}
+          zone={zone}
+          onOutsideZone={pressOutsideZone}
+          frameClaims={frameClaims}
           suggestions={suggestionLayer}
           croppingId={croppingId}
         />
@@ -836,9 +990,25 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                   onToolChange={changeTool}
                   onAddImage={canAddImages ? () => fileInput.current?.click() : undefined}
                   onAddEquation={addEquation}
-                  onAiDraw={() => setDialog("ai")}
+                  onAiDraw={student ? undefined : () => setDialog("ai")}
                   withComments={canComment}
+                  withoutFrames={student}
                   className="max-md:max-w-full max-md:overflow-x-auto"
+                />
+              )}
+              {classroomOn && isMember && (
+                <ClassroomNotice
+                  teacher
+                  claimed={classroom!.claims.filter((claim) => elementById.get(claim.frameId)).length}
+                  frames={elements.filter(isFrame).length}
+                  onEnd={() => void sync.changeClassroom({ action: "stop" })}
+                />
+              )}
+              {student && (
+                <ClassroomNotice
+                  teacher={false}
+                  frameName={myFrame ? myFrame.name || "Untitled frame" : null}
+                  onGoTo={goToMyFrame}
                 />
               )}
               {sync.privateMode ? (
@@ -872,7 +1042,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                   <PresenceStack people={others} followingId={followingId} onFollow={follow} />
                 </div>
               )}
-              {!user && !local && <GuestIdentity socket={sync.socket} />}
+              {!user && !local && <GuestIdentity key={guestVersion} socket={sync.socket} />}
               {(review.suggestions.length > 0 || board.linkAccess === "suggest") && (
                 <Button
                   variant="secondary"
@@ -904,7 +1074,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
               <BoardMenu
                 user={user}
                 local={local}
-                readOnly={readOnly || suggesting}
+                readOnly={readOnly || suggesting || student}
                 isMember={isMember}
                 commentsEnabled={commentsEnabled}
                 showComments={showComments}
@@ -977,7 +1147,15 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                   cropping={croppingId !== null}
                   onToggleCrop={() => setCroppingId((id) => (id ? null : selectedId))}
                   onUncrop={uncropSelected}
-                />
+                >
+                  {isMember && !local && selected?.type === "frame" && tool === "select" && (
+                    <FrameClassroom
+                      claimedBy={classroom?.claims.find((claim) => claim.frameId === selected.id)?.name ?? null}
+                      onRelease={() => void releaseFrame(selected.id)}
+                      onCopy={(count) => copyFrameForClass(selected, count)}
+                    />
+                  )}
+                </PropertiesPanel>
               </div>
             )}
 
@@ -1016,6 +1194,15 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                   <StartVoting onStart={(votes) => sync.vote({ action: "start", votes })} />
                 </div>
               )}
+              {!local && isMember && !classroomOn && (
+                <div className="floating-panel rounded-xl p-1">
+                  <IconButton
+                    label="Classroom mode: each student draws only in a frame they claim"
+                    icon={GraduationCap}
+                    onClick={() => void startClassroom()}
+                  />
+                </div>
+              )}
               {!local && isMember && !sync.privateMode && (
                 <div className="floating-panel rounded-xl p-1">
                   <IconButton
@@ -1034,6 +1221,15 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       )}
 
       {replayOpen && !local && <ReplayPlayer title={board.title} load={sync.loadReplay} onClose={closeReplay} />}
+
+      {student && (
+        <ClaimFrameDialog
+          frame={claiming}
+          guestName={user ? null : getGuest().name}
+          onClaim={claimFrame}
+          onClose={() => setClaiming(null)}
+        />
+      )}
 
       {!readOnly && (
         <MermaidImportDialog

@@ -74,6 +74,7 @@ export type Broadcaster = (op: Effect) => void;
 export type Reconciliation = {
   cleaned?: readonly BoardElement[];
   dropped?: readonly string[];
+  restored?: readonly BoardElement[];
   sent?: ReadonlyMap<string, Stamp>;
 };
 
@@ -105,6 +106,8 @@ export type BoardStore = {
   applyRemote(op: Operation): void;
   /** Shows what the server stored, where it differs from what was sent. */
   reconcile(reply: Reconciliation): void;
+  /** Forgets the undo and redo history (it would put things back where they can't go). */
+  forgetHistory(): void;
   /** A live, in-progress change, not in history. Returns the connectors it let go of. */
   apply(op: Operation, options?: { base?: readonly BoardElement[] }): ConnectorChange[];
   /** Adds a finished change to history (its redo state is already applied). */
@@ -482,20 +485,33 @@ export function createBoardStore({
      * an element it has comes back as its own, older copy, which replaces ours if ours is still
      * the one that was sent, or this screen would keep a change nobody else has. That's decided
      * group by group (see mergeServerCopy), so a change merged in from someone else since, to a
-     * group that wasn't part of what was sent, isn't undone along with it.
+     * group that wasn't part of what was sent, isn't undone along with it. `restored` are elements
+     * removed here that the server kept (in classroom mode, a student's outside their frame): they
+     * come back as the server has them, and are no longer remembered as removed.
      */
-    reconcile({ cleaned = [], dropped = [], sent = new Map() }) {
+    forgetHistory() {
+      undoStack = [];
+      redoStack = [];
+      publish();
+    },
+    reconcile({ cleaned = [], dropped = [], restored = [], sent = new Map() }) {
       const refused = new Set(dropped);
       const stored = new Map(cleaned.map((element) => [element.id, element]));
+      const back = restored.filter((element) => !byId().has(element.id));
+      for (const element of back) {
+        tombstones.delete(element.id);
+        removedHere.delete(element.id);
+      }
       // (Sorted again: their copy may sit elsewhere in the stack.)
       setElements(
-        inStackOrder(
-          elements.flatMap((element) => {
+        inStackOrder([
+          ...elements.flatMap((element) => {
             if (refused.has(element.id)) return [];
             const theirs = stored.get(element.id);
             return [theirs ? mergeServerCopy(element, theirs, sent.get(element.id)) : element];
           }),
-        ),
+          ...back.map(withDefaults),
+        ]),
       );
       publish();
     },

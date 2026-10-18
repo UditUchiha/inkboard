@@ -49,14 +49,26 @@ export type AckReply = {
   reason?: string;
   // Elements as the server stored them, where that differs from what was sent.
   cleaned?: BoardElement[];
-  // Ids of new elements it refused because the board is full.
+  // Ids of new elements it refused because the board is full (or, with `outside`, outside a student's frame).
   dropped?: string[];
+  // In classroom mode: elements a student removed outside their frame, as the board still has them.
+  restored?: BoardElement[];
+  // In classroom mode: some of the change was outside the student's frame, and left out.
+  outside?: boolean;
 };
 
 /** What to do next after a reply (see `settle`). */
 export type SettleResult =
   | { kind: "ignore" }
-  | { kind: "ok"; cleaned: BoardElement[]; dropped: string[]; sent?: Map<string, Stamp>; next?: Piece }
+  | {
+      kind: "ok";
+      cleaned: BoardElement[];
+      dropped: string[];
+      restored: BoardElement[];
+      outside: boolean;
+      sent?: Map<string, Stamp>;
+      next?: Piece;
+    }
   | { kind: "retry"; delay: number; again: Effect; slow?: boolean }
   | { kind: "rejoin"; again: Effect }
   | { kind: "resync"; reason: string };
@@ -248,7 +260,13 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
       if (!error && response?.ok) {
         limited = 0;
         batch.sent.push({ op: entry.op, seq });
-        result = { kind: "ok", cleaned: response.cleaned ?? [], dropped: response.dropped ?? [] };
+        result = {
+          kind: "ok",
+          cleaned: response.cleaned ?? [],
+          dropped: response.dropped ?? [],
+          restored: response.restored ?? [],
+          outside: response.outside === true,
+        };
         if (result.cleaned.length > 0) result.sent = sentStamps(batch);
         const [op, ...rest] = entry.rest;
         if (op) result.next = start(op, rest, batch);

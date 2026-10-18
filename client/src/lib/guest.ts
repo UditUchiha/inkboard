@@ -17,13 +17,16 @@ const ANIMALS = [
   "Wombat",
 ];
 
-// What the guest is called and identified by.
-export type Guest = { id: string; name: string };
+// What the guest is called and identified by, and the key that proves the id is theirs (sent only to the server when
+// connecting: the id is shown to others, the key never is).
+export type Guest = { id: string; name: string; key: string };
 
 let cached: Guest | null = null;
 
 const randomId = () =>
   `g_${[...crypto.getRandomValues(new Uint8Array(12))].map((n) => (n % 36).toString(36)).join("")}`;
+const randomKey = () =>
+  [...crypto.getRandomValues(new Uint8Array(24))].map((n) => n.toString(16).padStart(2, "0")).join("");
 
 function save(guest: Guest) {
   cached = guest;
@@ -40,13 +43,16 @@ export function getGuest(): Guest {
     // Checked below before it's used.
     const stored: Guest | null = JSON.parse(localStorage.getItem(GUEST_KEY) ?? "null");
     if (stored?.id && stored?.name) {
-      cached = stored;
-      return cached;
+      // A guest from before keys keeps their id, with a key from now on.
+      if (stored.key) cached = stored;
+      else save({ ...stored, key: randomKey() });
+      // `save` sets it when it isn't already.
+      return cached!;
     }
   } catch {
     // Fall through and make a new identity.
   }
-  save({ id: randomId(), name: `Guest ${ANIMALS[Math.floor(Math.random() * ANIMALS.length)]}` });
+  save({ id: randomId(), name: `Guest ${ANIMALS[Math.floor(Math.random() * ANIMALS.length)]}`, key: randomKey() });
   // `save` just set it (TypeScript doesn't see that through the call).
   return cached!;
 }

@@ -57,4 +57,26 @@ describe("people from an edit link", () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
     assert.equal(await Notification.countDocuments({ board: id, type: "visitors" }), 1);
   });
+
+  it("aren't watched in classroom mode, where the link is handed to a class and students keep to their frames", async () => {
+    const { id, host } = await openBoard(0);
+    const frame = { id: "f1", type: "frame" as const, x1: 0, y1: 0, x2: 2000, y2: 300, name: "f1" };
+    await host.op(id, upsert(frame));
+    const started = await new Promise<{ ok: boolean }>((resolve) =>
+      host.socket.emit("classroom", { action: "start" }, resolve),
+    );
+    assert.equal(started.ok, true);
+    const student = await app.connect(null, { guest: { id: "g_stud01", name: "Student" } });
+    await student.join(id);
+    const claimed = await new Promise<{ ok: boolean }>((resolve) =>
+      student.socket.emit("classroom", { action: "claim", frameId: "f1" }, resolve),
+    );
+    assert.equal(claimed.ok, true);
+    const strokes = Array.from({ length: MASS_REMOVAL + 1 }, (_, i) => rect(`s${i}`, 10 + i * 10, 10));
+    await student.op(id, upsert(...strokes));
+    await student.op(id, remove(...strokes.map((stroke) => stroke.id)));
+    for (let i = 0; i < LINK_VISITORS_WARNING + 1; i += 1) await (await app.connect(null)).join(id);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(await Notification.exists({ board: id, type: { $in: ["removals", "visitors"] } }), null);
+  });
 });

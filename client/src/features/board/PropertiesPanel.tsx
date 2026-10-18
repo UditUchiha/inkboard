@@ -155,6 +155,8 @@ export type PropertiesPanelProps = {
   cropping?: boolean;
   onToggleCrop?: () => void;
   onUncrop?: () => void;
+  // More for a selected element, below its buttons (a frame's classroom section, see ClassroomPanels).
+  children?: ReactNode;
 };
 
 /**
@@ -170,6 +172,7 @@ export function PropertiesPanel({
   onDelete,
   stackMoves = {},
   onMove,
+  children,
   cropping = false,
   onToggleCrop,
   onUncrop,
@@ -424,6 +427,7 @@ export function PropertiesPanel({
               <Trash2 className="size-3.5" aria-hidden /> Delete
             </button>
           </div>
+          {children}
         </div>
       )}
     </aside>
