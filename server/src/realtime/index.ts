@@ -45,11 +45,14 @@ import { replaySteps } from "../services/replay.ts";
 import { Board } from "../models/board.model.ts";
 import { GuestKey } from "../models/guest-key.model.ts";
 import { detectImageType, IMAGE_LIMITS, storeImage } from "../services/images.ts";
-import { notifySuggestion } from "../services/notifications.ts";
+import { notifySuggestion, warnOwner } from "../services/notifications.ts";
+import { recordVersion } from "../services/versions.ts";
 import type { ImageLimit } from "../services/images.ts";
 import { effectOf, planOperation } from "@inkboard/shared/board-merge";
 import { classroomFor, nextClassroom, outsideZone, zoneOf } from "./classroom.ts";
 import { countdownAt, nextCountdown } from "./countdown.ts";
+import { emptyLinkWatch, LINK_VISITORS_WARNING, MASS_REMOVAL, noteRemovals, noteVisitor } from "./link-watch.ts";
+import type { LinkWatch } from "./link-watch.ts";
 import {
   holdPiece,
   isOversized,
@@ -500,6 +503,38 @@ interface Sender {
   whole?: boolean;
   broadcast: (message: OpMessage) => void;
   present: () => boolean;
+  // Told how many elements a change removed, and the board from before it, when the sender came through the link.
+  removed?: (count: number, before: Element[]) => void;
+}
+
+// What people from each open board's edit link did there lately (see link-watch.ts).
+const linkWatches = new WeakMap<Session, LinkWatch>();
+function watchOf(session: Session) {
+  let watch = linkWatches.get(session);
+  if (!watch) linkWatches.set(session, (watch = emptyLinkWatch()));
+  return watch;
+}
+
+const VISITORS_WARNING = `${LINK_VISITORS_WARNING} people who weren't invited have opened it with its edit link. If you didn't share the link that widely, restrict it in Share.`;
+const REMOVAL_LABEL = "Before the edit-link removals"; // short enough to read whole in version history
+
+// People from the link removed `count` elements from a board that was `before` it. When that adds up to much of it
+// (see noteRemovals), the board from before they began goes into version history, and its owner is told.
+function watchRemovals(session: Session, count: number, before: Element[]) {
+  const earlier = noteRemovals(watchOf(session), count, before);
+  if (!earlier) return;
+  const what = `${MASS_REMOVAL} or more elements were removed by people using its edit link.`;
+  recordVersion(session.boardId, earlier, { kind: "auto", label: REMOVAL_LABEL })
+    .then((version) =>
+      warnOwner(
+        session.boardId,
+        "removals",
+        version
+          ? `${what} A copy from before is in version history.`
+          : `${what} Version history had no room for a copy from before.`,
+      ),
+    )
+    .catch((error: Error) => console.error(`Could not keep board ${session.boardId} from before: ${error.message}`));
 }
 
 // A browser on a board, as the sender of its changes. The socket is on the board (callers check), so it has an id.
@@ -514,6 +549,12 @@ function socketSender(socket: RealtimeSocket): Sender {
       const session = getSession(boardId);
       return session && zoneIn(session, personOf(socket).userId, socket.data.boardRole);
     })(),
+    ...(socket.data.role === "contributor" && {
+      removed: (count: number, before: Element[]) => {
+        const session = getSession(boardId);
+        if (session && !session.classroom?.on) watchRemovals(session, count, before);
+      },
+    }),
   };
 }
 
@@ -576,7 +617,9 @@ function takeOperation(
   // The same: a finite room is the figure ownerRoom read from the owner's entry.
   if (Number.isFinite(room)) ownerEntry(session.owner!).room! -= Math.max(0, session.bytes - before);
 
+  const board = session.elements; // as it was before this change
   const dropped = new Set(updateSession(session, plan));
+  if (effect.remove.length > 0) sender.removed?.(effect.remove.length, board);
   if (dropped.size > 0) effect.upsert = effect.upsert.filter((element) => !dropped.has(element.id));
   if (effect.upsert.length > 0 || effect.remove.length > 0) {
     sender.broadcast({ boardId, op: effect });
@@ -1033,6 +1076,15 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     socket.data.presenting = payload?.presenting === true;
     const session = await enterBoard(socket, boardId, requestedId);
     socket.data.role = effectiveRole(socket, session); // the board may have been opened just now, in private mode
+    // Many people from the edit link may mean it was shared further than meant: the owner is told. Not in classroom
+    // mode, where the link is handed to a whole class and each student can change only their own frame.
+    if (
+      socket.data.boardRole === "contributor" &&
+      !session.classroom?.on &&
+      noteVisitor(watchOf(session), personOf(socket).userId)
+    ) {
+      warnOwner(boardId, "visitors", VISITORS_WARNING).catch((error: unknown) => console.error(error));
+    }
     await openOwner(session); // looked up now, so it's known by the time they draw
     watchLinkExpiry(board);
     if (userId && !socket.data.embed) recordOpen(userId, boardId); // a board seen on another site isn't "opened"

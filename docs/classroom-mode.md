@@ -41,6 +41,9 @@ invited editors are teachers. Viewers can only look, as always.
 - **The browser keeps students inside** (`client/src/features/board/classroom.ts`), so the server almost never has
   to refuse anything. What a student's changes make must also fit inside the frame as it's drawn, strokes included.
   That is what decides what a frame holds, so a student's work moves with their frame when the teacher moves it.
+- **The edit-link warnings are off while it's on** (`realtime/link-watch.ts`): the teacher hands the link to a whole
+  class on purpose, and students can only remove what's in their own frames, so neither "many people joined from the
+  link" nor "much of the board was removed" would mean anything.
 
 ## Limits
 

@@ -27,6 +27,9 @@ export function notificationLink(notification: Pick<NotificationItem, "board" | 
   const board = `/board/${notification.board.id}`;
   // A request for access opens the Share dialog with the email address of the person asking filled in.
   if (notification.type === "access") return `${board}?invite=${encodeURIComponent(notification.excerpt ?? "")}`;
+  // Many people from the edit link: the Share dialog, to restrict it. Much of the board removed: its version history.
+  if (notification.type === "visitors") return `${board}?invite=`;
+  if (notification.type === "removals") return `${board}?history`;
   if (notification.thread) return `${board}?thread=${notification.thread}`;
   return notification.type === "suggestion" ? `${board}?suggestions` : board;
 }
@@ -37,6 +40,8 @@ export function describeNotification({ type, actor, board }: Pick<NotificationIt
   if (type === "suggestion") return `${actor.name} suggested changes to “${board.title}”`;
   if (type === "trashed") return `${actor.name} moved “${board.title}” to the trash`;
   if (type === "access") return `${actor.name} asked for access to “${board.title}”`;
+  if (type === "visitors") return `Many people opened “${board.title}” with its edit link`;
+  if (type === "removals") return `Much of “${board.title}” was removed through its edit link`;
   return `${actor.name} invited you to “${board.title}”`;
 }
 
