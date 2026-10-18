@@ -39,12 +39,16 @@ export const IMAGE_ID = /^[a-f0-9]{32}$/;
 // no. The casts below are safe because each of those sets holds exactly the values of the type it names.
 type Choices<T extends string> = { has(value: unknown): value is T };
 
-const SHAPE_TYPES = new Set(["line", "arrow", "rectangle", "ellipse"]) as unknown as Choices<ShapeElement["type"]>;
+const SHAPE_TYPES = new Set(["line", "arrow", "rectangle", "ellipse", "triangle", "diamond"]) as unknown as Choices<
+  ShapeElement["type"]
+>;
 const CONNECTOR_TYPES = new Set(["line", "arrow"]);
-const FILLABLE_TYPES = new Set(["rectangle", "ellipse"]);
+const FILLABLE_TYPES = new Set(["rectangle", "ellipse", "triangle", "diamond"]);
 const TURNABLE_TYPES = new Set([
   "rectangle",
   "ellipse",
+  "triangle",
+  "diamond",
   "image",
   "pen",
   "text",

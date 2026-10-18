@@ -104,14 +104,23 @@ describe("importing and exporting", () => {
     assert.equal(count("frame"), 1);
     assert.equal(count("text"), 11, "a label for each node");
     assert.ok(count("arrow") >= 9 && count("line") === 1);
-    const diamond = elements.find((element) => (element as ShapeElement).angle) as ShapeElement;
-    assert.equal(diamond.angle, Math.PI / 4, "the decision is a square on its corner");
+    assert.equal(count("diamond"), 1, "the decision is a diamond");
     const xs = elements.flatMap((element) => ("x1" in element ? [element.x1] : []));
     assert.ok(Math.abs((Math.min(...xs) + Math.max(...xs)) / 2 - 1000) < 400, "around the centre given");
 
     const exported = elementsToMermaid(elements)!;
     assert.match(exported, /^flowchart LR\n/);
     assert.match(exported, /\{"Email ok\?"\}/);
+    const turned = {
+      ...elements.find((element) => element.type === "diamond")!,
+      type: "rectangle",
+      angle: Math.PI / 4,
+    };
+    assert.match(
+      elementsToMermaid([turned as ShapeElement])!,
+      /\{" "\}/,
+      "so does a rectangle on its corner, as before",
+    );
     assert.match(exported, /subgraph f1\["After signing up"\]/);
     assert.match(exported, /-->\|"yes"\|/);
     assert.match(exported, /style n\d+ fill:#b2f2bb/, "fills go with it");

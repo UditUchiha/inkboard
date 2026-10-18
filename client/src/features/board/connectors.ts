@@ -11,7 +11,7 @@ import {
   translate,
 } from "./elements";
 import type { AnyElement, Connector, ElementStyle } from "./elements";
-import { expandRect, rectContains, rotatePoint } from "./geometry";
+import { expandRect, polygonCorners, reachOfOutline, rectContains, rotatePoint } from "./geometry";
 import type { Pair, Rect, TurnedRect, XY } from "./geometry";
 import { setEndDirections } from "./routes";
 
@@ -48,7 +48,15 @@ type DrawnBox = Rect & { turned: TurnedRect };
 // outline; a curved or elbow one leaves from the middle of the side facing the
 // other end (see routes.ts for the paths themselves).
 
-export const CONNECTABLE_TYPES = new Set<BoardElement["type"]>(["rectangle", "ellipse", "sticky", "image", "text"]);
+export const CONNECTABLE_TYPES = new Set<BoardElement["type"]>([
+  "rectangle",
+  "ellipse",
+  "triangle",
+  "diamond",
+  "sticky",
+  "image",
+  "text",
+]);
 export const CONNECT_GAP = 6; // between an attached end and its shape's outline
 
 // The connection dots shown around a shape, in screen pixels.
@@ -81,8 +89,11 @@ export function outlinePoint(target: Connectable, toward: XY): XY {
   const pad = CONNECT_GAP + (target.strokeWidth ?? 0) / 2;
   const rx = width / 2 + pad;
   const ry = height / 2 + pad;
-  const reach =
-    target.type === "ellipse"
+  // shortcut: a triangle's or diamond's gap is its box's, so it's narrower along a slanted side; fine for a few pixels.
+  const corners = polygonCorners(target.type, { x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2 });
+  const reach = corners
+    ? reachOfOutline(cx, cy, dx, dy, corners)
+    : target.type === "ellipse"
       ? 1 / Math.sqrt((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry))
       : Math.min(dx ? rx / Math.abs(dx) : Infinity, dy ? ry / Math.abs(dy) : Infinity);
   const [x, y] = rotatePoint(cx + dx * reach, cy + dy * reach, cx, cy, angle);
@@ -100,7 +111,11 @@ export function sidePoint(
 ): SidePoint {
   const { cx, cy, width, height, angle } = getFrame(target);
   const [nx, ny] = SIDES[side];
-  const [x, y] = rotatePoint(cx + nx * (width / 2 + gap), cy + ny * (height / 2 + gap), cx, cy, angle);
+  // A triangle's left and right sides slant in, so their middles are where the outline crosses the box's middle.
+  const box = { x: cx - width / 2 - gap, y: cy - height / 2 - gap, width: width + gap * 2, height: height + gap * 2 };
+  const corners = polygonCorners(target.type, box);
+  const out = corners && reachOfOutline(cx, cy, nx, ny, corners);
+  const [x, y] = rotatePoint(cx + nx * (out ?? box.width / 2), cy + ny * (out ?? box.height / 2), cx, cy, angle);
   const [dx, dy] = rotatePoint(nx, ny, 0, 0, angle);
   return { x, y, dx, dy };
 }
@@ -260,6 +275,8 @@ function covers(target: Connectable, point: XY, tolerance: number): boolean {
   const [x, y] = angle ? rotatePoint(point.x, point.y, cx, cy, -angle) : [point.x, point.y];
   const rx = width / 2 + tolerance;
   const ry = height / 2 + tolerance;
+  const corners = polygonCorners(target.type, { x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2 });
+  if (corners) return reachOfOutline(cx, cy, x - cx, y - cy, corners) >= 1;
   if (target.type === "ellipse") return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1;
   return Math.abs(x - cx) <= rx && Math.abs(y - cy) <= ry;
 }

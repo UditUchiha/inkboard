@@ -29,6 +29,8 @@ import {
   distanceToSegment,
   expandRect,
   normalizeRect,
+  polygonCorners,
+  reachOfOutline,
   rectCenter,
   rectContains,
   rectsOverlap,
@@ -45,8 +47,10 @@ import { approachTo, connectorPath, pathExtremes, pathLength, pathMiddle, pathPo
 export type Connector = ShapeElement & { type: "line" | "arrow" };
 
 /** An element that can be turned (see canRotate): it has an `angle`. */
-export type Turnable =
-  PenElement | TextElement | StickyElement | ImageElement | (ShapeElement & { type: "rectangle" | "ellipse" });
+export type Turnable = PenElement | TextElement | StickyElement | ImageElement | (ShapeElement & { type: Box });
+
+/** A shape drawn in its box: everything a ShapeElement can be but a line or arrow. */
+type Box = Exclude<ShapeElement["type"], "line" | "arrow">;
 
 /** Any element, for code that reads a field only some kinds have (an angle, a stroke width, text): there it is optional. */
 export type AnyElement = BoardElement & { angle?: number; strokeWidth?: number; text?: string };
@@ -86,11 +90,21 @@ export type ArrowHead = [Pair, Pair, Pair];
 // change made elsewhere can't leave a frame and its contents disagreeing. Frames
 // are drawn beneath everything else.
 //
-// Rectangles, ellipses, images, pen strokes, text and sticky notes can also carry `angle` (radians):
-// they are drawn turned about the centre of their box. Lines and arrows have two
-// ends instead, so they are reshaped by moving an end.
+// Rectangles, ellipses, triangles, diamonds, images, pen strokes, text and sticky
+// notes can also carry `angle` (radians): they are drawn turned about the centre
+// of their box. Lines and arrows have two ends instead, so they are reshaped by
+// moving an end.
 
-const TURNABLE_TYPES = new Set<BoardElement["type"]>(["rectangle", "ellipse", "image", "pen", "text", "sticky"]);
+const TURNABLE_TYPES = new Set<BoardElement["type"]>([
+  "rectangle",
+  "ellipse",
+  "triangle",
+  "diamond",
+  "image",
+  "pen",
+  "text",
+  "sticky",
+]);
 export const canRotate = (element: BoardElement): element is Turnable => TURNABLE_TYPES.has(element.type);
 export const isFrame = (element: BoardElement): element is FrameElement => element.type === "frame";
 const isConnector = (element: BoardElement): element is Connector =>
@@ -485,6 +499,17 @@ export function hitTest(element: BoardElement, pointX: number, pointY: number, t
       const d = Math.hypot((x - rect.x - rx) / rx, (y - rect.y - ry) / ry);
       if (element.fill && d <= 1) return true;
       return Math.abs(d - 1) * Math.min(rx, ry) <= reach;
+    }
+    case "triangle":
+    case "diamond": {
+      const rect = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+      // The assertion: a triangle and a diamond have corners.
+      const corners = polygonCorners(element.type, rect)!;
+      const reach = tolerance + element.strokeWidth / 2;
+      const { x: cx, y: cy } = rectCenter(rect);
+      if (element.fill && reachOfOutline(cx, cy, x - cx, y - cy, corners) >= 1) return true;
+      // Near any of its sides; the assertion: `at(i - 1)` of a corner is the one before it, or the last.
+      return corners.some((corner, i) => distanceToSegment(x, y, ...corner, ...corners.at(i - 1)!) <= reach);
     }
     case "pen": {
       const reach = tolerance + element.penSize / 2;

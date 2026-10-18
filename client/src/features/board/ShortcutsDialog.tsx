@@ -43,7 +43,7 @@ const EDIT_ACTIONS: Action[] = [
   { label: "Resize or turn selection", keys: ["Drag a handle"] },
   { label: "Keep proportions, snap turns to 15°", keys: ["Shift + drag"] },
   { label: "Constrain a new shape or line", keys: ["Shift + drag"] },
-  { label: "Turn a pen stroke into a rectangle, ellipse or line", keys: ["Hold still at the end"] },
+  { label: "Turn a pen stroke into a shape, line or arrow", keys: ["Hold still at the end"] },
   { label: "Finish text or a note", keys: ["Esc"] },
   { label: "Finish text or a note (alternative)", keys: [MOD, "Enter"] },
   { label: "Finish a label", keys: ["Enter"] },

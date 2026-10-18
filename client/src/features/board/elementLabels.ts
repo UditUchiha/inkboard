@@ -9,6 +9,8 @@ const TYPE_NAMES: Record<ElementType, string> = {
   arrow: "Arrow",
   rectangle: "Rectangle",
   ellipse: "Ellipse",
+  triangle: "Triangle",
+  diamond: "Diamond",
   text: "Text",
   sticky: "Sticky note",
   frame: "Frame",

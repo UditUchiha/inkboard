@@ -116,6 +116,18 @@ describe("attached connector ends", () => {
     near(corner.x - 50, (50 + EDGE) * Math.SQRT2, "to the turned box's corner");
   });
 
+  it("stop at a diamond's and a triangle's slanted sides, which are what's hit of them", () => {
+    const diamond = shape("d", 0, 0, 100, 100, "diamond");
+    near(outlinePoint(diamond, { x: 1000, y: 1000 }).x - 50, (50 + EDGE) / 2, "halfway along its side");
+    const triangle = shape("t", 0, 0, 100, 100, "triangle");
+    near(outlinePoint(triangle, { x: 50, y: 1000 }).y, 100 + EDGE, "its base");
+    near(outlinePoint(triangle, { x: -1000, y: 50 }).x, 50 - (50 + EDGE) / 2, "its slanted side, at the middle");
+    assert.ok(hitTest(triangle, 25, 50, 1), "on its side");
+    assert.equal(hitTest(triangle, 50, 60, 1), false, "inside, not filled");
+    assert.equal(hitTest({ ...triangle, fill: "#ffffff" }, 50, 60, 1), true, "inside, filled");
+    assert.equal(hitTest({ ...triangle, fill: "#ffffff" }, 8, 20, 1), false, "in its box, beside it");
+  });
+
   it("aim at the free end when only one end is attached", () => {
     const loose = [shape("a", 0, 0, 100, 100), { ...arrow("link", "a", null), x2: 50, y2: 500 }];
     const drawn = byId(resolveConnectors(loose), "link");
