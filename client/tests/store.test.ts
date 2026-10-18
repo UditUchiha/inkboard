@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { FIELD_GROUPS, MAX_VERSION } from "@inkboard/shared/board-merge";
-import type { Effect, Element, ShapeElement, StackMove, Tombstones } from "@inkboard/shared/types";
+import type { Effect, Element, ShapeElement, StackMove, StickyElement, Tombstones } from "@inkboard/shared/types";
 import type { Style } from "../src/features/board/constants.ts";
 import { createElement, createImage, createNote, duplicate, stackKey } from "../src/features/board/elements.ts";
 import { applyOperation, createBoardStore } from "../src/features/board/store.ts";
@@ -638,5 +638,45 @@ describe("a change the server refused", () => {
     });
     assert.equal((store.getElement("a") as ShapeElement).x2, 10, "the refused move is put back");
     assert.equal((store.getElement("a") as ShapeElement).stroke, "#ff0000", "the recolor isn't undone with it");
+  });
+});
+
+describe("typing into a text someone else is typing into", () => {
+  const note = (text: string): StickyElement =>
+    ({ id: "n", type: "sticky", x1: 0, y1: 0, x2: 9, y2: 9, text, fill: "#ffec99", font: "hand" }) as StickyElement;
+  const textOf = (store: BoardStore) => (store.getElement("n") as StickyElement).text;
+  // A store holding the note, with `text` typed into it here (as the editor commits it), and what it sent.
+  function typedHere(text: string) {
+    const store = createBoardStore();
+    store.load([{ ...stamped(note("hello"), 1), index: "a0" }]);
+    const sent: Effect[] = [];
+    store.setBroadcaster((op: Effect) => sent.push(op));
+    const current = store.getElement("n") as StickyElement;
+    store.commit({ undo: { upsert: [current] }, redo: { upsert: [{ ...current, text }] } });
+    return { store, sent, current };
+  }
+
+  it("sends what the text was here along with the change, in a few letters", () => {
+    const { store, sent } = typedHere("hello world");
+    assert.deepEqual(sent[0]!.upsert[0]!.base, { text: [5, 0, ""] });
+    assert.equal("base" in store.getElement("n")!, false, "the board here keeps no base");
+  });
+
+  it("undoes only its own typing, keeping what someone else typed since", () => {
+    const { store } = typedHere("hello world");
+    const typed = store.getElement("n") as StickyElement;
+    store.applyRemote({ upsert: [{ ...typed, text: "Hey, hello world", version: 9, versionNonce: 0 }] });
+    store.undo();
+    assert.equal(textOf(store), "Hey, hello");
+  });
+
+  it("keeps typing the server hasn't answered while others' text arrives, then shows what the server merged", () => {
+    const { store, current } = typedHere("hello world");
+    const typing = new Map([["n", new Set(["text" as const])]]);
+    store.applyRemote({ upsert: [{ ...current, text: "Hey, hello", version: 9, versionNonce: 0 }] }, typing);
+    assert.equal(textOf(store), "hello world", "what was just typed doesn't disappear");
+    const merged = { ...current, text: "Hey, hello world", version: 10, versionNonce: 3 };
+    store.reconcile({ cleaned: [merged], sent: new Map(), typed: typing });
+    assert.equal(textOf(store), "Hey, hello world");
   });
 });

@@ -50,9 +50,22 @@ export type GroupStamps = Partial<Record<FieldGroup, Stamp>>;
 /** An element's fields looked at loosely, for code that handles them by name (copying a group, say). */
 export type Fields = { id: string; [field: string]: unknown };
 
+/** The fields people type into: a text's, note's or label's text, a frame's name, a picture's description. */
+export type TextField = "text" | "name" | "alt";
+
+/**
+ * What a text was before a change, told against what it is now: the first `prefix` and last `suffix`
+ * characters are the same, and `middle` was between them (see text-merge.ts).
+ */
+export type Splice = [prefix: number, suffix: number, middle: string];
+
+/** What the text fields a change typed into were on the screen it was made on (see text-merge.ts). */
+export type TextBases = Partial<Record<TextField, Splice>>;
+
 // What every element has, whatever it is: its id, where it sits in the stack, and its stamps. The
-// stamps are missing on an element from an older browser.
-type Common = Partial<Stamp> & { id: string; index?: string; stamps?: ElementStamps };
+// stamps are missing on an element from an older browser. `base` is only on a change on its way to a
+// board, never on an element a board keeps (see text-merge.ts).
+type Common = Partial<Stamp> & { id: string; index?: string; stamps?: ElementStamps; base?: TextBases };
 
 /** A freehand stroke. */
 export type PenElement = Common & {

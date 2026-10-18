@@ -5,6 +5,12 @@
 // so it can say so.
 export const MAX_ELEMENTS_PER_BOARD = 5000;
 
+// The longest a text (or a note's, or a label's) may be, a frame's name, and a picture's description. Two people's
+// typing merged together is held to them too (see text-merge.ts).
+export const MAX_TEXT_LENGTH = 20_000;
+export const MAX_FRAME_NAME_LENGTH = 200;
+export const MAX_ALT_LENGTH = 1000;
+
 // The most votes each person can be given in a round of dot voting (see VotePayload in socket.ts).
 export const MAX_VOTES_PER_PERSON = 20;
 // What can be voted on: strokes, lines and arrows are how things are drawn and joined, not things to choose between.

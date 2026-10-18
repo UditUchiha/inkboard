@@ -2,12 +2,11 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import mongoose from "mongoose";
 import type { BoardReply, VersionReply } from "@inkboard/shared/api";
-import type { PenElement, Point } from "@inkboard/shared/types";
 import { Board } from "../src/models/board.model.ts";
 import { Version } from "../src/models/version.model.ts";
 import { BOARD_LIMITS, drawingBytes, ownerBytes, roomLeft } from "../src/services/boards.ts";
 import { recordVersion } from "../src/services/versions.ts";
-import { startServer } from "./helpers.ts";
+import { notes, startServer } from "./helpers.ts";
 import type { ServerInstance, TestUser } from "./helpers.ts";
 
 let app: ServerInstance;
@@ -27,17 +26,9 @@ async function withBoardLimits(changes: Partial<typeof BOARD_LIMITS>, fn: () => 
   }
 }
 
-// A drawing of about `bytes` as MongoDB stores it.
-const drawing = (bytes: number, id = "pen"): PenElement[] => [
-  {
-    id,
-    type: "pen" as const,
-    points: Array.from({ length: Math.ceil(bytes / 44) }, (_, i): Point => [i + 0.25, i + 0.5, 0.5]),
-    pressure: false,
-    stroke: "#16213a",
-    penSize: 8,
-  },
-];
+// A drawing of about `bytes` as MongoDB stores it on a board. It's random text, so a version of it,
+// stored compressed, still takes about three quarters of that.
+const drawing = (bytes: number, id = "note") => notes(bytes * 0.75, id);
 
 const create = (user: TestUser, body: Record<string, unknown> = {}) =>
   app.request<BoardReply & { error?: string }>("/boards", { method: "POST", user, body });
@@ -49,12 +40,12 @@ const saveTemplate = (user: TestUser, boardId: string) =>
 describe("the space one person's things take", () => {
   it("counts saved versions and templates as well as boards, and checks each of them", async () => {
     const owner = await app.signUp("Owner");
-    await withBoardLimits({ ownerBytes: 400_000 }, async () => {
+    await withBoardLimits({ ownerBytes: 350_000 }, async () => {
       const id = (await create(owner, { elements: drawing(150_000) })).data.board.id;
       const version = await saveVersion(owner, id);
-      assert.equal(version.status, 201); // 150k board + 150k version
+      assert.equal(version.status, 201); // 150k board + 112k version (compressed)
 
-      const template = await saveTemplate(owner, id); // another 150k is over 400k
+      const template = await saveTemplate(owner, id); // another 150k is over 350k
       assert.equal(template.status, 400);
       assert.match(template.data.error!, /used up their space/);
       const again = await saveVersion(owner, id, "Again");
@@ -139,8 +130,12 @@ describe("the space one person's things take", () => {
 
       // Everything else still works, as it did not when history filled the space.
       assert.equal((await create(owner, { elements: drawing(50_000, "b") })).status, 201);
-      assert.equal((await saveVersion(owner, id)).status, 201);
-      assert.equal(await ownerBytes(owner.id), 2 * drawingBytes(elements) + drawingBytes(drawing(50_000, "b")));
+      const saved = await saveVersion(owner, id);
+      assert.equal(saved.status, 201);
+      // The saved version counts as it is stored, compressed.
+      const { bytes } = (await Version.findById(saved.data.version.id).lean())!;
+      assert.ok(bytes! < drawingBytes(elements), `${bytes} bytes for a board of ${drawingBytes(elements)}`);
+      assert.equal(await ownerBytes(owner.id), drawingBytes(elements) + bytes! + drawingBytes(drawing(50_000, "b")));
     });
   });
 });

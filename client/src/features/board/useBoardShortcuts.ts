@@ -22,6 +22,10 @@ export type ShortcutActions = {
   nudgeSelected: (dx: number, dy: number) => void;
   resizeSelected: (dx: number, dy: number) => void;
   placeWithTool: () => void;
+  startConnect: () => void;
+  stepConnect: (by: number) => void;
+  finishConnect: () => void;
+  cancelConnect: () => void;
   zoomBy: (factor: number) => void;
   resetZoom: () => void;
   fitToScreen: () => void;
@@ -39,6 +43,8 @@ export type ShortcutOptions = {
   canComment: boolean;
   canAddImages: boolean;
   selectedId: string | null;
+  // Whether an arrow from the selection is being connected from the keyboard, so Tab, arrow keys, Enter and Esc are its.
+  connecting: boolean;
   fileInput: RefObject<HTMLInputElement | null>;
   actions: ShortcutActions;
   setSpacePressed: (pressed: boolean) => void;
@@ -74,6 +80,7 @@ export function useBoardShortcuts({
   canComment,
   canAddImages,
   selectedId,
+  connecting,
   fileInput,
   actions: {
     duplicateSelected,
@@ -82,6 +89,10 @@ export function useBoardShortcuts({
     nudgeSelected,
     resizeSelected,
     placeWithTool,
+    startConnect,
+    stepConnect,
+    finishConnect,
+    cancelConnect,
     zoomBy,
     resetZoom,
     fitToScreen,
@@ -135,21 +146,39 @@ export function useBoardShortcuts({
       // With nothing to edit, a drawing tool puts down what it draws (drawing without a pointer).
       else if (!element) placeWithTool();
     },
+    k: startConnect,
     "?": () => setDialog("shortcuts"),
     "!": fitToScreen, // Shift + 1
+  };
+  // While connecting, Tab and the arrow keys go through the shapes on offer, Enter draws the arrow, and Esc stops.
+  const whileConnecting: Record<string, (event: KeyboardEvent) => void> = {
+    Tab: (event) => stepConnect(event.shiftKey ? -1 : 1),
+    ArrowRight: () => stepConnect(1),
+    ArrowDown: () => stepConnect(1),
+    ArrowLeft: () => stepConnect(-1),
+    ArrowUp: () => stepConnect(-1),
+    Enter: finishConnect,
+    Escape: cancelConnect,
   };
 
   if (readOnly) {
     for (const key of ["z", "y", "d", "]", "}", "[", "{", "arrowup", "arrowdown", "arrowleft", "arrowright"]) {
       delete withModifier[key];
     }
-    for (const key of ["delete", "backspace", "enter"]) delete plain[key];
+    for (const key of ["delete", "backspace", "enter", "k"]) delete plain[key];
   }
 
   function onKeyDown(event: KeyboardEvent) {
     // Not while a menu or dialog has the keys, nor for a key something else already handled (a menu's arrow keys).
     if (event.defaultPrevented || isTypingTarget(event.target) || isOverlayKey(event.target)) return;
     const key = event.key.toLowerCase();
+
+    // Before anything else, so Enter on a focused button (the outline's) draws the arrow, and Tab doesn't move focus.
+    if (connecting && !readOnly && !event.ctrlKey && !event.metaKey && whileConnecting[event.key]) {
+      event.preventDefault();
+      whileConnecting[event.key](event);
+      return;
+    }
 
     if (event.ctrlKey || event.metaKey) {
       if (!withModifier[key]) return;

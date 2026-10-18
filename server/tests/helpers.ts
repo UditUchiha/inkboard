@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { MongoMemoryServer } from "mongodb-memory-server";
@@ -14,7 +15,7 @@ import type {
 } from "@inkboard/shared/socket";
 import type { Suggestion } from "@inkboard/shared/suggestions";
 import type { SYNC_FORMAT } from "@inkboard/shared/limits";
-import type { Element, Operation, ShapeElement } from "@inkboard/shared/types";
+import type { Element, Operation, ShapeElement, StickyElement } from "@inkboard/shared/types";
 import type { FullOperation } from "../src/realtime/operations.ts";
 
 process.env.NODE_ENV ??= "test";
@@ -175,6 +176,23 @@ export const rect = (id: string, x = 0, y = 0): ShapeElement => ({
   strokeWidth: 2.5,
   sketchy: true,
 });
+/**
+ * Sticky notes full of random text, which compression can't shrink below the random bytes behind it:
+ * about `bytes` stored compressed, as versions are, and a third more as MongoDB stores a board.
+ * The first note's id is `id`.
+ */
+export const notes = (bytes: number, id = "note"): StickyElement[] =>
+  Array.from({ length: Math.ceil(bytes / 10_000) }, (_, index) => ({
+    id: index ? `${id}-${index}` : id,
+    type: "sticky" as const,
+    x1: index * 200,
+    y1: 0,
+    x2: index * 200 + 180,
+    y2: 180,
+    text: randomBytes(Math.min(10_000, bytes - index * 10_000)).toString("base64"),
+    fill: "#ffec99",
+    font: "hand" as const,
+  }));
 export const upsert = (...elements: unknown[]): FullOperation => ({ upsert: elements as Element[], remove: [] });
 export const remove = (...ids: string[]): Operation => ({ upsert: [], remove: ids });
 

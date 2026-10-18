@@ -1,4 +1,5 @@
 import { compareOrder } from "./board-order.ts";
+import { mergeText, TEXT_FIELDS, textBefore, withoutBase } from "./text-merge.ts";
 import type {
   CommitOptions,
   CommitResult,
@@ -14,7 +15,9 @@ import type {
   Plan,
   PlanOptions,
   Removal,
+  Splice,
   Stamp,
+  TextField,
   Tombstone,
   Tombstones,
 } from "./types.ts";
@@ -45,6 +48,13 @@ import type {
 // tombstone, with the removal's stamp and its last data, so that a change
 // made before the removal and arriving after it can't bring it back, while a
 // newer change (an undo, say) can, and merges with what was there.
+//
+// Text. A change that types into a text carries its `base`, the text it was
+// typed against. Where the text has changed since, the two are merged letter by
+// letter rather than the newer replacing the other (see text-merge.ts), and the
+// result is stamped newer than both. Unlike the rest, that depends on the order
+// changes arrive in, so the server's order is the one that counts: it sends the
+// merged text to everyone, the sender included.
 
 export const FIELD_GROUPS: Record<FieldGroup, readonly string[]> = {
   // A connector's ends and the shapes (and sides) they're attached to change together.
@@ -203,28 +213,76 @@ export function copyGroup(target: Fields, source: Fields, group: FieldGroup): vo
  * when it's newer throughout. A copy that doesn't have a group at all (a
  * connector made without a label, say) has no say in it, so a change to
  * something else never takes the group away; to clear a field, set it to an
- * empty value ("", null) rather than leaving it out.
+ * empty value ("", null) rather than leaving it out. Text `incoming` typed
+ * against an older text (its `base`) is merged with what's there (see
+ * mergeTyping). What's returned never has a base.
  */
 export function mergeElement(current: Element, incoming: Element): Element {
   const mine = groupStamps(current);
   const theirs = groupStamps(incoming);
   // Object.keys can only say "strings"; these are the keys of group stamps, so they are field groups.
   const groups = new Set([...(Object.keys(mine) as FieldGroup[]), ...(Object.keys(theirs) as FieldGroup[])]);
-  const won = new Set();
+  const won = new Set<FieldGroup>();
   for (const group of groups) {
     if (theirs[group] && (!mine[group] || compareStamps(theirs[group], mine[group]) > 0)) won.add(group);
   }
-  if (won.size === 0) return current;
-  if (won.size === groups.size) return incoming;
+  const typed = incoming.base ? mergeTyping(current, incoming, mine, theirs, won) : null;
+  const change = incoming.base ? withoutBase(incoming) : incoming;
+  if (!typed?.size) {
+    if (won.size === 0) return current;
+    if (won.size === groups.size) return change;
+  }
 
   const fields: Fields = { id: current.id };
   const stamps: GroupStamps = {};
   for (const group of groups) {
     const fromIncoming = won.has(group);
-    copyGroup(fields, fromIncoming ? incoming : current, group);
+    copyGroup(fields, fromIncoming ? change : current, group);
     stamps[group] = fromIncoming ? theirs[group] : mine[group];
   }
+  for (const [field, { text, stamp }] of typed ?? []) {
+    fields[field] = text;
+    stamps[TEXT_FIELDS[field].group] = stamp;
+  }
   return withStamps(fields, stamps);
+}
+
+/**
+ * The text fields `incoming` typed into, where `current` has changed since its
+ * base, merged (see mergeText), each with its stamp: one version past the newer
+ * of the two, with `incoming`'s nonce, so the same two changes merge to the
+ * same element anywhere. A merge that comes to the newer side's text as it is
+ * just keeps that side, as last writer wins would; `won` is brought in line with
+ * the rest. Where no merge can be made, the newer change wins as usual.
+ */
+function mergeTyping(
+  current: Element,
+  incoming: Element,
+  mine: GroupStamps,
+  theirs: GroupStamps,
+  won: Set<FieldGroup>,
+): Map<TextField, { text: string; stamp: Stamp }> {
+  const typed = new Map<TextField, { text: string; stamp: Stamp }>();
+  // Object.entries can only say "strings"; these are the keys of a change's bases, so they are text fields.
+  for (const [field, splice] of Object.entries(incoming.base ?? {}) as [TextField, Splice][]) {
+    const { group, max } = TEXT_FIELDS[field];
+    // Read by name: the field is a text, a name or a description, depending on the element.
+    const now = (current as Fields)[field];
+    const sent = (incoming as Fields)[field];
+    const ours = mine[group];
+    const others = theirs[group];
+    if (typeof now !== "string" || typeof sent !== "string" || !ours || !others) continue;
+    const merged = mergeText(textBefore(sent, splice), now, sent, max);
+    if (merged === null || (merged === sent && won.has(group)) || (merged === now && !won.has(group))) continue;
+    // The text isn't the newer change's, so it's stamped past both: a copy of either sent again can't replace it.
+    won.delete(group);
+    const newer = compareStamps(ours, others) > 0 ? ours : others;
+    typed.set(field, {
+      text: merged,
+      stamp: { version: Math.min(MAX_VERSION, newer.version + 1), versionNonce: others.versionNonce },
+    });
+  }
+  return typed;
 }
 
 const removalOf = (entry: Removal | string): Removal => (typeof entry === "string" ? { id: entry } : entry);
@@ -317,17 +375,19 @@ export function planOperation(
     }
   }
 
-  for (const element of upsert) {
+  for (const change of upsert) {
+    // A board keeps no bases: they only say what a change was typed against (see mergeElement).
+    const element = change.base ? withoutBase(change) : change;
     const current = live.get(element.id);
     if (current) {
-      const merged = mergeElement(current, element);
+      const merged = mergeElement(current, change);
       if (merged === current) continue;
       live.set(element.id, merged);
       shown.set(element.id, merged);
       continue;
     }
     const tombstone = grave(element.id);
-    const data = tombstone?.element ? mergeElement(tombstone.element, element) : element;
+    const data = tombstone?.element ? mergeElement(tombstone.element, change) : element;
     if (!tombstone || compareStamps(stampOf(data), tombstone) >= 0) {
       live.set(element.id, data);
       shown.set(element.id, data);
