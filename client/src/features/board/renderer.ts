@@ -32,15 +32,17 @@ import {
   isFrame,
 } from "./elements";
 import type { AnyElement, Connector } from "./elements";
-import { expandRect, normalizeRect, polygonCorners, rectCenter, rectsOverlap } from "./geometry";
+import { expandRect, normalizeRect, polygonCorners, rectCenter, rectsOverlap, unionRects } from "./geometry";
 import type { Rect, Viewport } from "./geometry";
-import { getImage, picturesChanged, showingImages } from "./images";
+import { getImage, imagesVersion, picturesChanged, releaseImages, showingImages } from "./images";
 import { darkInk } from "./ink";
 import { formulaOf, formulaPicture, onFormulasChanged } from "./math";
 import { forgetNoteMeasurements, noteLayout } from "./notes";
 import { connectorPath, pathData } from "./routes";
 import type { SuggestionMark } from "./suggestions";
 import { getSelectionBox } from "./transform";
+import { GUTTER, MAX_TILES, TILE, drawsFromTiles, tileCount } from "./zoomedOutCache";
+import type { TileCache } from "./zoomedOutCache";
 
 /** Turns a stored colour into the one to draw. */
 type Ink = (color: string) => string;
@@ -62,6 +64,8 @@ export type RenderOptions = {
   dots?: { id: string; side: Side | null } | null;
   suggestions?: readonly SuggestionMark[]; // Classroom mode: who claimed each frame, by its id, shown after its name; this person's own is outlined.
   frameClaims?: ReadonlyMap<string, { name: string; mine: boolean }> | undefined;
+  // Zoomed far out, the board is drawn from these tiles of it, kept between calls (see zoomedOutCache.ts).
+  tiles?: TileCache;
 };
 
 const generator = rough.generator();
@@ -84,6 +88,10 @@ let claimsNow: ReadonlyMap<string, { name: string; mine: boolean }> = new Map();
 const READABLE_TEXT = 3;
 const NOTE_SHADOW_MIN = 24;
 const readable = (fontSize: number) => fontSize * zoomNow >= READABLE_TEXT;
+
+// A shape smaller than this many screen pixels is drawn with plain paths: the wobble of a sketchy one is under a
+// pixel by then, and Rough.js's several strokes per shape are the most expensive thing to draw.
+const PLAIN_SHAPE_MAX = 40;
 
 // Elements are immutable, so generated shapes can be cached per object (and
 // reused for copies that are only moved, as while dragging: see drawCache.ts).
@@ -370,6 +378,44 @@ function drawFrameName(ctx: CanvasRenderingContext2D, element: FrameElement, vie
   ctx.restore();
 }
 
+function plainShape(element: ShapeElement): boolean {
+  if (element.sketchy === false) return false; // already drawn plainly, and cached as such
+  if ((element.type === "line" || element.type === "arrow") && connectorPath(element).curved) return false;
+  const { width, height } = getBounds(element);
+  return Math.max(width, height) * zoomNow < PLAIN_SHAPE_MAX;
+}
+
+// A shape as plain canvas paths, in place of its Rough.js drawing. Hachure is thin lines, so a fill is drawn faint.
+function drawPlain(ctx: CanvasRenderingContext2D, element: ShapeElement) {
+  ctx.save();
+  ctx.strokeStyle = ink(element.stroke);
+  ctx.lineWidth = element.strokeWidth;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  if (element.type === "line" || element.type === "arrow") {
+    connectorPath(element).points.forEach(({ x, y }, i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    for (const head of arrowHeads(element)) head.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  } else {
+    const box = normalizeRect(element.x1, element.y1, element.x2, element.y2);
+    const { x, y, width, height } = box;
+    const corners = polygonCorners(element.type, box); // a triangle's or diamond's
+    if (element.type === "ellipse")
+      ctx.ellipse(x + width / 2, y + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2);
+    else if (corners) {
+      corners.forEach(([cx, cy], i) => (i ? ctx.lineTo(cx, cy) : ctx.moveTo(cx, cy)));
+      ctx.closePath();
+    } else ctx.rect(x, y, width, height);
+    if (element.fill) {
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = ink(element.fill);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawUnturned(ctx: CanvasRenderingContext2D, roughCanvas: RoughCanvas, element: BoardElement) {
   if (element.type === "image") {
     drawPicture(ctx, element);
@@ -425,6 +471,10 @@ function drawUnturned(ctx: CanvasRenderingContext2D, roughCanvas: RoughCanvas, e
   }
 
   // The cast: buildDrawables takes shapes, and only shapes are left here.
+  if (plainShape(element as ShapeElement)) {
+    drawPlain(ctx, element as ShapeElement);
+    return;
+  }
   const drawables = (ink === sameInk ? drawableCaches.light : drawableCaches.dark).get(
     element,
     buildDrawables as (element: BoardElement) => Drawable[],
@@ -601,9 +651,9 @@ function isVisible(element: BoardElement, view: Rect): boolean {
  * highlighted, and `suggestions` to draw those over the board. The element
  * `hiddenId` is left out while it's edited; for a connector, only its label is.
  */
-export function renderScene(
-  canvas: HTMLCanvasElement,
-  {
+export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): void {
+  if (options.tiles && drawFromTiles(canvas, options)) return;
+  const {
     elements,
     viewport,
     dpr = 1,
@@ -618,8 +668,7 @@ export function renderScene(
     dots = null,
     suggestions = [],
     frameClaims = new Map(),
-  }: RenderOptions,
-): void {
+  } = options;
   ink = dark ? darkInk : sameInk;
   smallPictures = smallImages;
   croppingId = cropping;
@@ -667,10 +716,106 @@ export function renderScene(
   // The pictures on show here are kept while they are (see showingImages).
   showingImages(canvas, picturesDrawn, { small: smallPictures });
   for (const frame of frames) drawFrameName(ctx, frame, view);
+  drawMarks(ctx, { target, dotted, selected }, options);
+}
+
+// What is drawn over the board while it is worked on: the shape a connector will attach to, its connection dots,
+// and the selection.
+function drawMarks(
+  ctx: CanvasRenderingContext2D,
+  { target, dotted, selected }: Record<"target" | "dotted" | "selected", BoardElement | null>,
+  { viewport, dots = null, hiddenId }: RenderOptions,
+) {
   if (target) drawConnectTarget(ctx, target, viewport.zoom);
   // The assertion: `dotted` is only found when there is a `dots` to name it.
   if (dotted) drawConnectionDots(ctx, dotted, viewport.zoom, dots!.side);
   if (selected && selected.id !== hiddenId) drawSelection(ctx, selected, viewport.zoom);
+}
+
+// Bumped when text measures differently (see forgetMeasurements), which changes what the tiles drew.
+let measurementsEpoch = 0;
+let tileSheet: OffscreenCanvas | undefined; // what each tile is drawn on, and then taken from, in turn
+
+// Draws the board by copying tiles of it, drawn here when they're missing or something in them has changed, and
+// what goes over the board over that. Gives false, drawing nothing, when the scene isn't one for tiles: a tile
+// has only the board in it, drawn as it is stored, so a text being edited, a picture being cropped, suggestions
+// and a background are drawn outright, and so is a screen too big for the tiles that are kept.
+function drawFromTiles(canvas: HTMLCanvasElement, options: RenderOptions): boolean {
+  const { tiles, elements, viewport, dpr = 1, dark = false, screenLabels = false, frameClaims = new Map() } = options;
+  const { hiddenId, croppingId: cropping, background, smallImages, suggestions = [] } = options;
+  if (!tiles || typeof OffscreenCanvas === "undefined") return false;
+  if (!drawsFromTiles(viewport.zoom)) {
+    tiles.clear(); // zoomed in, they are of no use and hold memory
+    return false;
+  }
+  if (hiddenId || cropping || background || smallImages || suggestions.length > 0) return false;
+  // Tiles are in device pixels, where a point of the board always lands on the same one, so they join up. The
+  // board is put on the screen a whole number of pixels along, which keeps the copies sharp.
+  const scale = dpr * viewport.zoom;
+  const left = Math.round(viewport.x * scale);
+  const top = Math.round(viewport.y * scale);
+  const range = {
+    i0: Math.floor(-left / TILE),
+    i1: Math.floor((canvas.width - 1 - left) / TILE),
+    j0: Math.floor(-top / TILE),
+    j1: Math.floor((canvas.height - 1 - top) / TILE),
+  };
+  if (tileCount(range) > MAX_TILES) return false;
+
+  const drawn = resolveConnectors(elements);
+  const claims = [...frameClaims].map(([id, { name, mine }]) => `${id}:${mine}:${name}`).join(";");
+  const labels = screenLabels ? 1 / viewport.zoom : 1;
+  const look = [dark, dpr, viewport.zoom, screenLabels, measurementsEpoch, imagesVersion(), claims].join("|");
+  const steady = tiles.sync(look, drawn, scale, (element) => {
+    // A change shows in the element's box, a frame's name, and what spills past them.
+    let box = getBounds(element);
+    if (isFrame(element)) box = unionRects([box, frameLabelBox(frameLabel(element, labels))])!;
+    return expandRect(box, GUTTER / scale);
+  });
+  if (!steady) return false; // the first time at this zoom, which a zoom gesture only passes through, is drawn outright
+
+  const visible = [];
+  for (let j = range.j0; j <= range.j1; j += 1) {
+    for (let i = range.i0; i <= range.i1; i += 1) visible.push({ i, j, entry: tiles.get(i, j) });
+  }
+  const pictures = new Set<string>();
+  const ready = visible.map(({ i, j, entry }) => {
+    let tile = entry?.tile;
+    if (!tile || entry!.stale) {
+      // The tile's own square starts a gutter in from the corner of what is drawn.
+      const at = { x: (GUTTER - i * TILE) / scale, y: (GUTTER - j * TILE) / scale, zoom: viewport.zoom };
+      if (!tileSheet) {
+        tileSheet = new OffscreenCanvas(TILE + GUTTER * 2, TILE + GUTTER * 2);
+        tileSheet.getContext("2d", { willReadFrequently: true });
+      }
+      // The cast: a canvas to draw on is all that is asked of the one given, which this is.
+      const sheet = tileSheet as unknown as HTMLCanvasElement;
+      renderScene(sheet, { elements, viewport: at, dpr, dark, screenLabels, frameClaims });
+      releaseImages(sheet);
+      tile = { bitmap: tileSheet.transferToImageBitmap(), pictures: picturesDrawn };
+      tiles.put(i, j, tile);
+    }
+    for (const id of tile.pictures) pictures.add(id);
+    return { i, j, bitmap: tile.bitmap };
+  });
+
+  // Each tile was drawn with the look this scene has, which is left set for what goes over them.
+  picturesDrawn = pictures;
+  const ctx = canvas.getContext("2d")!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (const { i, j, bitmap } of ready) {
+    ctx.drawImage(bitmap, GUTTER, GUTTER, TILE, TILE, left + i * TILE, top + j * TILE, TILE, TILE);
+  }
+  showingImages(canvas, pictures);
+  ctx.setTransform(scale, 0, 0, scale, left, top);
+  const find = (id: string | null | undefined) => (id ? (drawn.find((element) => element.id === id) ?? null) : null);
+  drawMarks(
+    ctx,
+    { target: find(options.connectTargetId), dotted: find(options.dots?.id), selected: find(options.selectedId) },
+    options,
+  );
+  return true;
 }
 
 let fontsPromise: Promise<void> | undefined;
@@ -689,6 +834,7 @@ export function loadCanvasFonts(): Promise<void> {
 
 // Text measures differently once web fonts have loaded, and an equation once it is typeset.
 function forgetMeasurements() {
+  measurementsEpoch += 1;
   forgetNoteMeasurements();
   forgetFrameLabels();
   forgetConnectorLabels();
