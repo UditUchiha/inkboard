@@ -11,7 +11,7 @@ import { buildSvg, fontsUsed } from "./svgExport";
 import { fontFacesFor, measureBaselines } from "./svgFonts";
 
 // Exporting a board: as a picture (PNG), as vectors (SVG), as a board file
-// (JSON) that can be imported again, or its diagram as a Mermaid flowchart. Each resolves to false when the board is empty.
+// (JSON) that can be imported again, or its diagram as Mermaid. Each resolves to false when the board is empty.
 
 export async function exportBoardAsPng(elements: BoardElement[], fileName: string): Promise<boolean> {
   if (!getSceneBounds(elements)) return false;
@@ -66,7 +66,10 @@ export async function exportBoardAsJson(elements: BoardElement[], title: string)
   return true;
 }
 
-/** Downloads the board's diagram as a Mermaid flowchart (see mermaid.ts). Throws an ExportError when it has none. */
+/**
+ * Downloads the board's diagram as a Mermaid flowchart or sequence diagram (see mermaid.ts). Throws an ExportError
+ * when it has none.
+ */
 export async function exportBoardAsMermaid(elements: BoardElement[], title: string): Promise<boolean> {
   if (elements.length === 0) return false;
   const text = elementsToMermaid(elements);
