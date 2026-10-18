@@ -83,7 +83,7 @@ export const STROKE_SPLIT_POINTS = 1000;
 export const NUMBERED_TOOLS = 9;
 
 export const DRAWING_TOOLS = new Set<ToolId>(["pen", "rectangle", "ellipse", "arrow", "line", "text", "sticky"]);
-export const FILLABLE_TYPES = new Set<ElementType>(["rectangle", "ellipse"]);
+export const FILLABLE_TYPES = new Set<ElementType>(["rectangle", "ellipse", "triangle", "diamond"]);
 
 export const STROKE_COLORS: Choice[] = [
   { name: "Ink", value: "#16213a" },
@@ -181,6 +181,8 @@ export const STYLE_CONTROLS: Record<ElementType, StyleControl[]> = {
   arrow: ["stroke", "strokeWidth", "route", "startHead", "sketchy", "labelFont"],
   rectangle: ["stroke", "fill", "strokeWidth", "sketchy"],
   ellipse: ["stroke", "fill", "strokeWidth", "sketchy"],
+  triangle: ["stroke", "fill", "strokeWidth", "sketchy"],
+  diamond: ["stroke", "fill", "strokeWidth", "sketchy"],
   text: ["stroke", "font", "fontSize"],
   sticky: ["noteFill", "font"],
   frame: ["name"],

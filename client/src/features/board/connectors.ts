@@ -1,7 +1,17 @@
 import type { ConnectorFields, Element as BoardElement, Side } from "@inkboard/shared/types";
-import { duplicate, elementAt, getBounds, getFrame, inDrawOrder, isFrame, newId, translate } from "./elements";
-import type { AnyElement, Connector } from "./elements";
-import { expandRect, rectContains, rotatePoint } from "./geometry";
+import {
+  createElement,
+  duplicate,
+  elementAt,
+  getBounds,
+  getFrame,
+  inDrawOrder,
+  isFrame,
+  newId,
+  translate,
+} from "./elements";
+import type { AnyElement, Connector, ElementStyle } from "./elements";
+import { expandRect, polygonCorners, reachOfOutline, rectContains, rotatePoint } from "./geometry";
 import type { Pair, Rect, TurnedRect, XY } from "./geometry";
 import { setEndDirections } from "./routes";
 
@@ -38,7 +48,15 @@ type DrawnBox = Rect & { turned: TurnedRect };
 // outline; a curved or elbow one leaves from the middle of the side facing the
 // other end (see routes.ts for the paths themselves).
 
-export const CONNECTABLE_TYPES = new Set<BoardElement["type"]>(["rectangle", "ellipse", "sticky", "image", "text"]);
+export const CONNECTABLE_TYPES = new Set<BoardElement["type"]>([
+  "rectangle",
+  "ellipse",
+  "triangle",
+  "diamond",
+  "sticky",
+  "image",
+  "text",
+]);
 export const CONNECT_GAP = 6; // between an attached end and its shape's outline
 
 // The connection dots shown around a shape, in screen pixels.
@@ -71,8 +89,11 @@ export function outlinePoint(target: Connectable, toward: XY): XY {
   const pad = CONNECT_GAP + (target.strokeWidth ?? 0) / 2;
   const rx = width / 2 + pad;
   const ry = height / 2 + pad;
-  const reach =
-    target.type === "ellipse"
+  // shortcut: a triangle's or diamond's gap is its box's, so it's narrower along a slanted side; fine for a few pixels.
+  const corners = polygonCorners(target.type, { x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2 });
+  const reach = corners
+    ? reachOfOutline(cx, cy, dx, dy, corners)
+    : target.type === "ellipse"
       ? 1 / Math.sqrt((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry))
       : Math.min(dx ? rx / Math.abs(dx) : Infinity, dy ? ry / Math.abs(dy) : Infinity);
   const [x, y] = rotatePoint(cx + dx * reach, cy + dy * reach, cx, cy, angle);
@@ -90,7 +111,11 @@ export function sidePoint(
 ): SidePoint {
   const { cx, cy, width, height, angle } = getFrame(target);
   const [nx, ny] = SIDES[side];
-  const [x, y] = rotatePoint(cx + nx * (width / 2 + gap), cy + ny * (height / 2 + gap), cx, cy, angle);
+  // A triangle's left and right sides slant in, so their middles are where the outline crosses the box's middle.
+  const box = { x: cx - width / 2 - gap, y: cy - height / 2 - gap, width: width + gap * 2, height: height + gap * 2 };
+  const corners = polygonCorners(target.type, box);
+  const out = corners && reachOfOutline(cx, cy, nx, ny, corners);
+  const [x, y] = rotatePoint(cx + nx * (out ?? box.width / 2), cy + ny * (out ?? box.height / 2), cx, cy, angle);
   const [dx, dy] = rotatePoint(nx, ny, 0, 0, angle);
   return { x, y, dx, dy };
 }
@@ -250,6 +275,8 @@ function covers(target: Connectable, point: XY, tolerance: number): boolean {
   const [x, y] = angle ? rotatePoint(point.x, point.y, cx, cy, -angle) : [point.x, point.y];
   const rx = width / 2 + tolerance;
   const ry = height / 2 + tolerance;
+  const corners = polygonCorners(target.type, { x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2 });
+  if (corners) return reachOfOutline(cx, cy, x - cx, y - cy, corners) >= 1;
   if (target.type === "ellipse") return ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1;
   return Math.abs(x - cx) <= rx && Math.abs(y - cy) <= ry;
 }
@@ -478,4 +505,43 @@ export function copyGroup(
     if (copy.endId) copy.endId = ids.get(copy.endId);
   }
   return copies;
+}
+
+// Connecting from the keyboard: with a shape selected, K offers the shapes an arrow from it could go to, nearest
+// first, and Enter draws the arrow to the one on offer (see BoardEditor). It's the arrow a drag from one shape to the
+// other draws, so it follows them, syncs and undoes like any other.
+
+/**
+ * What an arrow from `from` could be drawn to: the board's other shapes, notes, pictures and text, nearest first.
+ * Text lying on a shape is left out, as a drag leaves it: it's the shape's label, and the shape is offered instead.
+ */
+export function connectTargets(elements: BoardElement[], from: BoardElement): Connectable[] {
+  const start = middleOf(from);
+  const away = (element: BoardElement) => {
+    const { x, y } = middleOf(element);
+    return Math.hypot(x - start.x, y - start.y);
+  };
+  return elements
+    .filter(
+      (element) =>
+        element.id !== from.id &&
+        canConnectTo(element) &&
+        (element.type !== "text" || connectTargetAt(elements, middleOf(element), 0)?.type === "text"),
+    )
+    .sort((a, b) => away(a) - away(b));
+}
+
+/**
+ * A new arrow, drawn with `style`, from `from` to `to`, both ends floating on their shapes. Its stored ends are where
+ * it's drawn now: where it stays if a shape goes, and what classroom mode holds inside a student's frame.
+ */
+export function connectArrow(from: Connectable, to: Connectable, style: ElementStyle): Connector {
+  // The casts: an arrow is made as a connector, and a connector is drawn as one.
+  const arrow = attachEnd(
+    attachEnd(createElement("arrow", middleOf(from), style) as Connector, "start", from),
+    "end",
+    to,
+  );
+  const { x1, y1, x2, y2 } = resolveConnectors([from, to, arrow])[2] as Connector;
+  return { ...arrow, x1, y1, x2, y2 };
 }

@@ -1,8 +1,18 @@
 import { stampOf } from "@inkboard/shared/board-merge";
-import type { Element as BoardElement, Effect, Stamp } from "@inkboard/shared/types";
+import { spliceOf, TEXT_FIELDS, textBefore, withoutBase } from "@inkboard/shared/text-merge";
+import type {
+  Element as BoardElement,
+  Effect,
+  FieldGroup,
+  Fields,
+  Splice,
+  Stamp,
+  TextBases,
+  TextField,
+} from "@inkboard/shared/types";
 import { newId } from "./elements";
 import { toOperation, toOperations } from "./store";
-import type { PendingChange } from "./store";
+import type { PendingChange, Typing } from "./store";
 
 export type { PendingChange };
 
@@ -67,6 +77,7 @@ export type SettleResult =
       restored: BoardElement[];
       outside: boolean;
       sent?: Map<string, Stamp>;
+      typed?: Typing;
       next?: Piece;
     }
   | { kind: "retry"; delay: number; again: Effect; slow?: boolean }
@@ -89,6 +100,38 @@ type Batch = {
 
 // A piece sent with no reply yet, and the later pieces of the same change.
 type Inflight = { op: Effect; rest: Effect[]; batch: Batch };
+
+// `element` queued in place of `earlier`, a change to it not sent yet: what it typed into a text was typed
+// against what the text was before `earlier` too, which is what the server still has (see text-merge.ts).
+function sinceUnsent(element: BoardElement, earlier: PendingChange | undefined): BoardElement {
+  if (!earlier || earlier.removal || !earlier.base) return element;
+  const base: TextBases = { ...element.base };
+  // Object.entries can only say "strings"; these are the keys of a change's bases, so they are text fields.
+  for (const [field, splice] of Object.entries(earlier.base) as [TextField, Splice][]) {
+    // Read by name: the field is a text, a name or a description, depending on the element.
+    const was = (earlier as Fields)[field];
+    const now = (element as Fields)[field];
+    if (typeof was === "string" && typeof now === "string") base[field] = spliceOf(textBefore(was, splice), now);
+  }
+  return { ...element, base };
+}
+
+// A change sent again without knowing whether the server took it in the first time: it goes without the bases
+// of its typing, so it can't be merged in twice. It's taken whole, the newer text winning, as before merging.
+const blind = (element: BoardElement): BoardElement => (element.base ? withoutBase(element) : element);
+
+// The property groups `elements` typed into, by id (see text-merge.ts).
+function typedIn(elements: readonly BoardElement[]): Map<string, Set<FieldGroup>> {
+  const typed = new Map<string, Set<FieldGroup>>();
+  for (const element of elements) {
+    if (!element.base) continue;
+    const groups = typed.get(element.id) ?? new Set<FieldGroup>();
+    // Object.keys can only say "strings"; these are the keys of a change's bases, so they are text fields.
+    for (const field of Object.keys(element.base) as TextField[]) groups.add(TEXT_FIELDS[field].group);
+    typed.set(element.id, groups);
+  }
+  return typed;
+}
 
 // The stamps the elements of `batch`'s answered pieces were sent with, by id.
 function sentStamps(batch: Batch): Map<string, Stamp> {
@@ -143,14 +186,20 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
 
   // Queues `op`'s changes again, except those a newer change superseded (`seq`
   // is the piece it was sent in; a piece never sent has none). Returns what was queued.
-  function restore(op: Effect, seq?: number): Effect {
+  // `taken` says whether the server may have taken them in already (see `blind`); when it
+  // certainly hasn't, a newer change queued meanwhile was typed against them, and now
+  // says what the text was before them (see sinceUnsent).
+  function restore(op: Effect, seq: number | undefined, taken: boolean): Effect {
     const again: Effect = { upsert: [], remove: [] };
     const current = (id: string) => seq === undefined || lastSent.get(id) === seq;
     for (const element of op.upsert) {
-      if (current(element.id) && !pending.has(element.id)) {
-        pending.set(element.id, element);
-        again.upsert.push(element);
-      }
+      if (!current(element.id)) continue;
+      const newer = pending.get(element.id);
+      if (!newer) {
+        const queued = taken ? blind(element) : element;
+        pending.set(element.id, queued);
+        again.upsert.push(queued);
+      } else if (!newer.removal && !taken) pending.set(element.id, sinceUnsent(newer, element));
     }
     for (const removal of op.remove) {
       if (current(removal.id) && !pending.has(removal.id)) {
@@ -163,15 +212,17 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
 
   // Pieces of a change sent together are held by the server until the last arrives, so after
   // a failure the whole change is queued again, answered pieces included, as a new group.
-  function requeue({ op, rest, batch }: Inflight, seq?: number): Effect {
-    const again = restore(op, seq);
+  // `taken`: whether the server may have taken the change in (no reply came).
+  function requeue({ op, rest, batch }: Inflight, seq: number | undefined, taken: boolean): Effect {
+    const again = restore(op, seq, taken);
     for (const done of batch.sent) {
-      const earlier = restore(done.op, done.seq);
+      // Held by the server with the piece that failed, and dropped with it.
+      const earlier = restore(done.op, done.seq, taken);
       again.upsert.push(...earlier.upsert);
       again.remove.push(...earlier.remove);
     }
     for (const piece of rest) {
-      const later = restore(piece);
+      const later = restore(piece, undefined, false);
       again.upsert.push(...later.upsert);
       again.remove.push(...later.remove);
     }
@@ -199,7 +250,7 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
     /** A change made here. */
     add(op: Partial<Effect>) {
       for (const element of op.upsert ?? []) {
-        pending.set(element.id, element);
+        pending.set(element.id, sinceUnsent(element, pending.get(element.id)));
         // The cast: only a pen stroke has points, and for the rest there are none to count.
         longest = Math.max(longest, (element as { points?: unknown[] }).points?.length ?? 0);
       }
@@ -267,7 +318,10 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
           restored: response.restored ?? [],
           outside: response.outside === true,
         };
-        if (result.cleaned.length > 0) result.sent = sentStamps(batch);
+        if (result.cleaned.length > 0) {
+          result.sent = sentStamps(batch);
+          result.typed = typedIn(batch.sent.flatMap(({ op }) => op.upsert));
+        }
         const [op, ...rest] = entry.rest;
         if (op) result.next = start(op, rest, batch);
         // The assertion: a batch that is being sent in pieces has a group.
@@ -278,17 +332,19 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
         // The cast above and the cast and assertion here: hasOwn only looks the reason up, so TypeScript doesn't see
         // that a reply with a reason is there when it was found (a missing reason is looked up as "undefined", no key).
         const why = error || batch.failed ? "timeout" : (response!.reason as string);
+        // No reply: it may have been taken in (unless the server had dropped its group already).
+        const taken = Boolean(error) && !batch.failed;
         fail(batch);
         let delay = RETRY_DELAY_MS[why];
         if (why === "rate") {
           delay = Math.min(MAX_RATE_DELAY_MS, delay * 2 ** limited) * (0.5 + random() / 2);
           limited += 1;
         }
-        result = { kind: "retry", delay, again: requeue(entry, seq) };
+        result = { kind: "retry", delay, again: requeue(entry, seq, taken) };
         if (limited >= SLOW_AFTER) result.slow = true;
       } else if (response?.reason === "noSession") {
         fail(batch);
-        result = { kind: "rejoin", again: requeue(entry, seq) };
+        result = { kind: "rejoin", again: requeue(entry, seq, false) };
       } else {
         fail(batch);
         result = { kind: "resync", reason: response?.reason ?? "invalid" };
@@ -299,10 +355,22 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
 
     /** The connection dropped: what was sent but not confirmed goes back in the queue, to be sent again. */
     requeueSent() {
-      for (const [seq, entry] of inflight) requeue(entry, seq);
+      for (const [seq, entry] of inflight) requeue(entry, seq, true);
       inflight.clear();
       sending = null;
       changed();
+    },
+
+    /**
+     * The text typed here that the server hasn't answered yet (queued, or sent with no reply): the property groups
+     * it's in, by element id. Others' changes to it, which the server takes in first, don't replace it on this
+     * screen: the server's answer brings the two merged (see store.applyRemote).
+     */
+    typing() {
+      const elements: BoardElement[] = [];
+      for (const { op, rest } of inflight.values()) for (const piece of [op, ...rest]) elements.push(...piece.upsert);
+      for (const [, change] of pending) if (!change.removal) elements.push(change);
+      return typedIn(elements);
     },
 
     /** Everything not confirmed yet as one operation, to show on top of the board as the server has it. */

@@ -14,10 +14,15 @@ const versionSchema = new mongoose.Schema(
     kind: { type: String, enum: VERSION_KINDS, default: "auto" },
     label: { type: String, trim: true, maxlength: 60, default: null },
     author: { type: ObjectId, ref: "User", default: null },
+    // Versions saved before they were compressed keep their elements here; newer ones leave it empty.
     elements: { type: [Mixed], default: [] },
+    // The elements as gzipped JSON, about a fifth of their size as MongoDB would store them (see packElements).
+    packed: { type: Buffer, default: null },
+    // The pictures a packed version shows, so finding the ones still in use doesn't unpack every version.
+    imageIds: { type: [String], default: undefined },
     elementCount: { type: Number, default: 0 },
-    // Size of the copy as MongoDB stores it, for the history's budget (see services/versions.ts).
-    // Null for versions saved before sizes were recorded, until they're measured.
+    // Size of the copy as MongoDB stores it (compressed, when it is), for the history's budget (see
+    // services/versions.ts). Null for versions saved before sizes were recorded, until they're measured.
     bytes: { type: Number, default: null },
   },
   { timestamps: { createdAt: true, updatedAt: false }, minimize: false },
@@ -26,7 +31,6 @@ const versionSchema = new mongoose.Schema(
 versionSchema.index({ board: 1, createdAt: -1 });
 // Adding up the space a board's saved versions (or an owner's boards') take reads only this index.
 versionSchema.index({ board: 1, kind: 1, bytes: 1 });
-
 // Mongoose can only infer `elements` as `any[]` from Mixed, so the type says what is stored in it.
 type VersionFields = Omit<InferSchemaType<typeof versionSchema>, "elements"> & { elements: Element[] };
 

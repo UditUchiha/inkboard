@@ -46,7 +46,7 @@ function pathMovedBy(source: Connector, element: Connector): Moved | null {
 
 /**
  * How far `element` is from `source` ({ dx, dy }) if it's the same drawing
- * moved there, or null. Rectangles, ellipses, lines and arrows, and pen strokes, only.
+ * moved there, or null. Shapes (rectangles, ellipses, triangles, diamonds, lines and arrows) and pen strokes only.
  */
 export function movedBy(source: BoardElement, element: BoardElement): Moved | null {
   if (source.type !== element.type) return null;
@@ -71,7 +71,7 @@ export function movedBy(source: BoardElement, element: BoardElement): Moved | nu
     if ([...SHAPE_LOOKS, ...CONNECTOR_LOOKS].some((key) => (source as Connector)[key] !== element[key])) return null;
     return pathMovedBy(source as Connector, element);
   }
-  if (element.type !== "rectangle" && element.type !== "ellipse") return null;
+  if (!("seed" in element)) return null; // after lines and arrows, the shapes left are the ones drawn in a box
   if (SHAPE_LOOKS.some((key) => (source as ShapeElement)[key] !== element[key])) return null;
   const dx = element.x1 - (source as ShapeElement).x1;
   const dy = element.y1 - (source as ShapeElement).y1;

@@ -93,6 +93,15 @@ describe("drawing small shapes plainly", () => {
     assert.equal(calls.filter((call) => call === "rect").length, 1);
     assert.equal(calls.filter((call) => call === "stroke").length, 1);
   });
+
+  it("draws a small triangle or diamond by its corners, not as a box", () => {
+    for (const type of ["triangle", "diamond"]) {
+      const { canvas, calls } = recordingCanvas();
+      renderScene(canvas, { elements: [{ ...box, type } as Element], viewport: { x: 0, y: 0, zoom: 0.05 } });
+      assert.ok(!calls.includes("rect"), type);
+      assert.ok(calls.includes("closePath"), type);
+    }
+  });
 });
 
 describe("drawing the board from tiles", () => {

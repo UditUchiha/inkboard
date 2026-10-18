@@ -41,7 +41,7 @@ To change an element, send its `id` with just the fields to change. Its `type` c
 
 | Type | Where it is | Its own fields |
 | --- | --- | --- |
-| `rectangle`, `ellipse` | `x`, `y`, `width`, `height` | `stroke`, `fill` (or `null`), `strokeWidth`, `sketchy`, `angle` |
+| `rectangle`, `ellipse`, `triangle`, `diamond` | `x`, `y`, `width`, `height` (a triangle points up from its base along the bottom, a diamond has its corners at the middles of the sides) | `stroke`, `fill` (or `null`), `strokeWidth`, `sketchy`, `angle` |
 | `sticky` | `x`, `y`, `width`, `height` | `text`, `fill`, `font`, `angle` |
 | `frame` | `x`, `y`, `width`, `height` | `name` |
 | `text` | `x`, `y` (its top left) | `text` (required), `fontSize`, `font`, `stroke`, `angle` |

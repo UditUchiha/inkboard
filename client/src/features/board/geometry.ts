@@ -85,6 +85,50 @@ export function rotatedRectBounds(rect: Rect, angle: number): Rect {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
+// A triangle and a diamond are their box's corners joined up, each corner a share of the half size out from the box's
+// middle. The triangle points up, its base along the bottom; the diamond's corners are the middles of the box's sides.
+const POLYGONS: Record<string, Pair[]> = {
+  triangle: [
+    [0, -1],
+    [1, 1],
+    [-1, 1],
+  ],
+  diamond: [
+    [0, -1],
+    [1, 0],
+    [0, 1],
+    [-1, 0],
+  ],
+};
+
+/** The corners of a `kind` of shape drawn in `rect` if it's a triangle or a diamond, otherwise null. */
+export function polygonCorners(kind: string, rect: Rect): Pair[] | null {
+  const unit = Object.hasOwn(POLYGONS, kind) ? POLYGONS[kind] : null;
+  if (!unit) return null;
+  const [rx, ry] = [rect.width / 2, rect.height / 2];
+  return unit.map(([x, y]): Pair => [rect.x + rx + x * rx, rect.y + ry + y * ry]);
+}
+
+/**
+ * How many times (dx, dy) it is from (x, y) to the outline through `corners`, which goes round a shape that (x, y)
+ * is inside: 1 if (x + dx, y + dy) is on it, more if it's inside. Infinity when (dx, dy) is no way at all.
+ */
+export function reachOfOutline(x: number, y: number, dx: number, dy: number, corners: Pair[]): number {
+  const cross = (ax: number, ay: number, bx: number, by: number) => ax * by - ay * bx;
+  let reach = Infinity;
+  corners.forEach(([ax, ay], i) => {
+    const [bx, by] = corners[(i + 1) % corners.length];
+    const [ex, ey] = [bx - ax, by - ay];
+    const across = cross(dx, dy, ex, ey);
+    if (!across) return;
+    // Where the ray from (x, y) meets this side: `t` along the ray, `s` along the side.
+    const t = cross(ax - x, ay - y, ex, ey) / across;
+    const s = cross(ax - x, ay - y, dx, dy) / across;
+    if (t > 0 && s >= 0 && s <= 1) reach = Math.min(reach, t);
+  });
+  return reach;
+}
+
 export function unionRects(rects: Rect[]): Rect | null {
   if (rects.length === 0) return null;
   let minX = Infinity;

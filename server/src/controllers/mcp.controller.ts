@@ -10,11 +10,11 @@ import * as publicApi from "../services/public-api.ts";
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
 const ELEMENTS_HELP =
-  "Elements: every one has `id` and `type`. rectangle, ellipse, sticky (`text`, `fill`), frame (`name`) and image are " +
-  "`x`, `y`, `width`, `height`. text is `x`, `y`, `text`, `fontSize`. line and arrow are `x1`, `y1`, `x2`, `y2`, or " +
-  "`from` and `to` (ids of the elements their ends attach to), with an optional `text` label and `route` (straight, " +
-  "curved, elbow). pen is `points` [[x, y], …]. Colors are hex (`stroke`, `fill`), fonts hand, sans or code. " +
-  "Coordinates are board units; y grows downwards.";
+  "Elements: every one has `id` and `type`. rectangle, ellipse, triangle, diamond, sticky (`text`, `fill`), frame " +
+  "(`name`) and image are `x`, `y`, `width`, `height`. text is `x`, `y`, `text`, `fontSize`. line and arrow are `x1`, " +
+  "`y1`, `x2`, `y2`, or `from` and `to` (ids of the elements their ends attach to), with an optional `text` label " +
+  "and `route` (straight, curved, elbow). pen is `points` [[x, y], …]. Colors are hex (`stroke`, `fill`), fonts " +
+  "hand, sans or code. Coordinates are board units; y grows downwards.";
 
 type Tool = {
   name: string;

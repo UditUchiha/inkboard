@@ -12,6 +12,7 @@ import {
   supersedes,
   withStamps,
 } from "../src/board-merge.ts";
+import { spliceOf, withoutBase } from "../src/text-merge.ts";
 import type { Element, Fields, GroupStamps, Operation, ShapeElement, Stamp, Tombstone } from "../src/types.ts";
 
 // A small seeded generator, so a failure can be reproduced from its seed.
@@ -127,6 +128,56 @@ describe("merging two copies of an element", () => {
     const turned = withStamps({ ...base, angle: 1 }, { ...groupStamps(base), shape: at(2) });
     const straightened = withStamps({ ...base }, { ...groupStamps(base), shape: at(3) });
     assert.equal("angle" in mergeElement(turned, straightened), false);
+  });
+});
+
+describe("merging typing into a text that changed since", () => {
+  const note = (text: string, stamp: Stamp, fill = "#ffec99") =>
+    everyGroup({ id: "n", type: "sticky", x1: 0, y1: 0, x2: 9, y2: 9, text, fill, font: "hand" } as Element, stamp);
+  const typed = (text: string, was: string, stamp: Stamp) => ({
+    ...withStamps(note(text, at(1, 9)), { ...groupStamps(note(text, at(1, 9))), text: stamp }),
+    base: { text: spliceOf(was, text) },
+  });
+  const textOf = (element: Element) => (element as Fields).text;
+
+  it("keeps both people's typing, stamped past both, whichever is newer", () => {
+    const board = withStamps(note("Hey, hello", at(1, 9)), { ...groupStamps(note("", at(1, 9))), text: at(2, 5) });
+    for (const stamp of [at(2, 1), at(2, 8), at(4, 3)]) {
+      const merged = mergeElement(board, typed("hello world", "hello", stamp));
+      assert.equal(textOf(merged), "Hey, hello world");
+      assert.deepEqual(groupStamps(merged).text, at(Math.max(2, stamp.version) + 1, stamp.versionNonce));
+      assert.equal("base" in merged, false, "a board keeps no bases");
+    }
+  });
+
+  it("takes the change as last writer wins does where the text hadn't changed", () => {
+    const board = note("hello", at(1, 9));
+    const change = typed("hello world", "hello", at(2, 3));
+    assert.deepEqual(mergeElement(board, change), withoutBase(change));
+  });
+
+  it("keeps the board's newer text and stamp where it is what the change typed", () => {
+    const board = withStamps(note("hello world", at(1, 9)), { ...groupStamps(note("", at(1, 9))), text: at(3, 1) });
+    assert.equal(mergeElement(board, typed("hello world", "hello", at(2, 3))), board);
+  });
+
+  it("merges the same two changes to the same element anywhere", () => {
+    const board = withStamps(note("ab", at(1, 9), "#ff0000"), {
+      ...groupStamps(note("", at(1, 9))),
+      text: at(2, 5),
+      fill: at(2, 5),
+    });
+    const change = typed("ac", "a", at(2, 7));
+    assert.deepEqual(mergeElement(board, change), mergeElement(structuredClone(board), structuredClone(change)));
+    assert.equal((mergeElement(board, change) as Fields).fill, "#ff0000", "other groups merge as before");
+  });
+
+  it("goes in through an operation, and the board keeps no base", () => {
+    const board = withStamps(note("Hey, hello", at(1, 9)), { ...groupStamps(note("", at(1, 9))), text: at(2, 5) });
+    const [merged] = applyOperation([board], { upsert: [typed("hello world", "hello", at(2, 1))] });
+    assert.equal(textOf(merged!), "Hey, hello world");
+    const [added] = applyOperation([], { upsert: [typed("new", "", at(1, 1))] });
+    assert.equal("base" in added!, false);
   });
 });
 

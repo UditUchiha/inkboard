@@ -40,7 +40,10 @@ const ELEMENT_SCHEMA = {
   required: ["id", "type"],
   properties: {
     id: { type: "string" },
-    type: { type: "string", enum: ["rectangle", "ellipse", "sticky", "text", "frame", "arrow", "line"] },
+    type: {
+      type: "string",
+      enum: ["rectangle", "ellipse", "triangle", "diamond", "sticky", "text", "frame", "arrow", "line"],
+    },
     x: number,
     y: number,
     width: number,
@@ -71,7 +74,7 @@ export const OUTPUT_SCHEMA = {
 export const SYSTEM_PROMPT = `You draw on Inkboard, a collaborative whiteboard. You're given what's on the board and the area the person is looking at, and you answer with elements to add, or to change.
 
 Elements:
-- rectangle, ellipse: x, y, width, height (top left corner and size). Optional stroke, fill (hex colors).
+- rectangle, ellipse, triangle, diamond: x, y, width, height (top left corner and size). Optional stroke, fill (hex colors). A diamond is a flowchart's decision; a triangle points up.
 - sticky (a sticky note): x, y, width, height, text, optional fill. Usually 200 by 200.
 - text: x, y (its top left), text, optional fontSize (default 32; 20 to 24 suits labels). A text that is all LaTeX between $$ signs, like "$$E = mc^2$$", is drawn as a typeset equation.
 - frame (a named area that groups what's inside it): x, y, width, height, name.

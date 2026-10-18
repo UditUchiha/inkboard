@@ -1,14 +1,16 @@
 import { ApiElementError, fromApiElement } from "@inkboard/shared/api-elements";
 import type { ApiElement } from "@inkboard/shared/api-elements";
-import type { Element as BoardElement } from "@inkboard/shared/types";
+import type { Element as BoardElement, FrameElement, ShapeElement, StickyElement } from "@inkboard/shared/types";
+import { FILLABLE_TYPES } from "./constants";
 import { getBounds, isFrame } from "./elements";
-import { rectContains } from "./geometry";
+import { normalizeRect, rectContains } from "./geometry";
 import type { Rect } from "./geometry";
 
-// Mermaid flowcharts (https://mermaid.js.org/syntax/flowchart.html), both ways: imported as shapes, labels, arrows
-// and frames laid out on the board, and a drawn diagram exported as one. Only flowcharts (`flowchart` and `graph`)
-// are read: they're what boards draw. The text is parsed here rather than by Mermaid's own library, which is
-// megabytes and renders HTML; nothing in it is ever rendered as HTML here.
+// Mermaid flowcharts (https://mermaid.js.org/syntax/flowchart.html) and sequence diagrams
+// (https://mermaid.js.org/syntax/sequenceDiagram.html), both ways: imported as shapes, labels, arrows, notes and
+// frames laid out on the board, and a drawn diagram exported as one. Other kinds (class, state, Gantt…) aren't read:
+// flowcharts and sequence diagrams are what boards draw. The text is parsed here rather than by Mermaid's own
+// library, which is megabytes and renders HTML; nothing in it is ever rendered as HTML here.
 
 type Direction = "TD" | "LR" | "BT" | "RL";
 type NodeShape = "rectangle" | "ellipse" | "diamond";
@@ -16,13 +18,13 @@ type Node = { id: string; label: string; shape: NodeShape; fill?: string };
 type Edge = { from: string; to: string; label: string; head: "none" | "end" | "both" };
 type Subgraph = { id: string; title: string; nodes: Set<string>; parent: Subgraph | null };
 
-/** A flowchart as read from Mermaid: its direction, nodes, edges and subgraphs, and how many lines weren't understood. */
+/** A flowchart as read from Mermaid: its direction, nodes, edges and subgraphs, and the lines it couldn't read. */
 export type Flowchart = {
   direction: Direction;
   nodes: Map<string, Node>;
   edges: Edge[];
   subgraphs: Subgraph[];
-  skipped: number;
+  skipped: string[];
 };
 
 /** Why Mermaid text can't be imported, in a sentence for the person. */
@@ -65,13 +67,12 @@ function cleanLabel(raw: string): string {
   if (text.startsWith("`") && text.endsWith("`") && text.length >= 2) text = text.slice(1, -1);
   return text
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/#quot;/g, '"')
-    .replace(/#35;/g, "#")
+    .replace(/#(quot|35|59);/g, (_, code: string) => ({ quot: '"', 35: "#", 59: ";" })[code]!)
     .replace(/fa:fa-[\w-]+\s*/g, "")
     .trim();
 }
 
-// Splits text into statements: lines, and `;` between statements, but not inside quotes or brackets.
+// Splits text into statements: lines, and `;` between statements, but not inside quotes or brackets or entities.
 function statements(text: string): string[] {
   const out: string[] = [];
   for (const line of text.split(/\r?\n/)) {
@@ -83,7 +84,8 @@ function statements(text: string): string[] {
       if (char === '"') quoted = !quoted;
       else if (!quoted && "[({".includes(char)) depth += 1;
       else if (!quoted && "])}".includes(char)) depth = Math.max(0, depth - 1);
-      else if (!quoted && depth === 0 && char === ";") {
+      // The `;` of an entity (`#59;`) doesn't end a statement.
+      else if (!quoted && depth === 0 && char === ";" && !/#\w{1,8}$/.test(line.slice(Math.max(start, i - 9), i))) {
         out.push(line.slice(start, i));
         start = i + 1;
       }
@@ -127,16 +129,18 @@ function readNodes(text: string) {
   }
 }
 
+// The text's statements, after any front matter (a title, a theme), which comes first between lines of three dashes.
+const readStatements = (text: string) => statements(text.replace(/^\s*---\r?\n[\s\S]*?\r?\n---[^\S\n]*(\r?\n|$)/, ""));
+
 /** Reads a Mermaid flowchart. Throws a MermaidError when it isn't one. */
 export function parseFlowchart(text: string): Flowchart {
-  // Front matter (a title, a theme) comes first, between lines of three dashes.
-  const lines = statements(text.replace(/^\s*---\r?\n[\s\S]*?\r?\n---[^\S\n]*(\r?\n|$)/, ""));
+  const lines = readStatements(text);
   const header = /^(flowchart|graph)(?:\s+(TD|TB|BT|LR|RL))?\s*$/i.exec(lines[0] ?? "");
   if (!header) {
     throw new MermaidError(
       lines.length === 0
-        ? "Paste a Mermaid flowchart to import."
-        : "Only Mermaid flowcharts can be imported: ones that start with “flowchart” or “graph”.",
+        ? "Paste a Mermaid flowchart or sequence diagram to import."
+        : "Only Mermaid flowcharts and sequence diagrams can be imported: ones that start with “flowchart”, “graph” or “sequenceDiagram”.",
     );
   }
   const direction = (header[2] ?? "TD").toUpperCase().replace("TB", "TD") as Direction;
@@ -144,7 +148,7 @@ export function parseFlowchart(text: string): Flowchart {
   const edges: Edge[] = [];
   const subgraphs: Subgraph[] = [];
   let open: Subgraph | null = null;
-  let skipped = 0;
+  const skipped: string[] = [];
 
   const note = (found: NonNullable<ReturnType<typeof readNode>>) => {
     const known = nodes.get(found.id);
@@ -160,7 +164,7 @@ export function parseFlowchart(text: string): Flowchart {
 
   for (const line of lines.slice(1)) {
     if (line.length > MAX_STATEMENT_LENGTH) {
-      skipped += 1;
+      skipped.push(line);
       continue;
     }
     const subgraph = /^subgraph\s+(.+)$/i.exec(line);
@@ -204,7 +208,7 @@ export function parseFlowchart(text: string): Flowchart {
       rest = read.rest.trim();
     }
     if (!read) {
-      skipped += 1;
+      skipped.push(line);
       continue;
     }
     found.forEach(note);
@@ -297,14 +301,14 @@ export function layoutFlowchart(chart: Flowchart, prefix: string, measure: Measu
     let width = Math.max(120, text.width + 40);
     let height = Math.max(60, text.height + 30);
     if (node.shape === "ellipse") [width, height] = [width * 1.3, height * 1.4];
-    if (node.shape === "diamond") width = height = Math.max(width, height) * 1.25; // the square, turned on its corner
+    // A square diamond, big enough for the label between its slanted sides.
+    if (node.shape === "diamond") width = height = Math.max(width, height) * 1.25 * Math.SQRT2;
     sizes.set(node.id, { width, height, text });
   }
-  // The space a node takes along the flow (`major`) and across it (`minor`). A diamond's turned square reaches its corners.
+  // The space a node takes along the flow (`major`) and across it (`minor`).
   const span = (id: string) => {
     const { width, height } = sizes.get(id)!;
-    const reach = chart.nodes.get(id)!.shape === "diamond" ? Math.SQRT2 : 1;
-    return vertical ? { major: height * reach, minor: width * reach } : { major: width * reach, minor: height * reach };
+    return vertical ? { major: height, minor: width } : { major: width, minor: height };
   };
 
   const centres = new Map<string, { x: number; y: number }>();
@@ -336,21 +340,14 @@ export function layoutFlowchart(chart: Flowchart, prefix: string, measure: Measu
   for (const node of chart.nodes.values()) {
     const { x, y } = centres.get(node.id)!;
     const { width, height, text } = sizes.get(node.id)!;
-    const reach = node.shape === "diamond" ? (width * Math.SQRT2) / 2 : 0;
-    boxes.set(
-      node.id,
-      reach
-        ? { x: x - reach, y: y - reach, width: reach * 2, height: reach * 2 }
-        : { x: x - width / 2, y: y - height / 2, width, height },
-    );
+    boxes.set(node.id, { x: x - width / 2, y: y - height / 2, width, height });
     nodeElements.push({
       id: id(node.id),
-      type: node.shape === "ellipse" ? "ellipse" : "rectangle",
+      type: node.shape,
       x: x - width / 2,
       y: y - height / 2,
       width,
       height,
-      ...(node.shape === "diamond" && { angle: Math.PI / 4 }),
       ...(node.fill && { fill: node.fill }),
     });
     nodeElements.push({
@@ -396,15 +393,344 @@ export function layoutFlowchart(chart: Flowchart, prefix: string, measure: Measu
   return elements;
 }
 
+type Participant = { id: string; label: string; actor: boolean };
+type SequenceStep =
+  | { type: "message"; from: string; to: string; text: string; head: Edge["head"]; dotted: boolean }
+  | { type: "note"; side: "left of" | "right of" | "over"; on: string[]; text: string }
+  | { type: "block"; keyword: string; text: string } // loop, alt, opt, par, critical or break
+  | { type: "branch"; keyword: string; text: string } // the next section of the open block: else, and or option
+  | { type: "end" };
+
+/** A sequence diagram as read from Mermaid: its participants, its steps top to bottom, and the lines it couldn't read. */
+export type SequenceDiagram = { participants: Map<string, Participant>; steps: SequenceStep[]; skipped: string[] };
+
+const SEQUENCE_HEADER = /^sequenceDiagram\s*$/;
+const MAX_STEPS = 1000;
+// `A->>B: text`, with any of the arrows, and `+` or `-` (activating) before the second participant. An id can hold
+// dashes (`my-service`), so the first arrow after the shortest id that leaves a valid rest is the one meant.
+const MESSAGE = /^([^:<>]+?)\s*(<<-->>|<<->>|-->>|->>|-->|->|--x|-x|--\)|-\))\s*[+-]?\s*([^:<>]+?)\s*(?::(.*))?$/;
+const PARTICIPANT = /^(?:create\s+)?(participant|actor)\s+([^:<>@{}]+?)(?:\s+as\s+(.+))?$/i;
+const NOTE = /^note\s+(left\s+of|right\s+of|over)\s+([^:]+?)\s*:(.*)$/i;
+const BLOCK = /^(loop|alt|opt|par|critical|break)(?:\s+(.*))?$/i;
+const BRANCH = /^(else|and|option)(?:\s+(.*))?$/i;
+const BRANCH_OF: Record<string, string> = { alt: "else", par: "and", critical: "option" };
+const AUTONUMBER = /^autonumber(?:\s+(off|\d+)(?:\s+(\d+))?)?$/i;
+// Activations are read but not drawn: the messages say who calls whom, and bars would be more to keep in step.
+const SEQUENCE_IGNORED = /^(?:(?:de)?activate\s|acc(?:Title|Descr)\b)/i;
+// Coloured backgrounds and boxes around participants aren't drawn, but their `end` must still close them.
+const UNDRAWN_BLOCK = /^(rect|box)(\s|$)/i;
+
+/** Reads a Mermaid sequence diagram. Throws a MermaidError when it isn't one. */
+export function parseSequence(text: string): SequenceDiagram {
+  const lines = readStatements(text);
+  if (!SEQUENCE_HEADER.test(lines[0] ?? "")) {
+    throw new MermaidError("That isn't a Mermaid sequence diagram: one starts with “sequenceDiagram”.");
+  }
+  const participants = new Map<string, Participant>();
+  const steps: SequenceStep[] = [];
+  const skipped: string[] = [];
+  const open: string[] = []; // the blocks open, innermost last: their keywords, or "undrawn"
+  let numbering: { next: number; step: number } | null = null;
+
+  const meet = (id: string, declared?: { label?: string; actor: boolean }) => {
+    let participant = participants.get(id);
+    if (!participant) {
+      if (participants.size >= MAX_NODES) {
+        throw new MermaidError(`That's more than ${MAX_NODES} participants, too many to import.`);
+      }
+      participant = { id, label: id, actor: false };
+      participants.set(id, participant);
+    }
+    if (declared) {
+      participant.actor = declared.actor;
+      if (declared.label) participant.label = declared.label;
+    }
+  };
+  const add = (step: SequenceStep) => {
+    if (steps.length >= MAX_STEPS) {
+      throw new MermaidError(`That's more than ${MAX_STEPS} messages, notes and blocks, too many to import.`);
+    }
+    steps.push(step);
+  };
+
+  for (const line of lines.slice(1)) {
+    if (line.length > MAX_STATEMENT_LENGTH) {
+      skipped.push(line);
+      continue;
+    }
+    if (SEQUENCE_IGNORED.test(line)) continue;
+    const declared = PARTICIPANT.exec(line);
+    if (declared) {
+      meet(declared[2], {
+        label: declared[3] && cleanLabel(declared[3]),
+        actor: declared[1].toLowerCase() === "actor",
+      });
+      continue;
+    }
+    const note = NOTE.exec(line);
+    if (note) {
+      const side = note[1].toLowerCase().replace(/\s+/, " ") as "left of" | "right of" | "over";
+      const on = [...new Set(note[2].split(",").map((id) => id.trim()))];
+      if (on.some((id) => !id) || on.length > (side === "over" ? 2 : 1)) skipped.push(line);
+      else {
+        on.forEach((id) => meet(id));
+        add({ type: "note", side, on, text: cleanLabel(note[3]) });
+      }
+      continue;
+    }
+    const autonumber = AUTONUMBER.exec(line);
+    if (autonumber) {
+      const [, start, step] = autonumber;
+      numbering = start?.toLowerCase() === "off" ? null : { next: Number(start ?? 1), step: Number(step ?? 1) };
+      continue;
+    }
+    if (UNDRAWN_BLOCK.test(line)) {
+      open.push("undrawn");
+      skipped.push(line);
+      continue;
+    }
+    const block = BLOCK.exec(line);
+    if (block) {
+      open.push(block[1].toLowerCase());
+      add({ type: "block", keyword: block[1].toLowerCase(), text: cleanLabel(block[2] ?? "") });
+      continue;
+    }
+    const branch = BRANCH.exec(line);
+    if (branch) {
+      const keyword = branch[1].toLowerCase();
+      if (BRANCH_OF[open.at(-1) ?? ""] === keyword) add({ type: "branch", keyword, text: cleanLabel(branch[2] ?? "") });
+      else skipped.push(line); // an `else` outside an `alt`, say
+      continue;
+    }
+    if (/^end$/i.test(line)) {
+      const closed = open.pop();
+      if (closed === undefined) skipped.push(line);
+      else if (closed !== "undrawn") add({ type: "end" });
+      continue;
+    }
+    const message = MESSAGE.exec(line);
+    if (message) {
+      const [, from, arrow, to, said] = message;
+      meet(from);
+      meet(to);
+      let text = cleanLabel(said ?? "");
+      if (numbering) {
+        text = `${numbering.next}. ${text}`.trim();
+        numbering.next += numbering.step;
+      }
+      const head = arrow.startsWith("<<") ? "both" : /^-+>$/.test(arrow) ? "none" : "end";
+      add({ type: "message", from, to, text, head, dotted: arrow.includes("--") });
+      continue;
+    }
+    skipped.push(line);
+  }
+  // Blocks left open close at the end, as if their `end` had been written.
+  while (open.length > 0) if (open.pop() !== "undrawn") add({ type: "end" });
+  if (participants.size === 0) throw new MermaidError("That sequence diagram has no participants to import.");
+  return { participants, steps, skipped };
+}
+
+const PARTICIPANT_GAP = 50;
+const MESSAGE_GAP = 60;
+const NOTE_GAP = 30;
+const BLOCK_GAP = 40;
+const BLOCK_PADDING = 30;
+const SELF_HEIGHT = 40; // how far a message to oneself comes down
+const NOTE_FONT_SIZE = 16; // a note's text is as big as its shorter side allows (see notes.ts), so that sets its height
+// Mermaid draws lifelines and replies dashed. The board has no dashed lines, so they're grey instead.
+const QUIET = "#868e96";
+
 /**
- * Board elements for Mermaid flowchart `text`, centred on `centre`, and how many of its lines weren't understood.
- * Throws a MermaidError when it can't be imported.
+ * The sequence diagram laid out as elements in the public API's form, with ids starting `prefix`: a box for each
+ * participant (an ellipse for an actor) along the top with a grey lifeline down from it, the messages as arrows
+ * between the lifelines in order, notes as sticky notes, and blocks (`loop`, `alt`…) as frames, one for each section.
+ */
+export function layoutSequence(diagram: SequenceDiagram, prefix: string, measure: Measure = estimate): ApiElement[] {
+  const people = [...diagram.participants.values()];
+  const column = new Map(people.map((person, index) => [person.id, index]));
+  const texts = people.map((person) => measure(person.label, FONT_SIZE));
+  const widths = texts.map((text, index) => Math.max(120, text.width + 40) * (people[index].actor ? 1.3 : 1));
+  const height = Math.max(
+    ...texts.map((text, index) => Math.max(60, text.height + 30) * (people[index].actor ? 1.4 : 1)),
+  );
+  const noteSize = (text: string) => {
+    const size = measure(text, NOTE_FONT_SIZE);
+    return { width: Math.max(160, size.width + 60), height: Math.max(NOTE_FONT_SIZE * 7, size.height + 40) };
+  };
+  // A message to oneself reaches out to the right past its label, which sits halfway along it.
+  const selfWidth = (text: string) => measure(text, FONT_SIZE).width + 60;
+
+  // Lifelines far enough apart for the labels and notes between them: each need is a least distance between two.
+  const needs: { from: number; to: number; gap: number }[] = [];
+  for (const step of diagram.steps) {
+    if (step.type === "message") {
+      const [a, b] = [column.get(step.from)!, column.get(step.to)!].sort((x, y) => x - y);
+      if (a === b) needs.push({ from: a, to: a + 1, gap: selfWidth(step.text) + 40 });
+      else needs.push({ from: a, to: b, gap: measure(step.text, FONT_SIZE).width + 60 });
+    } else if (step.type === "note" && step.on.length === 1) {
+      const at = column.get(step.on[0])!;
+      const { width } = noteSize(step.text);
+      if (step.side === "left of") needs.push({ from: at - 1, to: at, gap: width + 40 });
+      else if (step.side === "right of") needs.push({ from: at, to: at + 1, gap: width + 40 });
+      else needs.push({ from: at - 1, to: at, gap: width / 2 + 40 }, { from: at, to: at + 1, gap: width / 2 + 40 });
+    }
+  }
+  const centres = [0];
+  for (let index = 1; index < people.length; index += 1) {
+    centres.push(centres[index - 1] + widths[index - 1] / 2 + widths[index] / 2 + PARTICIPANT_GAP);
+  }
+  for (const { from, to, gap } of needs) {
+    if (from < 0 || to >= people.length) continue;
+    const short = gap - (centres[to] - centres[from]);
+    if (short > 0) for (let index = to; index < centres.length; index += 1) centres[index] += short;
+  }
+
+  const id = (name: string) => `${prefix}${name}`;
+  type Section = { order: number; keyword: string; text: string; top: number };
+  type Open = Section & { left: number; right: number; branches: Section[] };
+  const open: Open[] = [];
+  const frames: { order: number; element: ApiElement }[] = [];
+  const drawn: ApiElement[] = [];
+  // How far across the innermost open block reaches, so its frame goes round what's in it.
+  const reach = (left: number, right: number) => {
+    const block = open.at(-1);
+    if (block) [block.left, block.right] = [Math.min(block.left, left), Math.max(block.right, right)];
+  };
+  let y = height + 30;
+  let order = 0;
+  diagram.steps.forEach((step, index) => {
+    if (step.type === "message") {
+      const [from, to] = [centres[column.get(step.from)!], centres[column.get(step.to)!]];
+      const self = step.from === step.to;
+      y += Math.max(MESSAGE_GAP, measure(step.text, FONT_SIZE).height + 30);
+      const end = self ? from + selfWidth(step.text) : to;
+      drawn.push({
+        id: id(`message-${index + 1}`),
+        type: step.head === "none" ? "line" : "arrow",
+        x1: from,
+        y1: y,
+        x2: end,
+        y2: self ? y + SELF_HEIGHT : y,
+        // One to oneself goes out and down: a free end can't loop back to the lifeline it left.
+        ...(self && { route: "elbow" }),
+        ...(step.text && { text: step.text }),
+        ...(step.head === "both" && { startHead: true }),
+        ...(step.dotted && { stroke: QUIET }),
+      });
+      reach(Math.min(from, end), Math.max(from, end));
+      if (self) y += SELF_HEIGHT;
+    } else if (step.type === "note") {
+      const size = noteSize(step.text);
+      const xs = step.on.map((on) => centres[column.get(on)!]);
+      const [low, high] = [Math.min(...xs), Math.max(...xs)];
+      const width = high > low ? Math.max(size.width, high - low + 120) : size.width;
+      const left =
+        step.side === "left of" ? low - 20 - width : step.side === "right of" ? low + 20 : (low + high) / 2 - width / 2;
+      y += NOTE_GAP;
+      drawn.push({
+        id: id(`note-${index + 1}`),
+        type: "sticky",
+        x: left,
+        y,
+        width,
+        height: size.height,
+        text: step.text,
+      });
+      reach(left, left + width);
+      y += size.height;
+    } else if (step.type === "block") {
+      y += BLOCK_GAP;
+      open.push({
+        order: order++,
+        keyword: step.keyword,
+        text: step.text,
+        top: y,
+        left: Infinity,
+        right: -Infinity,
+        branches: [],
+      });
+    } else if (step.type === "branch") {
+      y += BLOCK_GAP;
+      open.at(-1)!.branches.push({ order: order++, keyword: step.keyword, text: step.text, top: y });
+    } else {
+      y += BLOCK_GAP;
+      const block = open.pop()!;
+      // An empty block goes across them all.
+      const [left, right] = Number.isFinite(block.left) ? [block.left, block.right] : [centres[0], centres.at(-1)!];
+      for (const section of [block, ...block.branches]) {
+        frames.push({
+          order: section.order,
+          element: {
+            id: id(`block-${section.order + 1}`),
+            type: "frame",
+            x: left - BLOCK_PADDING,
+            y: section.top,
+            width: right - left + BLOCK_PADDING * 2,
+            height: y - section.top,
+            name: section.text ? `${section.keyword} ${section.text}` : section.keyword,
+          },
+        });
+      }
+      reach(left - BLOCK_PADDING, right + BLOCK_PADDING);
+    }
+  });
+
+  // Frames go underneath, outer ones first; then the participants and their lifelines, and what's between them.
+  const elements = frames.sort((a, b) => a.order - b.order).map((frame) => frame.element);
+  people.forEach((person, index) => {
+    const [x, width, text] = [centres[index], widths[index], texts[index]];
+    elements.push(
+      {
+        id: id(`participant-${index + 1}`),
+        type: person.actor ? "ellipse" : "rectangle",
+        x: x - width / 2,
+        y: 0,
+        width,
+        height,
+      },
+      {
+        id: id(`participant-${index + 1}-label`),
+        type: "text",
+        x: x - text.width / 2,
+        y: (height - text.height) / 2,
+        text: person.label,
+        fontSize: FONT_SIZE,
+      },
+      {
+        id: id(`lifeline-${index + 1}`),
+        type: "line",
+        x1: x,
+        y1: height,
+        x2: x,
+        y2: y + 40,
+        stroke: QUIET,
+        strokeWidth: 1,
+      },
+    );
+  });
+  elements.push(...drawn);
+  return elements;
+}
+
+/** What of the text couldn't be read, for the message after an import: how many lines, and the first few of them. */
+export function describeSkipped(skipped: string[]): string {
+  const shown = skipped.slice(0, 3).map((line) => `“${line.length > 40 ? `${line.slice(0, 39)}…` : line}”`);
+  const more = skipped.length > 3 ? ` and ${skipped.length - 3} more` : "";
+  return `${skipped.length} ${skipped.length === 1 ? "line" : "lines"} of it couldn't be read: ${shown.join(", ")}${more}`;
+}
+
+/**
+ * Board elements for Mermaid `text` (a flowchart or a sequence diagram), centred on `centre`, and the lines of it
+ * that weren't understood. Throws a MermaidError when it can't be imported.
  */
 export function mermaidToElements(text: string, centre: { x: number; y: number }, measure?: Measure) {
-  const chart = parseFlowchart(text);
   // Ids of their own on every import, so importing twice adds a second copy rather than changing the first.
   const prefix = `mm${[...crypto.getRandomValues(new Uint32Array(1))][0].toString(36)}-`;
-  const laidOut = layoutFlowchart(chart, prefix, measure);
+  const sequence = SEQUENCE_HEADER.test(readStatements(text)[0] ?? "");
+  const chart = sequence ? parseSequence(text) : parseFlowchart(text);
+  const laidOut = sequence
+    ? layoutSequence(chart as SequenceDiagram, prefix, measure)
+    : layoutFlowchart(chart as Flowchart, prefix, measure);
   const made = new Map<string, BoardElement>();
   for (const input of laidOut) {
     try {
@@ -436,18 +762,10 @@ const quote = (text: string) => `"${text.replace(/"/g, "#quot;").replace(/\r?\n/
 const middleOf = (box: Rect) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 const area = (box: Rect) => box.width * box.height;
 
-/**
- * The board's diagram as a Mermaid flowchart: rectangles, ellipses and sticky notes are its nodes (labelled by the
- * note's text, or the text inside the shape), lines and arrows attached at both ends its edges, and frames its
- * subgraphs. Returns null when there's no node to export.
- */
-export function elementsToMermaid(elements: BoardElement[]): string | null {
-  const shapes = elements.filter(
-    (element) => element.type === "rectangle" || element.type === "ellipse" || element.type === "sticky",
-  );
-  if (shapes.length === 0) return null;
+// The text inside shapes labels them (a sticky note has its own): each text element labels the smallest shape its
+// middle is in. Returns each shape's labels, and the shape each of those text elements labels.
+function labelShapes(elements: BoardElement[], shapes: BoardElement[]) {
   const boxes = new Map(shapes.map((shape) => [shape.id, getBounds(shape)]));
-  const nodeId = new Map(shapes.map((shape, index) => [shape.id, `n${index + 1}`]));
   const labels = new Map<string, string[]>();
   const labelOf = new Map<string, string>(); // a text element's id -> the shape it labels
   for (const element of elements) {
@@ -460,6 +778,22 @@ export function elementsToMermaid(elements: BoardElement[]): string | null {
     labels.set(holder.id, [...(labels.get(holder.id) ?? []), element.text]);
     labelOf.set(element.id, holder.id);
   }
+  return { labels, labelOf };
+}
+
+/**
+ * The board's diagram as Mermaid: a sequence diagram if it has one (see elementsToSequence), or else a flowchart,
+ * whose nodes are shapes and sticky notes (labelled by the note's text, or the text inside the shape),
+ * edges lines and arrows attached at both ends, and subgraphs frames. Returns null when there's no node to export.
+ */
+export function elementsToMermaid(elements: BoardElement[]): string | null {
+  const sequence = elementsToSequence(elements);
+  if (sequence) return sequence;
+  const shapes = elements.filter((element) => element.type === "sticky" || FILLABLE_TYPES.has(element.type));
+  if (shapes.length === 0) return null;
+  const boxes = new Map(shapes.map((shape) => [shape.id, getBounds(shape)]));
+  const nodeId = new Map(shapes.map((shape, index) => [shape.id, `n${index + 1}`]));
+  const { labels, labelOf } = labelShapes(elements, shapes);
 
   // Each node goes in the smallest frame its middle is in; frames in the frame they're in.
   const frames = elements.filter(isFrame);
@@ -487,7 +821,7 @@ export function elementsToMermaid(elements: BoardElement[]): string | null {
     const text = quote(label || " ");
     const turned =
       shape.type === "rectangle" && Math.abs((Math.abs(shape.angle ?? 0) % (Math.PI / 2)) - Math.PI / 4) < 0.01;
-    if (turned) return `${nodeId.get(shape.id)}{${text}}`;
+    if (turned || shape.type === "diamond") return `${nodeId.get(shape.id)}{${text}}`;
     return shape.type === "ellipse" ? `${nodeId.get(shape.id)}([${text}])` : `${nodeId.get(shape.id)}[${text}]`;
   };
   const write = (parent: string | null, indent: string) => {
@@ -511,8 +845,120 @@ export function elementsToMermaid(elements: BoardElement[]): string | null {
     lines.push(`  ${from} ${link}${element.text ? `|${quote(element.text)}|` : ""} ${to}`);
   }
   for (const shape of shapes) {
-    const fill = shape.type === "sticky" || shape.type === "rectangle" || shape.type === "ellipse" ? shape.fill : null;
+    const fill = "fill" in shape ? shape.fill : null;
     if (fill) lines.push(`  style ${nodeId.get(shape.id)} fill:${fill}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+// Mermaid text for a sequence diagram's message, note or name: on one line, without a `;` that would end it.
+const plain = (text: string) => text.replace(/\r?\n/g, "<br>").replace(/;/g, "#59;");
+const FRAME_BLOCK = /^(loop|alt|opt|par|critical|break|else|and|option)(?:\s+([\s\S]*))?$/i;
+// The box a shape, note or frame is drawn in: getBounds adds the stroke, and a frame's name above it.
+const outline = (element: ShapeElement | StickyElement | FrameElement) =>
+  normalizeRect(element.x1, element.y1, element.x2, element.y2);
+
+/**
+ * The board's sequence diagram, if it has one: a rectangle or ellipse with a line hanging straight down from it is a
+ * participant (an ellipse an actor) and its lifeline. Read top to bottom, arrows and lines that start on a lifeline
+ * are its messages (grey ones dashed), sticky notes over or beside the lifelines its notes, and frames named after a
+ * block (`loop …`, `alt …`, `else …`) its blocks. Returns null when nothing has a lifeline.
+ */
+function elementsToSequence(elements: BoardElement[]): string | null {
+  const shapes = elements.filter(
+    (element): element is ShapeElement => element.type === "rectangle" || element.type === "ellipse",
+  );
+  const lifelines: { id: string; x: number; top: number; bottom: number; shape: ShapeElement }[] = [];
+  for (const line of elements) {
+    if (line.type !== "line" || line.startId || line.endId || Math.abs(line.x1 - line.x2) > 2) continue;
+    const [top, bottom] = [Math.min(line.y1, line.y2), Math.max(line.y1, line.y2)];
+    const shape = shapes.find((candidate) => {
+      const box = outline(candidate);
+      const below = top - (box.y + box.height);
+      return below > -2 && below < 30 && line.x1 > box.x && line.x1 < box.x + box.width;
+    });
+    if (shape && bottom - top > 40 && !lifelines.some((known) => known.shape === shape)) {
+      lifelines.push({ id: line.id, x: line.x1, top, bottom, shape });
+    }
+  }
+  if (lifelines.length === 0) return null;
+  lifelines.sort((a, b) => a.x - b.x);
+  const top = Math.min(...lifelines.map((lifeline) => lifeline.top));
+  const bottom = Math.max(...lifelines.map((lifeline) => lifeline.bottom));
+  const nearest = (x: number) =>
+    lifelines.reduce(
+      (best, lifeline, index) => (Math.abs(lifeline.x - x) < Math.abs(lifelines[best].x - x) ? index : best),
+      0,
+    );
+
+  // A participant's id is its name when that's a plain word, or else p1, p2… with the name as its alias.
+  const { labels } = labelShapes(elements, shapes);
+  const names = lifelines.map(({ shape }) => (labels.get(shape.id) ?? []).join("\n"));
+  const ids = names.map((name, index) =>
+    /^[\p{L}\p{N}_]+$/u.test(name) && !/^p\d+$/.test(name) && names.indexOf(name) === index ? name : `p${index + 1}`,
+  );
+  const lines = ["sequenceDiagram"];
+  lifelines.forEach(({ shape }, index) => {
+    const kind = shape.type === "ellipse" ? "actor" : "participant";
+    const alias = ids[index] === names[index] ? "" : ` as ${plain(names[index] || ids[index])}`;
+    lines.push(`  ${kind} ${ids[index]}${alias}`);
+  });
+
+  // Everything else as it comes down the page. Where two things are level, a block's end comes before what follows.
+  const events: { y: number; rank: number; line: string; change: -1 | 0 | 1; outdent?: boolean }[] = [];
+  const lifelineIds = new Set(lifelines.map((lifeline) => lifeline.id));
+  for (const element of elements) {
+    if (element.type === "line" || element.type === "arrow") {
+      if (lifelineIds.has(element.id)) continue;
+      const y = Math.min(element.y1, element.y2);
+      const from = nearest(element.x1);
+      // A message ends on the lifeline it goes to, or, an elbow out to the side, is to the one it starts on.
+      const onEnd = Math.abs(lifelines[nearest(element.x2)].x - element.x2) < 20;
+      const to = onEnd ? nearest(element.x2) : element.route === "elbow" ? from : -1;
+      if (Math.abs(lifelines[from].x - element.x1) >= 20 || to < 0 || y < top || y > bottom) continue;
+      const dotted = element.stroke === QUIET;
+      const arrow =
+        element.type === "line"
+          ? dotted
+            ? "-->"
+            : "->"
+          : `${element.startHead ? "<<" : ""}${dotted ? "-->>" : "->>"}`;
+      events.push({ y, rank: 2, change: 0, line: `${ids[from]}${arrow}${ids[to]}: ${plain(element.text ?? "")}` });
+    } else if (element.type === "sticky") {
+      const box = outline(element);
+      if (box.y < top || box.y > bottom) continue;
+      const over = lifelines.flatMap((lifeline, index) =>
+        lifeline.x >= box.x && lifeline.x <= box.x + box.width ? [index] : [],
+      );
+      const beside = nearest(box.x + box.width / 2);
+      const where =
+        over.length > 0
+          ? `over ${[...new Set([over[0], over.at(-1)!])].map((index) => ids[index]).join(",")}`
+          : `${box.x + box.width / 2 < lifelines[beside].x ? "left of" : "right of"} ${ids[beside]}`;
+      events.push({ y: box.y, rank: 2, change: 0, line: `Note ${where}: ${plain(element.text)}` });
+    } else if (isFrame(element)) {
+      const block = FRAME_BLOCK.exec(element.name.trim());
+      if (!block) continue;
+      const box = outline(element);
+      const keyword = block[1].toLowerCase();
+      const line = `${keyword}${block[2] ? ` ${plain(block[2])}` : ""}`;
+      // A later section (`else`, `and`, `option`) is written level with its block, whose `end` closes it too.
+      if (keyword === "else" || keyword === "and" || keyword === "option") {
+        events.push({ y: box.y, rank: 1, change: 0, outdent: true, line });
+      } else {
+        events.push(
+          { y: box.y, rank: 1, change: 1, line },
+          { y: box.y + box.height, rank: 0, change: -1, line: "end" },
+        );
+      }
+    }
+  }
+  events.sort((a, b) => a.y - b.y || a.rank - b.rank);
+  let depth = 1;
+  for (const { line, change, outdent } of events) {
+    if (change < 0) depth = Math.max(1, depth - 1);
+    lines.push(`${"  ".repeat(Math.max(1, depth - (outdent ? 1 : 0)))}${line}`);
+    if (change > 0) depth += 1;
   }
   return `${lines.join("\n")}\n`;
 }
