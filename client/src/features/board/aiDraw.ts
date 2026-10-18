@@ -1,5 +1,6 @@
 import { ApiElementError, fromApiElement, toApiElement } from "@inkboard/shared/api-elements";
 import type { Element as BoardElement } from "@inkboard/shared/types";
+import type Anthropic from "@anthropic-ai/sdk";
 import { getBounds } from "./elements";
 import { rectsOverlap } from "./geometry";
 import type { Rect } from "./geometry";
@@ -162,22 +163,55 @@ export async function drawWithAi({
   view: Rect;
   signal: AbortSignal;
 }) {
-  // Loaded only when someone draws with AI, not with every board.
+  const response = await askClaude({
+    key,
+    system: SYSTEM_PROMPT,
+    content: requestMessage(request, board, view),
+    schema: OUTPUT_SCHEMA,
+    signal,
+  });
+  if (response.stop_reason === "refusal") {
+    throw new AiDrawError("Claude won't draw that. Try describing it another way.");
+  }
+  if (response.stop_reason === "max_tokens") {
+    throw new AiDrawError("That's more than fits in one go. Ask for a smaller part of it.");
+  }
+  return answerToElements(readAnswer(response), board);
+}
+
+/**
+ * Sends `content` to Claude with the person's own `key`, asking for an answer shaped by `schema`. Drawing with AI
+ * and reading handwriting (handwriting.ts) both go through here. Rejects with an AiDrawError to show the person, or
+ * an AbortError when `signal` cancels it.
+ */
+export async function askClaude({
+  key,
+  system,
+  content,
+  schema,
+  signal,
+}: {
+  key: string;
+  system: string;
+  content: string | Anthropic.Beta.BetaContentBlockParam[];
+  schema: Record<string, unknown>;
+  signal: AbortSignal;
+}) {
+  // Loaded only when someone uses Claude, not with every board.
   const { default: Anthropic } = await import("@anthropic-ai/sdk");
   // The key is the person's own, typed into this browser for this, so it's meant to be used from here.
   const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
-  let response;
   try {
-    response = await client.beta.messages.create(
+    return await client.beta.messages.create(
       {
         model: AI_MODEL,
         max_tokens: 16000,
         // If Claude's safeguards decline, Anthropic's recommended fallback model answers instead.
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
-        output_config: { effort: "medium", format: { type: "json_schema", schema: OUTPUT_SCHEMA } },
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: requestMessage(request, board, view) }],
+        output_config: { effort: "medium", format: { type: "json_schema", schema } },
+        system,
+        messages: [{ role: "user", content }],
       },
       { signal },
     );
@@ -200,19 +234,14 @@ export async function drawWithAi({
     if (error instanceof Anthropic.APIError) throw new AiDrawError("Anthropic had a problem. Try again in a moment.");
     throw error;
   }
+}
 
-  if (response.stop_reason === "refusal") {
-    throw new AiDrawError("Claude won't draw that. Try describing it another way.");
-  }
-  if (response.stop_reason === "max_tokens") {
-    throw new AiDrawError("That's more than fits in one go. Ask for a smaller part of it.");
-  }
+/** The JSON of Claude's structured answer. */
+export function readAnswer(response: Anthropic.Beta.BetaMessage): unknown {
   const text = response.content.find((block) => block.type === "text")?.text;
-  let answer: unknown;
   try {
-    answer = JSON.parse(text ?? "");
+    return JSON.parse(text ?? "");
   } catch {
     throw new AiDrawError("Claude's answer couldn't be read. Try again.");
   }
-  return answerToElements(answer, board);
 }

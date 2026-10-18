@@ -1,12 +1,13 @@
 import clsx from "clsx";
 import { Link, useLocation, useNavigate } from "react-router";
-import { EyeOff, GraduationCap, Keyboard, MessageSquarePlus, Save, UserPlus, X } from "lucide-react";
+import { EyeOff, GraduationCap, Keyboard, MessageSquarePlus, Save, Sigma, UserPlus, X } from "lucide-react";
 import { STACK_MOVES } from "@inkboard/shared/board-order";
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
 import type {
   Element as BoardElement,
   ElementType,
   FrameElement,
+  PenElement,
   StackMove,
   StickyElement,
   TextElement,
@@ -21,6 +22,7 @@ import { api, errorMessage } from "../../lib/api";
 import type { AccountUser, BoardMeta } from "../../lib/api";
 import { getGuest, setGuestName } from "../../lib/guest";
 import { AiDrawDialog } from "./AiDrawDialog";
+import { readAiKey } from "./aiDraw";
 import { BoardCanvas } from "./BoardCanvas";
 import type { TextEdit } from "./BoardCanvas";
 import { BoardMenu } from "./BoardMenu";
@@ -43,6 +45,7 @@ import {
   moveGroup,
 } from "./connectors";
 import { ElementList } from "./ElementList";
+import { EquationDialog } from "./EquationDialog";
 import { describeElement } from "./elementLabels";
 import {
   createElement,
@@ -61,6 +64,7 @@ import { ExportError } from "./exportSize";
 import { fitViewport, rectContains, rectsOverlap, unionRects, zoomAround } from "./geometry";
 import type { Rect, Viewport, XY } from "./geometry";
 import { GuestIdentity } from "./GuestIdentity";
+import { equationElement, strokesToRead } from "./handwriting";
 import { copyGrid, copyNames, copyOffset, placeFree, viewToReveal } from "./placement";
 import { PresenceStack } from "./PresenceStack";
 import { Presenter } from "./Presenter";
@@ -78,7 +82,7 @@ import type { BoardStore } from "./store";
 import { suggestionMarks } from "./suggestions";
 import type { OwnSuggestions, SuggestionGroup } from "./suggestions";
 import { idsInGroup, SuggestionChips, SuggestionsPanel, useSuggestionReview } from "./SuggestionsPanel";
-import { mathSource } from "./math";
+import { formulaOf, mathSource } from "./math";
 import { describeSkipped } from "./mermaid";
 import { MermaidImportDialog } from "./MermaidImportDialog";
 import { LabelEditor, NoteEditor, TextEditor } from "./TextEditor";
@@ -776,6 +780,40 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     addDrawing(drawn, `Imported ${counted(drawn.length)}${skipped.length > 0 ? `; ${describeSkipped(skipped)}` : ""}`);
   };
 
+  // Handwriting to an equation (see handwriting.ts): the selected stroke and those written near it, or the strokes in
+  // the selected frame, read by Claude. The strokes being read, while the dialog checking what Claude read is open.
+  const [readingStrokes, setReadingStrokes] = useState<PenElement[] | null>(null);
+  function convertToEquation() {
+    const strokes = selected
+      ? strokesToRead(store.getElements(), selected).filter((each) => canChange(each, zone))
+      : [];
+    if (strokes.length === 0) {
+      toast("There's no handwriting here to convert. Select something written with the pen.");
+      return;
+    }
+    // It uses the key Draw with AI asks for, which students in classroom mode don't have the button for.
+    if (!readAiKey()) {
+      toast("Converting handwriting uses your own Anthropic key. Add it in Draw with AI first.", {
+        action: student ? undefined : { label: "Draw with AI", onClick: () => setDialog("ai") },
+      });
+      return;
+    }
+    setReadingStrokes(strokes);
+  }
+  // The strokes, as they are now, give way to the equation in one undo step.
+  function insertEquation(latex: string) {
+    // The assertion: the dialog that calls this is open only while there are strokes being read.
+    const read = readingStrokes!;
+    setReadingStrokes(null);
+    const strokes = read.flatMap((stroke) => store.getElement(stroke.id) ?? []);
+    const equation = keepInZone(equationElement(latex, read, formulaOf(`$$${latex}$$`), style));
+    if (!equation) return;
+    const removed = strokes.map((stroke) => stroke.id);
+    store.commit({ undo: { upsert: strokes, remove: [equation.id] }, redo: { upsert: [equation], remove: removed } });
+    selectElement(equation.id);
+    toastWithUndo("Replaced the handwriting with an equation");
+  }
+
   // Classroom mode, for the teacher: started once there are frames for students to claim.
   async function startClassroom() {
     if (!store.getElements().some(isFrame)) {
@@ -1233,6 +1271,15 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                   onToggleCrop={() => setCroppingId((id) => (id ? null : selectedId))}
                   onUncrop={uncropSelected}
                 >
+                  {(selected?.type === "pen" || selected?.type === "frame") && tool === "select" && (
+                    <button
+                      type="button"
+                      onClick={convertToEquation}
+                      className="flex h-8 items-center justify-center gap-1.5 rounded-lg border border-rule text-xs font-medium hover:bg-surface-2"
+                    >
+                      <Sigma className="size-3.5" aria-hidden /> Convert to equation
+                    </button>
+                  )}
                   {isMember && !local && selected?.type === "frame" && tool === "select" && (
                     <FrameClassroom
                       claimedBy={classroom?.claims.find((claim) => claim.frameId === selected.id)?.name ?? null}
@@ -1335,6 +1382,9 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
           getView={visibleArea}
           onDrawn={addAiDrawing}
         />
+      )}
+      {!readOnly && (
+        <EquationDialog strokes={readingStrokes} onClose={() => setReadingStrokes(null)} onInsert={insertEquation} />
       )}
       <SaveTemplateDialog
         open={dialog === "template"}
