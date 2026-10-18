@@ -7,7 +7,9 @@ import {
   DOT_CORE,
   DOT_GAP,
   attachEnd,
+  connectArrow,
   connectTargetAt,
+  connectTargets,
   connectionAt,
   connectionDots,
   copyGroup,
@@ -768,5 +770,65 @@ describe("built-in templates", () => {
       "three steps and the way back",
     );
     assert.doesNotMatch(flowchart.detail, /two endings/);
+  });
+});
+
+describe("connecting from the keyboard", () => {
+  const label = (id: string, x: number): TextElement =>
+    ({
+      id,
+      type: "text",
+      x1: x,
+      y1: 10,
+      text: "Hi",
+      stroke: "#000",
+      fontSize: 20,
+      font: "hand",
+    }) as unknown as TextElement;
+
+  it("offers the other shapes, notes, pictures and text nearest first, but not a shape's own label", () => {
+    const elements: Element[] = [
+      shape("far", 900, 0, 1000, 100),
+      shape("from", 0, 0, 100, 100),
+      label("own-label", 10),
+      shape("near", 200, 0, 300, 100, "ellipse"),
+      shape("note", 0, 400, 100, 500, "sticky"),
+      label("loose-text", 500),
+      arrow("old", "from", "near"),
+      { id: "frame", type: "frame", x1: 120, y1: 0, x2: 180, y2: 60, name: "F" } as unknown as FrameElement,
+    ];
+    assert.deepEqual(
+      connectTargets(elements, byId(elements, "from")).map((target) => target.id),
+      ["near", "note", "loose-text", "far"],
+    );
+  });
+
+  it("draws an arrow attached at both ends, in the style of the moment, stored where it's drawn", () => {
+    const [from, to] = [shape("a", 0, 0, 100, 100), shape("b", 300, 0, 400, 100)];
+    const style = { stroke: "#ff0000", strokeWidth: 2, sketchy: false, route: "elbow", startHead: true, font: "hand" };
+    const made = connectArrow(from, to, style as unknown as Style);
+    assert.equal(made.type, "arrow");
+    assert.equal(made.startId, "a");
+    assert.equal(made.endId, "b");
+    assert.equal("startAnchor" in made || "endAnchor" in made, false, "both ends float, as dropped on the shape");
+    assert.equal(made.stroke, "#ff0000");
+    assert.equal(made.route, "elbow");
+    assert.equal(made.startHead, true);
+    const drawn = byId(resolveConnectors([from, to, made]), made.id);
+    assert.deepEqual([made.x1, made.y1, made.x2, made.y2], [drawn.x1, drawn.y1, drawn.x2, drawn.y2]);
+  });
+
+  it("follows its shapes, and is undone in one step", () => {
+    const store = createBoardStore({ release: releaseFrom });
+    const shapes = [shape("a", 0, 0, 100, 100), shape("b", 300, 0, 400, 100)];
+    store.commit({ undo: { remove: ["a", "b"] }, redo: { upsert: shapes } });
+    const made = connectArrow(shapes[0], shapes[1], { stroke: "#000", strokeWidth: 2 } as unknown as Style);
+    store.commit({ undo: { remove: [made.id] }, redo: { upsert: [made] } });
+    store.commit({ undo: { upsert: [shapes[1]] }, redo: { upsert: [shape("b", 300, 300, 400, 400)] } });
+    near(byId(resolveConnectors(store.getElements()), made.id).y2, 300 - EDGE, "the end went with the shape");
+    store.undo();
+    store.undo();
+    assert.equal(store.getElement(made.id), undefined, "one undo for the move, one for the arrow");
+    assert.ok(store.getElement("a") && store.getElement("b"));
   });
 });

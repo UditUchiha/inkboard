@@ -5,6 +5,7 @@ import { after, before, describe, it } from "node:test";
 import { Notification } from "../src/models/notification.model.ts";
 import { Version } from "../src/models/version.model.ts";
 import { LINK_VISITORS_WARNING, MASS_REMOVAL } from "../src/realtime/link-watch.ts";
+import { versionElements } from "../src/services/versions.ts";
 
 let app: ServerInstance;
 before(async () => {
@@ -33,8 +34,12 @@ describe("people from an edit link", () => {
     await guest.op(id, remove(...ids.slice(MASS_REMOVAL - 5, MASS_REMOVAL)));
 
     await eventually(() => Notification.exists({ board: id, type: "removals" }), { message: "the owner's warning" });
-    const kept = await Version.findOne({ board: id, label: /edit-link/ }).lean();
-    assert.equal(kept?.elements.length, MASS_REMOVAL + 10, "the whole board, from before the first removal");
+    const kept = await Version.findOne({ board: id, label: /edit-link/ });
+    assert.equal(
+      (await versionElements(kept!)).length,
+      MASS_REMOVAL + 10,
+      "the whole board, from before the first removal",
+    );
     await eventually(() => host.of("notification").length === 1, { message: "the warning, live" });
     const { data } = await app.request("/notifications", { user: owner });
     assert.equal((data as { notifications: { type: string }[] }).notifications[0]?.type, "removals", "and listed");

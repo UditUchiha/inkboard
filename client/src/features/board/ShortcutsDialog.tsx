@@ -34,6 +34,7 @@ const EDIT_ACTIONS: Action[] = [
   { label: "Nudge selection", keys: ["Arrow keys"] },
   { label: "Resize selection", keys: [MOD, "Arrow keys"] },
   { label: "Put a shape, line, frame, text or note in the middle", keys: ["Tool key", "Enter"] },
+  { label: "Arrow from the selected shape: pick where to, then draw it", keys: ["K", "Tab", "Enter"] },
   { label: "Edit selected text, note or label", keys: ["Enter"] },
   { label: "Bring forward / send backward", keys: [MOD, "] / ["] },
   { label: "Bring to front / send to back", keys: [MOD, "Shift", "] / ["] },

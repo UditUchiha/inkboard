@@ -1,6 +1,8 @@
 import { randomInt } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
+  compareStamps,
+  groupStamps,
   groupsOf,
   isNonce,
   isStamped,
@@ -14,7 +16,8 @@ import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/boa
 import { cleanElement, isValidId, withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT } from "@inkboard/shared/limits";
 import type { PieceGroup } from "@inkboard/shared/socket";
-import type { Element, FieldGroup, MaybeStamped, Removal, Stamp, Tombstones } from "@inkboard/shared/types";
+import { cleanBases, TEXT_FIELDS, withoutBase } from "@inkboard/shared/text-merge";
+import type { Element, FieldGroup, MaybeStamped, Removal, Stamp, TextField, Tombstones } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 
 // Boards change through operations: { upsert: Element[], remove: Removal[] },
@@ -150,6 +153,30 @@ export function holdPiece(
   return { held: null, op: { upsert: listed("upsert"), remove: listed("remove") } };
 }
 
+// How many elements of one change may have their typing merged with others' (see sanitizeOperation). Typing is
+// one text at a time, so this is far more than a change from the editor has.
+export const MAX_TYPED_PER_CHANGE = 20;
+
+/**
+ * Of the elements a change typed into (`sent`, as prepared), those whose text the board merged with someone else's
+ * typing, or kept as it was, as the board now has them (`stored`). The sender has only its own text, so it's sent these.
+ */
+export function mergedTyping(sent: readonly Element[], stored: (id: string) => Element | undefined): Element[] {
+  const merged: Element[] = [];
+  for (const element of sent) {
+    const now = element.base && stored(element.id);
+    if (!now) continue;
+    const ours = groupStamps(element);
+    const board = groupStamps(now);
+    // Object.keys can only say "strings"; these are the keys of a change's bases, so they are text fields.
+    // The assertion: `now` is only found for an element with bases.
+    const groups = (Object.keys(element.base!) as TextField[]).map((field) => TEXT_FIELDS[field].group);
+    if (groups.some((group) => !board[group] || !ours[group] || compareStamps(board[group], ours[group]) !== 0))
+      merged.push(now);
+  }
+  return merged;
+}
+
 /**
  * The operation as it may be taken in, or null if nothing in it is valid. Along
  * with `upsert` and `remove` it lists what the sender should hear about:
@@ -161,15 +188,22 @@ export function sanitizeOperation(op: RawOperation | null | undefined): Sanitize
   const upsert: Element[] = [];
   const changed: Element[] = [];
   const refused: string[] = [];
+  let typed = 0;
   // What each upsert is isn't known yet: the loop below looks at its id, and cleanElement at the rest.
-  for (const raw of (Array.isArray(op.upsert) ? op.upsert : []) as ({ id?: unknown } | null | undefined)[]) {
+  for (const raw of (Array.isArray(op.upsert) ? op.upsert : []) as (
+    { id?: unknown; base?: unknown } | null | undefined
+  )[]) {
     const element = cleanElement(raw);
     if (!element) {
       if (isValidId(raw?.id)) refused.push(raw.id);
       continue;
     }
-    upsert.push(element);
-    if (!isDeepStrictEqual(raw, element)) changed.push(element);
+    // What the change typed into a text was typed against (see text-merge.ts). Past MAX_TYPED_PER_CHANGE the
+    // rest are taken as they come, the newer text winning, so one change can't make the server diff for long.
+    const base = typed < MAX_TYPED_PER_CHANGE ? cleanBases(raw?.base, element) : undefined;
+    if (base) typed += 1;
+    upsert.push(base ? { ...element, base } : element);
+    if (!isDeepStrictEqual(raw, base ? { ...element, base } : element)) changed.push(element);
   }
   // filter(Boolean) drops the removals that weren't valid (they come back null), which the type can't see.
   const remove = (Array.isArray(op.remove) ? op.remove.map(cleanRemoval).filter(Boolean) : []) as Removal[];
@@ -233,7 +267,8 @@ export function prepareOperation(
   let top = topKey(elements);
 
   const upsert = op.upsert.map((incoming) => {
-    let element = incoming;
+    // An older app's typing replaces the text whole, as it always did (see text-merge.ts).
+    let element = legacy && incoming.base ? withoutBase(incoming) : incoming;
     if (legacy || !believable(element)) {
       const stamp = believable(element) ? stampOf(element) : fresh(element.id);
       element = withStamps(

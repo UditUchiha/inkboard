@@ -52,6 +52,25 @@ export function serializeNotification(
   };
 }
 
+// The most notifications one person keeps. They also expire after 60 days (see the model), but anyone can
+// make boards and invite someone, or mention them, as often as they like, and listing them reads them all.
+export const MAX_NOTIFICATIONS_PER_PERSON = 500;
+
+// Deletes each person's oldest notifications beyond the cap, read or not. Run after creating some.
+async function trimNotifications(userIds: string[]) {
+  await Promise.all(
+    userIds.map(async (user) => {
+      // Uses the { user, createdAt } index, and only walks past the newest ones kept.
+      const extra = await Notification.find({ user })
+        .sort({ createdAt: -1 })
+        .skip(MAX_NOTIFICATIONS_PER_PERSON)
+        .select("_id")
+        .lean();
+      if (extra.length > 0) await Notification.deleteMany({ _id: { $in: extra.map((old) => old._id) } });
+    }),
+  );
+}
+
 /**
  * Tells a board's owner that `author` suggested changes on it (see docs/suggest-mode.md). While an earlier
  * notification about suggestions on the board is still unread, they aren't sent another, whoever suggests.
@@ -78,6 +97,7 @@ export async function notifySuggestion(boardId: string, author: Participant) {
         avatarUrl: author.avatarUrl,
       } as unknown as Person);
   notifyUser(String(board.owner), serializeNotification(notification, { actor, board }));
+  await trimNotifications([String(board.owner)]);
 }
 
 /**
@@ -98,6 +118,7 @@ export async function warnOwner(boardId: string, type: "visitors" | "removals", 
     excerpt,
   });
   notifyUser(String(board.owner), serializeNotification(notification, { actor: null, board }));
+  await trimNotifications([String(board.owner)]);
 }
 
 const EXCERPT_LENGTH = 140;
@@ -149,5 +170,6 @@ export async function notify({ users, type, actor, board, thread = null, excerpt
   for (const notification of created) {
     notifyUser(idOf(notification.user), serializeNotification(notification, { actor, board }));
   }
+  await trimNotifications(recipients);
   return recipients;
 }

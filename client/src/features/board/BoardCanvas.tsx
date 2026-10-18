@@ -110,6 +110,8 @@ export type BoardCanvasProps = {
   onViewportChange: (next: Viewport | ((current: Viewport) => Viewport)) => void;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  // While connecting from the keyboard, the shape an arrow from the selection would go to: it's outlined (see BoardEditor).
+  connectTargetId?: string | undefined;
   // The element whose text is being edited, if any: it is left out of the drawing meanwhile.
   editingId?: string | undefined;
   onEditText: (edit: TextEdit) => void;
@@ -219,6 +221,7 @@ export function BoardCanvas({
   onViewportChange,
   selectedId,
   onSelect,
+  connectTargetId,
   editingId,
   onEditText,
   spacePressed,
@@ -285,7 +288,7 @@ export function BoardCanvas({
       hiddenId: editingId,
       dark: theme === "dark",
       screenLabels: true,
-      connectTargetId: hint.outline,
+      connectTargetId: connectTargetId ?? hint.outline,
       dots: hint.dots,
       suggestions,
       croppingId,
@@ -301,6 +304,7 @@ export function BoardCanvas({
     picturesLoaded,
     theme,
     hint,
+    connectTargetId,
     suggestions,
     croppingId,
     frameClaims,

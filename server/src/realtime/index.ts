@@ -57,6 +57,7 @@ import {
   holdPiece,
   isOversized,
   MAX_GROUP_BYTES,
+  mergedTyping,
   prepareOperation,
   sanitizeOperation,
   SYNC_FORMAT,
@@ -628,8 +629,11 @@ function takeOperation(
     announceSettled(session, settleSuggestions(session.suggestions, session, touched));
   }
 
-  // The sender made these changes on its own screen, so it's told where the board differs.
-  const cleaned = sanitized.changed;
+  // The sender made these changes on its own screen, so it's told where the board differs, its typing merged with
+  // others' included.
+  const typed = mergedTyping(op.upsert, (id) => session.index.get(id));
+  const merged = new Set(typed.map((element) => element.id));
+  const cleaned = [...sanitized.changed.filter((element) => !merged.has(element.id)), ...typed];
   for (const id of [...sanitized.refused, ...(outside?.upsert ?? [])]) {
     const stored = session.index.get(id);
     if (stored) cleaned.push(stored);

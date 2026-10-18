@@ -17,6 +17,7 @@ import { inStackOrder, isOrderKey, keyAbove, topKey } from "@inkboard/shared/boa
 import { withDefaults } from "@inkboard/shared/element-rules";
 import { MAX_REMOVALS_REMEMBERED } from "@inkboard/shared/limits";
 import type { RemovedStamp } from "@inkboard/shared/socket";
+import { mergeText, spliceOf, TEXT_FIELDS, withoutBase } from "@inkboard/shared/text-merge";
 import type {
   Element as BoardElement,
   Effect,
@@ -27,6 +28,8 @@ import type {
   Operation,
   Removal,
   Stamp,
+  TextBases,
+  TextField,
   Tombstones,
 } from "@inkboard/shared/types";
 import type { ConnectorChange } from "./connectors";
@@ -76,7 +79,12 @@ export type Reconciliation = {
   dropped?: readonly string[];
   restored?: readonly BoardElement[];
   sent?: ReadonlyMap<string, Stamp>;
+  typed?: Typing;
+  typing?: Typing;
 };
+
+/** Text typed here, as the property groups it's in by element id: what a change typed, or what's still unanswered. */
+export type Typing = ReadonlyMap<string, ReadonlySet<FieldGroup>>;
 
 /** What createBoardStore takes: how the editor lets connectors go, and the board's size limit (see there). */
 export type BoardStoreOptions = {
@@ -102,8 +110,8 @@ export type BoardStore = {
   load(next: BoardElement[], removed?: unknown): void;
   /** Reconnected: the board as the server has it, with `unsent` on top. History is kept. */
   rejoin(next: BoardElement[], unsent?: Operation, removed?: unknown): void;
-  /** Applies a collaborator's change. */
-  applyRemote(op: Operation): void;
+  /** Applies a collaborator's change, keeping the text of `typing` as it is here. */
+  applyRemote(op: Operation, typing?: Typing): void;
   /** Shows what the server stored, where it differs from what was sent. */
   reconcile(reply: Reconciliation): void;
   /** Forgets the undo and redo history (it would put things back where they can't go). */
@@ -131,9 +139,18 @@ const differs = (a: Fields, b: Fields, group: FieldGroup): boolean =>
  * `element` (ours) with the server's copy of it (`theirs`, in a reply to a change) taken in group by
  * group: a group is replaced when ours still has the stamp it was sent with (`sent`, the newest stamp
  * of the change) or the stamp the server's copy has (the same change, which it only cleaned). A group
- * that someone else's change has replaced since has a newer stamp, and stays as it is.
+ * that someone else's change has replaced since has a newer stamp, and stays as it is. Text the change
+ * typed (in `typed`) is replaced whatever its stamp: the server merged it with others' typing that came
+ * first, which this screen kept from showing meanwhile (see applyRemote). Text typed here since (in
+ * `typing`) stays, for the server's answer to that to replace.
  */
-function mergeServerCopy(element: BoardElement, theirs: BoardElement, sent: Stamp | undefined): BoardElement {
+function mergeServerCopy(
+  element: BoardElement,
+  theirs: BoardElement,
+  sent: Stamp | undefined,
+  typed: ReadonlySet<FieldGroup> | undefined,
+  typing: ReadonlySet<FieldGroup> | undefined,
+): BoardElement {
   const mine = groupStamps(element);
   const server = groupStamps(theirs);
   // The assertions: Boolean(a && b) has checked that both are there, which TypeScript doesn't follow.
@@ -144,7 +161,10 @@ function mergeServerCopy(element: BoardElement, theirs: BoardElement, sent: Stam
   let kept = 0;
   // The cast: Object.keys gives strings, and these are the keys of a GroupStamps, which are groups.
   for (const group of new Set([...Object.keys(mine), ...Object.keys(server)] as FieldGroup[])) {
-    const take = server[group] && (!mine[group] || same(mine[group], server[group]) || same(mine[group], sent));
+    const take =
+      server[group] &&
+      !typing?.has(group) &&
+      (!mine[group] || typed?.has(group) || same(mine[group], server[group]) || same(mine[group], sent));
     copyGroup(fields, take ? theirs : element, group);
     stamps[group] = take ? server[group] : mine[group];
     if (take) taken += 1;
@@ -153,6 +173,58 @@ function mergeServerCopy(element: BoardElement, theirs: BoardElement, sent: Stam
   if (taken === 0) return element;
   if (kept === 0) return theirs;
   return withStamps(fields, stamps);
+}
+
+/**
+ * The text fields a change typed into (in `changed` groups): `fields` has the change over the element as it is
+ * here (`live`), and where someone else's typing reached this screen since the change was made from `from` (an
+ * undo of typing, say), the two are merged in it, as the server would. Returns what each of those fields is
+ * here, to send along (see text-merge.ts): the server merges in typing it has that this screen hasn't seen yet.
+ */
+function typedOnto(fields: Fields, from: Fields, live: Fields, changed: FieldGroup[]): TextBases | undefined {
+  let bases: TextBases | undefined;
+  // Object.entries can only say "strings"; these are the keys of TEXT_FIELDS, so they are text fields.
+  for (const [field, { group, max }] of Object.entries(TEXT_FIELDS) as [
+    TextField,
+    { group: FieldGroup; max: number },
+  ][]) {
+    const typed = fields[field];
+    const now = live[field];
+    if (!changed.includes(group) || typeof typed !== "string" || typeof now !== "string") continue;
+    const before = from[field];
+    const text = typeof before === "string" && before !== now ? (mergeText(before, now, typed, max) ?? typed) : typed;
+    fields[field] = text;
+    (bases ??= {})[field] = spliceOf(now, text);
+  }
+  return bases;
+}
+
+// `element` with the `groups` it had `before` a change was taken in put back, where the change replaced them.
+function keepTyping(
+  element: BoardElement,
+  before: BoardElement | undefined,
+  groups: ReadonlySet<FieldGroup> | undefined,
+): BoardElement {
+  if (!before || before === element || !groups) return element;
+  const now = groupStamps(element);
+  const was = groupStamps(before);
+  const fields: Fields = { ...element };
+  let kept = false;
+  for (const group of groups) {
+    if (!was[group] || (now[group] && compareStamps(now[group], was[group]) === 0)) continue;
+    copyGroup(fields, before, group);
+    now[group] = was[group];
+    kept = true;
+  }
+  return kept ? withStamps(fields, now) : element;
+}
+
+// `op` without the bases of its typing, to be taken in as it is rather than merged into what's here: a change
+// from the server was merged there already, and one of ours taken in again (to send again, or to show over the
+// board on a reconnect) is here already, so merging its typing in again would type it twice.
+function asItIs(op: Operation): Operation {
+  if (!op.upsert?.some((element) => element.base)) return op;
+  return { ...op, upsert: op.upsert.map((element) => (element.base ? withoutBase(element) : element)) };
 }
 
 /** Changes waiting to be sent (id -> element, or { removal }) as one operation. */
@@ -299,7 +371,8 @@ export function createBoardStore({
         copyGroup(fields, element, group);
         stamps[group] = stampNow;
       }
-      stamped.upsert.push(withStamps(fields, stamps));
+      const base = typedOnto(fields, from, live, changed);
+      stamped.upsert.push(base ? { ...withStamps(fields, stamps), base } : withStamps(fields, stamps));
     }
     return stamped.upsert.length > 0 || stamped.remove.length > 0 ? stamped : null;
   }
@@ -468,12 +541,23 @@ export function createBoardStore({
     rejoin(next, unsent = { upsert: [], remove: [] }, removed = []) {
       setElements(inStackOrder(next.map(withDefaults)));
       startRemoved(removed);
-      take(unsent);
+      take(asItIs(unsent));
       publish();
     },
     /** Apply a collaborator's change. */
-    applyRemote(op) {
-      take(op);
+    applyRemote(op, typing = new Map()) {
+      const before = new Map<string, BoardElement>();
+      for (const id of typing.keys()) {
+        const element = byId().get(id);
+        if (element) before.set(id, element);
+      }
+      take(asItIs(op));
+      // Text typed here that the server hasn't answered yet stays: the server merges it with this change, and its
+      // answer shows the two together. Taking this change's text meanwhile would hide what was just typed.
+      if (before.size > 0) {
+        // The assertion: `before` only has ids that are in `typing`.
+        setElements(elements.map((element) => keepTyping(element, before.get(element.id), typing.get(element.id)!)));
+      }
       publish();
     },
     /**
@@ -487,14 +571,16 @@ export function createBoardStore({
      * group by group (see mergeServerCopy), so a change merged in from someone else since, to a
      * group that wasn't part of what was sent, isn't undone along with it. `restored` are elements
      * removed here that the server kept (in classroom mode, a student's outside their frame): they
-     * come back as the server has them, and are no longer remembered as removed.
+     * come back as the server has them, and are no longer remembered as removed. `typed` is the text
+     * the change typed, which comes back merged with others' typing, and `typing` text typed here
+     * since, which stays (both by element id: see mergeServerCopy).
      */
     forgetHistory() {
       undoStack = [];
       redoStack = [];
       publish();
     },
-    reconcile({ cleaned = [], dropped = [], restored = [], sent = new Map() }) {
+    reconcile({ cleaned = [], dropped = [], restored = [], sent = new Map(), typed = new Map(), typing = new Map() }) {
       const refused = new Set(dropped);
       const stored = new Map(cleaned.map((element) => [element.id, element]));
       const back = restored.filter((element) => !byId().has(element.id));
@@ -508,7 +594,9 @@ export function createBoardStore({
           ...elements.flatMap((element) => {
             if (refused.has(element.id)) return [];
             const theirs = stored.get(element.id);
-            return [theirs ? mergeServerCopy(element, theirs, sent.get(element.id)) : element];
+            if (!theirs) return [element];
+            const { id } = element;
+            return [mergeServerCopy(element, theirs, sent.get(id), typed.get(id), typing.get(id))];
           }),
           ...back.map(withDefaults),
         ]),
