@@ -1,5 +1,5 @@
 import type { Element as BoardElement, StickyElement, TextElement } from "@inkboard/shared/types";
-import type { TextEdit } from "./BoardCanvas";
+import type { TextEdit } from "../constants/editor";
 import { drawnElement, isConnector } from "../lib/elements/connectors";
 import type { Connector } from "../lib/elements/elements";
 import type { Viewport } from "../lib/elements/geometry";

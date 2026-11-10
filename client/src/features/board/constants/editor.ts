@@ -1,3 +1,7 @@
+import type { Element as BoardElement } from "@inkboard/shared/types";
+
+export type TextEdit = { element: BoardElement; isNew: boolean };
+
 export const FRAME_COPY_GAP = 80;
 export const MERMAID_GAP = 120; // between an imported diagram and what was on the board
 

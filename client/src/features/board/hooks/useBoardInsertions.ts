@@ -1,6 +1,6 @@
 import type { Element as BoardElement, TextElement } from "@inkboard/shared/types";
 import { toast } from "sonner";
-import type { TextEdit } from "../components/BoardCanvas";
+import type { TextEdit } from "../constants/editor";
 import type { Style, ToolId } from "../constants/board";
 import { CLAIM_FIRST, CLASSROOM_TOAST, MERMAID_GAP } from "../constants/editor";
 import type { Zone } from "../lib/elements/classroom";

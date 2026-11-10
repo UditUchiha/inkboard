@@ -1,7 +1,7 @@
 import { MAX_TEXT_LENGTH } from "@inkboard/shared/element-rules";
 import type { Element as BoardElement, StickyElement, TextElement } from "@inkboard/shared/types";
 import { useCallback, useState } from "react";
-import type { TextEdit } from "../components/BoardCanvas";
+import type { TextEdit } from "../constants/editor";
 import { canChange } from "../lib/elements/classroom";
 import type { Zone } from "../lib/elements/classroom";
 import { isConnector } from "../lib/elements/connectors";
