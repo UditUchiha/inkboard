@@ -9,9 +9,7 @@ const FEATURE_FOLDERS = new Set(["components", "hooks", "lib", "constants", "typ
 const APP_WIDE = ["client/src/components/", "client/src/hooks/", "client/src/lib/", "client/src/providers/"];
 
 // Files still over the size limit. Remove an entry in the change that splits the file; never add one.
-const SIZE_DEBT = new Set<string>([
-  "client/src/features/board/components/PropertiesPanel.tsx",
-]);
+const SIZE_DEBT = new Set<string>([]);
 
 const walk = (dir: string, out: string[] = []): string[] => {
   for (const entry of readdirSync(dir)) {
