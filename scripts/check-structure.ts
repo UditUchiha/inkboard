@@ -16,7 +16,6 @@ const SIZE_DEBT = new Set<string>([
   "client/src/features/board/components/PropertiesPanel.tsx",
   "client/src/features/board/components/ShareDialog.tsx",
   "client/src/features/board/hooks/useBoardSync.ts",
-  "client/src/pages/DashboardPage.tsx",
   "server/src/realtime/index.ts",
 ]);
 
