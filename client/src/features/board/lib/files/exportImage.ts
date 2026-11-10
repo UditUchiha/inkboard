@@ -5,7 +5,7 @@ import { downloadBlob, pictureDataUrls, safeFileName } from "./files";
 import { ExportError, MIN_SCALE, exportScale } from "./exportSize";
 import { loadImagesOf, releaseImages } from "./images";
 import { loadFormulas } from "../elements/math";
-import { elementsToMermaid } from "../mermaid/mermaid";
+import { elementsToMermaid } from "../mermaid/export";
 import { loadCanvasFonts, renderScene } from "../render/renderer";
 import { buildSvg, fontsUsed } from "./svgExport";
 import { fontFacesFor, measureBaselines } from "./svgFonts";

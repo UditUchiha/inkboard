@@ -1,16 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Element, ShapeElement, TextElement } from "@inkboard/shared/types";
-import {
-  describeSkipped,
-  elementsToMermaid,
-  layoutFlowchart,
-  layoutSequence,
-  MermaidError,
-  mermaidToElements,
-  parseFlowchart,
-  parseSequence,
-} from "../src/features/board/lib/mermaid/mermaid.ts";
+import { MermaidError } from "../src/features/board/lib/mermaid/common.ts";
+import { elementsToMermaid } from "../src/features/board/lib/mermaid/export.ts";
+import { layoutFlowchart, parseFlowchart } from "../src/features/board/lib/mermaid/flowchart.ts";
+import { describeSkipped, mermaidToElements } from "../src/features/board/lib/mermaid/mermaid.ts";
+import { layoutSequence, parseSequence } from "../src/features/board/lib/mermaid/sequence.ts";
 import type { ApiElement } from "@inkboard/shared/api-elements";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in makes every character 10 wide.
