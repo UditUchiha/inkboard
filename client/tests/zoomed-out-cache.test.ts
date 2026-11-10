@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Element, ShapeElement } from "@inkboard/shared/types";
-import type { Rect } from "../src/features/board/geometry.ts";
+import type { Rect } from "../src/features/board/lib/elements/geometry.ts";
 import {
   TILE,
   TILES_MAX_ZOOM,
@@ -10,7 +10,7 @@ import {
   drawsFromTiles,
   tileCount,
   tilesTouching,
-} from "../src/features/board/zoomedOutCache.ts";
+} from "../src/features/board/lib/render/zoomedOutCache.ts";
 
 const box = (id: string, x: number, y: number, extra: Record<string, unknown> = {}): ShapeElement =>
   ({ id, type: "rectangle", x1: x, y1: y, x2: x + 50, y2: y + 50, ...extra }) as unknown as ShapeElement;

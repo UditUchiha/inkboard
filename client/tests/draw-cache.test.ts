@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PenElement, Point, ShapeElement } from "@inkboard/shared/types";
-import { createDrawingCache, movedBy } from "../src/features/board/drawCache.ts";
-import { shapePaths } from "../src/features/board/renderer.ts";
-import { resolveConnectors } from "../src/features/board/connectors.ts";
-import { translate } from "../src/features/board/elements.ts";
+import { createDrawingCache, movedBy } from "../src/features/board/lib/render/drawCache.ts";
+import { shapePaths } from "../src/features/board/lib/render/renderer.ts";
+import { resolveConnectors } from "../src/features/board/lib/elements/connectors.ts";
+import { translate } from "../src/features/board/lib/elements/elements.ts";
 
 const rect = (id: string, x = 0, y = 0, extra: Record<string, unknown> = {}): ShapeElement =>
   ({

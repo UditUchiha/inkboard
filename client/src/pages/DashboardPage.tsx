@@ -9,11 +9,11 @@ import { ConfirmDialog } from "../components/Dialog";
 import { Menu, MenuItem, MenuLabel } from "../components/Menu";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { APP_NAME } from "../config";
-import { BoardCard } from "../features/dashboard/BoardCard";
-import { BoardTable } from "../features/dashboard/BoardTable";
-import { DashboardNav } from "../features/dashboard/DashboardNav";
-import type { BoardActions } from "../features/dashboard/BoardParts";
-import { RenameDialog } from "../features/dashboard/RenameDialog";
+import { BoardCard } from "../features/dashboard/components/BoardCard";
+import { BoardTable } from "../features/dashboard/components/BoardTable";
+import { DashboardNav } from "../features/dashboard/components/DashboardNav";
+import type { BoardActions } from "../features/dashboard/components/BoardParts";
+import { RenameDialog } from "../features/dashboard/components/RenameDialog";
 import {
   compareBoards,
   DEFAULT_SORT,
@@ -22,11 +22,11 @@ import {
   isView,
   SECTIONS,
   SORT_KEYS,
-} from "../features/dashboard/sections";
-import type { BoardSummary, SectionId, Sort, SortKey, View } from "../features/dashboard/sections";
-import { useBoards } from "../features/dashboard/useBoards";
-import { useStoredState } from "../features/dashboard/useStoredState";
-import { NewBoardDialog } from "../features/templates/NewBoardDialog";
+} from "../features/dashboard/lib/sections";
+import type { BoardSummary, SectionId, Sort, SortKey, View } from "../features/dashboard/lib/sections";
+import { useBoards } from "../features/dashboard/hooks/useBoards";
+import { useStoredState } from "../features/dashboard/hooks/useStoredState";
+import { NewBoardDialog } from "../features/templates/components/NewBoardDialog";
 import { api, errorMessage } from "../lib/api";
 import type { CreateBoardInput } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";

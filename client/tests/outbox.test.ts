@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { spliceOf, textBefore } from "@inkboard/shared/text-merge";
 import type { Effect, Element, Stamp } from "@inkboard/shared/types";
-import { createCursorStore } from "../src/features/board/cursors.ts";
-import { createOutbox } from "../src/features/board/outbox.ts";
-import type { Piece } from "../src/features/board/outbox.ts";
-import type { Typing } from "../src/features/board/store.ts";
+import { createCursorStore } from "../src/features/board/lib/render/cursors.ts";
+import { createOutbox } from "../src/features/board/lib/sync/outbox.ts";
+import type { Piece } from "../src/features/board/lib/sync/outbox.ts";
+import type { Typing } from "../src/features/board/lib/sync/store.ts";
 
 interface SettleRetry {
   kind: "retry";

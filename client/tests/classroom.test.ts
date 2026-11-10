@@ -10,10 +10,10 @@ import {
   frameAt,
   pointInside,
   staysInside,
-} from "../src/features/board/classroom.ts";
-import { frameContents } from "../src/features/board/elements.ts";
-import { createBoardStore } from "../src/features/board/store.ts";
-import { copyGrid, copyNames } from "../src/features/board/placement.ts";
+} from "../src/features/board/lib/elements/classroom.ts";
+import { frameContents } from "../src/features/board/lib/elements/elements.ts";
+import { createBoardStore } from "../src/features/board/lib/sync/store.ts";
+import { copyGrid, copyNames } from "../src/features/board/lib/elements/placement.ts";
 
 const frame: FrameElement = { id: "f", type: "frame", x1: 0, y1: 0, x2: 400, y2: 300, name: "Frame 1" };
 const rect = (id: string, x: number, y: number, size = 50) =>

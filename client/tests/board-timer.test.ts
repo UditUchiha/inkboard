@@ -5,7 +5,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 register("./jsx-hooks.js", import.meta.url);
-const { BoardTimer, StartTimer, formatTimeLeft, timeLeft } = await import("../src/features/board/BoardTimer.tsx");
+const { BoardTimer, StartTimer, formatTimeLeft, timeLeft } =
+  await import("../src/features/board/components/BoardTimer.tsx");
 
 const render = (props: Parameters<typeof BoardTimer>[0]) => renderToStaticMarkup(createElement(BoardTimer, props));
 const onControl = () => {};

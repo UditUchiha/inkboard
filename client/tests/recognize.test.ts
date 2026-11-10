@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Point } from "@inkboard/shared/types";
-import type { Pair } from "../src/features/board/geometry.ts";
-import { recognizeStroke } from "../src/features/board/recognize.ts";
+import type { Pair } from "../src/features/board/lib/elements/geometry.ts";
+import { recognizeStroke } from "../src/features/board/lib/elements/recognize.ts";
 
 // A hand's wobble, the same every run.
 const wobble = (i: number, size: number) => Math.sin(i * 1.7) * size;

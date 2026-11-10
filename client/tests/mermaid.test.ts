@@ -10,7 +10,7 @@ import {
   mermaidToElements,
   parseFlowchart,
   parseSequence,
-} from "../src/features/board/mermaid.ts";
+} from "../src/features/board/lib/mermaid/mermaid.ts";
 import type { ApiElement } from "@inkboard/shared/api-elements";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in makes every character 10 wide.

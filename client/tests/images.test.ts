@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ImageElement } from "@inkboard/shared/types";
 
-const { createImage, duplicate, getBounds, hitTest, translate } = await import("../src/features/board/elements.ts");
-const { getSelectionBox, resizeElement, rotateElement } = await import("../src/features/board/transform.ts");
-const { fitWithin, isImageFile, placementSize } = await import("../src/features/board/images.ts");
+const { createImage, duplicate, getBounds, hitTest, translate } =
+  await import("../src/features/board/lib/elements/elements.ts");
+const { getSelectionBox, resizeElement, rotateElement } =
+  await import("../src/features/board/lib/elements/transform.ts");
+const { fitWithin, isImageFile, placementSize } = await import("../src/features/board/lib/files/images.ts");
 
 const near = (actual: number, expected: number, message: string) =>
   assert.ok(Math.abs(actual - expected) <= 1e-6, `${message}: expected ${expected}, got ${actual}`);
@@ -152,7 +154,7 @@ describe("the picture cache", () => {
     let now = 1_000_000;
     Date.now = () => now;
     try {
-      const { getImage } = await import("../src/features/board/images.ts");
+      const { getImage } = await import("../src/features/board/lib/files/images.ts");
       const id = "c".repeat(32);
       const fail = () => created.at(-1)!.onerror();
       getImage(id);
@@ -181,7 +183,7 @@ describe("the picture cache", () => {
   it("does not keep every picture it has ever shown", async () => {
     globalThis.Image = FakeImage as unknown as typeof Image;
     try {
-      const { getImage } = await import("../src/features/board/images.ts");
+      const { getImage } = await import("../src/features/board/lib/files/images.ts");
       const first = "d".repeat(32);
       getImage(first);
       created.at(-1)!.onload();
@@ -203,7 +205,7 @@ describe("the picture cache", () => {
     let now = 5_000_000;
     Date.now = () => now;
     try {
-      const { MAX_CACHED, getImage, showingImages } = await import("../src/features/board/images.ts");
+      const { MAX_CACHED, getImage, showingImages } = await import("../src/features/board/lib/files/images.ts");
       const canvas = { isConnected: true };
       let ids = Array.from({ length: MAX_CACHED + 50 }, (_, index: number) => `shown-${index}`);
       const missing = "9".repeat(32);
@@ -252,7 +254,7 @@ describe("the picture cache", () => {
 
 describe("canvases kept on show", () => {
   it("are dropped once they leave the page or are released, even while the cache is small", async () => {
-    const { showingImages, releaseImages, canvasesShowing } = await import("../src/features/board/images.ts");
+    const { showingImages, releaseImages, canvasesShowing } = await import("../src/features/board/lib/files/images.ts");
     const ids = new Set(["a".repeat(32)]);
     const base = canvasesShowing();
     const onPage = { isConnected: true };

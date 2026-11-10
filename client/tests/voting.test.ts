@@ -7,7 +7,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 register("./jsx-hooks.js", import.meta.url);
-const { VotingBar, voteFor, voteTarget } = await import("../src/features/board/Voting.tsx");
+const { VotingBar, voteFor, voteTarget } = await import("../src/features/board/components/Voting.tsx");
 
 const note = {
   id: "note",

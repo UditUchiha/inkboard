@@ -9,10 +9,10 @@ import type { FrameElement, StickyElement } from "@inkboard/shared/types";
   }),
 };
 
-const { copyOffset } = await import("../src/features/board/placement.ts");
-const { copyGroup } = await import("../src/features/board/connectors.ts");
-const { getSceneBounds } = await import("../src/features/board/elements.ts");
-const { rectsOverlap } = await import("../src/features/board/geometry.ts");
+const { copyOffset } = await import("../src/features/board/lib/elements/placement.ts");
+const { copyGroup } = await import("../src/features/board/lib/elements/connectors.ts");
+const { getSceneBounds } = await import("../src/features/board/lib/elements/elements.ts");
+const { rectsOverlap } = await import("../src/features/board/lib/elements/geometry.ts");
 
 const frame = (id: string, x1: number, y1: number, x2: number, y2: number): FrameElement => ({
   id,
@@ -67,7 +67,7 @@ describe("where a copy of a frame goes", () => {
 
 describe("bringing an element into view", () => {
   it("leaves the view alone when any of the element is showing, and centres it otherwise", async () => {
-    const { viewToReveal } = await import("../src/features/board/placement.ts");
+    const { viewToReveal } = await import("../src/features/board/lib/elements/placement.ts");
     const viewport = { x: 0, y: 0, zoom: 2 };
     const size = { width: 800, height: 600 }; // shows 400 x 300 units from the origin
     assert.equal(viewToReveal(viewport, size, { x: 390, y: 10, width: 100, height: 50 }), viewport);

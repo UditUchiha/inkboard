@@ -3,7 +3,7 @@ import { Bell } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { timeAgo } from "../lib/format";
-import { useMinute } from "../lib/useMinute";
+import { useMinute } from "../hooks/useMinute";
 import type { NotificationItem as Notification } from "../lib/api";
 import { describeNotification, notificationLink, useNotifications } from "../providers/NotificationsProvider";
 import { Avatar } from "./Avatar";

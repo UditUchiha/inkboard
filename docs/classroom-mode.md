@@ -38,7 +38,7 @@ invited editors are teachers. Viewers can only look, as always.
   ends. Whatever was added, changed or removed outside the frame is left out, and the student's screen puts it back
   (`cleaned`, `dropped` and `restored` in the reply), with nothing else lost. A change through the public API is taken
   whole or not at all. Suggestions in private mode are held to the same rule.
-- **The browser keeps students inside** (`client/src/features/board/classroom.ts`), so the server almost never has
+- **The browser keeps students inside** (`client/src/features/board/lib/elements/classroom.ts`), so the server almost never has
   to refuse anything. What a student's changes make must also fit inside the frame as it's drawn, strokes included.
   That is what decides what a frame holds, so a student's work moves with their frame when the teacher moves it.
 - **The edit-link warnings are off while it's on** (`realtime/link-watch.ts`): the teacher hands the link to a whole

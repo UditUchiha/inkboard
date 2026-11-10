@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mathSource } from "../src/features/board/math.ts";
-import { createTypesetter } from "../src/features/board/mathjax.ts";
+import { mathSource } from "../src/features/board/lib/elements/math.ts";
+import { createTypesetter } from "../src/features/board/lib/render/mathjax.ts";
 
 describe("mathSource", () => {
   it("reads the TeX of a text written between $$ signs", () => {

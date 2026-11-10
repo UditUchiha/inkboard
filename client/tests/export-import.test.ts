@@ -10,11 +10,11 @@ import type { Font, ImageElement, PenElement, ShapeElement, StickyElement, TextE
   }),
 };
 
-const { buildSvg, fontsUsed, SVG_PADDING } = await import("../src/features/board/svgExport.ts");
-const boardFile = await import("../src/features/board/boardFile.ts");
+const { buildSvg, fontsUsed, SVG_PADDING } = await import("../src/features/board/lib/files/svgExport.ts");
+const boardFile = await import("../src/features/board/lib/files/boardFile.ts");
 const { BoardFileError, makeBoardFile, parseBoardFile, placeElements } = boardFile;
-const { getSceneBounds } = await import("../src/features/board/elements.ts");
-const { toOperations } = await import("../src/features/board/store.ts");
+const { getSceneBounds } = await import("../src/features/board/lib/elements/elements.ts");
+const { toOperations } = await import("../src/features/board/lib/sync/store.ts");
 
 const rect = (id: string, x = 0, y = 0, extra: Record<string, unknown> = {}): ShapeElement =>
   ({
@@ -362,7 +362,7 @@ describe("sending changes in pieces: cost", () => {
 
 describe("exporting a picture", () => {
   it("stays inside what a canvas can be, whatever the shape of the board", async () => {
-    const { exportScale } = await import("../src/features/board/exportSize.ts");
+    const { exportScale } = await import("../src/features/board/lib/files/exportSize.ts");
     assert.equal(exportScale(500, 500), 2);
     for (const [width, height] of [
       [8000, 8000],

@@ -2,10 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { FIELD_GROUPS, MAX_VERSION } from "@inkboard/shared/board-merge";
 import type { Effect, Element, ShapeElement, StackMove, StickyElement, Tombstones } from "@inkboard/shared/types";
-import type { Style } from "../src/features/board/constants.ts";
-import { createElement, createImage, createNote, duplicate, stackKey } from "../src/features/board/elements.ts";
-import { applyOperation, createBoardStore } from "../src/features/board/store.ts";
-import type { BoardStore } from "../src/features/board/store.ts";
+import type { Style } from "../src/features/board/constants/board.ts";
+import {
+  createElement,
+  createImage,
+  createNote,
+  duplicate,
+  stackKey,
+} from "../src/features/board/lib/elements/elements.ts";
+import { applyOperation, createBoardStore } from "../src/features/board/lib/sync/store.ts";
+import type { BoardStore } from "../src/features/board/lib/sync/store.ts";
 
 const rect = (id: string, x = 0): ShapeElement =>
   ({

@@ -4,10 +4,10 @@ import type { SuggestionPutReply } from "@inkboard/shared/socket";
 import { changedGroups, stampsOf, suggestionId } from "@inkboard/shared/suggestions";
 import type { Suggestion, SuggestionDraft } from "@inkboard/shared/suggestions";
 import type { Effect, Element, ShapeElement } from "@inkboard/shared/types";
-import { createBoardStore } from "../src/features/board/store.ts";
-import type { BoardStore } from "../src/features/board/store.ts";
-import { createSuggester } from "../src/features/board/suggesting.ts";
-import { createSuggestionStore } from "../src/features/board/suggestions.ts";
+import { createBoardStore } from "../src/features/board/lib/sync/store.ts";
+import type { BoardStore } from "../src/features/board/lib/sync/store.ts";
+import { createSuggester } from "../src/features/board/lib/sync/suggesting.ts";
+import { createSuggestionStore } from "../src/features/board/lib/sync/suggestions.ts";
 
 const rect = (id: string, x = 0, fields: Partial<ShapeElement> = {}): ShapeElement =>
   ({

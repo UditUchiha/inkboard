@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compareBoards, daysLeft, isMember, SECTIONS } from "../src/features/dashboard/sections.ts";
-import type { BoardSummary, SectionId } from "../src/features/dashboard/sections.ts";
+import { compareBoards, daysLeft, isMember, SECTIONS } from "../src/features/dashboard/lib/sections.ts";
+import type { BoardSummary, SectionId } from "../src/features/dashboard/lib/sections.ts";
 
 const board = (overrides?: Partial<BoardSummary>): BoardSummary =>
   ({

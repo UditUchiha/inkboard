@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Element } from "@inkboard/shared/types";
-import { DEFAULT_STYLE } from "../src/features/board/constants.ts";
-import { describeElement } from "../src/features/board/elementLabels.ts";
-import { boardOutline, placedElement } from "../src/features/board/elements.ts";
-import type { OutlineNode } from "../src/features/board/elements.ts";
-import { placeFree } from "../src/features/board/placement.ts";
+import { DEFAULT_STYLE } from "../src/features/board/constants/board.ts";
+import { describeElement } from "../src/features/board/lib/elements/elementLabels.ts";
+import { boardOutline, placedElement } from "../src/features/board/lib/elements/elements.ts";
+import type { OutlineNode } from "../src/features/board/lib/elements/elements.ts";
+import { placeFree } from "../src/features/board/lib/elements/placement.ts";
 
 const box = (id: string, x: number, y: number, size = 20) =>
   ({

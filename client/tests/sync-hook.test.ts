@@ -69,8 +69,8 @@ const { render, unmount } = (await import("react")) as unknown as {
   render: <T>(hook: () => T) => T;
   unmount: () => void;
 };
-const { useBoardSync } = await import("../src/features/board/useBoardSync.ts");
-const { createBoardStore } = await import("../src/features/board/store.ts");
+const { useBoardSync } = await import("../src/features/board/hooks/useBoardSync.ts");
+const { createBoardStore } = await import("../src/features/board/lib/sync/store.ts");
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const rect = (id: string): ShapeElement =>

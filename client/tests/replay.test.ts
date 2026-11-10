@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ReplayStep } from "@inkboard/shared/socket";
 import type { Element, ShapeElement } from "@inkboard/shared/types";
-import { createReplay } from "../src/features/board/replay.ts";
+import { createReplay } from "../src/features/board/lib/sync/replay.ts";
 
 const box = (id: string, x: number, index = "a0"): ShapeElement =>
   ({

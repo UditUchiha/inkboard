@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { Element, FrameElement, PenElement, ShapeElement } from "@inkboard/shared/types";
-import { AI_MODEL } from "../src/features/board/aiDraw.ts";
-import { getBounds } from "../src/features/board/elements.ts";
-import { unionRects } from "../src/features/board/geometry.ts";
+import { AI_MODEL } from "../src/features/board/lib/ai/aiDraw.ts";
+import { getBounds } from "../src/features/board/lib/elements/elements.ts";
+import { unionRects } from "../src/features/board/lib/elements/geometry.ts";
 import {
   answerToLatex,
   EQUATION_SCHEMA,
@@ -11,7 +11,7 @@ import {
   readHandwriting,
   readingRequest,
   strokesToRead,
-} from "../src/features/board/handwriting.ts";
+} from "../src/features/board/lib/ai/handwriting.ts";
 
 // A short stroke from (x, y) to 20 to the right and 30 down.
 const stroke = (id: string, x: number, y: number, color = "#1971c2"): PenElement => ({
