@@ -7,12 +7,15 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Logo } from "../components/Logo";
 import { APP_NAME } from "../config";
 import { SCENE_HEIGHT, SCENE_WIDTH } from "../features/landing/lib/demoScene";
-import { FEATURES, STEPS } from "../features/landing/constants/features";
+import { ALSO, STEPS } from "../features/landing/constants/features";
 import { lazyPage } from "../lib/chunkReload";
 import { useAuth } from "../providers/AuthProvider";
 
 // The sample board brings the whole renderer with it, so it loads after the page itself.
 const DemoBoard = lazyPage(() => import("../features/landing/components/DemoBoard"));
+const Showcase = lazyPage(() =>
+  import("../features/landing/components/Showcase").then((m) => ({ default: m.Showcase })),
+);
 
 function DemoPaper() {
   return (
@@ -120,20 +123,19 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section aria-labelledby="features-heading" className="border-t border-rule">
-          <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-            <h2 id="features-heading" className="text-3xl font-extrabold tracking-tight [font-stretch:80%]">
-              Everything a whiteboard should do, and a few things it usually doesn't.
+        <Suspense fallback={null}>
+          <Showcase />
+        </Suspense>
+
+        <section aria-labelledby="also-heading" className="border-t border-rule bg-surface">
+          <div className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
+            <h2 id="also-heading" className="text-sm font-semibold tracking-wide text-graphite uppercase">
+              Also in the box
             </h2>
-            <ul className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {FEATURES.map(({ icon: Icon, title, body }) => (
-                <li
-                  key={title}
-                  className="rounded-2xl border border-rule bg-surface p-5 transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_-12px_var(--color-ink)]"
-                >
-                  <Icon className="size-5 text-signal" aria-hidden="true" />
-                  <h3 className="mt-3 text-lg font-bold">{title}</h3>
-                  <p className="mt-1 leading-relaxed text-graphite">{body}</p>
+            <ul className="mt-4 flex flex-wrap gap-2">
+              {ALSO.map((item) => (
+                <li key={item} className="rounded-full border border-rule px-3 py-1 text-sm">
+                  {item}
                 </li>
               ))}
             </ul>

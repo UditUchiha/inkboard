@@ -5,9 +5,8 @@ import type { PointerEvent } from "react";
 import { useElementSize } from "../../../hooks/useElementSize";
 import { createElement } from "../../board/lib/elements/elements";
 import { loadCanvasFonts, renderScene } from "../../board/lib/render/renderer";
-import { RemoteCursorArrow } from "../../board/components/RemoteCursors";
 import { circleStroke, COLLABORATORS, DEMO_ELEMENTS, SCENE_HEIGHT, SCENE_WIDTH } from "../lib/demoScene";
-import type { Collaborator } from "../lib/demoScene";
+import { SceneCursor } from "./SceneCursor";
 
 const [MAYA, SAM] = COLLABORATORS;
 const LOOP = circleStroke();
@@ -19,25 +18,6 @@ const prefersReducedMotion = () => window.matchMedia("(prefers-reduced-motion: r
 
 function loopElement(count: number): PenElement {
   return { id: "maya-loop", type: "pen", pressure: false, stroke: "#e03131", penSize: 5, points: LOOP.slice(0, count) };
-}
-
-type CursorProps = { person: Collaborator; x: number; y: number; scale: number; glide?: boolean };
-
-function Cursor({ person, x, y, scale, glide = false }: CursorProps) {
-  return (
-    <div
-      className={glide ? "absolute top-0 left-0 transition-transform duration-1000 ease-out" : "absolute top-0 left-0"}
-      style={{ transform: `translate(${x * scale}px, ${y * scale}px)` }}
-    >
-      <RemoteCursorArrow color={person.color} />
-      <span
-        className="absolute top-5 left-3.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-white"
-        style={{ backgroundColor: person.color }}
-      >
-        {person.name}
-      </span>
-    </div>
-  );
 }
 
 export default function DemoBoard() {
@@ -165,8 +145,10 @@ export default function DemoBoard() {
         />
         {size.width > 0 && (
           <div className="pointer-events-none absolute inset-0" aria-hidden>
-            {progress > 0 && <Cursor person={MAYA} x={mayaAt.x} y={mayaAt.y} scale={scale} glide={progress === 1} />}
-            <Cursor person={SAM} x={SAM.rest.x} y={SAM.rest.y} scale={scale} />
+            {progress > 0 && (
+              <SceneCursor person={MAYA} x={mayaAt.x} y={mayaAt.y} scale={scale} glide={progress === 1} />
+            )}
+            <SceneCursor person={SAM} x={SAM.rest.x} y={SAM.rest.y} scale={scale} />
           </div>
         )}
       </div>
