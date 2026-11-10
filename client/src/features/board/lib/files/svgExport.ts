@@ -31,7 +31,7 @@ import { expandRect, normalizeRect, rectCenter, unionRects } from "../elements/g
 import type { Rect } from "../elements/geometry";
 import { formulaOf } from "../elements/math";
 import { noteLayout } from "../elements/notes";
-import { penOutline, shapePaths } from "../render/renderer";
+import { penOutline, shapePaths } from "../render/shapes";
 
 // Fonts and pictures are embedded so the file looks the same anywhere; colors are as stored (light mode).
 

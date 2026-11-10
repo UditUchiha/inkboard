@@ -2,18 +2,14 @@ import type {
   Element as BoardElement,
   FrameElement,
   ImageElement,
-  PenElement,
   ShapeElement,
   Side,
   StickyElement,
 } from "@inkboard/shared/types";
-import getStroke from "perfect-freehand";
 import rough from "roughjs";
 import type { RoughCanvas } from "roughjs/bin/canvas";
-import type { Drawable, Options, PathInfo } from "roughjs/bin/core";
-import { createDrawingCache } from "./drawCache";
 import type { Moved } from "./drawCache";
-import { connectionDots, forgetResolvedConnectors, isConnector, resolveConnectors } from "../elements/connectors";
+import { forgetResolvedConnectors, isConnector, resolveConnectors } from "../elements/connectors";
 import { FRAME_BORDER, FRAME_FILL, FRAME_LABEL_COLOR, LINE_HEIGHT, NOTE_TEXT_COLOR } from "../../constants/board";
 import {
   arrowHeads,
@@ -26,25 +22,24 @@ import {
   frameLabel,
   frameLabelBox,
   getBounds,
-  getFrame,
   getLocalBounds,
   inDrawOrder,
   isFrame,
 } from "../elements/elements";
-import type { AnyElement, Connector } from "../elements/elements";
+import type { Connector } from "../elements/elements";
 import { expandRect, normalizeRect, polygonCorners, rectCenter, rectsOverlap, unionRects } from "../elements/geometry";
 import type { Rect, Viewport } from "../elements/geometry";
 import { getImage, imagesVersion, picturesChanged, releaseImages, showingImages } from "../files/images";
-import { darkInk } from "./ink";
+import { darkInk, sameInk } from "./ink";
+import type { Ink } from "./ink";
+import { SELECTION_COLOR, drawMarks, hatch } from "./overlays";
+import { drawablesOf, penPath, trimShapeCaches } from "./shapes";
 import { formulaOf, formulaPicture, onFormulasChanged } from "../elements/math";
 import { forgetNoteMeasurements, noteLayout } from "../elements/notes";
-import { connectorPath, pathData } from "../elements/routes";
+import { connectorPath } from "../elements/routes";
 import type { SuggestionMark } from "../sync/suggestions";
-import { getSelectionBox } from "../elements/transform";
 import { GUTTER, MAX_TILES, TILE, drawsFromTiles, tileCount } from "./zoomedOutCache";
 import type { TileCache } from "./zoomedOutCache";
-
-type Ink = (color: string) => string;
 
 export type RenderOptions = {
   elements: BoardElement[];
@@ -64,10 +59,7 @@ export type RenderOptions = {
   tiles?: TileCache;
 };
 
-const generator = rough.generator();
-
 // How the scene being drawn is shown; set by renderScene.
-const sameInk: Ink = (color) => color;
 let ink: Ink = sameInk;
 let smallPictures = false;
 let labelScale = 1;
@@ -84,91 +76,6 @@ const readable = (fontSize: number) => fontSize * zoomNow >= READABLE_TEXT;
 // Under this many screen pixels a sketchy wobble is sub-pixel and Rough.js's several strokes per shape cost the most, so plain paths are used.
 const PLAIN_SHAPE_MAX = 40;
 
-// Elements are immutable, so generated shapes are cached per object (and reused for moved copies); light and dark keep separate caches.
-const drawableCaches = { light: createDrawingCache<Drawable[]>(), dark: createDrawingCache<Drawable[]>() };
-const penPathCache = createDrawingCache<Path2D>();
-
-function roughOptions(element: ShapeElement, paint: Ink): Options {
-  const sketchy = element.sketchy !== false;
-  return {
-    seed: element.seed,
-    stroke: paint(element.stroke),
-    strokeWidth: element.strokeWidth,
-    roughness: sketchy ? 1.1 : 0,
-    bowing: sketchy ? 1 : 0,
-    disableMultiStroke: !sketchy,
-    preserveVertices: !sketchy,
-    fill: element.fill ? paint(element.fill) : undefined,
-    fillStyle: sketchy ? "hachure" : "solid",
-    fillWeight: Math.max(element.strokeWidth / 2, 0.75),
-    hachureGap: 4 + element.strokeWidth * 2,
-  };
-}
-
-function buildDrawables(element: ShapeElement, paint: Ink = ink): Drawable[] {
-  const options = roughOptions(element, paint);
-  const { x1, y1, x2, y2 } = element;
-  switch (element.type) {
-    case "line":
-    case "arrow": {
-      const path = connectorPath(element);
-      let body: Drawable;
-      if (path.curved) body = generator.path(pathData(path), options);
-      else if (path.points.length > 2)
-        body = generator.linearPath(
-          path.points.map(({ x, y }) => [x, y]),
-          options,
-        );
-      else body = generator.line(x1, y1, x2, y2, options);
-      return [body, ...arrowHeads(element).map((head) => generator.linearPath(head, options))];
-    }
-    case "rectangle": {
-      const r = normalizeRect(x1, y1, x2, y2);
-      return [generator.rectangle(r.x, r.y, r.width, r.height, options)];
-    }
-    case "ellipse": {
-      const r = normalizeRect(x1, y1, x2, y2);
-      if (r.width < 1 || r.height < 1) return [];
-      return [generator.ellipse(r.x + r.width / 2, r.y + r.height / 2, r.width, r.height, options)];
-    }
-    case "triangle":
-    case "diamond": {
-      return [generator.polygon(polygonCorners(element.type, normalizeRect(x1, y1, x2, y2))!, options)];
-    }
-    default:
-      return [];
-  }
-}
-
-const average = (a: number, b: number): number => (a + b) / 2;
-
-function svgPathFromOutline(points: number[][]): string {
-  if (points.length < 4) return "";
-  let [a, b] = points;
-  const c = points[2];
-  let path = `M${a[0].toFixed(2)},${a[1].toFixed(2)} Q${b[0].toFixed(2)},${b[1].toFixed(2)} ${average(b[0], c[0]).toFixed(2)},${average(b[1], c[1]).toFixed(2)} T`;
-  for (let i = 2; i < points.length - 1; i += 1) {
-    a = points[i];
-    b = points[i + 1];
-    path += `${average(a[0], b[0]).toFixed(2)},${average(a[1], b[1]).toFixed(2)} `;
-  }
-  return `${path}Z`;
-}
-
-export function penOutline(element: PenElement): string {
-  const outline = getStroke(element.points, {
-    size: element.penSize,
-    thinning: 0.55,
-    smoothing: 0.5,
-    streamline: 0.45,
-    simulatePressure: !element.pressure,
-  });
-  return svgPathFromOutline(outline);
-}
-
-const penPath = (element: PenElement) =>
-  penPathCache.get(element, (stroke) => new Path2D(penOutline(stroke as PenElement)));
-
 function drawMoved({ dx, dy }: Moved, ctx: CanvasRenderingContext2D, draw: () => void) {
   if (!dx && !dy) {
     draw();
@@ -178,10 +85,6 @@ function drawMoved({ dx, dy }: Moved, ctx: CanvasRenderingContext2D, draw: () =>
   ctx.translate(dx, dy);
   draw();
   ctx.restore();
-}
-
-export function shapePaths(element: ShapeElement): PathInfo[] {
-  return buildDrawables(element, sameInk).flatMap((drawable) => generator.toPaths(drawable));
 }
 
 // `hideLabel` leaves out a connector's label (while it's being edited).
@@ -441,92 +344,10 @@ function drawUnturned(ctx: CanvasRenderingContext2D, roughCanvas: RoughCanvas, e
     drawPlain(ctx, element as ShapeElement);
     return;
   }
-  const drawables = (ink === sameInk ? drawableCaches.light : drawableCaches.dark).get(
-    element,
-    buildDrawables as (element: BoardElement) => Drawable[],
-  );
+  const drawables = drawablesOf(element, ink !== sameInk);
   drawMoved(drawables, ctx, () => {
     for (const drawable of drawables.built) roughCanvas.draw(drawable);
   });
-}
-
-const SELECTION_COLOR = "#2d5bff";
-const HANDLE_SIZE = 9; // screen pixels
-
-function drawSelection(ctx: CanvasRenderingContext2D, element: BoardElement, zoom: number) {
-  const selection = getSelectionBox(element, zoom);
-  ctx.save();
-  ctx.strokeStyle = ink(SELECTION_COLOR);
-  ctx.lineWidth = 1.5 / zoom;
-  ctx.setLineDash([5 / zoom, 4 / zoom]);
-
-  if (selection.kind === "box") {
-    const { frame, halfWidth, halfHeight } = selection;
-    ctx.save();
-    ctx.translate(frame.cx, frame.cy);
-    ctx.rotate(frame.angle);
-    ctx.strokeRect(-halfWidth, -halfHeight, halfWidth * 2, halfHeight * 2);
-    ctx.restore();
-
-    const turn = selection.handles.find((handle) => handle.id === "rotate");
-    if (turn) {
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(selection.top.x, selection.top.y);
-      ctx.lineTo(turn.x, turn.y);
-      ctx.stroke();
-    }
-  } else {
-    const bounds = expandRect(getBounds(element), 6 / zoom);
-    ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
-  }
-
-  ctx.setLineDash([]);
-  ctx.fillStyle = ink("#ffffff");
-  const size = HANDLE_SIZE / zoom;
-  for (const handle of selection.handles) {
-    ctx.beginPath();
-    if (handle.id === "rotate") ctx.arc(handle.x, handle.y, size / 2 + 0.5 / zoom, 0, Math.PI * 2);
-    else ctx.rect(handle.x - size / 2, handle.y - size / 2, size, size);
-    ctx.fill();
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function drawConnectTarget(ctx: CanvasRenderingContext2D, element: AnyElement, zoom: number) {
-  const { cx, cy, width, height, angle } = getFrame(element);
-  const pad = 4 / zoom + (element.strokeWidth ?? 0) / 2;
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(angle);
-  ctx.strokeStyle = ink(SELECTION_COLOR);
-  ctx.globalAlpha = 0.7;
-  ctx.lineWidth = 2.5 / zoom;
-  ctx.beginPath();
-  const box = { x: -width / 2 - pad, y: -height / 2 - pad, width: width + pad * 2, height: height + pad * 2 };
-  const corners = polygonCorners(element.type, box);
-  if (element.type === "ellipse") ctx.ellipse(0, 0, box.width / 2, box.height / 2, 0, 0, Math.PI * 2);
-  else if (corners) for (const [x, y] of corners) ctx.lineTo(x, y);
-  else ctx.rect(box.x, box.y, box.width, box.height);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawConnectionDots(ctx: CanvasRenderingContext2D, element: AnyElement, zoom: number, side: Side | null) {
-  ctx.save();
-  ctx.strokeStyle = ink(SELECTION_COLOR);
-  ctx.lineWidth = 1.5 / zoom;
-  for (const [each, dot] of Object.entries(connectionDots(element, zoom))) {
-    const active = each === side;
-    ctx.beginPath();
-    ctx.arc(dot.x, dot.y, (active ? 6 : 4.5) / zoom, 0, Math.PI * 2);
-    ctx.fillStyle = active ? ink(SELECTION_COLOR) : ink("#ffffff");
-    ctx.fill();
-    ctx.stroke();
-  }
-  ctx.restore();
 }
 
 const REMOVAL_COLOR = "#e03131";
@@ -574,23 +395,6 @@ function drawSuggestions(
     if (mark.kind === "remove") hatch(ctx, box, zoom, mark.highlighted ? 0.55 : 0.35);
     ctx.restore();
   });
-}
-
-function hatch(ctx: CanvasRenderingContext2D, box: Rect, zoom: number, opacity: number) {
-  ctx.save();
-  ctx.setLineDash([]);
-  ctx.beginPath();
-  ctx.rect(box.x, box.y, box.width, box.height);
-  ctx.clip();
-  ctx.globalAlpha = opacity;
-  ctx.lineWidth = 1.5 / zoom;
-  ctx.beginPath();
-  for (let offset = -box.height; offset < box.width; offset += 10 / zoom) {
-    ctx.moveTo(box.x + offset, box.y + box.height);
-    ctx.lineTo(box.x + offset + box.height, box.y);
-  }
-  ctx.stroke();
-  ctx.restore();
 }
 
 function isVisible(element: BoardElement, view: Rect): boolean {
@@ -658,22 +462,10 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
     if (isVisible(element, view)) drawElement(ctx, roughCanvas, element, { hideLabel: hidden });
   }
   if (suggestions.length > 0) drawSuggestions(ctx, roughCanvas, suggestions, elements, view, viewport.zoom);
-  for (const cache of [drawableCaches.light, drawableCaches.dark, penPathCache]) {
-    cache.trim(elements.length + suggestions.length);
-  }
+  trimShapeCaches(elements.length + suggestions.length);
   showingImages(canvas, picturesDrawn, { small: smallPictures });
   for (const frame of frames) drawFrameName(ctx, frame, view);
-  drawMarks(ctx, { target, dotted, selected }, options);
-}
-
-function drawMarks(
-  ctx: CanvasRenderingContext2D,
-  { target, dotted, selected }: Record<"target" | "dotted" | "selected", BoardElement | null>,
-  { viewport, dots = null, hiddenId }: RenderOptions,
-) {
-  if (target) drawConnectTarget(ctx, target, viewport.zoom);
-  if (dotted) drawConnectionDots(ctx, dotted, viewport.zoom, dots!.side);
-  if (selected && selected.id !== hiddenId) drawSelection(ctx, selected, viewport.zoom);
+  drawMarks(ctx, { target, dotted, selected }, options, ink);
 }
 
 // Bumped when text measures differently (see forgetMeasurements), which changes what the tiles drew.
@@ -752,6 +544,7 @@ function drawFromTiles(canvas: HTMLCanvasElement, options: RenderOptions): boole
     ctx,
     { target: find(options.connectTargetId), dotted: find(options.dots?.id), selected: find(options.selectedId) },
     options,
+    ink,
   );
   return true;
 }
