@@ -1,34 +1,27 @@
 import { cleanElement } from "./element-rules.ts";
 import type { Element } from "./types.ts";
 
-/**
- * An element as the public API and the MCP server show and take it (see docs/api.md): a box is `x`, `y`, `width`
- * and `height`, a line or arrow its two ends (`x1`…`y2`) and what they're attached to (`from`, `to`), and a pen
- * stroke its `points`. The rest are the element's own fields: `text`, `name` (a frame's), `stroke`, `fill`, and so on.
- * What only the app needs (its place in the stack, the merge stamps, the sketchy seed) is left out.
- */
+// An element as the public API and MCP server show and take it (docs/api.md): a box is x, y, width, height; a line or
+// arrow its ends (x1…y2) and what they're attached to (from, to); a pen stroke its points.
 export type ApiElement = { id: string; type: string; [field: string]: unknown };
 
 const BOX_TYPES = new Set(["rectangle", "ellipse", "triangle", "diamond", "sticky", "frame", "image"]);
 const SHAPES = new Set(["rectangle", "ellipse", "triangle", "diamond", "line", "arrow"]);
 const CONNECTORS = new Set(["line", "arrow"]);
-// Left out of what the API shows: the app's bookkeeping, and fields shown another way.
 const HIDDEN = new Set(["index", "version", "versionNonce", "stamps", "seed", "startId", "endId", "points"]);
 const HIDDEN_BOX = new Set(["x1", "y1", "x2", "y2"]);
 
 export const MAX_API_ELEMENTS = 500;
 
-/** Why an element in the API's form can't be one, in a sentence for whoever sent it. */
 export class ApiElementError extends Error {}
 
-// Web Crypto, which browsers and Node both have: this runs on the server (the API) and in the app (drawing with AI).
-// The shared code loads neither's types, so the one function used is declared here.
+// Web Crypto, which browsers and Node both have; shared code loads neither's types, so the one function used is
+// declared here
 declare const crypto: { getRandomValues<T extends Uint32Array>(array: T): T };
 const randomWords = (count: number) => crypto.getRandomValues(new Uint32Array(count));
 const newId = () => [...randomWords(3)].map((word) => word.toString(36)).join("");
 const newSeed = () => (randomWords(1)[0] % 2 ** 31) + 1;
 
-/** `element` as the API shows it. */
 export function toApiElement(element: Element): ApiElement {
   const shown: ApiElement = { id: element.id, type: element.type };
   const fields = element as unknown as Record<string, unknown>;
@@ -60,7 +53,6 @@ export function toApiElement(element: Element): ApiElement {
 
 const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
 
-// The middle of an element, for a line or arrow attached to it that wasn't given where its ends are.
 function middleOf(element: Element | undefined): [number, number] | undefined {
   if (!element) return undefined;
   if (element.type === "pen") return element.points[0] && [element.points[0][0], element.points[0][1]];
@@ -68,11 +60,8 @@ function middleOf(element: Element | undefined): [number, number] | undefined {
   return [(element.x1 + element.x2) / 2, (element.y1 + element.y2) / 2];
 }
 
-/**
- * The element `input` (in the API's form) makes: a new one, or `existing` with what `input` changes. It's whole and
- * unstamped, so the board takes it as the newest edit (see prepareOperation). `find` looks up what a line or arrow
- * is attached to. Throws an ApiElementError naming `label` when the input can't be an element.
- */
+// Whole and unstamped, so the board takes it as the newest edit (see prepareOperation). Throws an ApiElementError
+// naming `label` when the input can't be an element.
 export function fromApiElement(
   input: unknown,
   existing: Element | undefined,
@@ -83,7 +72,6 @@ export function fromApiElement(
     throw new ApiElementError(`${label}: ${why}`);
   };
   if (!input || typeof input !== "object" || Array.isArray(input)) fail("send an object.");
-  // Stamps sent along are left out too: a change through the API is always the newest edit.
   const {
     id,
     type,
@@ -103,7 +91,6 @@ export function fromApiElement(
   const kind = existing?.type ?? type;
   if (typeof kind !== "string") fail("say what `type` of element it is.");
 
-  // The element as it is, without its stamps, so the change is stamped as the newest edit of all of it.
   const {
     version: _version,
     versionNonce: _nonce,
@@ -138,7 +125,6 @@ export function fromApiElement(
   if (CONNECTORS.has(kind as string)) {
     if (from !== undefined) element.startId = from;
     if (to !== undefined) element.endId = to;
-    // Attached ends are drawn from what they're attached to; until then they start at its middle.
     for (const [end, xKey, yKey] of [
       ["startId", "x1", "y1"],
       ["endId", "x2", "y2"],

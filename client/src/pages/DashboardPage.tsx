@@ -1,189 +1,35 @@
-import clsx from "clsx";
-import { ArrowDownUp, Check, LayoutGrid, List, Plus, Search, Star, Trash2, X } from "lucide-react";
+import { Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { AppHeader } from "../components/AppHeader";
 import { Button } from "../components/Button";
-import { ConfirmDialog } from "../components/Dialog";
-import { Menu, MenuItem, MenuLabel } from "../components/Menu";
 import { VerifyEmailNotice } from "../components/VerifyEmailNotice";
 import { APP_NAME } from "../config";
-import { BoardCard } from "../features/dashboard/BoardCard";
-import { BoardTable } from "../features/dashboard/BoardTable";
-import { DashboardNav } from "../features/dashboard/DashboardNav";
-import type { BoardActions } from "../features/dashboard/BoardParts";
-import { RenameDialog } from "../features/dashboard/RenameDialog";
-import {
-  compareBoards,
-  DEFAULT_SORT,
-  isMember,
-  isSort,
-  isView,
-  SECTIONS,
-  SORT_KEYS,
-} from "../features/dashboard/sections";
-import type { BoardSummary, SectionId, Sort, SortKey, View } from "../features/dashboard/sections";
-import { useBoards } from "../features/dashboard/useBoards";
-import { useStoredState } from "../features/dashboard/useStoredState";
-import { NewBoardDialog } from "../features/templates/NewBoardDialog";
+import { BoardCard } from "../features/dashboard/components/BoardCard";
+import { BoardConfirmDialog } from "../features/dashboard/components/BoardConfirmDialog";
+import { BoardTable } from "../features/dashboard/components/BoardTable";
+import { BulkBar } from "../features/dashboard/components/BulkBar";
+import { DashboardNav } from "../features/dashboard/components/DashboardNav";
+import { RenameDialog } from "../features/dashboard/components/RenameDialog";
+import { SortMenu } from "../features/dashboard/components/SortMenu";
+import { TileSkeleton } from "../features/dashboard/components/TileSkeleton";
+import { ViewToggle } from "../features/dashboard/components/ViewToggle";
+import { compareBoards, DEFAULT_SORT, isSort, isView, SECTIONS, SORT_KEYS } from "../features/dashboard/lib/sections";
+import type { BoardSummary, SectionId, View } from "../features/dashboard/lib/sections";
+import { useBoardActions } from "../features/dashboard/hooks/useBoardActions";
+import { useBoards } from "../features/dashboard/hooks/useBoards";
+import { useStoredState } from "../features/dashboard/hooks/useStoredState";
+import type { Confirm } from "../features/dashboard/types/confirm";
+import { NewBoardDialog } from "../features/templates/components/NewBoardDialog";
 import { api, errorMessage } from "../lib/api";
 import type { CreateBoardInput } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 
-// How many boards are drawn at first, and added by each "Show more": every card downloads a preview
-// of its board, so a person with hundreds of boards loads them a page at a time.
+// Every card downloads a preview, so people with hundreds of boards load them a page at a time.
 const PAGE_SIZE = 48;
 
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-x-6 gap-y-8";
-
-// What the dialog that asks before leaving, deleting for good or emptying the trash is about.
-type Confirm = { kind: "leave" | "purge" | "empty"; boards: BoardSummary[] };
-
-type ViewToggleProps = { view: View; onChange: (view: View) => void };
-
-type SortMenuProps = { sort: Sort; onChange: (sort: Sort) => void };
-
-type BulkBarProps = {
-  section: (typeof SECTIONS)[number];
-  picked: BoardSummary[];
-  actions: BoardActions & { starAll: (boards: BoardSummary[]) => void };
-  onClear: () => void;
-};
-
-const quoted = (boards: BoardSummary[]) => (boards.length === 1 ? `“${boards[0].title}”` : `${boards.length} boards`);
-
-function TileSkeleton() {
-  return (
-    <li aria-hidden>
-      <div className="aspect-[16/10] animate-pulse rounded-lg bg-ink/6" />
-      <div className="mt-3 h-4 w-2/3 animate-pulse rounded bg-ink/6" />
-      <div className="mt-2 h-3.5 w-1/3 animate-pulse rounded bg-ink/6" />
-    </li>
-  );
-}
-
-function ViewToggle({ view, onChange }: ViewToggleProps) {
-  return (
-    <div role="group" aria-label="Layout" className="flex gap-1 rounded-lg bg-ink/5 p-1">
-      {(
-        [
-          ["grid", "Grid view", LayoutGrid],
-          ["list", "List view", List],
-        ] as const
-      ).map(([id, label, Icon]) => (
-        <button
-          key={id}
-          type="button"
-          aria-pressed={view === id}
-          aria-label={label}
-          title={label}
-          onClick={() => onChange(id)}
-          className={clsx(
-            "grid size-8 place-items-center rounded-md transition-colors",
-            view === id ? "bg-surface text-ink shadow-sm" : "text-graphite hover:text-ink",
-          )}
-        >
-          <Icon className="size-4" aria-hidden />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SortMenu({ sort, onChange }: SortMenuProps) {
-  const tick = (on: boolean) => (on ? <Check className="size-4" /> : null);
-  return (
-    <Menu
-      trigger={(props) => (
-        <Button variant="secondary" icon={ArrowDownUp} {...props}>
-          <span className="max-sm:sr-only">{SORT_KEYS[sort.key].label}</span>
-        </Button>
-      )}
-    >
-      <MenuLabel>Sort by</MenuLabel>
-      {Object.entries(SORT_KEYS).map(([key, { label, defaultDir }]) => (
-        // Object.entries gives the keys as plain strings; they are SORT_KEYS' own.
-        <MenuItem
-          key={key}
-          hint={tick(sort.key === key)}
-          onSelect={() => onChange({ key: key as SortKey, dir: defaultDir })}
-        >
-          {label}
-        </MenuItem>
-      ))}
-      <MenuLabel>Order</MenuLabel>
-      {(
-        [
-          ["asc", sort.key === "title" ? "A to Z" : "Oldest first"],
-          ["desc", sort.key === "title" ? "Z to A" : "Newest first"],
-        ] as const
-      ).map(([dir, label]) => (
-        <MenuItem key={dir} hint={tick(sort.dir === dir)} onSelect={() => onChange({ ...sort, dir })}>
-          {label}
-        </MenuItem>
-      ))}
-    </Menu>
-  );
-}
-
-function BulkBar({ section, picked, actions, onClear }: BulkBarProps) {
-  const owned = picked.every((board) => board.role === "owner");
-  const members = picked.every(isMember);
-  const allStarred = picked.every((board) => board.starred);
-  const trash = section.id === "trash";
-  const archived = section.id === "archived";
-  return (
-    <div
-      role="toolbar"
-      aria-label="Actions for selected boards"
-      className="floating-panel sticky top-20 z-20 mb-3 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2"
-    >
-      <span className="mr-auto text-sm font-medium" aria-live="polite">
-        {picked.length} selected
-      </span>
-      {trash ? (
-        <>
-          <Button size="sm" variant="secondary" onClick={() => actions.restore(picked)}>
-            Restore
-          </Button>
-          <Button size="sm" variant="danger" onClick={() => actions.askPurge(picked)}>
-            Delete forever
-          </Button>
-        </>
-      ) : (
-        <>
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={Star}
-            disabled={!members}
-            title={members ? undefined : "Only people invited to a board can star it"}
-            onClick={() => actions.starAll(picked)}
-          >
-            {allStarred ? "Unstar" : "Star"}
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => actions.archive(picked, !archived)}>
-            {archived ? "Unarchive" : "Archive"}
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            icon={Trash2}
-            disabled={!owned}
-            title={owned ? undefined : "Only the owner can move a board to the trash"}
-            onClick={() => actions.trash(picked)}
-          >
-            Move to trash
-          </Button>
-        </>
-      )}
-      <Button size="sm" variant="ghost" icon={X} onClick={onClear}>
-        Clear
-      </Button>
-    </div>
-  );
-}
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -206,14 +52,12 @@ export default function DashboardPage() {
   const [choosing, setChoosing] = useState(false); // the "how should the new board start?" dialog
   const [renaming, setRenaming] = useState<BoardSummary | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null); // { kind: "leave" | "purge" | "empty", boards }
-  const [busy, setBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.title = `${section.label} · ${APP_NAME}`;
   }, [section.label]);
 
-  // "/" jumps to search, as on most sites with a lot of things to find.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -230,12 +74,16 @@ export default function DashboardPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  useEffect(() => setSelected(new Set()), [section.id, query, view]);
-  useEffect(() => setLimit(PAGE_SIZE), [section.id, query, sort]);
+  const [last, setLast] = useState({ sectionId: section.id, query, view, sort });
+  if (last.sectionId !== section.id || last.query !== query || last.view !== view || last.sort !== sort) {
+    const listChanged = last.sectionId !== section.id || last.query !== query;
+    setLast({ sectionId: section.id, query, view, sort });
+    if (listChanged || last.view !== view) setSelected(new Set());
+    if (listChanged || last.sort !== sort) setLimit(PAGE_SIZE);
+  }
 
   const counts = useMemo(
     () =>
-      // There is an entry for every section.
       Object.fromEntries(
         SECTIONS.map((item) => [
           item.id,
@@ -257,118 +105,19 @@ export default function DashboardPage() {
   const shown = useMemo(() => visible.slice(0, limit), [visible, limit]);
   const picked = shown.filter((board) => selected.has(board.id));
 
-  // Only the boards on screen get their previews, and only as cards: the list view draws none.
   useEffect(() => {
     if (view === "grid") loadPreviews(shown);
   }, [shown, view, loadPreviews]);
 
-  // Every change shows up at once; if the server refuses it, it's put back and the person is told.
-  const actions = {
-    rename: setRenaming,
-    askLeave: (board: BoardSummary) => setConfirm({ kind: "leave", boards: [board] }),
-    askPurge: (list: BoardSummary[]) => setConfirm({ kind: "purge", boards: list }),
+  const actions = useBoardActions({
+    patch,
+    drop,
+    refresh,
+    onRename: setRenaming,
+    onConfirm: setConfirm,
+    clearSelection: () => setSelected(new Set()),
+  });
 
-    async copyLink(board: BoardSummary) {
-      try {
-        await navigator.clipboard.writeText(`${window.location.origin}/board/${board.id}`);
-        toast.success("Link copied");
-      } catch {
-        toast.error("Couldn't copy the link.");
-      }
-    },
-
-    async makeCopy(board: BoardSummary) {
-      try {
-        const { board: copy } = await api.copyBoard(board.id);
-        refresh();
-        toast.success(`Made “${copy.title}”`, {
-          action: { label: "Open", onClick: () => navigate(`/board/${copy.id}`) },
-        });
-      } catch (error) {
-        toast.error(errorMessage(error));
-      }
-    },
-
-    async toggleStar(board: BoardSummary) {
-      const starred = !board.starred;
-      patch([board.id], { starred });
-      try {
-        await api.starBoard(board.id, starred);
-      } catch (error) {
-        patch([board.id], { starred: !starred });
-        toast.error(errorMessage(error));
-      }
-    },
-
-    async starAll(list: BoardSummary[]) {
-      const starred = !list.every((board) => board.starred);
-      patch(
-        list.map((board) => board.id),
-        { starred },
-      );
-      setSelected(new Set());
-      const results = await Promise.allSettled(list.map((board) => api.starBoard(board.id, starred)));
-      results.forEach((result, index) => {
-        if (result.status === "rejected") patch([list[index].id], { starred: list[index].starred }); // what it was before
-      });
-      if (results.some((result) => result.status === "rejected")) toast.error("Some boards couldn't be updated.");
-    },
-
-    async archive(list: BoardSummary[], archived: boolean) {
-      const before = list.map((board): [string, boolean | undefined] => [board.id, board.archived]);
-      patch(
-        list.map((board) => board.id),
-        { archived },
-      );
-      try {
-        await api.archiveBoards(
-          list.map((board) => board.id),
-          archived,
-        );
-      } catch (error) {
-        before.forEach(([id, was]) => patch([id], { archived: was }));
-        toast.error(errorMessage(error));
-        return;
-      }
-      setSelected(new Set());
-      toast(archived ? `Archived ${quoted(list)}` : `Moved ${quoted(list)} out of the archive`, {
-        action: { label: "Undo", onClick: () => actions.archive(list, !archived) },
-      });
-    },
-
-    async trash(list: BoardSummary[]) {
-      const results = await Promise.allSettled(list.map((board) => api.deleteBoard(board.id)));
-      const done = list.filter((_, index) => results[index].status === "fulfilled");
-      if (done.length < list.length) toast.error("Some boards couldn't be moved to the trash.");
-      if (done.length === 0) return;
-      drop(done.map((board) => board.id));
-      setSelected(new Set());
-      refresh().catch(() => {});
-      toast(`Moved ${quoted(done)} to the trash`, {
-        action: { label: "Undo", onClick: () => actions.restore(done, true) },
-      });
-    },
-
-    async restore(list: BoardSummary[], quiet = false) {
-      const results = await Promise.allSettled(list.map((board) => api.restoreBoard(board.id)));
-      if (results.some((result) => result.status === "rejected")) toast.error("Some boards couldn't be restored.");
-      setSelected(new Set());
-      await refresh().catch(() => {});
-      if (!quiet) toast.success(`Restored ${quoted(list)}`);
-    },
-
-    async forget(board: BoardSummary) {
-      try {
-        await api.forgetBoard(board.id);
-        drop([board.id]);
-        toast(`Removed “${board.title}” from your list`, { description: "Open its link again to bring it back." });
-      } catch (error) {
-        toast.error(errorMessage(error));
-      }
-    },
-  };
-
-  // `input` says how to start: {} for blank, { title, elements } or { templateId }.
   async function createBoard(input: CreateBoardInput = {}) {
     setCreating(true);
     try {
@@ -380,56 +129,6 @@ export default function DashboardPage() {
     }
   }
 
-  async function confirmAction() {
-    // The dialog that calls this is only open while there is something to confirm.
-    const { kind, boards: targets } = confirm!;
-    setBusy(true);
-    try {
-      if (kind === "leave") {
-        await api.removeCollaborator(targets[0].id, "me");
-        drop([targets[0].id]);
-        toast.success(`Left “${targets[0].title}”`);
-      } else if (kind === "empty") {
-        await api.emptyTrash();
-        await refresh();
-        toast.success("Trash emptied");
-      } else {
-        const results = await Promise.allSettled(targets.map((board) => api.purgeBoard(board.id)));
-        await refresh();
-        setSelected(new Set());
-        if (results.some((result) => result.status === "rejected")) toast.error("Some boards couldn't be deleted.");
-        else toast.success(`Deleted ${quoted(targets)} forever`);
-      }
-      setConfirm(null);
-    } catch (error) {
-      toast.error(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const confirmCopy = {
-    leave: {
-      title: `Leave “${confirm?.boards[0].title}”?`,
-      description: "You'll lose access until the owner invites you again.",
-      label: "Leave board",
-    },
-    purge: {
-      title:
-        confirm?.boards.length === 1
-          ? `Delete “${confirm.boards[0].title}” forever?`
-          : `Delete ${confirm?.boards.length} boards forever?`,
-      description: "The drawings, comments and history are erased for everyone. This can't be undone.",
-      label: "Delete forever",
-    },
-    empty: {
-      title: "Empty the trash?",
-      description: `${trash.length === 1 ? "1 board" : `${trash.length} boards`} will be erased forever, with their comments and history. This can't be undone.`,
-      label: "Empty trash",
-    },
-  }[confirm?.kind ?? "leave"];
-
-  // This page is only reached through RequireAuth, so there is a logged in account.
   const firstName = user!.name.split(" ")[0];
   const loading = !boards && !loadError;
 
@@ -573,14 +272,13 @@ export default function DashboardPage() {
         onClose={() => setRenaming(null)}
         onRenamed={(updated) => patch([updated.id], { title: updated.title, updatedAt: updated.updatedAt })}
       />
-      <ConfirmDialog
-        open={Boolean(confirm)}
+      <BoardConfirmDialog
+        confirm={confirm}
+        trashCount={trash.length}
         onClose={() => setConfirm(null)}
-        onConfirm={confirmAction}
-        busy={busy}
-        title={confirmCopy.title}
-        description={confirmCopy.description}
-        confirmLabel={confirmCopy.label}
+        drop={drop}
+        refresh={refresh}
+        clearSelection={() => setSelected(new Set())}
       />
     </div>
   );

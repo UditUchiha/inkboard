@@ -9,16 +9,14 @@ import { API_URL } from "../config";
 import { getGuest } from "../lib/guest";
 import { useAuth } from "./AuthProvider";
 
-// What arrives here has been through JSON, which turns a Date into its ISO string (see Wire), so the events are
-// declared (in @inkboard/shared/socket) the way the server builds them and the browser reads them as Wire.
+// Payloads arrive through JSON, which turns a Date into its ISO string, so events are declared in
+// @inkboard/shared/socket as the server builds them and read here as Wire.
 type WireParams<Params extends unknown[]> = { [Index in keyof Params]: Wire<Params[Index]> };
 
-// What the server sends: every payload as it arrives.
 type ServerEvents = {
   [Event in keyof ServerToClientEvents]: (...args: WireParams<Parameters<ServerToClientEvents[Event]>>) => void;
 };
 
-// What the browser sends: its payloads go as they are, and the reply to the callback comes as it arrives.
 type WireReplies<Args extends unknown[]> = {
   [Index in keyof Args]: Args[Index] extends (...reply: infer Reply) => void
     ? (...reply: WireParams<Reply>) => void
@@ -28,16 +26,12 @@ type ClientEvents = {
   [Event in keyof ClientToServerEvents]: (...args: WireReplies<Parameters<ClientToServerEvents[Event]>>) => void;
 };
 
-/** The connection to the server, with the events it sends and the ones it is sent (see @inkboard/shared/socket). */
 export type AppSocket = Socket<ServerEvents, ClientEvents>;
 
-// The connection, or null while there isn't one.
 const SocketContext = createContext<AppSocket | null>(null);
 
-// One connection per login session, shared by every board and kept while signed in
-// (it carries notifications too), whatever page they're on. Signed-out visitors
-// only connect on a board page, where they can open boards shared by link under
-// a guest name. `auth` is a function so a reconnect sends their latest name.
+// One connection per login, shared by every board and kept while signed in (it carries notifications too); signed-out
+// visitors only connect on a board page. `auth` is a function so a reconnect sends their latest name.
 type SocketProviderProps = { children: ReactNode };
 
 export function SocketProvider({ children }: SocketProviderProps) {
@@ -59,6 +53,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
       if (error.message === "unauthorized") logout();
     });
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the socket is an outside resource created here and shared once it exists
     setSocket(next);
     return () => {
       next.disconnect();

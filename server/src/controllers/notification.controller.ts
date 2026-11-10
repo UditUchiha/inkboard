@@ -8,10 +8,9 @@ import { serializeNotification } from "../services/notifications.ts";
 
 const PAGE_SIZE = 30;
 
-// Which of this person's notifications can be shown: those about boards they can still open, and the
-// notice that a board they are invited to went to the trash (while it is there and they are still invited).
-// Notifications about any other board (deleted, or they were removed from it) are never shown or counted,
-// so they can't leak the board's title or what was said on it.
+// Notifications about boards they can no longer open (deleted, or they were removed) are never shown or counted, so
+// they can't leak the board's title or what was said; the notice that a board they're invited to is in the trash is
+// shown while it is.
 async function visibleNotifications(userId: string | undefined) {
   const ids = await Notification.distinct("board", { user: userId });
   const boards = await Board.find({ _id: { $in: ids }, purgingAt: null }).select(`${ACCESS_FIELDS} deletedAt`);
@@ -20,7 +19,6 @@ async function visibleNotifications(userId: string | undefined) {
   return { user: userId, $or: [{ board: { $in: open } }, { type: "trashed", board: { $in: trashed } }] };
 }
 
-/** The newest notifications, 30 at a time: pass `before` (the id of the last one seen) for the next page. */
 export async function listNotifications(req: Request, res: Response) {
   const visible = await visibleNotifications(req.userId);
   const before = mongoose.isValidObjectId(req.query.before) ? { _id: { $lt: req.query.before } } : {};
@@ -33,18 +31,16 @@ export async function listNotifications(req: Request, res: Response) {
   const page = found.slice(0, PAGE_SIZE);
   const more = found.length > PAGE_SIZE;
   res.json({
-    // Skip notifications about people who are gone. (A suggestion's maker can be a guest, who has no account.)
+    // a suggestion's maker can be a guest, who has no account
     notifications: page.filter((n) => n.actor || n.actorName).map((n) => serializeNotification(n)),
     more,
-    // Where the next page starts (pass it as `before`): the oldest notification looked at, shown or
-    // skipped, so a page whose every notification was skipped still moves on. Null on the last page.
-    // `more` is only true when the page has notifications in it.
+    // the oldest notification looked at, shown or skipped, so a page whose every item was skipped still moves on; null
+    // on the last page
     next: more ? page.at(-1)!.id : null,
     unread,
   } satisfies NotificationPage);
 }
 
-/** Marks the given notifications as read, or all of them when no ids are sent. */
 export async function markRead(req: Request<{}, unknown, { ids?: unknown } | undefined>, res: Response) {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(mongoose.isValidObjectId) : null;
   await Notification.updateMany(ids ? { user: req.userId, _id: { $in: ids } } : { user: req.userId, read: false }, {

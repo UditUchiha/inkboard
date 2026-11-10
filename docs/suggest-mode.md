@@ -77,7 +77,7 @@ The server deletes the change and remove suggestions on an element when a board 
 
 This is the hard part. Every tool has to work for a suggester, on new elements and on the board's own, without changing the board.
 
-- **The private copy:** a suggester's editor store *is* their private copy (as built: simpler than a separate sandbox store, with the same effect). It holds the board with the author's suggestions applied: their additions added, their changes applied, their removals left out. Every tool (pen, shapes, text, notes, connectors, select, move, resize, recolor, delete) then works unchanged, and undo and redo cover the suggester's own edits. Beside it, `client/src/features/board/suggesting.ts` keeps a second store with the board as the server has it, without their suggestions: it tells what each change is, and when one of their suggestions goes (rejected, its element removed, refused, or taken back), the copy is rebuilt from it with their remaining suggestions on top, keeping their history.
+- **The private copy:** a suggester's editor store *is* their private copy (as built: simpler than a separate sandbox store, with the same effect). It holds the board with the author's suggestions applied: their additions added, their changes applied, their removals left out. Every tool (pen, shapes, text, notes, connectors, select, move, resize, recolor, delete) then works unchanged, and undo and redo cover the suggester's own edits. Beside it, `client/src/features/board/lib/sync/suggesting.ts` keeps a second store with the board as the server has it, without their suggestions: it tells what each change is, and when one of their suggestions goes (rejected, its element removed, refused, or taken back), the copy is rebuilt from it with their remaining suggestions on top, keeping their history.
 - **Remote changes:** other people's board operations reach the copy (and the board beside it) through `applyRemote`, as they reach any copy of the board. The copy merges them one field group at a time, so a suggester sees the live board with their own suggestions on top.
 - **Where the copy's changes go:** to the server as suggestions, not to `board:op`. Each element the suggester changes is compared with the board:
   - an element that isn't on the board is an **add**
@@ -113,7 +113,7 @@ A new notification type, `"suggestion"`, tells the owner, at most once per board
 - **Rate:** the same bucket as board operations (rate-limit.ts), keyed by address for guests.
 - **Element rules:** text and stroke limits are the same as on the board.
 - **Owner controls:** "Reject all" in the panel, and switching the link off. Either one clears a vandalized suggestion layer in one click.
-- **Guest identity:** a guest's id is chosen by their browser (server/src/realtime/index.ts:294), so a guest could pretend to be another guest and withdraw or move their suggestions. Members' decisions can't be faked this way. This is accepted for the first version; a server-issued author key per guest would close it.
+- **Guest identity:** a guest's id is chosen by their browser (server/src/realtime/identity.ts, `guestIdentity`), so a guest could pretend to be another guest and withdraw or move their suggestions. Members' decisions can't be faked this way. This is accepted for the first version; a server-issued author key per guest would close it.
 
 ### What else changes
 
@@ -150,7 +150,7 @@ Steps 3 and 4 are the largest. Step 4 is where the sandbox's merge with live rem
 
 ## Private mode
 
-Private mode reuses suggestions. While a member has it on, everyone else who could change the board is a suggester (`effectiveRole` in `server/src/realtime/index.ts`; their screens are sent `board:role` and join again), and each suggestion goes only to its author's screens, on joining as well. A member's **Reveal** turns it off: roles go back, and every open suggestion is sent to everyone. Whoever turned it on keeps editing, and a guest on an edit link can neither turn it on nor reveal. It is saved with the board (`privateMode`), like the timer.
+Private mode reuses suggestions. While a member has it on, everyone else who could change the board is a suggester (`effectiveRole` in `server/src/realtime/modes.ts`; their screens are sent `board:role` and join again), and each suggestion goes only to its author's screens, on joining as well. A member's **Reveal** turns it off: roles go back, and every open suggestion is sent to everyone. Whoever turned it on keeps editing, and a guest on an edit link can neither turn it on nor reveal. It is saved with the board (`privateMode`), like the timer.
 
 ## Later
 

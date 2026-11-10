@@ -19,12 +19,13 @@ declare global {
 // and does can be checked against a fake connection.
 const fakes = {
   react: `
-    const state = (globalThis.__react = { slots: [], effects: [], cleanups: [], at: 0 });
+    const state = (globalThis.__react = { slots: [], effects: [], layoutEffects: [], cleanups: [], at: 0 });
     export function render(hook) {
       state.at = 0;
       state.effects = [];
+      state.layoutEffects = [];
       const out = hook();
-      for (const effect of state.effects) {
+      for (const effect of [...state.layoutEffects, ...state.effects]) {
         const cleanup = effect();
         if (typeof cleanup === "function") state.cleanups.push(cleanup);
       }
@@ -45,6 +46,7 @@ const fakes = {
     export const useRef = (initial) => slot(() => ({ current: initial }));
     export const useCallback = (fn) => fn;
     export const useEffect = (effect) => { state.effects.push(effect); };
+    export const useLayoutEffect = (effect) => { state.layoutEffects.push(effect); };
     export const useSyncExternalStore = (_subscribe, getSnapshot) => getSnapshot();
   `,
   sonner: `
@@ -69,8 +71,8 @@ const { render, unmount } = (await import("react")) as unknown as {
   render: <T>(hook: () => T) => T;
   unmount: () => void;
 };
-const { useBoardSync } = await import("../src/features/board/useBoardSync.ts");
-const { createBoardStore } = await import("../src/features/board/store.ts");
+const { useBoardSync } = await import("../src/features/board/hooks/useBoardSync.ts");
+const { createBoardStore } = await import("../src/features/board/lib/sync/store.ts");
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const rect = (id: string): ShapeElement =>

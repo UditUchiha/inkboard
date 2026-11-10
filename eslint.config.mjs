@@ -23,9 +23,13 @@ export default [
       parserOptions: { ecmaFeatures: { jsx: true } },
       globals: globals.browser,
     },
-    // Only the two long-standing rules. The plugin's newer React Compiler rules (no setState in an effect,
-    // no ref writes while rendering) flag patterns that are deliberate and fine here, since the app doesn't use the compiler.
-    rules: { "react-hooks/rules-of-hooks": "error", "react-hooks/exhaustive-deps": "error" },
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "error",
+      "react-hooks/set-state-in-effect": "error",
+      "react-hooks/refs": "error",
+      "react-hooks/purity": "error",
+    },
   },
   {
     files: ["client/vite.config.ts", "client/tests/**", "server/**", "shared/**"],

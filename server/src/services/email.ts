@@ -1,15 +1,11 @@
 import { env } from "../config/env.ts";
 
-// Sends email through Brevo's HTTP API (Render's free plan blocks SMTP ports).
-// Email is optional: without BREVO_API_KEY and EMAIL_FROM, the features that
-// need it (verifying addresses, resetting passwords) are switched off, and
-// setting them later switches those on with no other change. Tests never send:
-// their emails are kept in `outbox` to be read back.
+// Brevo's HTTP API (Render's free plan blocks SMTP). Email is optional: without BREVO_API_KEY and EMAIL_FROM, verifying
+// addresses and resetting passwords are off. Tests keep their emails in `outbox`.
 
 const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 const OUTBOX_SIZE = 50;
 
-/** What an email says, whoever it's to. */
 export interface SentEmail {
   to: string;
   subject: string;
@@ -17,26 +13,20 @@ export interface SentEmail {
   html: string;
 }
 
-/** What an email is for: it decides which share of the daily limit it may use (see takeDailySlot). */
 export type EmailPurpose = "verify-email" | "reset-password";
 
-/** Emails "sent" by tests, or while no email service is configured, newest last. */
 export const outbox: SentEmail[] = [];
 
 let budgetDay = "";
 let sentToday = 0;
 
-/**
- * How many emails this server process has sent since midnight UTC. The count lives in memory: it starts
- * again at 0 when the process restarts, and each process (if there were several) counts its own.
- */
+// in memory: it starts again at 0 when the process restarts, and each process counts its own
 export function emailsSentToday() {
   return budgetDay === new Date().toISOString().slice(0, 10) ? sentToday : 0;
 }
 
-// Brevo stops sending for the day at its quota, and sign-ups and reset requests are open to anyone.
-// Password resets are what someone locked out of their account needs, so this share of the day's
-// allowance is kept for them: a flood of sign-ups (each sends a verification email) can't use it up.
+// Brevo stops sending at its quota and sign-ups and reset requests are open to anyone, so this share is kept for resets
+// (what a locked-out person needs): a flood of sign-ups can't use it up.
 export const RESERVED_FOR_RESETS = 0.4;
 
 function takeDailySlot(purpose: EmailPurpose | "access-request") {
@@ -52,13 +42,10 @@ function takeDailySlot(purpose: EmailPurpose | "access-request") {
   return true;
 }
 
-/** Whether email is set up, and with it email verification and password reset. */
 export const emailConfigured = () => Boolean(env.email.brevoApiKey && env.email.from);
 
-/**
- * Sends one email. Throws if the email service refuses it, or the daily limit is used up. `purpose` is
- * "reset-password" for a password reset, which may use the share of the limit kept for those.
- */
+// Throws if the service refuses or the daily limit is used up. `purpose` "reset-password" may use the share kept for
+// resets.
 export async function sendEmail({
   to,
   subject,
@@ -72,7 +59,6 @@ export async function sendEmail({
     outbox.push({ to, subject, text, html });
     if (outbox.length > OUTBOX_SIZE) outbox.shift();
     if (env.isProduction) {
-      // Never log the content: it holds sign-in links.
       console.warn(`Email isn't set up (BREVO_API_KEY, EMAIL_FROM), so "${subject}" wasn't sent.`);
     } else if (process.env.NODE_ENV !== "test") {
       console.log(`\n--- Email to ${to}: ${subject} ---\n${text}\n---`);
@@ -82,7 +68,6 @@ export async function sendEmail({
 
   const response = await fetch(BREVO_URL, {
     method: "POST",
-    // emailConfigured() above has checked that the key is set, which the type can't follow.
     headers: { "api-key": env.email.brevoApiKey!, "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
       sender: { name: env.email.fromName, email: env.email.from },

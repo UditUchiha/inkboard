@@ -1,24 +1,15 @@
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import type { Element, StackMove } from "./types.ts";
 
-// Where each element sits in the stack is its `index`: a short string key
-// ("a0", "a1", … "b00", …). Boards are kept sorted by key, and drawn in that
-// order, so the last element is on top. Ties (two people adding an element at
-// the same moment pick the same key) are broken by id, so everyone stacks the
-// same board the same way whatever order its changes arrived in. A key can
-// always be made above, below or between others, so moving an element in the
-// stack only ever changes that element.
+// An element's place in the stack is its `index`, a fractional-indexing key ("a0", "a1", … "b00"); boards are sorted by
+// key, then by id (two people adding at once pick the same key), and the last element is on top.
 
 const MAX_KEY_LENGTH = 100;
 const KEY_CHARACTERS = /^[0-9A-Za-z]+$/;
-// A key starts with a letter saying how long its whole-number part is ("a" for 1
-// digit, "b" for 2, up to "z" for 26, and "Z" down to "A" for keys below "a0").
-// Keys that make real boards never get past "c", but one made up with the longest
-// possible number can't be stepped past, only lengthened, until keys are too long
-// to take. So whole numbers of more than 13 digits are refused (starting past "m", or before "N").
+// The leading letter says how long the whole-number part is ("a" 1 digit … "z" 26, "Z" down to "A" below "a0"). Real
+// boards never pass "c", but a made-up longest key can only be lengthened, until keys are too long to take.
 const KEY_START = /^[N-Za-m]/;
 
-/** Whether `key` is a stacking key this module made (or could have). */
 export function isOrderKey(key: unknown): key is string {
   if (typeof key !== "string" || key.length > MAX_KEY_LENGTH || !KEY_CHARACTERS.test(key)) return false;
   if (!KEY_START.test(key)) return false;
@@ -30,13 +21,10 @@ export function isOrderKey(key: unknown): key is string {
   }
 }
 
-/** A key above `key` (or the first key, when there's nothing to go above). */
 export const keyAbove = (key: unknown): string => generateKeyBetween(isOrderKey(key) ? key : null, null);
 
-// Elements from before keys existed have no `index`, and `compareOrder` is also asked about ones that may not have it.
 const keyOf = (element: Pick<Element, "index">): string => element.index ?? "";
 
-/** Sort order for elements: by key, then by id. */
 export function compareOrder(a: Pick<Element, "id" | "index">, b: Pick<Element, "id" | "index">): number {
   const [keyA, keyB] = [keyOf(a), keyOf(b)];
   if (keyA !== keyB) return keyA < keyB ? -1 : 1;
@@ -44,20 +32,13 @@ export function compareOrder(a: Pick<Element, "id" | "index">, b: Pick<Element, 
   return a.id < b.id ? -1 : 1;
 }
 
-/** The key of the element on top of a sorted board, or null if it's empty. */
-// The `!` is safe because the board isn't empty (checked first), so `.at(-1)` finds the last element.
 export const topKey = (elements: readonly Pick<Element, "index">[]): string | null =>
   elements.length > 0 ? keyOf(elements.at(-1)!) || null : null;
 
 export const STACK_MOVES: readonly StackMove[] = ["front", "forward", "backward", "back"];
 
-/**
- * The key that moves element `id` in the stack of the sorted board `elements`:
- * to the "front" (top) or "back" (bottom), or a step "forward" or "backward",
- * past the nearest element above or below it that `overlaps` it (stepping past
- * one that doesn't would change nothing anyone can see). Returns null when
- * there's nowhere to move it.
- */
+// stepping past an element that doesn't overlap would change nothing anyone can see; null when there's nowhere to move
+// it
 export function keyToMove(
   elements: readonly Element[],
   id: string,
@@ -78,7 +59,6 @@ export function keyToMove(
     let target = position + 1;
     while (target < elements.length && !overlaps(elements[target])) target += 1;
     if (target === elements.length) return null;
-    // Past every element sharing the target's key (ties are broken by id).
     let next = target + 1;
     while (next < elements.length && keys[next] === keys[target]) next += 1;
     key = generateKeyBetween(keys[target], next < elements.length ? keys[next] : null);
@@ -90,16 +70,12 @@ export function keyToMove(
     while (previous >= 0 && keys[previous] === keys[target]) previous -= 1;
     key = generateKeyBetween(previous >= 0 ? keys[previous] : null, keys[target]);
   }
-  // Keys stepped into the same gap again and again grow longer; past the
-  // longest the server takes, the move would only happen on this screen.
+  // keys stepped into the same gap again and again grow; past the longest the server takes, the move would only happen
+  // on this screen
   return isOrderKey(key) ? key : null;
 }
 
-/**
- * `elements` as a board keeps them: each with a key, sorted. Returns the same
- * array when it already is. A board saved before elements had keys is stacked
- * in the order it was stored, so it looks exactly as it did.
- */
+// a board saved before keys is stacked in stored order, so it looks exactly as it did
 export function inStackOrder(elements: Element[]): Element[] {
   if (!elements.every((element) => isOrderKey(element.index))) {
     const keys = generateNKeysBetween(null, null, elements.length);

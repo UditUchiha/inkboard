@@ -9,8 +9,8 @@ import type { Element } from "@inkboard/shared/types";
   }),
   fonts: { load: async () => {} },
 };
-const { renderScene } = await import("../src/features/board/renderer.ts");
-const { createTileCache } = await import("../src/features/board/zoomedOutCache.ts");
+const { renderScene } = await import("../src/features/board/lib/render/renderer.ts");
+const { createTileCache } = await import("../src/features/board/lib/render/zoomedOutCache.ts");
 
 // A 2D context that records which methods were called and which properties were set, and does nothing else.
 function recordingCanvas() {

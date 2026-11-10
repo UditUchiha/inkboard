@@ -3,11 +3,9 @@ import type { ReactNode } from "react";
 
 const THEME_KEY = "inkboard.theme";
 
-/** What is on screen, and what the person chose: one of the two, or to follow the system. */
 export type Theme = "light" | "dark";
 export type ThemePreference = Theme | "system";
 
-/** What `useTheme()` gives. */
 export type ThemeValue = {
   theme: Theme;
   preference: ThemePreference;

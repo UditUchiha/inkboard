@@ -2,10 +2,9 @@ import type { Request, Response } from "express";
 import { HttpError } from "../lib/http-error.ts";
 import * as publicApi from "../services/public-api.ts";
 
-// The MCP server (Model Context Protocol, https://modelcontextprotocol.io): AI assistants use the boards through the
-// same actions as the public API (see services/public-api.ts and docs/api.md), with the same API tokens. It speaks
-// the protocol's Streamable HTTP transport without sessions: each POST is one JSON-RPC message, answered with JSON.
-// It has tools and nothing else, which is all the protocol asks of a server that offers only tools.
+// The MCP server (modelcontextprotocol.io): assistants use boards through the public API's actions
+// (services/public-api.ts, docs/api.md) with the same API tokens. Streamable HTTP without sessions: each POST is one
+// JSON-RPC message answered with JSON; tools only, which is all the protocol asks of a server that offers only tools.
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -94,7 +93,6 @@ const failure = (id: Message["id"], code: number, message: string) => ({
   error: { code, message },
 });
 
-// What a tool call answers: its result as JSON text, or why it failed, which the assistant reads and can act on.
 async function callTool(req: Request, params: Record<string, unknown> | undefined) {
   const tool = TOOLS.find(({ name }) => name === params?.name);
   if (!tool) return null;
@@ -111,7 +109,6 @@ async function callTool(req: Request, params: Record<string, unknown> | undefine
   }
 }
 
-/** POST /mcp: one JSON-RPC message. Notifications and replies to the server get 202 and no body. */
 export async function handleMcp(req: Request, res: Response) {
   const message = req.body as Message | undefined;
   if (!message || typeof message !== "object" || Array.isArray(message) || message.jsonrpc !== "2.0") {
@@ -149,7 +146,6 @@ export async function handleMcp(req: Request, res: Response) {
   }
 }
 
-/** Other methods on /mcp: there are no server-sent streams or sessions to open or end. */
 export function mcpMethodNotAllowed(req: Request, res: Response) {
   res.set("Allow", "POST").status(405).json({ error: "Use POST." });
 }

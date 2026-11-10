@@ -22,46 +22,33 @@ import {
 } from "./image-storage.ts";
 import type { CopyImages, ImageContent, ImageFilter } from "./image-storage.ts";
 
-// Rules for uploaded images. The browser shrinks pictures before sending them
-// (to about 2000 px on the long side), so the size limit is a backstop for
-// anyone who skips the app and talks to the server directly.
-//
-// The free database holds 512 MB for everything, so images are kept small and
-// space is budgeted three ways: per board, per account (all the boards someone
-// owns, whoever added the pictures), and for the whole app. Tests lower these.
+// The browser shrinks pictures before sending, so the size limit is a backstop for anyone talking to the server
+// directly. The free database holds 512 MB for everything, so space is budgeted per board, per account (all boards
+// someone owns, whoever added the pictures) and for the whole app. Tests lower these.
 export const IMAGE_LIMITS = {
   image: IMAGE_MAX_BYTES,
   small: IMAGE_SMALL_MAX_BYTES, // the small copy thumbnails draw from
   board: 25_000_000,
   owner: 100_000_000,
-  // What an account whose email address nobody has confirmed can hold (only when email is set up, as for invites):
-  // free accounts cost nothing to make, so they get a small share until the address is shown to be real.
+  // free accounts cost nothing to make, so an unconfirmed address (only when email is set up) gets a small share
   unverifiedOwner: 20_000_000,
-  // The free database holds 512 MB for everything. Images in R2 (see image-storage.ts) don't take any of it, and R2's
-  // free plan holds 10 GB.
+  // images in R2 (see image-storage.ts) don't take database space
   total: env.r2 ? 9_000_000_000 : 300_000_000,
-  // An image nothing shows any more is kept this long after upload, so it can
-  // still be placed on the board, or brought back by undo, before it's swept.
+  // kept this long after upload so it can still be placed, or brought back by undo, before it's swept
   keepUnusedForMs: 60 * 60 * 1000,
-  // Pixels on the longer side: a small file can still be a picture of billions of pixels
-  // that every viewer's browser has to decode.
+  // a small file can still be a picture of billions of pixels that every viewer's browser has to decode
   side: IMAGE_MAX_SIDE,
   smallSide: IMAGE_SMALL_MAX_SIDE,
-  // Uploads one account (or, for guests, one board) can make a minute.
   uploadsPerMinute: 30,
-  // Uploads one network address can make a minute, for however many accounts and guests are behind it.
   uploadsPerMinutePerAddress: 90,
-  // Making room by sweeping scans every version of the boards involved, so each scope (an owner's boards, or
-  // the whole app) is swept at most this often.
+  // sweeping scans every version of the boards involved, so each scope is swept at most this often
   sweepEveryMs: 30_000,
 };
 
 const SWEEP_INTERVAL_MS = 6 * 3600 * 1000;
 
-/** The kinds of image a file can really be (see detectImageType). */
 export type ImageMime = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 
-/** How many pixels wide and high an image is. */
 export interface ImageSize {
   width: number;
   height: number;
@@ -70,11 +57,7 @@ export interface ImageSize {
 const startsWith = (buffer: Buffer, bytes: number[], offset = 0) =>
   bytes.every((byte, index) => buffer[offset + index] === byte);
 
-/**
- * What kind of image a file really is, judged by its first bytes rather than by
- * what the sender claims. Returns a MIME type, or null for anything else.
- * SVG is left out on purpose: it can carry scripts.
- */
+// Judged by the first bytes, not what the sender claims. SVG is left out on purpose: it can carry scripts.
 export function detectImageType(buffer: unknown): ImageMime | null {
   if (!Buffer.isBuffer(buffer) || buffer.length < 12) return null;
   if (startsWith(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
@@ -86,8 +69,7 @@ export function detectImageType(buffer: unknown): ImageMime | null {
   return null;
 }
 
-// A JPEG is a run of segments; the one that starts a frame (SOF0 to SOF15, except the three that
-// aren't frames) says how big the picture is.
+// the segment that starts a frame (SOF0 to SOF15, except the three that aren't frames) says how big the picture is
 function jpegSize(buffer: Buffer): ImageSize | null {
   let at = 2;
   while (at + 4 <= buffer.length) {
@@ -106,7 +88,7 @@ function jpegSize(buffer: Buffer): ImageSize | null {
   return null;
 }
 
-// A WebP starts with one chunk that says how big the picture is, in one of three layouts.
+// the first chunk says how big the picture is, in one of three layouts
 function webpSize(buffer: Buffer): ImageSize | null {
   const kind = buffer.toString("latin1", 12, 16);
   if (kind === "VP8X" && buffer.length >= 30) {
@@ -124,10 +106,7 @@ function webpSize(buffer: Buffer): ImageSize | null {
   return null;
 }
 
-/**
- * How many pixels wide and high an image says it is, read from its header (so without
- * decoding it), or null if the header doesn't say. `mime` is what detectImageType returned.
- */
+// read from the header, without decoding
 export function imageSize(buffer: Buffer, mime: string): ImageSize | null {
   if (mime === "image/png" && buffer.length >= 24) {
     return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
@@ -140,7 +119,6 @@ export function imageSize(buffer: Buffer, mime: string): ImageSize | null {
   return null;
 }
 
-// Why an image's size rules it out (a sentence for whoever uploaded it), or null if it's fine.
 function sizeProblem(buffer: Buffer, mime: string, side: number) {
   const size = imageSize(buffer, mime);
   if (!size || size.width === 0 || size.height === 0) return "That picture couldn't be read.";
@@ -150,18 +128,16 @@ function sizeProblem(buffer: Buffer, mime: string, side: number) {
   return null;
 }
 
-// Each upload is checked against the space left and then stored, which has to happen for one
-// owner at a time, so two arriving together can't both pass a check that only one of them fits in.
-// Different owners don't wait for each other (so together they can overshoot the app-wide limit by
-// a few uploads at most), and a stuck write only holds up its own owner.
+// Checked against the space left and then stored, one owner at a time, so two arriving together can't both pass a check
+// that only one fits. Different owners don't wait for each other (they can overshoot the app-wide limit by a few
+// uploads).
 const uploading = keyedQueue();
 
-// Uploads of the last minute for each account (or board, for guests) and each network address, to slow down floods.
+// last minute's uploads per account (board, for guests) and per network address, to slow down floods
 const recentUploads = new Map<string, number[]>();
 function uploadingTooFast(key: string, limit: number) {
   const now = Date.now();
   if (recentUploads.size > 1000) {
-    // Each list was made with the upload that created it, so none is empty.
     for (const [other, times] of recentUploads) if (now - times.at(-1)! >= 60_000) recentUploads.delete(other);
   }
   const recent = (recentUploads.get(key) ?? []).filter((at) => now - at < 60_000);
@@ -170,10 +146,9 @@ function uploadingTooFast(key: string, limit: number) {
   return recent.length > limit;
 }
 
-/** Forgets who uploaded lately (tests start each case from a clean slate). */
 export const forgetRecentUploads = () => recentUploads.clear();
 
-// Says so (at most once an hour) when the app's image space is getting close to full, so someone can act before it is.
+// at most once an hour, so someone can act before the space runs out
 let lastFullnessWarning = 0;
 function warnIfNearlyFull(total: number) {
   if (total < IMAGE_LIMITS.total * 0.8 || Date.now() - lastFullnessWarning < 60 * 60 * 1000) return;
@@ -181,10 +156,8 @@ function warnIfNearlyFull(total: number) {
   console.warn(`Image storage is ${Math.round((total / IMAGE_LIMITS.total) * 100)}% full.`);
 }
 
-// The space limits an upload can break are declared with the replies that name them (see ImageReply).
 export type { ImageLimit };
 
-// Which limit, if any, `bytes` more would break.
 async function limitBroken(
   boardId: ObjectIdLike,
   ownerBoards: string[],
@@ -199,11 +172,9 @@ async function limitBroken(
   return null;
 }
 
-// Starts a sweep of a scope in the background, unless it was swept lately, so a board full of
-// pictures that are all in use doesn't make every upload start a sweep that finds nothing. The
-// upload that ran out of room doesn't wait for it (a sweep can take a while and would hold up
-// everyone uploading to that owner's boards); trying again a moment later finds the room it made.
-// Sweeps of one scope run one after another.
+// A background sweep, unless the scope was swept lately, so a board full of pictures in use doesn't start a pointless
+// sweep per upload. The upload that ran out of room doesn't wait (a sweep would hold up everyone uploading to that
+// owner); a retry a moment later finds the room. Sweeps of one scope run one after another.
 const lastSweep = new Map<string, number>();
 const sweeping = keyedQueue();
 const running = new Set<Promise<unknown>>();
@@ -216,10 +187,8 @@ function sweepSoon(scope: string, filter: ImageFilter) {
   running.add(sweep);
 }
 
-/** Resolves once the sweeps uploads have started are done (for tests). */
 export const sweepsSettled = () => Promise.all([...running]);
 
-/** What storeImage is asked to store, and where the upload came from. */
 export interface StoreImage extends ImageContent {
   boardId: ObjectIdLike;
   uploadedBy?: ObjectIdLike | null;
@@ -227,19 +196,13 @@ export interface StoreImage extends ImageContent {
   address?: string;
 }
 
-/** What storeImage resolves with: the new image's id, or why there isn't one. */
 export type StoreResult =
   { id: string } | { full: ImageLimit; unverified?: true } | { missing: true } | { refused: string };
 
-/**
- * Stores an image (with its small copy `{ buffer, mime }`, if any) for a board if there is room. Resolves with `{ id }`, with
- * `{ full }` naming the limit it would break, `{ missing }` if the board is gone, or `{ refused }` with the reason
- * (a sentence) if the uploader or the picture is turned away: too many pictures lately, or one that can't be read or
- * is too many pixels across (a small copy that is, is just dropped). `full: "owner"` comes with `unverified: true` when
- * the owner's smaller allowance, for an unconfirmed email address, is what ran out. When there's no room, a sweep of
- * images nothing shows any more starts in the background, so removing pictures frees space for the next try.
- * `address` is where the upload came from.
- */
+// `{ full }` names the limit it would break (with `unverified: true` when the owner's smaller allowance for an
+// unconfirmed address ran out); `{ refused }` is a sentence for a turned-away uploader or picture (too many lately,
+// unreadable, too many pixels; a small copy that is, is just dropped). When there's no room a sweep starts in the
+// background, so removing pictures frees space for the next try.
 export async function storeImage({
   boardId,
   buffer,
@@ -266,8 +229,7 @@ export async function storeImage({
   });
 }
 
-// Whether `bytes` more images fit on board `boardId` of `owner`: null if they do, or `{ full }` naming the limit
-// they would break, as storeImage resolves with. When they don't, a sweep starts (see sweepSoon). Run in `uploading`.
+// Null if they fit, else `{ full }` naming the limit; then a sweep starts (see sweepSoon). Run in `uploading`.
 async function roomFor(boardId: ObjectIdLike, owner: ObjectIdLike, bytes: number) {
   const ownerBoards = (await Board.find({ owner }).distinct("_id")).map(String);
   const { limit: ownerLimit, unverified } = await ownerImageLimit(owner);
@@ -278,16 +240,12 @@ async function roomFor(boardId: ObjectIdLike, owner: ObjectIdLike, bytes: number
   return { full, ...(full === "owner" && unverified && { unverified: true as const }) };
 }
 
-// How much image space `owner`'s boards have together, and whether it's the smaller share of an unconfirmed address.
 async function ownerImageLimit(owner: ObjectIdLike) {
   const unverified = emailConfigured() && !(await User.findById(owner).select("emailVerified").lean())?.emailVerified;
   return { limit: unverified ? IMAGE_LIMITS.unverifiedOwner : IMAGE_LIMITS.owner, unverified };
 }
 
-/**
- * The image space `owner`'s boards use (trashed ones too, until they're erased) out of what they may hold, and each
- * board that holds pictures, the biggest first. Pictures taken off a board count until a sweep removes them.
- */
+// trashed boards too until erased; pictures taken off a board count until a sweep removes them
 export async function ownerImageUsage(owner: ObjectIdLike): Promise<ImageUsage> {
   const boards = await Board.find({ owner }).select("title deletedAt").lean();
   const bytes = await imageBytesByBoard(boards.map((board) => board._id));
@@ -305,10 +263,7 @@ export async function ownerImageUsage(owner: ObjectIdLike): Promise<ImageUsage> 
   return { used, limit, boardLimit: IMAGE_LIMITS.board, unverified, boards: holding };
 }
 
-/**
- * Copies a board's pictures to a new board of `owner`'s (making a copy of a board, see copyImages), if they all fit.
- * Resolves with the copies' ids by the originals', or `{ full }` as storeImage does.
- */
+// for a copy of a board (see copyImages); resolves with the copies' ids by the originals', or `{ full }`
 export async function copyBoardImages({ owner, ...copy }: CopyImages & { owner: ObjectIdLike }) {
   return uploading(String(owner), async () => {
     const full = await roomFor(copy.to, owner, await imageBytesAmong(copy.from, copy.ids));
@@ -316,7 +271,6 @@ export async function copyBoardImages({ owner, ...copy }: CopyImages & { owner: 
   });
 }
 
-// What imageIdsIn needs of a model (boards and versions are both searched): to aggregate over its documents.
 const imageIdsIn = async (
   Model: Pick<mongoose.Model<unknown>, "aggregate">,
   match: Record<string, mongoose.Types.ObjectId>,
@@ -330,8 +284,7 @@ const imageIdsIn = async (
     ])
   ).map((row) => row._id);
 
-// The images a board still shows: on the board itself (as people see it right
-// now, if it's open) or in any of its saved versions, which can be restored.
+// on the board itself (as people see it now, if it's open) or in any saved version, which can be restored
 async function imagesShownBy(boardId: string | undefined) {
   if (!mongoose.isValidObjectId(boardId)) return new Set();
   const _id = new mongoose.Types.ObjectId(String(boardId));
@@ -339,7 +292,7 @@ async function imagesShownBy(boardId: string | undefined) {
   const onBoard = live
     ? live.filter((element) => element.type === "image").map((element) => element.imageId)
     : await imageIdsIn(Board, { _id });
-  // Versions saved before they were compressed show theirs in their elements; newer ones list them.
+  // versions saved before compression show theirs in their elements; newer ones list them
   const inVersions = [
     ...(await imageIdsIn(Version, { board: _id })),
     ...(await Version.distinct("imageIds", { board: _id })),
@@ -347,11 +300,7 @@ async function imagesShownBy(boardId: string | undefined) {
   return new Set([...onBoard, ...inVersions]);
 }
 
-/**
- * Deletes images that neither their board nor any of its versions shows, once
- * they're older than `keepUnusedForMs`. Limited to `boards` when given.
- * Resolves with how many were deleted.
- */
+// Limited to `boards` when given. Resolves with how many were deleted.
 export async function sweepUnusedImages({
   boards,
   uploadedBefore = new Date(Date.now() - IMAGE_LIMITS.keepUnusedForMs),

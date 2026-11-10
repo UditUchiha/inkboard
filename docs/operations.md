@@ -37,6 +37,7 @@ MongoDB Atlas.
 
 ## Keys the people using it bring
 
-- **Draw with AI** and **handwriting to equations** run in each person's browser with their own Anthropic key, kept
-  only in that browser. There's no server-side key or allowance to look after. Neither has been tried with a real
-  key yet: the first person to do so should check that both work.
+- **Draw with AI** and **handwriting to equations** run in each person's browser with their own key for Anthropic,
+  OpenAI, OpenRouter, Gemini or Groq, kept only in that browser. There's no server-side key or allowance to look
+  after. None has been tried with a real key yet; the first test should check each provider is reachable from a
+  browser (CORS), takes the JSON schema or falls back cleanly, and that handwriting works with a vision model.

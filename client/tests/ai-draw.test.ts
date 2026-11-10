@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Element, ShapeElement, StickyElement } from "@inkboard/shared/types";
-import { answerToElements, boardContext, OUTPUT_SCHEMA, requestMessage } from "../src/features/board/aiDraw.ts";
+import { answerToElements, boardContext, OUTPUT_SCHEMA, requestMessage } from "../src/features/board/lib/ai/aiDraw.ts";
 
 const box = (id: string, x: number): ShapeElement =>
   ({

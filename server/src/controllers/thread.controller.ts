@@ -21,9 +21,8 @@ import type { Person, Ref } from "../services/boards.ts";
 import { notify } from "../services/notifications.ts";
 import type { BoardRequest } from "./board.controller.ts";
 
-// Comment threads pinned to the canvas. Anyone signed in who can open the board can read them, comment
-// and react, people who only view it by its link too. People who can edit the board, and whoever started
-// a thread, can resolve and move it. Members can be @mentioned.
+// Anyone signed in who can open the board reads, comments and reacts, view-link people too; editors and a thread's
+// starter resolve and move it. Members can be @mentioned.
 
 const populateThread = [
   { path: "author", select: PERSON_FIELDS },
@@ -34,13 +33,10 @@ const populateThread = [
 
 type ThreadDoc = InstanceType<typeof Thread>;
 
-/** A request for one of a board's comment threads, named by the `:threadId` in the route. */
 type ThreadRequest<Body = unknown> = Request<{ boardId: string; threadId: string }, unknown, Body | undefined>;
 
-/** The board a thread is on, as `openBoard` finds it. */
 type OpenBoard = Awaited<ReturnType<typeof findBoardForViewing>>;
 
-/** A message once populateThread has filled in who wrote it and who it mentions. Accounts that are gone come out as null. */
 interface PopulatedMessage {
   id: string;
   author: Person | null;
@@ -50,19 +46,17 @@ interface PopulatedMessage {
   createdAt: Date;
 }
 
-/** What populateThread turns a thread's people into. */
 interface PopulatedPeople {
   author: Person;
   messages: PopulatedMessage[];
 }
 
-// A message's reactions by emoji, in the order the picker shows them, with the people whose accounts remain.
 function reactionsOf(message: Pick<PopulatedMessage, "reactions">): Api.Reaction[] {
   return REACTION_EMOJI.map((emoji) => ({
     emoji,
     people: message.reactions
       .filter((reaction) => reaction.emoji === emoji && reaction.user)
-      .map((reaction) => serializePerson(reaction.user!)), // the filter above left only those with one
+      .map((reaction) => serializePerson(reaction.user!)),
   })).filter((reaction) => reaction.people.length > 0);
 }
 
@@ -80,9 +74,9 @@ function serializeThread(
       .filter((message) => message.author)
       .map((message) => ({
         id: message.id,
-        author: serializePerson(message.author!), // the filter above left only the messages that have one
+        author: serializePerson(message.author!),
         body: message.body,
-        // filter(Boolean) drops the mentions of accounts that are gone, which the type can't see.
+        // filter(Boolean) drops mentions of accounts that are gone
         mentions: (message.mentions.filter(Boolean) as Person[]).map(serializePerson),
         reactions: reactionsOf(message),
         createdAt: message.createdAt,
@@ -90,7 +84,6 @@ function serializeThread(
   };
 }
 
-// Everyone signed in who can open the board (`requireAuth` comes first) may read, comment and react.
 const openBoard = (req: BoardRequest) => findBoardForViewing(req.params.boardId, req.userId);
 
 async function findThread(board: Pick<OpenBoard, "_id">, threadId: string) {
@@ -99,7 +92,7 @@ async function findThread(board: Pick<OpenBoard, "_id">, threadId: string) {
   return thread;
 }
 
-// A thread is one document, so what goes into it is bounded: 2,000 characters a message, this many messages.
+// a thread is one document, so what goes into it is bounded: 2,000 characters a message, this many messages
 const MAX_MESSAGES = 200;
 
 function readBody(value: unknown) {
@@ -109,7 +102,7 @@ function readBody(value: unknown) {
   return body;
 }
 
-// Only the board's members can be mentioned, since only they are notified.
+// only members are notified, so only they can be mentioned
 function readMentions(board: OpenBoard, ids: unknown) {
   if (!Array.isArray(ids)) return [];
   const members = new Set([idOf(board.owner), ...board.collaborators.map(idOf)]);
@@ -118,13 +111,11 @@ function readMentions(board: OpenBoard, ids: unknown) {
 
 async function publish(board: OpenBoard, thread: ThreadDoc) {
   await thread.populate(populateThread);
-  // `populate` fills in the people on the thread itself, which the types can't see.
   const payload = serializeThread(thread as ThreadDoc & PopulatedPeople);
   emitToSignedIn(board.id, "thread:upsert", payload);
   return payload;
 }
 
-// Where a thread was placed: a number the board's drawings could be at.
 function readCoordinate(value: unknown) {
   const coordinate = typeof value === "number" ? value : NaN;
   if (!Number.isFinite(coordinate) || Math.abs(coordinate) > COORDINATE_LIMIT) {
@@ -139,7 +130,7 @@ async function notifyAbout(
   { actor, body, mentions }: { actor: Person; body: string; mentions: string[] },
 ) {
   await notify({ users: mentions, type: "mention", actor, board, thread: thread._id, excerpt: body });
-  // Everyone else who took part in the thread hears about replies, unless they can't open the board any more.
+  // everyone else in the thread hears about replies, unless they can't open the board any more
   const mentioned = new Set(mentions);
   const participants = thread.messages
     .map((message) => idOf(message.author))
@@ -164,7 +155,7 @@ export async function createThread(
   const y = readCoordinate(req.body?.y);
   const body = readBody(req.body?.body);
   const mentions = readMentions(board, req.body?.mentions);
-  // Anyone with a view link can comment, so a board's threads are bounded too.
+  // anyone with a view link can comment, so a board's threads are bounded too
   if ((await Thread.countDocuments({ board: board._id })) >= MAX_THREADS_PER_BOARD) {
     throw new HttpError(
       400,
@@ -180,7 +171,6 @@ export async function createThread(
     messages: [{ author: req.userId, body, mentions }],
   });
   const payload = await publish(board, thread);
-  // `requireAuth` found this account moments ago.
   const actor = (await User.findById(req.userId))!;
   await notify({ users: mentions, type: "mention", actor, board, thread: thread._id, excerpt: body });
   res.status(201).json({ thread: payload } satisfies Api.ThreadReply);
@@ -201,7 +191,7 @@ export async function replyToThread(req: ThreadRequest<{ body?: unknown; mention
   await thread.save();
 
   const payload = await publish(board, thread);
-  const actor = (await User.findById(req.userId))!; // as in createThread
+  const actor = (await User.findById(req.userId))!;
   await notifyAbout(board, { _id: thread._id, messages: previous }, { actor, body, mentions });
   res.status(201).json({ thread: payload } satisfies Api.ThreadReply);
 }
@@ -233,30 +223,26 @@ export async function deleteThread(req: ThreadRequest, res: Response) {
     throw new HttpError(403, "Only the person who started this thread or the board's owner can delete it.");
   }
   await thread.deleteOne();
-  // What they pointed at is gone, so don't leave them in anyone's notification list.
   await Notification.deleteMany({ thread: thread._id });
   emitToSignedIn(board.id, "thread:delete", { id: thread.id });
   res.status(204).end();
 }
 
-/** A request about one message of a thread, named by the `:messageId` in the route. */
 type MessageRequest<Body = unknown> = Request<
   { boardId: string; threadId: string; messageId: string },
   unknown,
   Body | undefined
 >;
 
-/** Adds the person's reaction to a message (`on: true`) or takes it away (`on: false`). */
 export async function reactToMessage(req: MessageRequest<{ emoji?: unknown; on?: unknown }>, res: Response) {
   const board = await openBoard(req);
   const emoji = req.body?.emoji;
-  // `includes` only compares, so it doesn't tell the types that a value that passes is one of the emoji.
   if (typeof emoji !== "string" || !REACTION_EMOJI.includes(emoji as (typeof REACTION_EMOJI)[number])) {
     throw new HttpError(400, `React with one of ${REACTION_EMOJI.join(" ")}.`);
   }
   const { threadId, messageId } = req.params;
   const found = mongoose.isValidObjectId(threadId) && mongoose.isValidObjectId(messageId);
-  // One write, so reactions sent at the same moment can't undo each other.
+  // one write, so reactions sent at once can't undo each other
   const reaction = { emoji, user: new mongoose.Types.ObjectId(String(req.userId)) };
   const changed = found
     ? await Thread.updateOne(

@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import type { Element, Operation } from "@inkboard/shared/types";
 import type { CreateBoardInput } from "../src/lib/api.ts";
 import type { AppSocket } from "../src/providers/SocketProvider.tsx";
-import type { ImportedBoard, ImportOptions } from "../src/features/board/scratchImport.ts";
+import type { ImportedBoard, ImportOptions } from "../src/features/board/lib/sync/scratchImport.ts";
 
 // A stand-in for the browser's localStorage, which can be made to run out of room.
 const storage = {
@@ -22,8 +22,8 @@ const storage = {
 };
 globalThis.localStorage = storage as unknown as Storage;
 
-const { clearScratch, currentScratch, readScratch } = await import("../src/features/board/scratch.ts");
-const { importScratch } = await import("../src/features/board/scratchImport.ts");
+const { clearScratch, currentScratch, readScratch } = await import("../src/features/board/lib/sync/scratch.ts");
+const { importScratch } = await import("../src/features/board/lib/sync/scratchImport.ts");
 
 const rect = (id: string, extra: Record<string, unknown> = {}): Element =>
   ({ id, type: "rectangle", x1: 0, y1: 0, x2: 10, y2: 10, ...extra }) as unknown as Element;

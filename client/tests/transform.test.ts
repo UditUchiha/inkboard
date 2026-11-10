@@ -12,9 +12,9 @@ before(() => {
   (globalThis as unknown as { document: unknown }).document = { createElement: () => ({ getContext: () => context }) };
 });
 
-const { getBounds, getFrame, hitTest } = await import("../src/features/board/elements.ts");
+const { getBounds, getFrame, hitTest } = await import("../src/features/board/lib/elements/elements.ts");
 const { cropImage, cursorForHandle, getSelectionBox, handleAt, resizeElement, rotateElement } =
-  await import("../src/features/board/transform.ts");
+  await import("../src/features/board/lib/elements/transform.ts");
 const {
   DRAG_THRESHOLD,
   appendPoints,
@@ -26,7 +26,7 @@ const {
   rotatedRectBounds,
   stalePointers,
   TOUCH_IDLE_MS,
-} = await import("../src/features/board/geometry.ts");
+} = await import("../src/features/board/lib/elements/geometry.ts");
 
 const near = (actual: number, expected: number, message: string, tolerance = 1e-6) =>
   assert.ok(Math.abs(actual - expected) <= tolerance, `${message}: expected ${expected}, got ${actual}`);

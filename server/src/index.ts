@@ -41,7 +41,6 @@ async function shutdown(reason: string, exitCode = 0) {
     await closeRealtime();
     await mongoose.disconnect();
   } catch (error) {
-    // Anything can be thrown; closing the database and sockets throws Errors.
     console.error(`Shutting down failed: ${(error as Error).message}`);
     exitCode = 1;
   }

@@ -1,17 +1,16 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { Element, FrameElement, PenElement, ShapeElement } from "@inkboard/shared/types";
-import { AI_MODEL } from "../src/features/board/aiDraw.ts";
-import { getBounds } from "../src/features/board/elements.ts";
-import { unionRects } from "../src/features/board/geometry.ts";
+import type { AiSettings } from "../src/features/board/lib/ai/providers.ts";
+import { getBounds } from "../src/features/board/lib/elements/elements.ts";
+import { unionRects } from "../src/features/board/lib/elements/geometry.ts";
 import {
   answerToLatex,
   EQUATION_SCHEMA,
   equationElement,
   readHandwriting,
-  readingRequest,
   strokesToRead,
-} from "../src/features/board/handwriting.ts";
+} from "../src/features/board/lib/ai/handwriting.ts";
 
 // A short stroke from (x, y) to 20 to the right and 30 down.
 const stroke = (id: string, x: number, y: number, color = "#1971c2"): PenElement => ({
@@ -52,16 +51,9 @@ describe("picking the handwriting to read", () => {
   });
 });
 
-describe("asking Claude", () => {
-  it("sends the picture as a PNG, before saying what to do with it", () => {
-    const [image, text] = readingRequest("data:image/png;base64,iVBORw0KGgo=");
-    assert.deepEqual(image, {
-      type: "image",
-      source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
-    });
-    assert.equal(text.type, "text");
-  });
+const ANTHROPIC: AiSettings = { provider: "anthropic", keys: { anthropic: "sk-ant-test" }, models: {} };
 
+describe("asking the AI to read handwriting", () => {
   it("reads the LaTeX from the answer, without $ signs, and empty when there was nothing to read", () => {
     assert.equal(answerToLatex({ latex: " $$x^2 + 1$$ " }), "x^2 + 1");
     assert.equal(answerToLatex({ latex: String.raw`\frac{a}{b}` }), String.raw`\frac{a}{b}`);
@@ -88,14 +80,14 @@ describe("asking Claude", () => {
       id: "msg_1",
       type: "message",
       role: "assistant",
-      model: AI_MODEL,
+      model: "claude-opus-5-5",
       content: [{ type: "text", text }],
       stop_reason: stopReason,
       usage: { input_tokens: 1, output_tokens: 1 },
     });
     const read = () =>
       readHandwriting({
-        key: "sk-ant-test",
+        settings: ANTHROPIC,
         picture: "data:image/png;base64,AAAA",
         signal: new AbortController().signal,
       });
@@ -108,7 +100,7 @@ describe("asking Claude", () => {
         output_config: { format: { schema: unknown } };
         messages: { content: { type: string }[] }[];
       };
-      assert.equal(body.model, AI_MODEL);
+      assert.equal(body.model, "claude-opus-5-5");
       assert.deepEqual(body.output_config.format.schema, EQUATION_SCHEMA);
       assert.deepEqual(
         body.messages[0].content.map((block) => block.type),

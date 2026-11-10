@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { isView } from "../src/features/dashboard/sections.ts";
-import type { BoardSummary } from "../src/features/dashboard/sections.ts";
-import { fillPreviews } from "../src/features/dashboard/useBoards.ts";
-import { readStored, writeStored } from "../src/features/dashboard/useStoredState.ts";
+import { isView } from "../src/features/dashboard/lib/sections.ts";
+import type { BoardSummary } from "../src/features/dashboard/lib/sections.ts";
+import { fillPreviews } from "../src/features/dashboard/hooks/useBoards.ts";
+import { readStored, writeStored } from "../src/features/dashboard/hooks/useStoredState.ts";
 import { isChunkLoadError, reloadOnce, resetReloadOnce, withReload } from "../src/lib/chunkReload.ts";
 import { contrastWithWhite, formatBytes, PEOPLE_COLORS, personColor, readableColor } from "../src/lib/format.ts";
 import { mergeNotifications, withNewestPage } from "../src/lib/notifications.ts";

@@ -1,12 +1,5 @@
-/**
- * Runs tasks one after another for each key (tasks with different keys don't wait for
- * each other), so a check followed by a write can't be overtaken by a second request
- * for the same thing. It only orders work within this process, which is all the app
- * has: boards that are open live in this process's memory too.
- *
- *   const saving = keyedQueue();
- *   await saving(userId, async () => { ...check, then write... });
- */
+// Runs tasks one after another per key (different keys don't wait), so a check followed by a write can't be overtaken
+// by a second request for the same thing. Orders work only within this process, which is all the app has.
 export function keyedQueue() {
   const tails = new Map<unknown, Promise<unknown>>();
   return <Result>(key: unknown, task: () => Result | PromiseLike<Result>): Promise<Result> => {

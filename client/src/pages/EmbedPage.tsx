@@ -5,26 +5,22 @@ import { buttonClass, IconButton } from "../components/Button";
 import { LogoMark } from "../components/Logo";
 import { FullPageLoader, FullPageMessage } from "../components/RouteGuards";
 import { APP_NAME } from "../config";
-import { BoardCanvas } from "../features/board/BoardCanvas";
-import { DEFAULT_STYLE } from "../features/board/constants";
-import { createEditorStore } from "../features/board/editorStore";
-import { getSceneBounds } from "../features/board/elements";
-import { fitViewport } from "../features/board/geometry";
-import type { Size, Viewport } from "../features/board/geometry";
-import { useBoardSync } from "../features/board/useBoardSync";
+import { BoardCanvas } from "../features/board/components/BoardCanvas";
+import { DEFAULT_STYLE } from "../features/board/constants/board";
+import { createEditorStore } from "../features/board/lib/sync/editorStore";
+import { getSceneBounds } from "../features/board/lib/elements/elements";
+import { fitViewport } from "../features/board/lib/elements/geometry";
+import type { Size, Viewport } from "../features/board/lib/elements/geometry";
+import { useBoardSync } from "../features/board/hooks/useBoardSync";
 import { getGuest } from "../lib/guest";
 
 const NOOP = () => {};
 
-/**
- * A board shown on another site, in an <iframe> (the snippet is in the Share dialog). It's the board live, to look
- * at, pan and zoom: never edited, whatever the link allows, and the people on the board aren't shown it (the server
- * makes sure of both, see `embed` in JoinPayload). Only boards whose link is shared open here, since a site's frame
- * doesn't share the app's sign-in.
- */
+// Embedded in an <iframe> on another site: live to look at, pan and zoom, never edited and without showing who's on the
+// board (the server enforces both, see `embed` in JoinPayload). Only boards with a shared link open, as a frame doesn't
+// share the app's sign-in.
 export default function EmbedPage() {
   const { boardId } = useParams<{ boardId: string }>();
-  // The assertion: the route always has the parameter.
   return <EmbeddedBoard key={boardId} boardId={boardId!} />;
 }
 

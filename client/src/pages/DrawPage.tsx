@@ -5,28 +5,25 @@ import { toast } from "sonner";
 import { Button, ButtonLink } from "../components/Button";
 import { FullPageLoader, FullPageMessage, RequireAuth } from "../components/RouteGuards";
 import { APP_NAME } from "../config";
-import { BoardEditor } from "../features/board/BoardEditor";
-import { clearScratch, currentScratch, useScratchBoard } from "../features/board/scratch";
-import { importScratch } from "../features/board/scratchImport";
-import { useBoardSnapshot } from "../features/board/store";
+import { BoardEditor } from "../features/board/components/BoardEditor";
+import { clearScratch, currentScratch, useScratchBoard } from "../features/board/lib/sync/scratch";
+import { importScratch } from "../features/board/lib/sync/scratchImport";
+import { useBoardSnapshot } from "../features/board/lib/sync/store";
 import { api, errorMessage } from "../lib/api";
 import type { AccountUser } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { useSocket } from "../providers/SocketProvider";
 
-// /draw is the no-account whiteboard. The board is kept in this browser. Once
-// someone signs up or logs in (the "Save board" button sends them to /register?next=/draw),
-// they land back here and the drawing becomes their first board.
+// /draw is the no-account whiteboard, kept in this browser; signing up sends them back here and the drawing becomes
+// their first board.
 
 type ScratchEditorProps = { user?: AccountUser | null; onSave?: (() => void) | null };
 
-// The board that saving the drawing made, of which only the id is read here.
 type CreatedBoard = { id: string };
 
 type ImportScratchProps = { onKeep: () => void; created: RefObject<CreatedBoard | null> };
 
-// `user` is set when someone signed in comes back here because saving their drawing failed:
-// they can keep working on it, and `onSave` tries saving again.
+// `user` is set when someone signed in comes back because saving failed; `onSave` retries.
 function ScratchEditor({ user = null, onSave = null }: ScratchEditorProps) {
   const navigate = useNavigate();
   const { store, sync } = useScratchBoard();
@@ -65,11 +62,8 @@ function ScratchEditor({ user = null, onSave = null }: ScratchEditorProps) {
   return <BoardEditor store={store} sync={sync} user={user} local={{ onSave: save }} />;
 }
 
-// Signed in: turn the guest's drawing into a real board, then open it. If that
-// fails the person can try again, or go back to the drawing (`onKeep`): it is
-// still here, so nothing is lost. `created` holds a board an earlier try made, to
-// be filled in rather than made again; it's kept by the page, so it outlasts going
-// back to the drawing and saving from there.
+// If importing fails the drawing is still here (`onKeep`), so nothing is lost. The page keeps `created` so an earlier
+// try's board is filled in rather than remade.
 function ImportScratch({ onKeep, created }: ImportScratchProps) {
   const navigate = useNavigate();
   const socket = useSocket();
@@ -100,7 +94,6 @@ function ImportScratch({ onKeep, created }: ImportScratchProps) {
         toast.success("Your drawing is saved to your boards.");
         navigate(`/board/${board.id}`, { replace: true });
       })
-      // importScratch rejects with errors (its own ImportError, or the API's).
       .catch((importError: unknown) => setError(errorMessage(importError)));
   }, [navigate, socket, attempt, created]);
 

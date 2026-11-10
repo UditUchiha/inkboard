@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Element, FrameElement, ShapeElement, StickyElement, TextElement } from "@inkboard/shared/types";
 import { inStackOrder } from "@inkboard/shared/board-order";
-import { resolveConnectors } from "../src/features/board/connectors.ts";
+import { resolveConnectors } from "../src/features/board/lib/elements/connectors.ts";
 import {
   createElement,
   createNote,
@@ -13,14 +13,13 @@ import {
   getBounds,
   inDrawOrder,
   nextFrameName,
-  slideFrames,
-  stackKey,
   translate,
   withContents,
-} from "../src/features/board/elements.ts";
-import { LINE_HEIGHT } from "../src/features/board/constants.ts";
-import { layoutNote, MIN_NOTE_FONT_SIZE, NOTE_PADDING, wrapLines } from "../src/features/board/notes.ts";
-import { loadCanvasFonts } from "../src/features/board/renderer.ts";
+} from "../src/features/board/lib/elements/elements.ts";
+import { slideFrames, stackKey } from "../src/features/board/lib/elements/order.ts";
+import { LINE_HEIGHT } from "../src/features/board/constants/board.ts";
+import { layoutNote, MIN_NOTE_FONT_SIZE, NOTE_PADDING, wrapLines } from "../src/features/board/lib/elements/notes.ts";
+import { loadCanvasFonts } from "../src/features/board/lib/render/renderer.ts";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in makes every character `perCharacter` wide.
 let perCharacter = 10;

@@ -4,12 +4,12 @@ import { ButtonLink } from "../components/Button";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Logo } from "../components/Logo";
 import { APP_NAME } from "../config";
-import { SCENE_HEIGHT, SCENE_WIDTH } from "../features/landing/demoScene";
+import { SCENE_HEIGHT, SCENE_WIDTH } from "../features/landing/lib/demoScene";
 import { lazyPage } from "../lib/chunkReload";
 import { useAuth } from "../providers/AuthProvider";
 
 // The sample board brings the whole renderer with it, so it loads after the page itself.
-const DemoBoard = lazyPage(() => import("../features/landing/DemoBoard"));
+const DemoBoard = lazyPage(() => import("../features/landing/components/DemoBoard"));
 
 function DemoPaper() {
   return (

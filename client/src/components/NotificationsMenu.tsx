@@ -3,7 +3,7 @@ import { Bell } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { timeAgo } from "../lib/format";
-import { useMinute } from "../lib/useMinute";
+import { useMinute } from "../hooks/useMinute";
 import type { NotificationItem as Notification } from "../lib/api";
 import { describeNotification, notificationLink, useNotifications } from "../providers/NotificationsProvider";
 import { Avatar } from "./Avatar";
@@ -45,18 +45,16 @@ function NotificationItem({ item }: { item: Notification }) {
   );
 }
 
-/**
- * The "Show older notifications" item. Loading the last page removes it, and a removed focused element drops focus to
- * the page body, which would end the menu's arrow-key handling. So when it goes away while focused, `onLostFocus`
- * is told, and the menu puts focus back on one of its items.
- */
+// Loading the last page removes this item, and a removed focused element drops focus to the body, ending arrow-key
+// handling, so `onLostFocus` lets the menu refocus one of its items.
 type ShowOlderItemProps = { loading: boolean; onClick: () => void; onLostFocus: () => void };
 
 function ShowOlderItem({ loading, onClick, onLostFocus }: ShowOlderItemProps) {
   const ref = useRef<HTMLButtonElement>(null);
   const lost = useRef(onLostFocus);
-  lost.current = onLostFocus;
-  // The cleanup returns what its check gives (false, or nothing), so it is typed as a plain function.
+  useLayoutEffect(() => {
+    lost.current = onLostFocus;
+  });
   useLayoutEffect((): (() => void) => {
     const button = ref.current;
     return () => document.activeElement === button && lost.current();

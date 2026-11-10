@@ -23,7 +23,7 @@ An element's fields are split into groups that change independently:
 
 Each group carries its own stamp, and when two copies of an element meet, each group is taken from whichever copy has it newer. So a move and a recolor made at the same time are both kept. The fields of one group always travel together: a move never mixes one person's corners with another's (a text's `fontSize` is in `shape` because resizing text changes it, and a connector's `startId` / `endId` / `startAnchor` / `endAnchor` because its ends and what (and which side) they're attached to change together). A connector's label is its `text`, in the `text` group like any other.
 
-**Connectors.** A line or arrow attached to shapes names them in `startId` / `endId`, and an end pinned to one of a shape's sides names the side in `startAnchor` / `endAnchor`; where an attached end is drawn, and the path between the ends (its `route`: straight, curved or elbow, [`routes.js`](../client/src/features/board/routes.ts)), is worked out on each screen from where its shape is now ([`connectors.js`](../client/src/features/board/connectors.ts)). Moving a shape therefore changes only the shape, never its arrows, so a move and someone else's edit to the arrow can't conflict. The stored `x`/`y` of an attached end is a fallback for when its shape is gone, so any change made in the browser that removes a shape (deleting, erasing, emptying a text, an undo or redo) also lets go of its connectors where they're drawn, in the same change. The store does this for every removal, and adds the attached connectors to the undo step so undoing attaches them again.
+**Connectors.** A line or arrow attached to shapes names them in `startId` / `endId`, and an end pinned to one of a shape's sides names the side in `startAnchor` / `endAnchor`; where an attached end is drawn, and the path between the ends (its `route`: straight, curved or elbow, [`routes.js`](../client/src/features/board/lib/elements/routes.ts)), is worked out on each screen from where its shape is now ([`connectors.js`](../client/src/features/board/lib/elements/connectors.ts)). Moving a shape therefore changes only the shape, never its arrows, so a move and someone else's edit to the arrow can't conflict. The stored `x`/`y` of an attached end is a fallback for when its shape is gone, so any change made in the browser that removes a shape (deleting, erasing, emptying a text, an undo or redo) also lets go of its connectors where they're drawn, in the same change. The store does this for every removal, and adds the attached connectors to the undo step so undoing attaches them again.
 
 An element stores its newest stamp as `version` / `versionNonce`, and lists only the groups whose stamp is older in `stamps`, e.g. `stamps: { stroke: [3, 81920], index: [1, 5] }`. A freshly created element has no `stamps`.
 
@@ -31,7 +31,7 @@ An element stores its newest stamp as `version` / `versionNonce`, and lists only
 
 ## What the browser stamps
 
-The store ([`store.js`](../client/src/features/board/store.ts)) stamps only the groups a change actually changed, compared with the element it was made from (its **base**), and takes every other group from the element as it is now:
+The store ([`store.js`](../client/src/features/board/lib/sync/store.ts)) stamps only the groups a change actually changed, compared with the element it was made from (its **base**), and takes every other group from the element as it is now:
 
 - a step of a drag is compared with the step before it;
 - a commit (`{ undo, redo }`) is compared with its other side, so undoing a move puts the shape back but keeps a color someone else picked since;
@@ -51,7 +51,7 @@ The fields people type into are a text's, note's or label's `text`, a frame's `n
 
 **In the browser.**
 
-- The store makes its change from the text it was typed against (the editor passes it to `commitText`), so typing that reached this screen while the editor was open is merged in, not overwritten; so is an undo of typing, which takes out only that typing (`typedOnto` in [`store.ts`](../client/src/features/board/store.ts)). The change's base is the text as this screen has it.
+- The store makes its change from the text it was typed against (the editor passes it to `commitText`), so typing that reached this screen while the editor was open is merged in, not overwritten; so is an undo of typing, which takes out only that typing (`typedOnto` in [`store.ts`](../client/src/features/board/lib/sync/store.ts)). The change's base is the text as this screen has it.
 - The editor takes in someone else's typing while it's open, merged with what's being typed, and the caret keeps its place among the letters around it (`followText`; text typed right at the caret goes after it). It waits while an input method is composing.
 - Until the server answers a change that typed, others' changes to that text don't replace it on this screen (`outbox.typing()`, `store.applyRemote`): the server merges the two, and its answer brings the result (`cleaned`, see below), which replaces the text whatever its stamp. Otherwise what was just typed would disappear for a moment, and anything typed meanwhile would be typed against a text without it.
 - Two changes queued before sending are one change, typed against what the text was before both. A change sent again without knowing whether the server took it in (a timeout, a dropped connection) goes without its base, so it can't be merged in twice: it's taken whole, as before.
@@ -73,7 +73,7 @@ Each element has an `index`, a string key from [fractional indexing](https://obs
 
 ## The server
 
-For each `board:op` the server ([`realtime/index.ts`](../server/src/realtime/index.ts)) first checks the sender's rate (a burst of 100, then 40 a second; cursors and views have their own, lower limits), then:
+For each `board:op` the server ([`realtime/take-operation.ts`](../server/src/realtime/take-operation.ts)) first checks the sender's rate (a burst of 100, then 40 a second; cursors and views have their own, lower limits), then:
 
 1. **cleans** the elements ([`element-rules.ts`](../shared/src/element-rules.ts));
 2. **prepares** the operation (`prepareOperation`): gives new elements without a key a place on top, replaces a stamp that's more than a million versions ahead of what the board has for that element (a forged one would put the element out of reach of every later change) by one for the newest edit, and handles browsers still running an older app, which say so by not sending `sync: 2` when they join. Their elements are taken whole at their version, and ones without a version are stamped as the newest edit;

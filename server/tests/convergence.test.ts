@@ -5,9 +5,9 @@ import { commitPlan, effectOf, groupsOf, planOperation, withStamps } from "@inkb
 import { followText, withoutBase } from "@inkboard/shared/text-merge";
 import type { Typing } from "@inkboard/shared/text-merge";
 import type { Effect, Element, FrameElement, ShapeElement, StickyElement, Tombstones } from "@inkboard/shared/types";
-import type { AckReply, Outbox, Piece } from "../../client/src/features/board/outbox.ts";
-import { createBoardStore } from "../../client/src/features/board/store.ts";
-import type { BoardStore } from "../../client/src/features/board/store.ts";
+import type { AckReply, Outbox, Piece } from "../../client/src/features/board/lib/sync/outbox.ts";
+import { createBoardStore } from "../../client/src/features/board/lib/sync/store.ts";
+import type { BoardStore } from "../../client/src/features/board/lib/sync/store.ts";
 import { mergedTyping, prepareOperation, sanitizeOperation } from "../src/realtime/operations.ts";
 import type { FullOperation } from "../src/realtime/operations.ts";
 import { rect } from "./helpers.ts";
@@ -15,7 +15,7 @@ import { rect } from "./helpers.ts";
 // The browser's outbox imports app modules without their file endings, as Vite allows: the client's tests find them
 // with these hooks.
 register("../../client/tests/resolve-hooks.js", import.meta.url);
-const { createOutbox } = await import("../../client/src/features/board/outbox.ts");
+const { createOutbox } = await import("../../client/src/features/board/lib/sync/outbox.ts");
 
 // People edit the same elements at the same time, and their changes reach the
 // server, and each other, in different orders. Whatever the order, everyone

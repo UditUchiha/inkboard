@@ -20,47 +20,36 @@ import { cleanBases, TEXT_FIELDS, withoutBase } from "@inkboard/shared/text-merg
 import type { Element, FieldGroup, MaybeStamped, Removal, Stamp, TextField, Tombstones } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 
-// Boards change through operations: { upsert: Element[], remove: Removal[] },
-// taken in by the rules in shared/src/board-merge.ts, which the browser applies
-// too. Each element is checked and cleaned first (see shared/src/element-rules.ts).
+// An operation is { upsert, remove }, taken in by the rules in shared/src/board-merge.ts, which browsers apply too.
+// Each element is checked and cleaned first (see shared/src/element-rules.ts).
 
-// Shared with the browser (shared/src/limits.ts); re-exported for the rest of the server.
 export { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT };
 
-/**
- * An operation as a browser sends it, before anything in it is checked: either list may be missing or
- * not a list, and what's in them may be anything (see sanitizeOperation).
- */
+// as a browser sends it: nothing is checked, so either list may be missing and its contents anything
 export interface RawOperation {
   upsert?: unknown;
   remove?: unknown;
 }
 
-/** An operation that has been through sanitizeOperation or prepareOperation: both lists are there, and clean. */
 export interface FullOperation {
   upsert: Element[];
   remove: Removal[];
 }
 
-/** An operation as it may be taken in, with what the sender should hear about it (see sanitizeOperation). */
 export interface SanitizedOperation extends FullOperation {
   changed: Element[];
   refused: string[];
 }
 
-// MongoDB refuses documents over 16 MB, and a board is one document. Without
-// limits, one huge element (or enough of them) makes every later save fail and
-// loses everyone's work until the server restarts. Sizes are measured as MongoDB
-// stores them (BSON), which is two to three times bigger than the JSON for a
-// freehand stroke, because every number takes eight bytes plus its position.
-// A long stroke is tens of kilobytes, so these leave plenty of room.
+// MongoDB refuses documents over 16 MB and a board is one document, so without limits one huge element would make every
+// later save fail and lose everyone's work. Sizes are BSON, 2-3x the JSON for a freehand stroke (8 bytes per number).
 export const MAX_ELEMENT_BYTES = 500_000;
 export const MAX_BOARD_BYTES = 12_000_000;
 
 export const elementBytes = (element: Element) => mongoose.mongo.BSON.calculateObjectSize({ element });
 
-// A removal is { id, version, versionNonce }; older browsers send just the id.
-// One whose stamp isn't valid (past MAX_VERSION, say) is stamped as the newest edit.
+// older browsers send just the id; a removal with an invalid stamp (past MAX_VERSION, say) is stamped as the newest
+// edit
 function cleanRemoval(entry: string | (MaybeStamped & { id?: unknown }) | null | undefined): Removal | null {
   if (isValidId(entry)) return { id: entry };
   if (!entry || typeof entry !== "object" || !isValidId(entry.id)) return null;
@@ -69,18 +58,15 @@ function cleanRemoval(entry: string | (MaybeStamped & { id?: unknown }) | null |
     : { id: entry.id };
 }
 
-/** Whether an operation names more elements, or removals, than a board can hold (either list alone). */
 export const isOversized = (op: RawOperation | null | undefined) =>
   (Array.isArray(op?.upsert) && op.upsert.length > MAX_ELEMENTS_PER_BOARD) ||
   (Array.isArray(op?.remove) && op.remove.length > MAX_ELEMENTS_PER_BOARD);
 
-// A change too big for one message is sent as pieces of one group, which are
-// held until the last arrives and then taken in together, so a change is made
-// whole or not at all: a piece that is refused takes the whole group with it.
+// A change too big for one message goes as pieces of one group, held until the last arrives and taken in together, so a
+// change is made whole or not at all.
 export const MAX_GROUP_PIECES = 40;
 export const MAX_GROUP_BYTES = 16_000_000;
 
-/** What a connection has of a group so far: the pieces that came, joined in order, and their size in JSON. */
 export interface HeldGroup {
   id: string;
   total: number;
@@ -89,7 +75,6 @@ export interface HeldGroup {
   expired?: undefined;
 }
 
-/** A group the server stopped waiting for (see holdPiece). The fields it doesn't have are listed so it can be read like a HeldGroup. */
 export interface ExpiredGroup {
   id: string;
   expired: true;
@@ -98,25 +83,18 @@ export interface ExpiredGroup {
   bytes?: undefined;
 }
 
-/** Why a piece of a group was refused. */
 export type GroupError = "invalid" | "tooLarge" | "expired";
 
-/** What holdPiece decides: what to hold now, and the joined change once the last piece is in, or why the group was dropped. */
 export interface PieceResult {
   held: HeldGroup | null;
   op?: RawOperation;
   error?: GroupError;
 }
 
-/**
- * `held` (what this connection has of a group so far, or null) with the piece
- * `op` of `group` ({ id, index, total }) added. Pieces come in order, starting
- * with index 0, which abandons any group held before. Returns `{ held }` to hold
- * for now, `{ held: null, op }` with the pieces joined once the last is in, or
- * `{ held: null, error }` ("invalid" or "tooLarge") when the group is dropped.
- * `held` may also be `{ id, expired: true }`: a group the server stopped waiting
- * for, whose later pieces are refused as "expired" (the sender sends it all again).
- */
+// `held` is what the connection has of a group (or null); this adds the piece `op` of `group` ({ id, index, total }).
+// Pieces come in order from index 0, which abandons any group held before. Returns `{ held }` to keep waiting, `{ held:
+// null, op }` with the pieces joined once the last is in, or `{ held: null, error }` when the group is dropped. A held
+// `{ id, expired: true }` makes later pieces of that group "expired", so the sender sends it all again.
 export function holdPiece(
   held: HeldGroup | ExpiredGroup | null | undefined,
   group: PieceGroup | null | undefined,
@@ -153,14 +131,11 @@ export function holdPiece(
   return { held: null, op: { upsert: listed("upsert"), remove: listed("remove") } };
 }
 
-// How many elements of one change may have their typing merged with others' (see sanitizeOperation). Typing is
-// one text at a time, so this is far more than a change from the editor has.
+// typing is one text at a time, so this is far more than the editor sends; it bounds the server's diffing (see
+// sanitizeOperation)
 export const MAX_TYPED_PER_CHANGE = 20;
 
-/**
- * Of the elements a change typed into (`sent`, as prepared), those whose text the board merged with someone else's
- * typing, or kept as it was, as the board now has them (`stored`). The sender has only its own text, so it's sent these.
- */
+// The sender has only its own text, so it's sent the stored elements whose text merged with someone else's typing.
 export function mergedTyping(sent: readonly Element[], stored: (id: string) => Element | undefined): Element[] {
   const merged: Element[] = [];
   for (const element of sent) {
@@ -168,8 +143,7 @@ export function mergedTyping(sent: readonly Element[], stored: (id: string) => E
     if (!now) continue;
     const ours = groupStamps(element);
     const board = groupStamps(now);
-    // Object.keys can only say "strings"; these are the keys of a change's bases, so they are text fields.
-    // The assertion: `now` is only found for an element with bases.
+    // Object.keys says only "strings"; these are the keys of a change's bases, so they are text fields
     const groups = (Object.keys(element.base!) as TextField[]).map((field) => TEXT_FIELDS[field].group);
     if (groups.some((group) => !board[group] || !ours[group] || compareStamps(board[group], ours[group]) !== 0))
       merged.push(now);
@@ -177,19 +151,14 @@ export function mergedTyping(sent: readonly Element[], stored: (id: string) => E
   return merged;
 }
 
-/**
- * The operation as it may be taken in, or null if nothing in it is valid. Along
- * with `upsert` and `remove` it lists what the sender should hear about:
- * `changed`, elements as they'll be stored when that isn't how they were sent,
- * and `refused`, the ids of elements that can't be stored at all.
- */
+// `changed` lists elements as they'll be stored when that differs from what was sent; `refused` lists ids that can't be
+// stored.
 export function sanitizeOperation(op: RawOperation | null | undefined): SanitizedOperation | null {
   if (!op || typeof op !== "object") return null;
   const upsert: Element[] = [];
   const changed: Element[] = [];
   const refused: string[] = [];
   let typed = 0;
-  // What each upsert is isn't known yet: the loop below looks at its id, and cleanElement at the rest.
   for (const raw of (Array.isArray(op.upsert) ? op.upsert : []) as (
     { id?: unknown; base?: unknown } | null | undefined
   )[]) {
@@ -198,24 +167,19 @@ export function sanitizeOperation(op: RawOperation | null | undefined): Sanitize
       if (isValidId(raw?.id)) refused.push(raw.id);
       continue;
     }
-    // What the change typed into a text was typed against (see text-merge.ts). Past MAX_TYPED_PER_CHANGE the
-    // rest are taken as they come, the newer text winning, so one change can't make the server diff for long.
+    // past MAX_TYPED_PER_CHANGE the newer text wins as it comes, so one change can't make the server diff for long
     const base = typed < MAX_TYPED_PER_CHANGE ? cleanBases(raw?.base, element) : undefined;
     if (base) typed += 1;
     upsert.push(base ? { ...element, base } : element);
     if (!isDeepStrictEqual(raw, base ? { ...element, base } : element)) changed.push(element);
   }
-  // filter(Boolean) drops the removals that weren't valid (they come back null), which the type can't see.
+  // filter(Boolean) drops invalid removals (null), which the type can't see
   const remove = (Array.isArray(op.remove) ? op.remove.map(cleanRemoval).filter(Boolean) : []) as Removal[];
   if (upsert.length === 0 && remove.length === 0) return null;
   return { upsert, remove, changed, refused };
 }
 
-/**
- * A whole board's worth of elements sent in one go (imports and templates),
- * cleaned. Elements too big to store are left out, and so is everything past
- * what a board can hold (in count and in bytes).
- */
+// Imports and templates: too-big elements, and everything past what a board can hold (count and bytes), are left out.
 export function sanitizeElements(list: unknown): Element[] {
   if (!Array.isArray(list)) return [];
   const seen = new Set<string>();
@@ -234,17 +198,9 @@ export function sanitizeElements(list: unknown): Element[] {
   return elements;
 }
 
-/**
- * Gets an operation ready to be taken in. Changes from browsers still running
- * an older version of the app (`legacy`) don't stamp each property group: an
- * element from one is taken as a whole, at its version, and one without a
- * version (older still) is stamped here as the newest edit, so those people's
- * changes keep working as they always did. Every element gets a place in the
- * stack: the one it has, or, for a new element, the top. A stamp that's further
- * ahead of the board's than anyone could get by editing (MAX_VERSION_JUMP) is
- * replaced by one for the newest edit, or an element could be forged out of
- * reach of every later change. `index` is the board's elements by id, if kept.
- */
+// `legacy` browsers don't stamp each property group: their elements are taken whole at their version, and unversioned
+// ones are stamped as the newest edit. A stamp further ahead than editing could get (MAX_VERSION_JUMP) is replaced by
+// one for the newest edit, or an element could be forged out of reach of every later change. New elements go on top.
 export function prepareOperation(
   elements: Element[],
   op: FullOperation,
@@ -254,20 +210,18 @@ export function prepareOperation(
   const ids = new Set([...op.upsert.map((element) => element.id), ...op.remove.map((removal) => removal.id)]);
   const live = new Map<string, Element>();
   if (index) {
-    // `has` has just said it is there.
     for (const id of ids) if (index.has(id)) live.set(id, index.get(id)!);
   } else {
     for (const element of elements) if (ids.has(element.id)) live.set(element.id, element);
   }
   const newest = (id: string) => Math.max(stampOf(live.get(id)).version, stampOf(tombstones.get(id)).version);
   const fresh = (id: string) => ({ version: Math.min(newest(id) + 1, MAX_VERSION), versionNonce: randomInt(2 ** 31) });
-  // isStamped has checked that the change has a version.
   const believable = (change: Element | Removal) =>
     isStamped(change) && change.version! <= newest(change.id) + MAX_VERSION_JUMP;
   let top = topKey(elements);
 
   const upsert = op.upsert.map((incoming) => {
-    // An older app's typing replaces the text whole, as it always did (see text-merge.ts).
+    // an older app's typing replaces the text whole (see text-merge.ts)
     let element = legacy && incoming.base ? withoutBase(incoming) : incoming;
     if (legacy || !believable(element)) {
       const stamp = believable(element) ? stampOf(element) : fresh(element.id);
@@ -280,12 +234,11 @@ export function prepareOperation(
       const known = live.get(element.id) ?? tombstones.get(element.id)?.element;
       let position: string | null | undefined = known?.index;
       if (position === undefined) {
-        // Past the longest keys the board takes (only a forged key gets there), it shares the top's.
+        // past the longest keys the board takes (only a forged key gets there), it shares the top's
         const above = keyAbove(top);
         position = isOrderKey(above) ? above : top;
         top = position;
       }
-      // `top` is only null on an empty board, where keyAbove makes a valid key, so `position` is a key by now.
       element = { ...element, index: position! };
     }
     return element;
@@ -294,14 +247,9 @@ export function prepareOperation(
   return { upsert, remove };
 }
 
-/**
- * The board after restoring `snapshot` (an earlier version) over `elements`.
- * Restored elements are stamped as the newest edit of everything, and elements
- * the snapshot doesn't have are removed by a removal just as new, so changes
- * still on their way from before the restore can't undo parts of it. They're
- * stamped well ahead: each step of a drag is a new version, so someone in the
- * middle of one can have dozens on the way. Returns { elements, tombstones }.
- */
+// Restored elements are stamped as the newest edit of everything, and elements the snapshot lacks are removed by a
+// removal just as new, so changes still on their way from before the restore can't undo parts of it. They're stamped
+// well ahead: each step of a drag is a new version, so someone mid-drag can have dozens on the way.
 export const RESTORE_LEAD = 1000;
 
 export function restoreOver(
@@ -314,8 +262,7 @@ export function restoreOver(
     newest = Math.max(newest, stampOf(stamped).version);
   const stamp = () => ({ version: Math.min(newest + RESTORE_LEAD, MAX_VERSION), versionNonce: randomInt(2 ** 31) });
 
-  // Fields an older snapshot's elements lack are filled in first and stamped with the rest, so a change
-  // still on its way from before the restore (a label on an arrow that had none then) can't win them.
+  // fields an older snapshot lacks are filled in and stamped with the rest, so a change still on its way can't win them
   const restored = inStackOrder(snapshot).map((saved) => {
     const now = stamp();
     const element = withDefaults(saved);

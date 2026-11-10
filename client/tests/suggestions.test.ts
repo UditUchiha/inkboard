@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { stampsOf } from "@inkboard/shared/suggestions";
 import type { Element, ShapeElement } from "@inkboard/shared/types";
-import { createBoardStore } from "../src/features/board/store.ts";
+import { createBoardStore } from "../src/features/board/lib/sync/store.ts";
 import {
   acceptance,
   createSuggestionStore,
@@ -10,8 +10,8 @@ import {
   groupSuggestions,
   suggestionMarks,
   summarize,
-} from "../src/features/board/suggestions.ts";
-import type { Suggestion } from "../src/features/board/suggestions.ts";
+} from "../src/features/board/lib/sync/suggestions.ts";
+import type { Suggestion } from "../src/features/board/lib/sync/suggestions.ts";
 
 const rect = (id: string, x = 0, fields: Partial<ShapeElement> = {}): ShapeElement =>
   ({

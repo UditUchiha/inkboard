@@ -9,22 +9,18 @@ const templateSchema = new mongoose.Schema(
     owner: { type: ObjectId, ref: "User", required: true, index: true },
     title: { type: String, required: true, trim: true, maxlength: 60 },
     elements: { type: [Mixed], default: [] },
-    // What the New board dialog shows, so listing templates doesn't send every drawing:
-    // how many elements there are, and a slimmed-down copy to draw (see services/previews.ts).
-    // Null on templates saved before these existed; they're filled in when first listed.
+    // what the New board dialog shows, so listing templates doesn't send every drawing: the element count and a slimmed
+    // copy (see services/previews.ts); filled in when first listed on older templates
     elementCount: { type: Number, default: null },
     preview: { type: Mixed, default: null },
-    // Size of `elements` as MongoDB stores them, which counts towards the owner's space (see
-    // ownerBytes in services/boards.ts). Null on templates saved before it was, until they're measured.
+    // as MongoDB stores it; counts towards the owner's space (see ownerBytes); null until measured on older templates
     bytes: { type: Number, default: null },
   },
   { timestamps: true, minimize: false },
 );
 
-// Adding up an owner's space reads only this index, not the templates.
 templateSchema.index({ owner: 1, bytes: 1 });
 
-// Mongoose can only infer `elements` as `any[]` from Mixed, so the type says what is stored in it.
 type TemplateFields = Omit<InferSchemaType<typeof templateSchema>, "elements"> & { elements: Element[] };
 
 export const Template = mongoose.model<TemplateFields, Model<TemplateFields>>("Template", templateSchema);

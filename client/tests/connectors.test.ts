@@ -22,9 +22,9 @@ import {
   readyToMove,
   releaseFrom,
   resolveConnectors,
-} from "../src/features/board/connectors.ts";
-import type { Connectable } from "../src/features/board/connectors.ts";
-import type { Style } from "../src/features/board/constants.ts";
+} from "../src/features/board/lib/elements/connectors.ts";
+import type { Connectable } from "../src/features/board/lib/elements/connectors.ts";
+import type { Style } from "../src/features/board/constants/board.ts";
 import {
   arrowHeads,
   connectorLabel,
@@ -34,10 +34,10 @@ import {
   getLocalBounds,
   getSceneBounds,
   hitTest,
-} from "../src/features/board/elements.ts";
-import type { Connector } from "../src/features/board/elements.ts";
-import { ELBOW_GAP, connectorPath, pathMiddle } from "../src/features/board/routes.ts";
-import { createBoardStore } from "../src/features/board/store.ts";
+} from "../src/features/board/lib/elements/elements.ts";
+import type { Connector } from "../src/features/board/lib/elements/elements.ts";
+import { ELBOW_GAP, connectorPath, pathMiddle } from "../src/features/board/lib/elements/routes.ts";
+import { createBoardStore } from "../src/features/board/lib/sync/store.ts";
 
 // Text is measured with a canvas, which Node doesn't have: a stand-in measures 10 units a character.
 const measuringDocument = {
@@ -743,7 +743,7 @@ describe("arrowheads on elbow routes", () => {
 
 describe("built-in templates", () => {
   it("draw their arrows attached to shapes, with every connector field set", async () => {
-    const { BUILTIN_TEMPLATES } = await import("../src/features/templates/builtin.ts");
+    const { BUILTIN_TEMPLATES } = await import("../src/features/templates/lib/builtin.ts");
     const { cleanElement } = await import("@inkboard/shared/element-rules");
     for (const template of BUILTIN_TEMPLATES) {
       const elements = template.build();

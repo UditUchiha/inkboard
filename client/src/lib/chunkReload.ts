@@ -1,12 +1,10 @@
 import { lazy } from "react";
 import type { ComponentType } from "react";
 
-// After a deploy, the code files a tab loaded earlier are gone from the server, so the first time that tab opens a
-// page it hasn't loaded yet, the download fails. Loading the page again fetches the new version. The times of this
-// tab's recent reloads are kept, so a file that is truly missing (or a server that is down) shows the error page
-// instead of reloading forever; a later deploy, after the wait, can reload again. Two limits: no second reload within
-// a few seconds (a loop that fails fast), and no more than a couple within a few minutes (a download that hangs for
-// a while before failing would otherwise get past the first limit every time).
+// After a deploy a tab's earlier code files are gone, so opening a page it hasn't loaded fails; reloading fetches the
+// new version. Recent reloads are remembered so a truly missing file shows the error page instead of looping: no second
+// reload within seconds, and no more than a couple within minutes (a download that hangs before failing would slip past
+// the first limit).
 const RELOAD_KEY = "inkboard.chunkReloads";
 const RELOAD_WAIT = 10_000;
 const RELOAD_WINDOW = 300_000;
@@ -22,19 +20,15 @@ const CHUNK_ERRORS = [
   /Unable to preload CSS/i,
 ];
 
-// Anything a failed import() may reject with: only its name and message are looked at.
 type ErrorLike = { name?: unknown; message?: unknown } | null | undefined;
 
-/** Whether `error` is a failed download of one of the app's own code files, which reloading fixes. */
 export function isChunkLoadError(error: ErrorLike) {
   const message = typeof error?.message === "string" ? error.message : "";
   return error?.name === "ChunkLoadError" || CHUNK_ERRORS.some((pattern) => pattern.test(message));
 }
 
-/** The times (ms) of this tab's earlier reloads, ignoring anything in storage that isn't a list of numbers. */
 function readReloads(store: Pick<Storage, "getItem">): number[] {
   try {
-    // Nothing stored (null) reads as the text "null", which isn't a list either, so the `!` changes nothing.
     const times: unknown = JSON.parse(store.getItem(RELOAD_KEY)!);
     return Array.isArray(times) ? times.filter(Number.isFinite) : [];
   } catch {
@@ -48,10 +42,6 @@ type ReloadOptions = {
   reload?: () => void;
 };
 
-/**
- * Reloads the page unless this tab already did so for the same reason a moment ago, or too often lately. Returns whether it is reloading,
- * so the caller can wait for the new page instead of showing an error.
- */
 export function reloadOnce({
   storage = () => globalThis.sessionStorage,
   now = Date.now(),
@@ -71,15 +61,12 @@ export function reloadOnce({
   return true;
 }
 
-/** Forgets that a reload is under way (for tests). */
 export const resetReloadOnce = () => {
   reloading = false;
 };
 
-/** `load`, except that when the code file is gone after a deploy it reloads the app (once) instead of failing. */
 export function withReload<T>(load: () => Promise<T>, reload: () => boolean = reloadOnce) {
   return () =>
-    // A failed import() rejects with an Error, which is what ErrorLike describes.
     load().catch((error: ErrorLike) => {
       // Keep showing the loading state while the page reloads.
       if (isChunkLoadError(error) && reload()) return new Promise<never>(() => {});
@@ -87,8 +74,6 @@ export function withReload<T>(load: () => Promise<T>, reload: () => boolean = re
     });
 }
 
-/**
- * Like `React.lazy(load)`, but a page whose code file is gone after a deploy reloads the whole app once instead of
- * failing. React.lazy remembers a failed load for good, so "Try again" alone could never recover from one.
- */
+// React.lazy remembers a failed load for good, so a page whose code file is gone after a deploy reloads the app once
+// instead.
 export const lazyPage = <T extends ComponentType>(load: () => Promise<{ default: T }>) => lazy(withReload(load));

@@ -12,25 +12,21 @@ import type { Element, FieldGroup, GroupStamps } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import { MAX_ELEMENT_BYTES } from "./operations.ts";
 
-// The suggestions open on a board (see shared/src/suggestions.ts and docs/suggest-mode.md). They are kept
-// with the board while it's open, like its elements, and saved with it (see sessions.ts). Nothing here
-// changes the board: a member accepts a suggestion by making the change themselves.
+// The suggestions open on a board (see shared/src/suggestions.ts, docs/suggest-mode.md), kept and saved with it.
+// Nothing here changes the board: a member accepts a suggestion by making the change themselves.
 
-/** A board's open suggestions, by id, with the bytes each takes and the total. */
 export interface SuggestionState {
   byId: Map<string, Suggestion>;
   sizes: Map<string, number>;
   bytes: number;
 }
 
-/** What suggestions are about: the board's elements by id. */
 type Board = { index: Map<string, Element> };
 
 const KINDS = new Set<SuggestionKind>(["add", "change", "remove"]);
 
 const sizeOf = (suggestion: Suggestion) => mongoose.mongo.BSON.calculateObjectSize({ suggestion });
 
-/** Whether two people are the same author: the same account, or the same guest. */
 export const sameAuthor = (a: Participant, b: Participant) => a.userId === b.userId && a.guest === b.guest;
 
 export function emptySuggestions(): SuggestionState {
@@ -50,10 +46,8 @@ function drop(state: SuggestionState, id: string) {
   return true;
 }
 
-/** Suggestions as saved with a board, as a session keeps them. Ones that aren't readable are left out. */
 export function readSuggestions(saved: unknown): SuggestionState {
   const state = emptySuggestions();
-  // Written by this server; each entry is still looked at before it's used.
   for (const entry of (Array.isArray(saved) ? saved : []) as Partial<Suggestion>[]) {
     if (
       typeof entry?.id === "string" &&
@@ -68,11 +62,9 @@ export function readSuggestions(saved: unknown): SuggestionState {
   return state;
 }
 
-/** The open suggestions, oldest first. */
 export const suggestionList = (state: SuggestionState) => [...state.byId.values()];
 
-// An element as a suggestion keeps it: cleaned as the board would store it, without the stamps, which belong to
-// the board's merge (a suggestion isn't in it until a member makes the change).
+// cleaned as the board would store it, without the stamps, which belong to the board's merge
 function suggestedElement(raw: unknown) {
   const clean = cleanElement(raw);
   if (!clean) return null;
@@ -80,10 +72,8 @@ function suggestedElement(raw: unknown) {
   return element as Element;
 }
 
-/** What a suggestion has besides its id, kind, author and times: whichever of these its kind has. */
 type SuggestionParts = { element?: Element; target?: string; groups?: FieldGroup[]; base?: GroupStamps };
 
-/** What putSuggestions did: what it kept, what it took back, and the element ids of drafts it left out. */
 export interface PutResult {
   stored: Suggestion[];
   withdrawn: string[];
@@ -91,13 +81,10 @@ export interface PutResult {
   full?: "board" | "author";
 }
 
-/** A draft as it arrives: what each part is isn't known yet. */
 type Draft = { kind?: unknown; element?: unknown; target?: unknown } | null | undefined;
 
-/**
- * What `draft` proposes, from `author` on the board `board`: a suggestion; the id of the author's suggestion it
- * takes back (it makes the element just as it is on the board); or null, for a draft that can't be taken in.
- */
+// A suggestion, the id of the author's suggestion it takes back (it makes the element just as it is on the board), or
+// null.
 function readDraft(
   draft: Draft,
   board: Board,
@@ -105,7 +92,7 @@ function readDraft(
   now: number,
 ): Suggestion | { withdraw: string } | null {
   const make = (kind: SuggestionKind, elementId: string, parts: SuggestionParts) =>
-    // Each call below gives the parts its kind has, which TypeScript can't put together as one case of the union.
+    // each call gives the parts its kind has, which TypeScript can't put together as one case of the union
     ({
       id: suggestionId(kind, author.userId, elementId),
       kind,
@@ -122,24 +109,21 @@ function readDraft(
   const element = suggestedElement(draft?.element);
   if (!element) return null;
   if (draft?.kind === "add") {
-    // A new element, so not one on the board, and not a picture: uploads take the owner's space.
+    // a new element, so not on the board, and not a picture: uploads take the owner's space
     if (element.type === "image" || board.index.has(element.id)) return null;
     const { index: _index, ...fields } = element; // it goes on top when it's accepted
     return make("add", element.id, { element: fields as Element });
   }
   const current = draft?.kind === "change" ? board.index.get(element.id) : undefined;
   if (!current) return null;
-  // Where it sits in the stack is the board's unless the author moved it up or down.
   const proposed = element.index ? element : { ...element, index: current.index };
   const groups = changedGroups(current, proposed);
   if (groups.length === 0) return { withdraw: suggestionId("change", author.userId, current.id) };
   return make("change", current.id, { target: current.id, element: proposed, groups, base: stampsOf(current, groups) });
 }
 
-/**
- * The limit keeping the suggestion `id`, of `size` bytes, would go past, or null if it fits. `authorFull` says
- * whether its author already has as many open as one person may (only a new one counts toward that).
- */
+// the limit that keeping the suggestion would go past, or null; `authorFull` is whether its author already has as many
+// open as one person may
 function limitMet(state: SuggestionState, id: string, size: number, authorFull: boolean): PutResult["full"] | null {
   const isNew = !state.byId.has(id);
   if (isNew && state.byId.size >= MAX_SUGGESTIONS_PER_BOARD) return "board";
@@ -148,11 +132,7 @@ function limitMet(state: SuggestionState, id: string, size: number, authorFull: 
   return null;
 }
 
-/**
- * Takes in what `author` suggests (drafts, as sent: see SuggestionDraft), on the board `board`. A draft that
- * makes an element just as it is on the board takes back the author's suggestion about it. Each person may
- * only replace their own suggestions.
- */
+// A draft that makes an element just as it is on the board takes back the author's suggestion about it.
 export function putSuggestions(
   state: SuggestionState,
   board: Board,
@@ -174,7 +154,7 @@ export function putSuggestions(
       continue;
     }
     const existing = next ? state.byId.get(next.id) : undefined;
-    // Someone else's suggestion can't be replaced (an addition is known by an element id its author chose).
+    // an addition is known by an element id its author chose, so someone else's can't be replaced
     const taken = existing !== undefined && !sameAuthor(existing.author, author);
     const size = next && !taken ? sizeOf(next) : 0;
     const full = next && !taken ? limitMet(state, next.id, size, !existing && own >= MAX_SUGGESTIONS_PER_AUTHOR) : null;
@@ -192,13 +172,11 @@ export function putSuggestions(
   return result;
 }
 
-// At most this many ids are read from one message.
 const MAX_IDS = MAX_SUGGESTIONS_PER_BOARD;
 
 const idsIn = (ids: unknown) =>
   (Array.isArray(ids) ? ids.slice(0, MAX_IDS) : []).filter((id): id is string => typeof id === "string");
 
-/** Takes back `author`'s own suggestions among `ids`. Returns the ids that went. */
 export function withdrawSuggestions(state: SuggestionState, author: Participant, ids: unknown) {
   return idsIn(ids).filter((id) => {
     const suggestion = state.byId.get(id);
@@ -206,17 +184,13 @@ export function withdrawSuggestions(state: SuggestionState, author: Participant,
   });
 }
 
-/** Lets go of the suggestions among `ids`, which a member accepted or rejected. Returns the ids that went. */
 export function resolveSuggestions(state: SuggestionState, ids: unknown) {
   return idsIn(ids).filter((id) => drop(state, id));
 }
 
-/**
- * Lets go of suggestions the board has overtaken: an addition whose element is on the board now (a member
- * accepted it), and changes and removals of an element that's gone (accepting a removal is removing it).
- * `changed` limits the look to those elements; without it, every suggestion is looked at, and so is its
- * age. Returns the ids that went, as accepted (an addition now on the board, a removal carried out) or gone.
- */
+// Lets go of suggestions the board has overtaken: an addition now on the board (a member accepted it), and changes and
+// removals of an element that's gone (accepting a removal is removing it). `changed` limits the look to those elements;
+// without it every suggestion is looked at, and so is its age.
 export function settleSuggestions(state: SuggestionState, board: Board, changed?: Iterable<string>, now = Date.now()) {
   const accepted: string[] = [];
   const gone: string[] = [];

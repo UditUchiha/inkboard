@@ -45,10 +45,7 @@ import { TRASH_DAYS } from "../services/trash.ts";
 
 const DAY_MS = 24 * 3600 * 1000;
 
-/**
- * A request for one board, named by the `:boardId` in the route. A body comes from anyone, so its fields are
- * unknown until a check narrows them, and it is missing when nothing was sent.
- */
+// a body comes from anyone, so its fields are unknown until checked, and it is missing when nothing was sent
 export type BoardRequest<Body = unknown> = Request<{ boardId: string }, unknown, Body | undefined>;
 
 function readTitle(value: unknown) {
@@ -60,8 +57,6 @@ function readTitle(value: unknown) {
 
 const MAX_BULK_BOARDS = 100;
 
-// Everything the person can open: their own boards, boards they were invited to, and
-// boards they opened through a link that is still shared.
 export async function listBoards(req: Request, res: Response) {
   const states = await BoardState.find({ user: req.userId });
   const stateByBoard = new Map(states.map((state) => [String(state.board), state]));
@@ -74,20 +69,18 @@ export async function listBoards(req: Request, res: Response) {
       { _id: { $in: states.map((state) => state.board) }, linkAccess: { $in: ["view", "suggest", "edit"] } },
     ],
   })
-    // Drawings can be megabytes each, so the list carries none: cards ask for their previews (see listPreviews).
     .select("-elements")
     .sort({ updatedAt: -1 })
     .populate<PopulatedMembers>(populateMembers);
 
   res.json({
     boards: boards
-      // A link that has expired, or whose password changed, no longer opens the board.
+      // an expired link, or a changed password, no longer opens the board
       .filter((board) => roleOf(board, req.userId))
       .map((board) => serializeListed(board, req.userId, stateByBoard.get(board.id) ?? null)),
   } satisfies Api.BoardListReply);
 }
 
-// Archive or unarchive several boards at once, for this person only.
 export async function archiveBoards(
   req: Request<{}, unknown, { ids?: unknown; archived?: unknown } | undefined>,
   res: Response,
@@ -99,7 +92,7 @@ export async function archiveBoards(
   if (typeof req.body?.archived !== "boolean") throw new HttpError(400, "archived must be true or false.");
   const { archived } = req.body;
 
-  // Only boards this person can open; anything else is skipped rather than failing the batch.
+  // only boards this person can open; anything else is skipped rather than failing the batch
   const boards = await Board.find({ _id: { $in: ids }, deletedAt: null }).select(ACCESS_FIELDS);
   const allowed = boards.filter((board) => roleOf(board, req.userId)).map((board) => board.id);
 
@@ -113,19 +106,13 @@ export async function archiveBoards(
   res.json({ ids: allowed, archived } satisfies Api.ArchiveReply);
 }
 
-// Drops a board from this person's dashboard. For a board shared by link that means
-// forgetting they ever opened it; opening the link again brings it back.
+// for a board shared by link that means forgetting they opened it; opening the link again brings it back
 export async function forgetBoard(req: BoardRequest, res: Response) {
   if (!mongoose.isValidObjectId(req.params.boardId)) throw new HttpError(404, "This board doesn't exist.");
   await BoardState.deleteOne({ user: req.userId, board: req.params.boardId });
   res.status(204).end();
 }
 
-/**
- * Creates a board: blank, from a saved template (`templateId`), or with
- * drawings sent along (`elements`), e.g. a built-in template or a board a
- * guest drew before signing up.
- */
 export async function createBoard(
   req: Request<{}, unknown, { title?: unknown; elements?: unknown; templateId?: unknown } | undefined>,
   res: Response,
@@ -144,19 +131,16 @@ export async function createBoard(
   }
 
   const bytes = drawingBytes(elements);
-  // A blank board is tiny, so only one that starts with a drawing is held to the owner's space.
-  // `requireAuth` has set `userId` by now, which the types can't know.
+  // a blank board is tiny, so only one that starts with a drawing is held to the owner's space
   const board = await withRoom(req.userId!, { board: true, bytes: elements.length > 0 ? bytes : 0 }, () =>
     Board.create({ title: title || "Untitled board", owner: req.userId, elements, bytes }),
   );
   await board.populate(populateMembers);
-  // `populate` fills in the owner and collaborators on the board itself, which the types can't see.
   res
     .status(201)
     .json({ board: serializeBoard(board as typeof board & PopulatedMembers, req.userId) } satisfies Api.BoardReply);
 }
 
-// Why a copy's pictures didn't fit in its new owner's space.
 const COPY_FULL: Record<ImageLimit, string> = {
   board: "This board has more pictures than a board can hold, so it can't be copied.",
   owner:
@@ -164,17 +148,14 @@ const COPY_FULL: Record<ImageLimit, string> = {
   total: "Image storage is full for now, so this board's pictures can't be copied. Try again later.",
 };
 
-/**
- * Makes a copy of a board for the person asking, who owns the copy: the drawing as people see it right now, with
- * its own copies of the pictures (so it keeps them when the original is deleted), but none of the board's comments,
- * history, suggestions or people. Anyone signed in who can open the board can copy it, viewers too.
- */
+// The drawing as people see it now, with its own copies of the pictures (so it survives the original's deletion), but
+// none of the comments, history, suggestions or people. Anyone signed in who can open the board can copy it, viewers
+// too.
 export async function copyBoard(req: BoardRequest, res: Response) {
   const source = await findBoardForViewing(req.params.boardId, req.userId);
   const elements = structuredClone(await currentElements(source._id));
   const imageIds = [...new Set(elements.flatMap((element) => (element.type === "image" ? [element.imageId] : [])))];
   const id = new mongoose.Types.ObjectId();
-  // `requireAuth` has set `userId` by now, which the types can't know.
   const owner = req.userId!;
   const board = await withRoom(owner, { board: true, bytes: drawingBytes(elements) }, async () => {
     const copied = imageIds.length
@@ -196,7 +177,6 @@ export async function copyBoard(req: BoardRequest, res: Response) {
     }
   });
   await board.populate(populateMembers);
-  // As in createBoard, `populate` fills in the owner and collaborators, which the types can't see.
   res
     .status(201)
     .json({ board: serializeBoard(board as typeof board & PopulatedMembers, owner) } satisfies Api.BoardReply);
@@ -219,7 +199,6 @@ export async function renameBoard(req: BoardRequest<{ title?: unknown }>, res: R
   res.json({ board: serializeMeta(board) } satisfies Api.BoardMetaReply);
 }
 
-// The link's password as the owner set it: null to remove it, or text of the allowed length.
 function readLinkPassword(value: unknown) {
   if (value === null || value === "") return null;
   if (typeof value !== "string" || value.length < LINK_PASSWORD_MIN || value.length > LINK_PASSWORD_MAX) {
@@ -228,7 +207,6 @@ function readLinkPassword(value: unknown) {
   return value;
 }
 
-// When the link should stop working, as the owner set it: null for never, or a moment within the next year.
 function readLinkExpiry(value: unknown) {
   if (value === null) return null;
   const at = typeof value === "string" ? new Date(value) : null;
@@ -240,12 +218,8 @@ function readLinkExpiry(value: unknown) {
   return at;
 }
 
-/**
- * Changes how the link opens the board. Each field sent is changed: `linkAccess` (who can open it and what they
- * can do), `password` (one it asks for, or null for none) and `expiresAt` (when it stops working, or null for
- * never). A new password, or none, ends every pass given for the old one, so people opening the board by its
- * link are asked again; invited people never are.
- */
+// A new password, or none, ends every pass given for the old one, so people opening by the link are asked again;
+// invited people never are.
 export async function setLinkAccess(
   req: BoardRequest<{ linkAccess?: unknown; password?: unknown; expiresAt?: unknown; linkReplay?: unknown }>,
   res: Response,
@@ -257,7 +231,6 @@ export async function setLinkAccess(
 
   const body = req.body ?? {};
   if ("linkAccess" in body) {
-    // `includes` only compares, so it doesn't tell the types that a value that passes is one of the strings.
     if (!LINK_ACCESS.includes(body.linkAccess as string)) {
       throw new HttpError(400, `Choose one of: ${LINK_ACCESS.join(", ")}.`);
     }
@@ -271,7 +244,7 @@ export async function setLinkAccess(
   }
   if ("expiresAt" in body) board.linkExpiresAt = readLinkExpiry(body.expiresAt);
   if ("linkReplay" in body) board.linkReplay = body.linkReplay === true;
-  // Sharing isn't editing, so it doesn't move the board up the dashboard.
+  // sharing isn't editing, so it doesn't move the board up the dashboard
   await board.save({ timestamps: false });
 
   await syncAccess(board);
@@ -279,10 +252,8 @@ export async function setLinkAccess(
   res.json({ board: serializeMeta(board) } satisfies Api.BoardMetaReply);
 }
 
-/**
- * Checks the password a board's link asks for, and answers with the pass that opens it from now on (see
- * link-pass.ts). Someone signed in is also remembered, so the board stays on their dashboard. Open to guests.
- */
+// Answers with the pass that opens the link from now on (see link-pass.ts); someone signed in is also remembered, so
+// the board stays on their dashboard. Open to guests.
 export async function unlockBoard(req: BoardRequest<{ password?: unknown }>, res: Response) {
   const { boardId } = req.params;
   const board = mongoose.isValidObjectId(boardId)
@@ -308,7 +279,7 @@ export async function starBoard(req: BoardRequest<{ starred?: unknown }>, res: R
   const board = await findBoardForMember(req.params.boardId, req.userId);
   const starred = req.body?.starred ?? true;
   if (typeof starred !== "boolean") throw new HttpError(400, "starred must be true or false.");
-  // Starring is personal, so it shouldn't count as editing the board.
+  // starring is personal, so it doesn't count as editing
   await Board.updateOne(
     { _id: board._id },
     starred ? { $addToSet: { starredBy: req.userId } } : { $pull: { starredBy: req.userId } },
@@ -317,10 +288,8 @@ export async function starBoard(req: BoardRequest<{ starred?: unknown }>, res: R
   res.json({ starred } satisfies Api.StarReply);
 }
 
-/**
- * Moves a board to the trash. Everyone loses access until the owner restores it, so the people invited to it are
- * told (a board that vanished from their dashboard without a word looks like a bug, or like being removed).
- */
+// Everyone loses access until the owner restores it, so the invited are told: a board vanishing without a word looks
+// like a bug.
 export async function deleteBoard(req: BoardRequest, res: Response) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!isOwner(board, req.userId)) {
@@ -339,12 +308,11 @@ const serializeTrashed = (
   userId: unknown,
 ): Api.TrashedBoard => ({
   ...serializeListed(board, userId),
-  // listTrash only finds boards that have been trashed, which the types can't see.
   deletedAt: board.deletedAt!,
   purgeAt: new Date(board.deletedAt!.getTime() + TRASH_DAYS * DAY_MS),
 });
 
-// Boards being deleted for good (see destroyBoard) are on their way out, so they aren't listed.
+// boards being deleted for good (see destroyBoard) are on their way out
 export async function listTrash(req: Request, res: Response) {
   const boards = await Board.find({ owner: req.userId, deletedAt: { $ne: null }, purgingAt: null })
     .select("-elements")
@@ -353,18 +321,14 @@ export async function listTrash(req: Request, res: Response) {
   res.json({ boards: boards.map((board) => serializeTrashed(board, req.userId)) } satisfies Api.TrashListReply);
 }
 
-// How much image space the person's boards use, and which boards use it.
 export async function imageUsage(req: Request, res: Response) {
-  // `requireAuth` has set `userId` by now, which the types can't know.
   res.json((await ownerImageUsage(req.userId!)) satisfies Api.ImageUsage);
 }
 
 const MAX_PREVIEWS = 24;
 
-/**
- * Previews (see previews.js) of up to 24 boards the person can open, as { [boardId]: elements }, for the
- * dashboard's cards. Boards that are gone or off limits are left out. A deleted board is only for its owner.
- */
+// up to 24 boards the person can open, as { [boardId]: elements }; boards that are gone or off limits are left out, and
+// a deleted board is only for its owner
 export async function listPreviews(req: Request, res: Response) {
   const ids = String(req.query.ids ?? "")
     .split(",")
@@ -385,11 +349,11 @@ async function findTrashed(boardId: string, userId: string | undefined) {
   return board;
 }
 
-// Restoring takes no room: a board in the trash still counts against its owner's limits (see withRoom).
+// takes no room: a trashed board still counts against its owner's limits (see withRoom)
 export async function restoreBoard(req: BoardRequest, res: Response) {
   const board = await findTrashed(req.params.boardId, req.userId);
-  // One write, which only takes a board nobody has started deleting for good, so a restore and
-  // a purge can't both go ahead (see destroyBoard).
+  // one write that only takes a board nobody has started deleting for good, so a restore and a purge can't both go
+  // ahead (see destroyBoard)
   const restored = await Board.updateOne(
     { _id: board._id, deletedAt: { $ne: null }, purgingAt: null },
     { $set: { deletedAt: null } },
@@ -398,18 +362,17 @@ export async function restoreBoard(req: BoardRequest, res: Response) {
     if (await Board.exists({ _id: board._id, purgingAt: { $ne: null } })) {
       throw new HttpError(409, "This board is being deleted for good, so it can't be restored.");
     }
-    throw new HttpError(404, "That board isn't in your trash."); // restored by another request just now
+    throw new HttpError(404, "That board isn't in your trash.");
   }
-  // It's back, so being told it went is no longer true (and a later trash can tell them again).
+  // it's back, so being told it went is no longer true (a later trash can tell them again)
   await Notification.deleteMany({ board: board._id, type: "trashed" });
   const updated = await Board.findById(board._id).populate<PopulatedMembers>(populateMembers);
-  // Found a moment ago; a purge that finished since would make this null and fail here, as it always has.
   res.json({ board: serializeBoard(updated!, req.userId) } satisfies Api.BoardReply);
 }
 
 export async function purgeBoard(req: BoardRequest, res: Response) {
   const board = await findTrashed(req.params.boardId, req.userId);
-  // False when the board was restored after it was looked up, in which case it's not gone.
+  // false when the board was restored after it was looked up
   if (!(await destroyBoard(board._id))) {
     throw new HttpError(409, "This board was restored just now, so it wasn't deleted.");
   }
@@ -422,7 +385,6 @@ export async function emptyTrash(req: Request, res: Response) {
   res.status(204).end();
 }
 
-// The board as it is now, after a change to who is on it.
 const reload = (board: Pick<BoardDoc, "_id">) =>
   Board.findById(board._id).select("-elements").populate<PopulatedMembers>(populateMembers);
 
@@ -444,9 +406,8 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
   if (idOf(invitee) === idOf(board.owner)) {
     throw new HttpError(400, "You already own this board.");
   }
-  // Anyone can sign up with any address, so only someone who has shown the
-  // address is theirs gets boards shared with it. That needs email to be set
-  // up (to send the link); until it is, invites work as they always did.
+  // anyone can sign up with any address, so only an address shown to be theirs gets boards shared with it (needs email
+  // set up to send the link)
   if (emailConfigured() && !invitee.emailVerified) {
     throw new HttpError(
       409,
@@ -454,22 +415,19 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
     );
   }
 
-  // One write that adds them only if they aren't there yet, so invites sent at the same
-  // moment can't add someone twice or notify them twice. Sharing isn't editing, so
-  // `updatedAt` stays as it was.
+  // one write that adds them only if they aren't there yet, so invites sent at once can't add or notify twice;
+  // `updatedAt` stays, as sharing isn't editing
   const added = await Board.updateOne(
     { _id: board._id, deletedAt: null, collaborators: { $ne: invitee._id } },
     { $addToSet: { collaborators: invitee._id } },
     { timestamps: false },
   );
   if (added.modifiedCount === 0) {
-    // The board may have gone to the trash since it was loaded, which the write also checks.
     if (!(await Board.exists({ _id: board._id, deletedAt: null }))) {
       throw new HttpError(404, "This board doesn't exist or has been deleted.");
     }
     throw new HttpError(409, `${invitee.name} already has access.`);
   }
-  // The board was found and changed just above; one erased since would make this null and fail below, as it always has.
   const updated = (await reload(board))!;
 
   await syncAccess(updated);
@@ -477,11 +435,9 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
   res.status(201).json({ board: serializeMeta(updated) } satisfies Api.BoardMetaReply);
 }
 
-/**
- * Asks a board's owner to invite the person asking, who can't open it. The owner is notified with their email address,
- * which the notification's link fills into the Share dialog. A request still unread isn't sent again. With email set
- * up, a verified owner is emailed too (only an address shown to be theirs is sent the asker's).
- */
+// The owner is notified with the asker's email, which the notification's link fills into the Share dialog. An unread
+// request isn't sent again. With email set up, only a verified owner is emailed (only an address shown to be theirs is
+// sent the asker's).
 export async function requestAccess(req: BoardRequest, res: Response) {
   const { boardId } = req.params;
   const board = mongoose.isValidObjectId(boardId)
@@ -491,7 +447,7 @@ export async function requestAccess(req: BoardRequest, res: Response) {
   if (isMemberRole(roleOf(board, req.userId))) throw new HttpError(409, "You already have access to this board.");
   const user = await User.findById(req.userId);
   if (!user) throw new HttpError(401, "Log in to ask for access.");
-  // The owner couldn't invite an unconfirmed address (see addCollaborator), so asking would get nowhere.
+  // the owner couldn't invite an unconfirmed address (see addCollaborator), so asking would get nowhere
   if (emailConfigured() && !user.emailVerified) {
     throw new HttpError(409, "Confirm your email address first (see Settings), so the owner can invite you.");
   }
@@ -500,7 +456,7 @@ export async function requestAccess(req: BoardRequest, res: Response) {
   if (notified.length === 0 || !emailConfigured()) return;
   const owner = await User.findById(board.owner).select("name email emailVerified");
   if (!owner?.emailVerified) return;
-  // Sent after the answer, as in auth.controller: a slow or failing mail service doesn't hold up or fail the request.
+  // after the answer, as in auth.controller: a slow or failing mail service doesn't hold up the request
   sendAccessRequestEmail(owner, user, board, emailLinkUrlFor(req)).catch((error: Error) =>
     console.error(`Couldn't send the access request email: ${error.message}`),
   );
@@ -519,19 +475,18 @@ export async function removeCollaborator(req: Request<{ boardId: string; userId:
     throw new HttpError(400, "The owner can't leave their own board. Delete it instead.");
   }
 
-  // One write that takes them off (and drops their star), so removals sent at the same moment
-  // can't clash, and only someone who was on the board counts as removed.
+  // one write that takes them off (and drops their star), so removals sent at once can't clash
   const removed = await Board.updateOne(
     { _id: board._id, collaborators: targetId },
     { $pull: { collaborators: targetId, starredBy: targetId } },
     { timestamps: false },
   );
   if (removed.modifiedCount === 0) throw new HttpError(404, "That person isn't on this board.");
-  // Forget their filing too, so a board with an open link doesn't linger on their dashboard.
+  // forget their filing too, so a board with an open link doesn't linger on their dashboard
   await BoardState.deleteOne({ user: targetId, board: board._id });
 
-  const updated = (await reload(board))!; // as in addCollaborator
+  const updated = (await reload(board))!;
   await syncAccess(updated);
-  // Someone who left may still see the board through its link, so they get what any visitor would.
+  // someone who left may still see the board through its link, so they get what any visitor would
   res.json({ board: serializeMeta(updated, { redact: removingSelf }) } satisfies Api.BoardMetaReply);
 }

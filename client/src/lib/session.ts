@@ -1,11 +1,7 @@
-// Decisions about which login a tab keeps when it logs out. The stored login (localStorage) is shared by
-// every tab of the app, so what one tab does to it can reach the others; these are kept apart from the
-// provider so they can be tested without a browser.
+// Which login a tab keeps when it logs out. The stored login is shared by every tab; kept apart from the provider to
+// test without a browser.
 
-/**
- * The account id (`sub`) inside a login token, or null if it isn't one. The signature isn't checked: this
- * is only for telling whether two tokens are for the same person, and the server checks every token it gets.
- */
+// The signature isn't checked: this only tells whether two tokens are the same person; the server checks every token.
 export function tokenUserId(token: string) {
   try {
     const payload = token.split(".")[1].replaceAll("-", "+").replaceAll("_", "/");
@@ -16,19 +12,9 @@ export function tokenUserId(token: string) {
   }
 }
 
-/**
- * What a tab does when its login ends. `own` is the token the tab was using and `stored` the one in
- * localStorage, which may be newer (another tab logged in again) or another account's entirely.
- *
- * - `explicit`: the person chose to log out. This tab always ends up logged out; it never switches to
- *   another login, least of all another account's.
- * - Otherwise (the server refused the token): a newer login for the *same* account is adopted, as the
- *   password may just have been changed in another tab. One for a different account isn't: that account
- *   isn't who this tab was signed in as.
- *
- * `clearStored` is only true when the stored token is this tab's own (or there is none): a login that
- * isn't this tab's isn't ours to remove, so another tab keeps its login.
- */
+// `explicit` logout always ends logged out here. Otherwise (token refused) a newer login for the same account is
+// adopted (the password may have changed in another tab), a different account's isn't. `clearStored` only when the
+// stored token is this tab's own.
 export function logoutPlan({
   own,
   stored,
