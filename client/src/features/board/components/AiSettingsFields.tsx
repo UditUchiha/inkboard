@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { useId, useRef, useState } from "react";
 import { PasswordField, TextField } from "../../../components/Field";
 import { listModels } from "../lib/ai/askModel";
@@ -38,18 +39,24 @@ export function AiSettingsFields({ settings, onChange }: AiSettingsFieldsProps) 
         <label htmlFor={providerId} className="text-sm font-medium text-ink">
           Provider
         </label>
-        <select
-          id={providerId}
-          value={settings.provider}
-          onChange={(event) => handleProviderChange(event.target.value as ProviderId)}
-          className="h-11 w-full rounded-lg border border-rule bg-surface px-3 text-[15px] text-ink hover:border-graphite/60 focus:border-signal focus:ring-3 focus:ring-signal/20 focus:outline-none"
-        >
-          {PROVIDER_IDS.map((id) => (
-            <option key={id} value={id}>
-              {PROVIDERS[id].label}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            id={providerId}
+            value={settings.provider}
+            onChange={(event) => handleProviderChange(event.target.value as ProviderId)}
+            className="h-11 w-full appearance-none rounded-lg border border-rule bg-surface pr-10 pl-3 text-[15px] text-ink hover:border-graphite/60 focus:border-signal focus:ring-3 focus:ring-signal/20 focus:outline-none"
+          >
+            {PROVIDER_IDS.map((id) => (
+              <option key={id} value={id}>
+                {PROVIDERS[id].label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-graphite"
+          />
+        </div>
       </div>
       <PasswordField
         label={`Your ${provider.label} API key`}
