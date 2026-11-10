@@ -1,4 +1,4 @@
-import { ListTree, Maximize, Minus, Palette, Plus, Redo2, Undo2 } from "lucide-react";
+import { Fullscreen, ListTree, Maximize, Minus, Palette, Plus, Redo2, Shrink, Undo2 } from "lucide-react";
 import { IconButton } from "../../../components/Button";
 import type { BoardStore } from "../lib/sync/store";
 
@@ -17,6 +17,8 @@ export interface ViewControlsProps {
   onToggleStyle: () => void;
   outlineOpen: boolean;
   onToggleOutline: () => void;
+  fullscreen: boolean;
+  onToggleFullscreen: () => void;
 }
 
 export function ViewControls({
@@ -34,6 +36,8 @@ export function ViewControls({
   onToggleStyle,
   outlineOpen,
   onToggleOutline,
+  fullscreen,
+  onToggleFullscreen,
 }: ViewControlsProps) {
   return (
     <div className="absolute bottom-[4.25rem] left-3 flex items-center gap-2 md:bottom-3">
@@ -55,6 +59,12 @@ export function ViewControls({
         </button>
         <IconButton label="Zoom in" icon={Plus} onClick={() => onZoomBy(1.25)} />
         <IconButton label="Fit drawing to screen" icon={Maximize} onClick={onFit} disabled={!canFit} />
+        <IconButton
+          label={fullscreen ? "Exit full screen" : "Full screen"}
+          icon={fullscreen ? Shrink : Fullscreen}
+          active={fullscreen}
+          onClick={onToggleFullscreen}
+        />
       </div>
       <div className="floating-panel rounded-xl p-1">
         <IconButton label="Board outline" icon={ListTree} active={outlineOpen} onClick={onToggleOutline} />

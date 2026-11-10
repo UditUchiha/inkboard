@@ -1,14 +1,6 @@
 import { Dialog } from "../../../components/Dialog";
 import { COMMENT_TOOL, NUMBERED_TOOLS, TOOLS } from "../constants/board";
-
-// navigator.platform is deprecated; userAgentData isn't in TypeScript's DOM types yet, hence the cast.
-const platform =
-  typeof navigator === "undefined"
-    ? ""
-    : ((navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData?.platform ??
-      navigator.userAgent);
-const isMac = /Mac|iPhone|iPad/.test(platform);
-const MOD = isMac ? "⌘" : "Ctrl";
+import { MOD } from "../constants/keys";
 
 type Action = { label: string; keys: string[] };
 
@@ -17,6 +9,7 @@ const VIEW_ACTIONS: Action[] = [
   { label: "Zoom in / out", keys: [MOD, "+ / −"] },
   { label: "Reset zoom", keys: [MOD, "0"] },
   { label: "Fit drawing to screen", keys: ["Shift", "1"] },
+  { label: "Hide or show the interface", keys: [MOD, "."] },
   { label: "Deselect, close a comment, stop following", keys: ["Esc"] },
   { label: "Show these shortcuts", keys: ["?"] },
 ];
