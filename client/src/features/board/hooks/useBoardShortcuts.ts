@@ -30,6 +30,7 @@ export type ShortcutActions = {
   fitToScreen: () => void;
   changeTool: (id: ToolId) => void;
   stopFollowing: () => void;
+  toggleUi: () => void;
 };
 
 export type ShortcutOptions = {
@@ -88,6 +89,7 @@ export function useBoardShortcuts({
     fitToScreen,
     changeTool,
     stopFollowing,
+    toggleUi,
   },
   setSpacePressed,
   setSelectedId,
@@ -111,6 +113,7 @@ export function useBoardShortcuts({
     "+": () => zoomBy(1.25),
     "-": () => zoomBy(0.8),
     0: resetZoom,
+    ".": toggleUi,
   };
   // Ctrl (⌘) + an arrow key resizes the selection, as nudging moves it: by 1, or 10 with Shift.
   for (const [name, [dx, dy]] of Object.entries(ARROW_KEYS)) {

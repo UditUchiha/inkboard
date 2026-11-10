@@ -17,6 +17,7 @@ import { useEditorActions } from "../hooks/useEditorActions";
 import { useEditorViewport, useRevealInView } from "../hooks/useEditorViewport";
 import { useImageImport } from "../hooks/useImageImport";
 import { useLinkedPanels } from "../hooks/useLinkedPanels";
+import { useFullscreen } from "../hooks/useFullscreen";
 import { useOtherPeople } from "../hooks/useOtherPeople";
 import { usePresenting } from "../hooks/usePresenting";
 import { useSuggestionsUi } from "../hooks/useSuggestionsUi";
@@ -25,6 +26,7 @@ import { useVotingTool } from "../hooks/useVotingTool";
 import { BoardCanvas } from "./BoardCanvas";
 import { BoardOverlays } from "./BoardOverlays";
 import { EditorChrome } from "./EditorChrome";
+import { HiddenUiPill } from "./HiddenUiPill";
 import { EditorDialogs } from "./EditorDialogs";
 import { ElementList } from "./ElementList";
 import { FileInputs } from "./FileInputs";
@@ -67,6 +69,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [panelOpen, setPanelOpen] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [dialog, setDialog] = useState<DialogName | null>(null);
+  const [uiHidden, setUiHidden] = useState(false);
+  const { fullscreen, toggle: toggleFullscreen } = useFullscreen();
   // Cropping a picture: its handles crop instead of resize; selecting anything else ends it.
   const [croppingId, setCroppingId] = useState<string | null>(null);
   const [croppedSelection, setCroppedSelection] = useState(selectedId);
@@ -166,7 +170,14 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     selectedId,
     connecting: Boolean(connect.connectTo),
     fileInput,
-    actions: { ...selection, ...insertions, ...connect, ...vp, changeTool },
+    actions: {
+      ...selection,
+      ...insertions,
+      ...connect,
+      ...vp,
+      changeTool,
+      toggleUi: () => setUiHidden((hidden) => !hidden),
+    },
     setSpacePressed,
     setSelectedId,
     setDraft: comments.setDraft,
@@ -217,7 +228,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         elements={elements}
         selectedId={selectedId}
         onSelect={selectElement}
-        open={outlineOpen && !presenting}
+        open={outlineOpen && !presenting && !uiHidden}
         onOpenChange={setOutlineOpen}
       />
       <SelectionAnnouncer
@@ -250,54 +261,61 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
               text={text}
               getElement={getElement}
             />
-            <EditorChrome
-              store={store}
-              sync={sync}
-              board={board}
-              setMeta={setMeta}
-              user={user}
-              local={local}
-              role={role}
-              readOnly={readOnly}
-              suggesting={suggesting}
-              student={student}
-              isMember={isMember}
-              canComment={canComment}
-              commentsEnabled={commentsEnabled}
-              canAddImages={canAddImages}
-              tool={tool}
-              onToolChange={changeTool}
-              style={style}
-              setStyle={setStyle}
-              selected={selected}
-              selectedId={selectedId}
-              zone={zone}
-              elements={elements}
-              elementById={elementById}
-              panelType={panelType}
-              panelOpen={panelOpen}
-              onTogglePanel={() => setPanelOpen((open) => !open)}
-              outlineOpen={outlineOpen}
-              onToggleOutline={() => setOutlineOpen((open) => !open)}
-              croppingId={croppingId}
-              setCroppingId={setCroppingId}
-              imageInput={fileInput}
-              boardFileInput={boardFileInput}
-              setDialog={setDialog}
-              classroom={classroom}
-              classroomOn={classroomOn}
-              myFrame={myFrame}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              viewport={viewport}
-              vp={vp}
-              others={others}
-              comments={comments}
-              suggestions={suggestions}
-              linked={linked}
-              presenting={slideshow}
-              actions={actions}
-            />
+            {uiHidden ? (
+              <HiddenUiPill onShow={() => setUiHidden(false)} />
+            ) : (
+              <EditorChrome
+                store={store}
+                sync={sync}
+                board={board}
+                setMeta={setMeta}
+                user={user}
+                local={local}
+                role={role}
+                readOnly={readOnly}
+                suggesting={suggesting}
+                student={student}
+                isMember={isMember}
+                canComment={canComment}
+                commentsEnabled={commentsEnabled}
+                canAddImages={canAddImages}
+                tool={tool}
+                onToolChange={changeTool}
+                style={style}
+                setStyle={setStyle}
+                selected={selected}
+                selectedId={selectedId}
+                zone={zone}
+                elements={elements}
+                elementById={elementById}
+                panelType={panelType}
+                panelOpen={panelOpen}
+                onTogglePanel={() => setPanelOpen((open) => !open)}
+                outlineOpen={outlineOpen}
+                onToggleOutline={() => setOutlineOpen((open) => !open)}
+                croppingId={croppingId}
+                setCroppingId={setCroppingId}
+                imageInput={fileInput}
+                boardFileInput={boardFileInput}
+                setDialog={setDialog}
+                classroom={classroom}
+                classroomOn={classroomOn}
+                myFrame={myFrame}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                viewport={viewport}
+                vp={vp}
+                others={others}
+                comments={comments}
+                suggestions={suggestions}
+                linked={linked}
+                presenting={slideshow}
+                actions={actions}
+                fullscreen={fullscreen}
+                onToggleFullscreen={toggleFullscreen}
+                onHideUi={() => setUiHidden(true)}
+              />
+            )}
           </>
         )
       )}

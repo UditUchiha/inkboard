@@ -71,6 +71,9 @@ export interface EditorChromeProps {
   linked: LinkedPanels;
   presenting: Presenting;
   actions: EditorActions;
+  fullscreen: boolean;
+  onToggleFullscreen: () => void;
+  onHideUi: () => void;
 }
 
 // The panels and controls around the canvas: header, tools, menu, side panels, zoom and status.
@@ -121,6 +124,9 @@ export function EditorChrome({
   linked,
   presenting,
   actions,
+  fullscreen,
+  onToggleFullscreen,
+  onHideUi,
 }: EditorChromeProps) {
   const { selection, insertions, classroomActions, handwriting, commands } = actions;
   const { review } = suggestions;
@@ -192,6 +198,7 @@ export function EditorChrome({
           onTemplate={() => setDialog("template")}
           onToggleComments={() => comments.setShowComments((shown) => !shown)}
           onShortcuts={() => setDialog("shortcuts")}
+          onHideUi={onHideUi}
           onClear={() => setDialog("clear")}
         />
       </BoardActions>
@@ -256,6 +263,8 @@ export function EditorChrome({
         onToggleStyle={onTogglePanel}
         outlineOpen={outlineOpen}
         onToggleOutline={onToggleOutline}
+        fullscreen={fullscreen}
+        onToggleFullscreen={onToggleFullscreen}
       />
       <BoardCornerTools
         sync={sync}

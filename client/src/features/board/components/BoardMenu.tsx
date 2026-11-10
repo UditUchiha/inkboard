@@ -5,6 +5,7 @@ import {
   Copy,
   Download,
   Ellipsis,
+  EyeOff,
   FileCode2,
   FileJson,
   FileUp,
@@ -21,6 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { MOD } from "../constants/keys";
 import { useNavigate } from "react-router";
 import { IconButton } from "../../../components/Button";
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from "../../../components/Menu";
@@ -52,6 +54,7 @@ export interface BoardMenuProps {
   onTemplate: () => void;
   onToggleComments: () => void;
   onShortcuts: () => void;
+  onHideUi: () => void;
   onClear: () => void;
 }
 
@@ -75,6 +78,7 @@ export function BoardMenu({
   onTemplate,
   onToggleComments,
   onShortcuts,
+  onHideUi,
   onClear,
 }: BoardMenuProps) {
   const navigate = useNavigate();
@@ -150,6 +154,9 @@ export function BoardMenu({
       )}
       <MenuItem icon={Keyboard} hint="?" onSelect={onShortcuts}>
         Keyboard shortcuts
+      </MenuItem>
+      <MenuItem icon={EyeOff} hint={`${MOD} .`} onSelect={onHideUi}>
+        Hide interface
       </MenuItem>
       <MenuSeparator />
       <MenuLabel>Theme</MenuLabel>
