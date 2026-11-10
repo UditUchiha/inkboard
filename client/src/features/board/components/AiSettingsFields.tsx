@@ -73,8 +73,8 @@ export function AiSettingsFields({ settings, onChange }: AiSettingsFieldsProps) 
             Kept only in this browser and sent only to {provider.label}, which bills your account. Get one at{" "}
             <a href={provider.keyUrl} target="_blank" rel="noopener" className="underline">
               {new URL(provider.keyUrl).hostname}
-            </a>
-            .
+            </a>{" "}
+            and set a spending limit on it there.
           </>
         }
       />
