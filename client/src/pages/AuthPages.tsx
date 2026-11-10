@@ -13,8 +13,7 @@ import { signInErrorMessage } from "../lib/signInErrors";
 import { verifyView } from "../lib/verifyLink";
 import { useAuth } from "../providers/AuthProvider";
 
-// After a successful login or sign-up, <GuestOnly> redirects to ?next=… or /boards.
-// Google and GitHub sign-in come back through /auth/callback instead.
+// After login or sign-up <GuestOnly> redirects to ?next=… or /boards; Google and GitHub come back through /auth/callback.
 
 const nextQuery = (next: string | null) => (next ? `?next=${encodeURIComponent(next)}` : "");
 
@@ -59,10 +58,8 @@ export function LoginPage() {
   const emailEnabled = useEmailEnabled();
   const [params] = useSearchParams();
   const [form, setForm] = useState({ email: "", password: "" });
-  // Google or GitHub sign-in that failed comes back here with ?error=<code>&provider=<name>.
   const [error, setError] = useState(() => {
     const code = params.get("error");
-    // A link without a provider gives null, which providerLabel answers with "your account".
     return code ? signInErrorMessage(code, params.get("provider") as string) : "";
   });
   const [submitting, setSubmitting] = useState(false);
@@ -314,7 +311,6 @@ export function ResetPasswordPage() {
     }
     setSubmitting(true);
     try {
-      // The field and the button are disabled without a token, so the form can't be sent without one.
       startSession(await api.resetPassword({ token, password } as { token: string; password: string }));
       toast.success("Password changed. You're logged in.");
       navigate("/boards", { replace: true });
@@ -358,7 +354,6 @@ export function ResetPasswordPage() {
   );
 }
 
-// Where verifying the address has got to: it only gets past "ready" through the button, which needs a token.
 type VerifyResult =
   { phase: "ready" } | { phase: "verifying" } | { phase: "done"; email: string } | { phase: "failed"; message: string };
 
@@ -368,8 +363,7 @@ export function VerifyEmailPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const token = params.get("token");
-  // Opening the link only asks for confirmation: mail scanners and link previews open links too, and a
-  // link works once, so it's used up by the person's click and not by a visit.
+  // Opening the link only asks for confirmation: mail scanners and previews open links too, and a link works once.
   const [result, setResult] = useState<VerifyResult>(
     token
       ? { phase: "ready" }
@@ -378,7 +372,6 @@ export function VerifyEmailPage() {
 
   function verify() {
     setResult({ phase: "verifying" });
-    // The "ready" phase, where the button that calls this is shown, only happens with a token.
     api
       .verifyEmail(token as string)
       .then(({ email, user: verified }) => {
@@ -388,12 +381,8 @@ export function VerifyEmailPage() {
       .catch((error: unknown) => setResult({ phase: "failed", message: errorMessage(error) }));
   }
 
-  // The link only verifies the account it was sent for, for someone logged in to it, which shows the inbox
-  // and the account's password are in the same hands (see verifyEmail on the server). So the page says who
-  // is logged in, and when that isn't the account the link names (its `email`, a hint only: the server decides),
-  // offers to switch rather than a button that can't work. Logging in comes back here.
+  // The link only verifies the account it was sent for, for someone logged in to it, so the page says who is logged in and offers to switch when it's another account (verifyView).
   const view = verifyView({ status, user, linkEmail: params.get("email") });
-  // Only these two views come with a logged in account (see verifyView), so `user` is set wherever signedIn is.
   const signedIn = view === "confirm" || view === "switch";
   const here = `${location.pathname}${location.search}`;
   function switchAccount() {

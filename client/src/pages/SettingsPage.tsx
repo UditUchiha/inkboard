@@ -22,13 +22,10 @@ import type { AuthValue } from "../providers/AuthProvider";
 
 type SectionProps = { title: string; description?: string; children: ReactNode };
 
-// What useAuth gives on this page: it is only reached through RequireAuth, so there is a logged in account.
 type SignedIn = AuthValue & { user: AccountUser };
 
-// Which field of the password form a problem is about.
 type PasswordProblem = { field: "currentPassword" | "newPassword"; message: string };
 
-// What is kept in sessionStorage while a provider is being connected (see rememberConnecting).
 type Connecting = { provider: string; bind: string };
 
 function Section({ title, description, children }: SectionProps) {
@@ -44,8 +41,7 @@ function Section({ title, description, children }: SectionProps) {
 function ProfileSection() {
   const { user, updateUser } = useAuth() as SignedIn;
   const [name, setName] = useState(user.name);
-  // null: picked automatically. An old palette color shows as the one that replaced it, ready to save;
-  // any other custom color is kept as it is.
+  // null: picked automatically. An old palette color shows as its replacement.
   const [color, setColor] = useState(formColor(user.color));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -133,9 +129,8 @@ function ProfileSection() {
   );
 }
 
-// Connecting a provider leaves the app for the provider's site and comes back to Settings. What comes back is
-// only accepted with the `bind` value kept here, in this tab, when it asked (see oauth.controller.ts), so a
-// connect link made by someone else can't attach this person's Google or GitHub to that someone's account.
+// Connecting leaves for the provider's site and returns here; what comes back is only accepted with the `bind` kept in this tab
+// (oauth.controller.ts), so someone else's connect link can't attach this person's account to theirs.
 const CONNECTING_KEY = "inkboard.connecting";
 
 function rememberConnecting(provider: string, bind: string) {
@@ -148,7 +143,6 @@ function rememberConnecting(provider: string, bind: string) {
 
 function takeConnecting(provider: string) {
   try {
-    // Only rememberConnecting writes this.
     const kept: Connecting | null = JSON.parse(sessionStorage.getItem(CONNECTING_KEY) ?? "null");
     sessionStorage.removeItem(CONNECTING_KEY);
     return kept?.provider === provider ? kept.bind : null;
@@ -157,10 +151,8 @@ function takeConnecting(provider: string) {
   }
 }
 
-// Forgets a connection that was started but never came back, and says which provider it was for.
 function dropConnecting() {
   try {
-    // Only rememberConnecting writes this.
     const kept: Connecting | null = JSON.parse(sessionStorage.getItem(CONNECTING_KEY) ?? "null");
     sessionStorage.removeItem(CONNECTING_KEY);
     return kept?.provider ?? null;
@@ -247,7 +239,6 @@ function PasswordSection() {
   const { user, startSession } = useAuth() as SignedIn;
   const [form, setForm] = useState({ currentPassword: "", newPassword: "" });
   const [saving, setSaving] = useState(false);
-  // Which field a problem is about: { field: "currentPassword" | "newPassword", message }.
   const [problem, setProblem] = useState<PasswordProblem | null>(null);
 
   const update = (field: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) =>
@@ -416,7 +407,6 @@ const SCOPES: [ApiTokenInfo["scope"], string][] = [
   ["write", "Read and change boards"],
 ];
 
-/** Tokens for the public API and the MCP server: made here, shown once, and deleted here. */
 function ApiTokensSection() {
   const [tokens, setTokens] = useState<ApiTokenInfo[] | null>(null);
   const [name, setName] = useState("");
@@ -554,29 +544,22 @@ export default function SettingsPage() {
     document.title = `Settings · ${APP_NAME}`;
   }, []);
 
-  // Coming back from connecting Google or GitHub that failed: the address holds an error code, never text
-  // to show (see lib/signInErrors.ts).
+  // A failed connect returns an error code in the address, never text to show (lib/signInErrors.ts).
   useEffect(() => {
     const error = params.get("error");
     if (!error) return;
     dropConnecting(); // that connection is over, with this message
-    // A link without a provider gives null, which providerLabel answers with "your account".
     toast.error(signInErrorMessage(error, params.get("provider") as string));
     setParams({}, { replace: true });
   }, [params, setParams]);
 
-  // Coming back from connecting one that worked, with a note of the account in the fragment, which is
-  // confirmed with the `bind` value this tab kept. The fragment is cleared first, so it's only used once.
+  // A successful connect brings a note of the account in the fragment, confirmed with this tab's `bind`; cleared first so it's used once.
   useEffect(() => {
     const fragment = new URLSearchParams(window.location.hash.slice(1));
     const connect = fragment.get("connect");
-    // Null when it's missing, which isProvider turns away before this is used as a string.
     const provider = fragment.get("provider") as string;
     if (!connect) {
-      // A connection this tab started that didn't come back (the login ran out on the way, or the person went
-      // back from the provider's page) isn't left to look as if it worked. One that failed has its own
-      // message (above), which also forgot it.
-      // Null when nothing was started, which isProvider turns away before this is used as a string.
+      // A connection this tab started that didn't come back (login ran out, person went back) mustn't look like it worked; a failed one has its own message above.
       const unfinished = dropConnecting() as string;
       if (isProvider(unfinished)) {
         toast.error(`Connecting ${providerLabel(unfinished)} didn't finish. Try again.`);

@@ -40,13 +40,8 @@ function Cursor({ person, x, y, scale, glide = false }: CursorProps) {
   );
 }
 
-/**
- * The landing page's live board: a pre-drawn sketch, a collaborator who
- * circles part of it, and a pen the visitor can draw with.
- */
 export default function DemoBoard() {
   const containerRef = useRef<HTMLDivElement>(null);
-  // Everything that uses the canvas runs once it is on the page, so it is never null there.
   const canvasRef = useRef<HTMLCanvasElement>(null!);
   const size = useElementSize(containerRef);
   const [fontsReady, setFontsReady] = useState(false);
@@ -65,7 +60,6 @@ export default function DemoBoard() {
     };
   }, []);
 
-  // One orchestrated moment: Maya draws a loop around "Ship it".
   useEffect(() => {
     if (prefersReducedMotion()) {
       setProgress(1);
@@ -95,11 +89,9 @@ export default function DemoBoard() {
     renderScene(canvas, { elements, viewport: { x: 0, y: 0, zoom: scale }, dpr });
   }, [size, scale, loopCount, progress, doodles, fontsReady]);
 
-  // The canvas lets a finger scroll the page up and down (touch-pan-y) and draw otherwise: a stroke that turns
-  // into a scroll is cancelled by the browser (and dropped, see cancelDrawing). But Chromium holds a pen to
-  // that as well, so a pen stroke down the demo would scroll instead of drawing. A pen hovering over it (most
-  // do before they touch) turns that off until it leaves; one that lands without hovering (an Apple Pencil)
-  // is held to it by the touchmoves it sends, which don't scroll while a pen stroke is being drawn.
+  // A finger scrolls the page (touch-pan-y) and a stroke that turns into a scroll is cancelled, but Chromium holds a pen to that too,
+  // so a pen stroke would scroll instead of drawing. A hovering pen turns that off until it leaves; one landing without hover
+  // (Apple Pencil) is held by its touchmoves, which don't scroll while drawing.
   useEffect(() => {
     const canvas = canvasRef.current;
     const holdStill = (event: TouchEvent) => {
@@ -125,7 +117,6 @@ export default function DemoBoard() {
     if (event.button !== 0) return;
     canvasRef.current.setPointerCapture(event.pointerId);
     penStroke.current = event.pointerType === "pen";
-    // The cast: createElement is typed as making any element, but a "pen" is a pen stroke.
     const element = createElement("pen", toScene(event), VISITOR_STYLE) as PenElement;
     drawing.current = element.id;
     setDoodles((current) => [...current, element]);

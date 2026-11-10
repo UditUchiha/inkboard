@@ -5,10 +5,7 @@ import { copyGroup } from "../elements/connectors";
 import { getSceneBounds } from "../elements/elements";
 import type { XY } from "../elements/geometry";
 
-// A board saved as a file (.inkboard.json): its elements, plus the pictures on
-// it as data URLs so the file stands on its own. Importing adds the elements to
-// the open board with new ids, and uploads the pictures again so they belong
-// to that board.
+// A .inkboard.json file: elements plus pictures as data URLs so it stands alone; importing adds them with new ids and re-uploads the pictures.
 
 export const BOARD_FILE_TYPE = "inkboard";
 export const BOARD_FILE_VERSION = 1;
@@ -17,7 +14,6 @@ export const BOARD_FILE_EXTENSION = ".inkboard.json";
 // A board file is mostly its pictures; the pictures' own limit is 25 MB each.
 export const MAX_BOARD_FILE_BYTES = 100_000_000;
 
-/** A board file as written: the elements, and the pictures by image id as data URLs. */
 export type BoardFile = {
   type: typeof BOARD_FILE_TYPE;
   version: number;
@@ -27,7 +23,6 @@ export type BoardFile = {
   images: Record<string, string>;
 };
 
-/** What reading a board file gives: its elements cleaned, its pictures, and how many elements were left out. */
 export type ParsedBoardFile = {
   title: string;
   elements: BoardElement[];
@@ -35,7 +30,6 @@ export type ParsedBoardFile = {
   skipped: number;
 };
 
-// What JSON.parse of a file's text may give before it is checked: any part can be missing or wrong.
 type RawBoardFile = {
   type?: unknown;
   version?: unknown;
@@ -44,13 +38,11 @@ type RawBoardFile = {
   images?: Record<string, unknown> | null;
 } | null;
 
-/** A problem with a board file that can be shown to the person as it is. */
 export class BoardFileError extends Error {}
 
 export const isBoardFile = (file: { name?: string; type?: string } | null | undefined): boolean =>
   /\.json$/i.test(file?.name ?? "") || file?.type === "application/json";
 
-/** The file's contents for a board's `elements`, with `pictures` mapping image ids to data URLs. */
 export function makeBoardFile({
   title,
   elements,
@@ -71,7 +63,6 @@ export function makeBoardFile({
   };
 }
 
-/** Reads a board file's text. Returns `{ title, elements, pictures, skipped }` or throws a BoardFileError. */
 export function parseBoardFile(text: string): ParsedBoardFile {
   let data: RawBoardFile;
   try {
@@ -90,9 +81,7 @@ export function parseBoardFile(text: string): ParsedBoardFile {
       `That board file has more than ${MAX_ELEMENTS_PER_BOARD} elements, more than a board holds.`,
     );
   }
-  // Every element goes through the rules the server applies to what it stores, so the
-  // board shows what the server will keep, and nothing in the file can break drawing.
-  // The cast: filter(Boolean) leaves only the elements there are, which TypeScript doesn't see.
+  // Elements go through the server's rules, so the board shows what the server will keep.
   const elements = data.elements.map(cleanElement).filter(Boolean) as BoardElement[];
   if (elements.length === 0) {
     throw new BoardFileError(
@@ -114,7 +103,6 @@ export function parseBoardFile(text: string): ParsedBoardFile {
   };
 }
 
-/** Reads a file someone picked as a board file (see parseBoardFile). */
 export async function readBoardFile(file: File): Promise<ParsedBoardFile> {
   if (file.size > MAX_BOARD_FILE_BYTES) {
     throw new BoardFileError(`That file is too big to import (over ${MAX_BOARD_FILE_BYTES / 1_000_000} MB).`);
@@ -122,10 +110,7 @@ export async function readBoardFile(file: File): Promise<ParsedBoardFile> {
   return parseBoardFile(await file.text());
 }
 
-/**
- * The bytes of a data URL as a Blob. This is done by hand rather than with
- * `fetch(url)`, which the page's content security policy doesn't allow for data URLs.
- */
+// By hand: the page's content security policy doesn't allow fetch(url) for data URLs.
 export function dataUrlToBlob(url: string): Blob {
   const match = /^data:([^,;]*)([^,]*),/.exec(url);
   if (!match) throw new BoardFileError("A picture in that file is damaged.");
@@ -141,14 +126,9 @@ export function dataUrlToBlob(url: string): Blob {
   return new Blob([bytes], { type: match[1] || "application/octet-stream" });
 }
 
-/**
- * Copies of `elements` with new ids, moved so that together they're centred
- * on `center` (board coordinates), keeping their layout and order.
- */
 export function placeElements(elements: BoardElement[], center: XY): BoardElement[] {
   const bounds = getSceneBounds(elements);
   const dx = bounds ? center.x - (bounds.x + bounds.width / 2) : 0;
   const dy = bounds ? center.y - (bounds.y + bounds.height / 2) : 0;
-  // Connectors stay attached to the copies of their shapes.
   return copyGroup(elements, elements, dx, dy, { sameLook: true });
 }

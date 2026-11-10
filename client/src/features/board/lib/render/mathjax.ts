@@ -11,12 +11,6 @@ import "@mathjax/src/js/input/tex/noundefined/NoUndefinedConfiguration.js";
 import { SVG } from "@mathjax/src/js/output/svg.js";
 import type { Formula } from "../elements/math";
 
-// MathJax itself, loaded only by a board that has an equation on it (see math.ts).
-
-/**
- * Makes the function that typesets TeX as a display equation. `loadFile` loads one of the font's
- * rarer parts (blackboard bold, fraktur…) by its module name, the first time a formula needs it.
- */
 export function createTypesetter(loadFile: (name: string) => Promise<unknown>): (tex: string) => Promise<Formula> {
   mathjax.asyncLoad = loadFile;
   const adaptor = liteAdaptor();

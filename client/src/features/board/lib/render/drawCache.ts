@@ -2,37 +2,25 @@ import type { Element as BoardElement, PenElement, ShapeElement } from "@inkboar
 import type { Connector } from "../elements/elements";
 import { connectorPath } from "../elements/routes";
 
-/** What a drawing cache gives for an element: what was built for it, and how far to draw that along. */
 export type CachedDrawing<Built> = { built: Built; dx: number; dy: number };
 
-/** How far a drawing is from another one that is the same but for where it is. */
 export type Moved = { dx: number; dy: number };
 
-// What it costs to draw some elements (a Rough.js shape, a pen stroke's outline)
-// is spent in making them, and elements are immutable, so each is made once per
-// element object. But dragging a frame or a group hands the board a new copy of
-// every element on each step, each a little further along, and every copy would
-// be made from scratch. These caches also remember the last thing made for each
-// id, and reuse it for a copy that's the same but for where it is, to be drawn
-// with the difference as an offset. (A filled hand-drawn shape's hatching, and
-// a hand-drawn curve's wobble, come out a fraction of a unit differently at
-// different places, so one that has been moved keeps the one it was first drawn with.)
+// Elements are immutable, so each is built once per object. A drag hands the board a new copy of every element per step,
+// so the last build per id is reused for a copy that differs only in position, drawn with an offset.
+// Hatching and wobble differ slightly by position, so a moved element keeps the look it was first drawn with.
 
 const TOLERANCE = 1e-6;
 const close = (a: number, b: number) => Math.abs(a - b) < TOLERANCE;
 
-// What a Rough.js shape's drawing depends on, apart from where it is.
 const SHAPE_LOOKS: (keyof ShapeElement)[] = ["type", "seed", "stroke", "fill", "strokeWidth", "sketchy"];
 
-// What a line's or arrow's drawing depends on as well, apart from its path (see routes.ts).
 const CONNECTOR_LOOKS: (keyof ShapeElement)[] = ["startHead", "route"];
 
 const isConnector = (element: BoardElement): element is Connector =>
   element.type === "line" || element.type === "arrow";
 
-// How far `element`'s path is from `source`'s ({ dx, dy }) if it's the same path moved there, or null. A
-// line or arrow is drawn along its path, and its heads come from that too, so a path that's only moved (both
-// ends, every bend, a curve's control points) is a drawing that's only moved.
+// A line's heads come from its path too, so a path that only moved is a drawing that only moved.
 function pathMovedBy(source: Connector, element: Connector): Moved | null {
   const [before, after] = [connectorPath(source), connectorPath(element)];
   if (before.curved !== after.curved || before.points.length !== after.points.length) return null;
@@ -44,14 +32,8 @@ function pathMovedBy(source: Connector, element: Connector): Moved | null {
   return same ? { dx, dy } : null;
 }
 
-/**
- * How far `element` is from `source` ({ dx, dy }) if it's the same drawing
- * moved there, or null. Shapes (rectangles, ellipses, triangles, diamonds, lines and arrows) and pen strokes only.
- */
 export function movedBy(source: BoardElement, element: BoardElement): Moved | null {
   if (source.type !== element.type) return null;
-  // The casts of `source` below: it is the same kind of element as `element`, as the line above checks, which
-  // TypeScript does not carry over from one to the other.
   if (element.type === "pen") {
     const { points } = element;
     if ((source as PenElement).points.length !== points.length || (source as PenElement).penSize !== element.penSize)
@@ -80,11 +62,6 @@ export function movedBy(source: BoardElement, element: BoardElement): Moved | nu
     : null;
 }
 
-/**
- * A cache of what's made for elements. `get(element, build)` gives
- * `{ built, dx, dy }`: what `build(element)` made for it, or for an element it's
- * a moved copy of, in which case it's to be drawn (dx, dy) along.
- */
 export function createDrawingCache<Built>() {
   const byElement = new WeakMap<BoardElement, CachedDrawing<Built>>();
   const byId = new Map<string, { source: BoardElement; built: Built }>(); // id -> { source, built }: the last thing made for each element
@@ -106,7 +83,6 @@ export function createDrawingCache<Built>() {
       return entry;
     },
 
-    /** Lets go of what's remembered by id once it's far more than a board of `count` elements needs. */
     trim(count: number) {
       if (byId.size > count * 4 + 1000) byId.clear();
     },

@@ -5,16 +5,13 @@ import type { Font } from "@inkboard/shared/types";
 import { FONTS } from "../../constants/board";
 import { dataUrlOf } from "./files";
 
-// The text fonts, embedded in exported SVGs so text looks the same wherever the
-// file is opened. Only the Latin set of each is embedded (40-90 KB apiece);
-// other scripts fall back to the viewer's own fonts.
+// Embedded so text looks the same wherever the SVG is opened; only the Latin set of each (40-90 KB apiece), other scripts fall back to the viewer's fonts.
 const FONT_FILES: Partial<Record<string, { family: string; url: string; descriptors: string }>> = {
   hand: { family: "Caveat Variable", url: caveatUrl, descriptors: "font-weight: 400 700;" },
   sans: { family: "Archivo Variable", url: archivoUrl, descriptors: "font-weight: 100 900; font-stretch: 62% 125%;" },
   code: { family: "JetBrains Mono Variable", url: jetbrainsMonoUrl, descriptors: "font-weight: 100 800;" },
 };
 
-/** @font-face rules, with the font files inlined, for the fonts (keys of FONTS) in `keys`. */
 export async function fontFacesFor(keys: Iterable<string>): Promise<string> {
   const rules = await Promise.all(
     [...keys].map(async (key) => {
@@ -29,11 +26,7 @@ export async function fontFacesFor(keys: Iterable<string>): Promise<string> {
   return rules.filter(Boolean).join("\n");
 }
 
-/**
- * Where each font's alphabetic baseline sits below the top of its em box, as a
- * share of the font size. The canvas draws text from that top; SVG text sits
- * on its baseline. Measured from a capital H in both modes; fonts must be loaded.
- */
+// Measured from a capital H in both modes; fonts must be loaded.
 export function measureBaselines(keys: Iterable<Font>): Partial<Record<Font, number>> {
   const context = document.createElement("canvas").getContext("2d")!; // a canvas always gives a 2D context
   const baselines: Partial<Record<Font, number>> = {};

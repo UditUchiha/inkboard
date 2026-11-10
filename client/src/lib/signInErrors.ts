@@ -1,14 +1,10 @@
-// What sign-in links bring in their address, made safe to use. A sign-in with Google or GitHub that fails
-// sends the person back with an error *code* (?error=expired&provider=google), never text, so a link can't
-// put words of its own into an official-looking message. The codes come from
-// server/src/controllers/oauth.controller.ts. Where to go next (?next=/board/…) is only followed inside the app.
+// Errors come back as a *code* (?error=expired&provider=google), never text, so a link can't put words of its own into an
+// official-looking message. Codes come from server/src/controllers/oauth.controller.ts; `next` is only followed inside the app.
 
 const PROVIDER_LABELS: Record<string, string> = { google: "Google", github: "GitHub" };
 
-/** The provider's display name, or "your account" for anything that isn't one we know. */
 export const providerLabel = (provider: string) => PROVIDER_LABELS[provider] ?? "your account";
 
-/** Whether `provider` (from the URL) is one of ours. */
 export const isProvider = (provider: string) => Object.hasOwn(PROVIDER_LABELS, provider);
 
 const MESSAGES: Record<string, (label: string) => string> = {
@@ -26,24 +22,18 @@ const MESSAGES: Record<string, (label: string) => string> = {
   incomplete: () => "Sign-in didn't finish. Try again.",
 };
 
-/** The message for an error code from the URL; anything unknown gets the general one. */
 export function signInErrorMessage(code: string, provider: string) {
   const message = Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : () => "Something went wrong. Try again.";
   return message(providerLabel(provider));
 }
 
-/** The log in page with an error code, keeping where the person was headed (`next`), so trying again still gets them there. */
 export function loginWithError(code: string, next?: string | null) {
   const params = new URLSearchParams({ error: code });
   if (next && next !== "/boards") params.set("next", next);
   return `/login?${params}`;
 }
 
-/**
- * The log in page for someone who isn't logged in, coming back to `location` afterwards. The fragment goes
- * along: it can hold what a Google or GitHub connection is bringing back (/settings#connect=...), which
- * would otherwise be lost when the login ran out while the person was away.
- */
+// The fragment goes along: it can hold what a provider connection brings back (/settings#connect=...), lost otherwise.
 export const loginPathFor = ({
   pathname,
   search = "",
@@ -58,7 +48,6 @@ export const loginPathFor = ({
 // would lead to another site (and react-router refuses to go there, which crashes the page).
 const unsafeChar = (char: string) => char === "\\" || char <= "\u001f" || char === "\u007f";
 
-/** `value` if it's a path inside the app, which a link may send people on to after signing in; otherwise /boards. */
 export function safeNext(value: unknown) {
   const inside = typeof value === "string" && /^\/(?!\/)/.test(value) && ![...value].some(unsafeChar);
   return inside ? value : "/boards";

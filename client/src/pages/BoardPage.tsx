@@ -14,7 +14,6 @@ import { useAuth } from "../providers/AuthProvider";
 
 type OpenBoardProps = { boardId: string };
 
-// Asks the owner of a board this person can't open to invite them, and says when it's done or why it couldn't be.
 function RequestAccess({ boardId }: OpenBoardProps) {
   const [state, setState] = useState<{ sending?: boolean; sent?: boolean; error?: string }>({});
   async function ask() {
@@ -57,10 +56,7 @@ const goHome = <ButtonLink to="/">Go home</ButtonLink>;
 
 export default function BoardPage() {
   const { boardId } = useParams<{ boardId: string }>();
-  // Going from one board to another (a notification's Open button, back and forward)
-  // keeps this page mounted. Keyed, each board gets its own editor and sync state, so
-  // edits not sent yet can't end up on the other board, nor can its title, role or view.
-  // The assertion: the router types a parameter as possibly missing, but this page's route always has one.
+  // Moving between boards keeps this page mounted; keyed, each board gets its own editor and sync state, so unsent edits can't reach the other board.
   return <OpenBoard key={boardId} boardId={boardId!} />;
 }
 

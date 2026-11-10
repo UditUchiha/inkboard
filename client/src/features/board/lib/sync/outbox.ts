@@ -16,58 +16,36 @@ import type { PendingChange, Typing } from "./store";
 
 export type { PendingChange };
 
-// The changes made here that the server hasn't confirmed yet (see useBoardSync).
-// It has no idea of sockets or React, so what it does with each reply can be
-// tested on its own.
-//
-// A change is queued (`add`), then sent (`take`; a big one in pieces, one at a
-// time, all carrying the same `group` so the server takes them in together or not
-// at all), and each reply (`settle`) says what to do next: carry on, send it
-// again, or give up and show the board as the server has it. Changes for an id
-// that were superseded by a newer one are never sent again.
-//
-// While a change is going out in pieces nothing else is sent: later changes wait
-// in the queue until its last piece is answered. The server holds one group per
-// connection and takes changes in the order they come, so a removal sent in the
-// middle of a big upload would otherwise be taken in first, then undone by it.
+// Changes made here that the server hasn't confirmed (see useBoardSync); no sockets or React, so replies can be tested alone.
+// A big change goes out in pieces sharing a `group`, so the server takes them in together or not at all.
+// Nothing else is sent meanwhile: the server holds one group per connection, so a removal sent mid-upload would be applied first, then undone.
 
-// How long changes are gathered before they're sent. A stroke is sent whole each time (its points
-// are one field), so the longer it gets, the less often it is: the traffic for a stroke stays about
-// the same however long it is drawn, instead of growing with every point.
+// A stroke is sent whole each time, so a longer flush keeps its traffic flat instead of growing with every point.
 const FLUSH_INTERVAL_MS = 40;
 const FLUSH_MS_PER_POINT = 0.4;
 const MAX_EXTRA_FLUSH_MS = 400;
 
-// How long to wait before sending again, by why it didn't go through ("expired": the
-// server stopped waiting for the rest of a change sent in pieces).
+// Retry delay by reason ("expired": the server stopped waiting for the rest of a big change).
 export const RETRY_DELAY_MS: Record<string, number> = { timeout: 400, rate: 1000, expired: 0 };
 
-// A change the server keeps answering "rate" to (it's limiting this connection, or holding as much as it
-// will of what people are sending) is sent again from its first piece each time, so the wait doubles up to
-// MAX_RATE_DELAY_MS, with some jitter so connections that were limited together don't all return together,
-// and starts over after a change goes through. After SLOW_AFTER refusals in a row `slow` is set on the
-// retry, so the screen can say saving is taking a while.
+// "rate" refusals back off exponentially up to MAX_RATE_DELAY_MS, with jitter so limited connections don't return together;
+// after SLOW_AFTER in a row the retry sets `slow`, so the screen can say saving takes a while.
 const MAX_RATE_DELAY_MS = 30_000;
 const SLOW_AFTER = 3;
 
-/** One message of changes to send: `seq` numbers it, and `group` says which change it is a piece of, if it is in pieces. */
 export type Piece = { seq: number; op: Effect; group?: { id: string; index: number; total: number } };
 
-/** What the server answers to a piece: it saved it (`ok`, with what it changed), or why it didn't (`reason`). */
 export type AckReply = {
   ok?: boolean;
   reason?: string;
-  // Elements as the server stored them, where that differs from what was sent.
   cleaned?: BoardElement[];
   // Ids of new elements it refused because the board is full (or, with `outside`, outside a student's frame).
   dropped?: string[];
   // In classroom mode: elements a student removed outside their frame, as the board still has them.
   restored?: BoardElement[];
-  // In classroom mode: some of the change was outside the student's frame, and left out.
   outside?: boolean;
 };
 
-/** What to do next after a reply (see `settle`). */
 export type SettleResult =
   | { kind: "ignore" }
   | {
@@ -84,13 +62,10 @@ export type SettleResult =
   | { kind: "rejoin"; again: Effect }
   | { kind: "resync"; reason: string };
 
-/** What createOutbox takes: who is told whether anything is unconfirmed, and where jitter comes from. */
 export type OutboxOptions = { onChange?: (busy: boolean) => void; random?: () => number };
 
-/** The changes made here that the server hasn't confirmed yet. */
 export type Outbox = ReturnType<typeof createOutbox>;
 
-// The pieces of one change, how many were sent, those already answered, and whether one of them wasn't saved.
 type Batch = {
   group: { id: string; total: number } | null;
   started: number;
@@ -98,17 +73,13 @@ type Batch = {
   failed: boolean;
 };
 
-// A piece sent with no reply yet, and the later pieces of the same change.
 type Inflight = { op: Effect; rest: Effect[]; batch: Batch };
 
-// `element` queued in place of `earlier`, a change to it not sent yet: what it typed into a text was typed
-// against what the text was before `earlier` too, which is what the server still has (see text-merge.ts).
+// A text typed over a queued `earlier` was typed against what the server still has (see text-merge.ts).
 function sinceUnsent(element: BoardElement, earlier: PendingChange | undefined): BoardElement {
   if (!earlier || earlier.removal || !earlier.base) return element;
   const base: TextBases = { ...element.base };
-  // Object.entries can only say "strings"; these are the keys of a change's bases, so they are text fields.
   for (const [field, splice] of Object.entries(earlier.base) as [TextField, Splice][]) {
-    // Read by name: the field is a text, a name or a description, depending on the element.
     const was = (earlier as Fields)[field];
     const now = (element as Fields)[field];
     if (typeof was === "string" && typeof now === "string") base[field] = spliceOf(textBefore(was, splice), now);
@@ -116,24 +87,20 @@ function sinceUnsent(element: BoardElement, earlier: PendingChange | undefined):
   return { ...element, base };
 }
 
-// A change sent again without knowing whether the server took it in the first time: it goes without the bases
-// of its typing, so it can't be merged in twice. It's taken whole, the newer text winning, as before merging.
+// Resent without knowing whether the server took it: sent without typing bases so it can't be merged twice.
 const blind = (element: BoardElement): BoardElement => (element.base ? withoutBase(element) : element);
 
-// The property groups `elements` typed into, by id (see text-merge.ts).
 function typedIn(elements: readonly BoardElement[]): Map<string, Set<FieldGroup>> {
   const typed = new Map<string, Set<FieldGroup>>();
   for (const element of elements) {
     if (!element.base) continue;
     const groups = typed.get(element.id) ?? new Set<FieldGroup>();
-    // Object.keys can only say "strings"; these are the keys of a change's bases, so they are text fields.
     for (const field of Object.keys(element.base) as TextField[]) groups.add(TEXT_FIELDS[field].group);
     typed.set(element.id, groups);
   }
   return typed;
 }
 
-// The stamps the elements of `batch`'s answered pieces were sent with, by id.
 function sentStamps(batch: Batch): Map<string, Stamp> {
   const stamps = new Map<string, Stamp>();
   for (const { op } of batch.sent) for (const element of op.upsert) stamps.set(element.id, stampOf(element));
@@ -144,8 +111,6 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
   const pending = new Map<string, PendingChange>(); // id -> element | { removal }, not sent yet
   const lastSent = new Map<string, number>(); // id -> sequence number of the last piece that included it
   const inflight = new Map<number, Inflight>(); // sequence number -> { op, rest, batch }: sent, no reply yet
-  // batch: { group: { id, total } | null, started, sent: [{ op, seq }], failed }: how many of a change's
-  // pieces were sent, those already answered, and whether one of them wasn't saved
   let sequence = 0;
   let sending: Batch | null = null; // the batch of the change going out in pieces, until its last piece is answered
   let board: string | null = null;
@@ -155,7 +120,6 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
   const busy = () => pending.size > 0 || inflight.size > 0;
   const changed = () => onChange(busy());
 
-  // Sends `op` next; `rest` are the later pieces of the same change.
   function start(op: Effect, rest: Effect[], batch: Batch): Piece {
     const seq = ++sequence;
     for (const element of op.upsert) lastSent.set(element.id, seq);
@@ -167,7 +131,6 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
     return piece;
   }
 
-  // What's queued, as a batch of pieces (one, for a change that fits in a single message).
   function takeAll() {
     const [first, ...rest] = toOperations(pending);
     pending.clear();
@@ -178,17 +141,13 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
     return { first, rest, batch };
   }
 
-  // A piece of `batch` wasn't saved, so neither is the rest of it: other changes can go now.
   function fail(batch: Batch) {
     batch.failed = true;
     if (sending === batch) sending = null;
   }
 
-  // Queues `op`'s changes again, except those a newer change superseded (`seq`
-  // is the piece it was sent in; a piece never sent has none). Returns what was queued.
-  // `taken` says whether the server may have taken them in already (see `blind`); when it
-  // certainly hasn't, a newer change queued meanwhile was typed against them, and now
-  // says what the text was before them (see sinceUnsent).
+  // Queues `op` again except what a newer change superseded; when the server certainly hasn't taken it (`taken` false),
+  // changes queued meanwhile are rebased on it (see sinceUnsent).
   function restore(op: Effect, seq: number | undefined, taken: boolean): Effect {
     const again: Effect = { upsert: [], remove: [] };
     const current = (id: string) => seq === undefined || lastSent.get(id) === seq;
@@ -210,9 +169,7 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
     return again;
   }
 
-  // Pieces of a change sent together are held by the server until the last arrives, so after
-  // a failure the whole change is queued again, answered pieces included, as a new group.
-  // `taken`: whether the server may have taken the change in (no reply came).
+  // The server holds a change's pieces until the last arrives, so after a failure the whole change is queued again as a new group.
   function requeue({ op, rest, batch }: Inflight, seq: number | undefined, taken: boolean): Effect {
     const again = restore(op, seq, taken);
     for (const done of batch.sent) {
@@ -240,28 +197,20 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
   }
 
   return {
-    /** Whether anything is waiting to be sent, or sent and not confirmed (for "Saving…"). */
     busy,
     hasPending: () => pending.size > 0,
 
-    /** How long to gather changes before the next send, in milliseconds. */
     flushDelay: () => FLUSH_INTERVAL_MS + Math.min(MAX_EXTRA_FLUSH_MS, longest * FLUSH_MS_PER_POINT),
 
-    /** A change made here. */
     add(op: Partial<Effect>) {
       for (const element of op.upsert ?? []) {
         pending.set(element.id, sinceUnsent(element, pending.get(element.id)));
-        // The cast: only a pen stroke has points, and for the rest there are none to count.
         longest = Math.max(longest, (element as { points?: unknown[] }).points?.length ?? 0);
       }
       for (const removal of op.remove ?? []) pending.set(removal.id, { removal });
       changed();
     },
 
-    /**
-     * Moves what's queued into the next piece to send, `{ seq, op, group? }`, or returns null if
-     * nothing is, or while a change in pieces is still going out (what's queued goes after it).
-     */
     take() {
       if (pending.size === 0 || sending) return null;
       const { first, rest, batch } = takeAll();
@@ -270,11 +219,7 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
       return piece;
     },
 
-    /**
-     * Everything not sent yet, as pieces to send straight after one another without waiting for
-     * replies: the rest of a change going out in pieces, then what's queued. For leaving a board,
-     * when there's no waiting: the connection delivers them in order, before it says it's leaving.
-     */
+    // For leaving a board: pieces go back to back, relying on in-order delivery before the leave message.
     drain() {
       const pieces = [];
       for (const entry of [...inflight.values()]) {
@@ -289,19 +234,7 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
       return pieces;
     },
 
-    /**
-     * What to do with a piece's reply (`error` is a timeout):
-     * - `{ kind: "ignore" }`: it was given up on already
-     * - `{ kind: "ok", next?, cleaned?, dropped?, sent? }`: it's saved; `next` is the following piece of
-     *   a big change to send; `cleaned` are elements as the server stored them where that differs from
-     *   what we sent (`sent`: id -> the stamp each was sent with), `dropped` ids it refused because the
-     *   board is full. Without a `next`, what was queued meanwhile can go (`take`)
-     * - `{ kind: "retry", delay, again, slow? }`: queued again (`again`: what was queued), to send after `delay`
-     *   (`slow`: the server has been refusing for a while: see SLOW_AFTER)
-     * - `{ kind: "rejoin", again }`: queued again, to send once the board is joined again
-     * - `{ kind: "resync", reason }`: it can't be saved, and neither can the rest of its group, which
-     *   the server dropped. The screen should show the board as the server has it
-     */
+    // Results: ignore, ok (maybe a `next` piece), retry after `delay`, rejoin, or resync (can't be saved: show the server's board).
     settle(seq: number, error: Error | null, response: AckReply | undefined): SettleResult {
       const entry = inflight.get(seq);
       if (!entry) return { kind: "ignore" };
@@ -324,13 +257,9 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
         }
         const [op, ...rest] = entry.rest;
         if (op) result.next = start(op, rest, batch);
-        // The assertion: a batch that is being sent in pieces has a group.
         else if (sending === batch && batch.sent.length === batch.group!.total) sending = null;
       } else if (error || Object.hasOwn(RETRY_DELAY_MS, response?.reason as string) || batch.failed) {
-        // A piece sent after one of its group that wasn't saved is refused too (the server dropped
-        // the group): it goes back in the queue with the rest, to be sent again.
-        // The cast above and the cast and assertion here: hasOwn only looks the reason up, so TypeScript doesn't see
-        // that a reply with a reason is there when it was found (a missing reason is looked up as "undefined", no key).
+        // A piece after a failed one in its group is refused too (the server dropped the group), so it is queued again.
         const why = error || batch.failed ? "timeout" : (response!.reason as string);
         // No reply: it may have been taken in (unless the server had dropped its group already).
         const taken = Boolean(error) && !batch.failed;
@@ -353,7 +282,6 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
       return result;
     },
 
-    /** The connection dropped: what was sent but not confirmed goes back in the queue, to be sent again. */
     requeueSent() {
       for (const [seq, entry] of inflight) requeue(entry, seq, true);
       inflight.clear();
@@ -361,11 +289,7 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
       changed();
     },
 
-    /**
-     * The text typed here that the server hasn't answered yet (queued, or sent with no reply): the property groups
-     * it's in, by element id. Others' changes to it, which the server takes in first, don't replace it on this
-     * screen: the server's answer brings the two merged (see store.applyRemote).
-     */
+    // Typed-here text the server hasn't answered: others' changes don't replace it here; the server's answer merges them (store.applyRemote).
     typing() {
       const elements: BoardElement[] = [];
       for (const { op, rest } of inflight.values()) for (const piece of [op, ...rest]) elements.push(...piece.upsert);
@@ -373,17 +297,11 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
       return typedIn(elements);
     },
 
-    /** Everything not confirmed yet as one operation, to show on top of the board as the server has it. */
     unsent: () => toOperation(pending),
 
-    /** Forgets everything (the screen is about to show the board as the server has it). */
     reset,
 
-    /**
-     * Call with the board that is open. When it isn't the one the queue holds
-     * changes for, those are forgotten, so they can't be sent to another board.
-     * Returns whether that happened.
-     */
+    // Forgets queued changes when another board opens, so they can't be sent to it.
     switchTo(boardId: string) {
       if (board === boardId) return false;
       const switched = board !== null;

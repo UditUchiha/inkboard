@@ -5,10 +5,8 @@ import type { KeyboardEvent, ReactNode } from "react";
 
 const MenuContext = createContext<() => void>(() => {});
 
-/** Closes the menu it is called inside, for items that aren't a MenuItem. */
 export const useCloseMenu = () => useContext(MenuContext);
 
-/** What `trigger` spreads onto the button that opens the menu. */
 export type MenuTriggerProps = {
   "aria-haspopup": "menu";
   "aria-expanded": boolean;
@@ -25,10 +23,6 @@ type MenuProps = {
   onOpenChange?: (open: boolean) => void;
 };
 
-/**
- * A small dropdown menu. `trigger` receives the props to spread onto the
- * button that opens it. `onOpenChange` hears when it opens or closes.
- */
 export function Menu({ trigger, children, align = "end", side = "bottom", className, onOpenChange }: MenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -68,7 +62,6 @@ export function Menu({ trigger, children, align = "end", side = "bottom", classN
   useEffect(() => {
     if (!open) return undefined;
     const onPointerDown = (event: PointerEvent) => {
-      // A pointer event on the document is aimed at a node.
       if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -76,7 +69,6 @@ export function Menu({ trigger, children, align = "end", side = "bottom", classN
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
-    // Move focus into the menu so keyboard users land on the first item.
     rootRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
@@ -92,7 +84,6 @@ export function Menu({ trigger, children, align = "end", side = "bottom", classN
     if (items.length === 0) return;
     if (event.key === "Home") return items[0].focus();
     if (event.key === "End") return items.at(-1)!.focus(); // there is at least one item
-    // The focused element is only looked for among the items, so it need not be one.
     const index = items.indexOf(document.activeElement as HTMLElement);
     const step = event.key === "ArrowDown" ? 1 : -1;
     const next = index === -1 ? (step === 1 ? 0 : items.length - 1) : (index + step + items.length) % items.length;

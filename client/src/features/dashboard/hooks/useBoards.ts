@@ -3,35 +3,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../../../lib/api";
 import type { BoardSummary } from "../lib/sections";
 
-// Previews are asked for this many boards at a time (the server's limit).
 const PREVIEW_BATCH = 24;
 
-// A preview belongs to one version of a board: a board changed since it was asked for (a refresh landed while it
-// was on its way) needs its own.
+// A preview belongs to one version of a board; one changed since it was asked for needs its own.
 const previewKey = (board: BoardSummary) => `${board.id}@${board.updatedAt}`;
 
-/**
- * `list` with the previews in `found` (preview key -> elements) put on the boards they were asked for. A board that
- * has changed since is left alone, so it shows nothing rather than how it used to look, and is asked for again.
- */
 export function fillPreviews(list: BoardSummary[] | null | undefined, found: Map<string, BoardElement[]>) {
   return list?.map((board) =>
     found.has(previewKey(board)) ? { ...board, preview: found.get(previewKey(board)) } : board,
   );
 }
 
-/**
- * The dashboard's boards and the owner's trash, with local updates so actions feel instant.
- * The lists come without previews; `loadPreviews` fetches the ones for the cards on screen and
- * puts them on the boards as `preview`.
- */
 export function useBoards() {
-  // A change that lands while a list is still null leaves it undefined (list?.map), which only an update to a
-  // board that isn't there could do.
+  // A change landing while the list is null leaves it undefined, which only an update to a board that isn't there could do.
   const [boards, setBoards] = useState<BoardSummary[] | null | undefined>(null);
   const [trash, setTrash] = useState<BoardSummary[] | undefined>([]);
   const [loadError, setLoadError] = useState("");
-  // board id -> { updatedAt, preview }, so a refresh keeps what it already has
   const previews = useRef(new Map<string, { updatedAt: string; preview: BoardElement[] | undefined }>());
   const asked = useRef(new Set<string>()); // preview keys (board id and version) whose preview is on its way
 
@@ -64,7 +51,6 @@ export function useBoards() {
     [],
   );
 
-  // Fetches the previews `wanted` boards (from either list) don't have yet, one batch at a time.
   const loadPreviews = useCallback(async (wanted: BoardSummary[]) => {
     const todo = wanted.filter((board) => !board.preview && !asked.current.has(previewKey(board)));
     for (const board of todo) asked.current.add(previewKey(board));

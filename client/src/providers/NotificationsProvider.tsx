@@ -8,7 +8,6 @@ import { mergeNotifications, unreadIds, withNewestPage } from "../lib/notificati
 import { useAuth } from "./AuthProvider";
 import { useSocket } from "./SocketProvider";
 
-/** What `useNotifications()` gives: the loaded notifications and what can be done with them. */
 export type NotificationsValue = {
   items: NotificationItem[];
   unread: number;
@@ -20,12 +19,10 @@ export type NotificationsValue = {
 
 const NotificationsContext = createContext<NotificationsValue | null>(null);
 
-// A notification about a comment opens it, and one about suggestions opens those. A board in the trash can't be
-// opened, so being told about one leads to the dashboard.
+// A board in the trash can't be opened, so being told about one leads to the dashboard.
 export function notificationLink(notification: Pick<NotificationItem, "board" | "thread" | "type" | "excerpt">) {
   if (notification.type === "trashed") return "/boards";
   const board = `/board/${notification.board.id}`;
-  // A request for access opens the Share dialog with the email address of the person asking filled in.
   if (notification.type === "access") return `${board}?invite=${encodeURIComponent(notification.excerpt ?? "")}`;
   // Many people from the edit link: the Share dialog, to restrict it. Much of the board removed: its version history.
   if (notification.type === "visitors") return `${board}?invite=`;
@@ -45,7 +42,6 @@ export function describeNotification({ type, actor, board }: Pick<NotificationIt
   return `${actor.name} invited you to “${board.title}”`;
 }
 
-/** Mentions, replies, invites, suggestions, trashed boards and requests for access for the signed-in person, live over the socket. */
 type NotificationsProviderProps = { children: ReactNode };
 
 export function NotificationsProvider({ children }: NotificationsProviderProps) {
@@ -65,8 +61,7 @@ export function NotificationsProvider({ children }: NotificationsProviderProps) 
   const cursor = useRef<string | null>(null);
   const unread = useMemo(() => unreadIds(items).length, [items]);
 
-  // The next 30 older ones, from where the last page ended (or the oldest one listed, from a server without `next`).
-  // Whether a page is on its way is a ref, so the callback stays the same and the effect below can use it.
+  // A ref, so the callback stays the same and the effect below can use it.
   const loadingRef = useRef(false);
   const loadMore = useCallback(() => {
     const before = cursor.current ?? itemsRef.current.at(-1)?.id;

@@ -8,9 +8,6 @@ import type {
 } from "@inkboard/shared/types";
 import { newId } from "../../board/lib/elements/elements";
 
-// Built-in starting points for a new board. Each `build()` returns fresh elements
-// (new ids and seeds), so two boards made from one template never share ids.
-
 const INK = "#16213a";
 const GREY = "#5e6676";
 const seed = () => Math.floor(Math.random() * 2 ** 31) + 1;
@@ -212,7 +209,6 @@ const brainstorm = (): BoardElement[] => {
   return elements;
 };
 
-/** A ready-made start for a board: `build()` gives its elements, freshly made on every call. */
 export type BuiltinTemplate = { id: string; title: string; detail: string; build: () => BoardElement[] };
 
 export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [

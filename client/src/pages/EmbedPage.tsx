@@ -16,15 +16,10 @@ import { getGuest } from "../lib/guest";
 
 const NOOP = () => {};
 
-/**
- * A board shown on another site, in an <iframe> (the snippet is in the Share dialog). It's the board live, to look
- * at, pan and zoom: never edited, whatever the link allows, and the people on the board aren't shown it (the server
- * makes sure of both, see `embed` in JoinPayload). Only boards whose link is shared open here, since a site's frame
- * doesn't share the app's sign-in.
- */
+// Embedded in an <iframe> on another site: live to look at, pan and zoom, never edited and without showing who's on the
+// board (the server enforces both, see `embed` in JoinPayload). Only boards with a shared link open, as a frame doesn't share the app's sign-in.
 export default function EmbedPage() {
   const { boardId } = useParams<{ boardId: string }>();
-  // The assertion: the route always has the parameter.
   return <EmbeddedBoard key={boardId} boardId={boardId!} />;
 }
 

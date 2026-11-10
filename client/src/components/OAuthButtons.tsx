@@ -44,8 +44,6 @@ type AuthOptions = { providers: AuthProviderInfo[]; email: boolean };
 // The list rarely changes, so it's fetched once per page load.
 let providersRequest: Promise<AuthOptions> | null = null;
 
-// What the server offers for signing in: Google and GitHub (when set up), and
-// whether email (verification, password reset) is on. Loaded once per page load.
 function useAuthOptions() {
   const [options, setOptions] = useState<AuthOptions>({ providers: [], email: false });
   useEffect(() => {
@@ -67,14 +65,12 @@ function useAuthOptions() {
 
 export const useOAuthProviders = () => useAuthOptions().providers;
 
-/** Whether email verification and password reset are switched on. */
 export const useEmailEnabled = () => useAuthOptions().email;
 
 // `bind` is the hash from startSignIn: the server needs it to tie the end of the sign-in to this tab.
 export const oauthStartUrl = (provider: string, next: string | null | undefined, bind: string) =>
   `${API_URL}/api/auth/oauth/${provider}?bind=${encodeURIComponent(bind)}${next ? `&next=${encodeURIComponent(next)}` : ""}`;
 
-/** "Continue with Google / GitHub", for whichever providers the server has set up. */
 type OAuthButtonsProps = { next?: string | null; className?: string };
 
 export function OAuthButtons({ next, className }: OAuthButtonsProps) {

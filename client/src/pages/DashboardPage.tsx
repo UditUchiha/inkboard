@@ -31,13 +31,11 @@ import { api, errorMessage } from "../lib/api";
 import type { CreateBoardInput } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 
-// How many boards are drawn at first, and added by each "Show more": every card downloads a preview
-// of its board, so a person with hundreds of boards loads them a page at a time.
+// Every card downloads a preview, so people with hundreds of boards load them a page at a time.
 const PAGE_SIZE = 48;
 
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-x-6 gap-y-8";
 
-// What the dialog that asks before leaving, deleting for good or emptying the trash is about.
 type Confirm = { kind: "leave" | "purge" | "empty"; boards: BoardSummary[] };
 
 type ViewToggleProps = { view: View; onChange: (view: View) => void };
@@ -103,7 +101,6 @@ function SortMenu({ sort, onChange }: SortMenuProps) {
     >
       <MenuLabel>Sort by</MenuLabel>
       {Object.entries(SORT_KEYS).map(([key, { label, defaultDir }]) => (
-        // Object.entries gives the keys as plain strings; they are SORT_KEYS' own.
         <MenuItem
           key={key}
           hint={tick(sort.key === key)}
@@ -213,7 +210,6 @@ export default function DashboardPage() {
     document.title = `${section.label} · ${APP_NAME}`;
   }, [section.label]);
 
-  // "/" jumps to search, as on most sites with a lot of things to find.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -235,7 +231,6 @@ export default function DashboardPage() {
 
   const counts = useMemo(
     () =>
-      // There is an entry for every section.
       Object.fromEntries(
         SECTIONS.map((item) => [
           item.id,
@@ -257,12 +252,10 @@ export default function DashboardPage() {
   const shown = useMemo(() => visible.slice(0, limit), [visible, limit]);
   const picked = shown.filter((board) => selected.has(board.id));
 
-  // Only the boards on screen get their previews, and only as cards: the list view draws none.
   useEffect(() => {
     if (view === "grid") loadPreviews(shown);
   }, [shown, view, loadPreviews]);
 
-  // Every change shows up at once; if the server refuses it, it's put back and the person is told.
   const actions = {
     rename: setRenaming,
     askLeave: (board: BoardSummary) => setConfirm({ kind: "leave", boards: [board] }),
@@ -368,7 +361,6 @@ export default function DashboardPage() {
     },
   };
 
-  // `input` says how to start: {} for blank, { title, elements } or { templateId }.
   async function createBoard(input: CreateBoardInput = {}) {
     setCreating(true);
     try {
@@ -381,7 +373,6 @@ export default function DashboardPage() {
   }
 
   async function confirmAction() {
-    // The dialog that calls this is only open while there is something to confirm.
     const { kind, boards: targets } = confirm!;
     setBusy(true);
     try {
@@ -429,7 +420,6 @@ export default function DashboardPage() {
     },
   }[confirm?.kind ?? "leave"];
 
-  // This page is only reached through RequireAuth, so there is a logged in account.
   const firstName = user!.name.split(" ")[0];
   const loading = !boards && !loadError;
 

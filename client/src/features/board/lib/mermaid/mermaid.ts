@@ -6,11 +6,7 @@ import { getBounds, isFrame } from "../elements/elements";
 import { normalizeRect, rectContains } from "../elements/geometry";
 import type { Rect } from "../elements/geometry";
 
-// Mermaid flowcharts (https://mermaid.js.org/syntax/flowchart.html) and sequence diagrams
-// (https://mermaid.js.org/syntax/sequenceDiagram.html), both ways: imported as shapes, labels, arrows, notes and
-// frames laid out on the board, and a drawn diagram exported as one. Other kinds (class, state, Gantt…) aren't read:
-// flowcharts and sequence diagrams are what boards draw. The text is parsed here rather than by Mermaid's own
-// library, which is megabytes and renders HTML; nothing in it is ever rendered as HTML here.
+// Flowcharts and sequence diagrams, both ways. Parsed here, not by Mermaid's library: it is megabytes and renders HTML.
 
 type Direction = "TD" | "LR" | "BT" | "RL";
 type NodeShape = "rectangle" | "ellipse" | "diamond";
@@ -18,7 +14,6 @@ type Node = { id: string; label: string; shape: NodeShape; fill?: string };
 type Edge = { from: string; to: string; label: string; head: "none" | "end" | "both" };
 type Subgraph = { id: string; title: string; nodes: Set<string>; parent: Subgraph | null };
 
-/** A flowchart as read from Mermaid: its direction, nodes, edges and subgraphs, and the lines it couldn't read. */
 export type Flowchart = {
   direction: Direction;
   nodes: Map<string, Node>;
@@ -27,14 +22,12 @@ export type Flowchart = {
   skipped: string[];
 };
 
-/** Why Mermaid text can't be imported, in a sentence for the person. */
 export class MermaidError extends Error {}
 
 const MAX_NODES = 500;
 // Longer statements are left out (and counted): the patterns below take a long time on very long lines.
 const MAX_STATEMENT_LENGTH = 1000;
 
-// Openings of a node's shape, longest first, with how each closes and what it's drawn as.
 const SHAPES: [open: string, close: string, shape: NodeShape][] = [
   ["(((", ")))", "ellipse"],
   ["((", "))", "ellipse"],
@@ -54,13 +47,11 @@ const SHAPES: [open: string, close: string, shape: NodeShape][] = [
 
 // A dash only carries an id on when a letter or digit follows, so `A-->B` is A, a link and B.
 const NODE_ID = /^[\p{L}\p{N}_](?:[\p{L}\p{N}_.:]|-(?=[\p{L}\p{N}_]))*/u;
-// A link, with its text either in the middle (`-- text -->`) or after it (`-->|text|`). Longer and dotted or thick
-// links draw the same; `o` and `x` ends draw as arrowheads.
+// Text in the middle or after (`-->|text|`); dotted and thick links draw the same; `o`/`x` ends draw as arrowheads.
 const LINK =
   /^(<)?(?:(--|==|-\.)\s*([^|>]+?)\s*)?(-{2,}>|-{3,}|={2,}>|={3,}|-?\.+-+>|-?\.+-|--[ox]|==[ox])(?:\s*\|([^|]*)\|)?/;
 const IGNORED = /^(classDef|class|linkStyle|click|accTitle|accDescr|direction)\b/;
 
-// Text as Mermaid writes it: quoted, with line breaks as <br>, quotes as #quot;, and Markdown backticks.
 function cleanLabel(raw: string): string {
   let text = raw.trim();
   if (text.startsWith('"') && text.endsWith('"') && text.length >= 2) text = text.slice(1, -1);
@@ -72,7 +63,6 @@ function cleanLabel(raw: string): string {
     .trim();
 }
 
-// Splits text into statements: lines, and `;` between statements, but not inside quotes or brackets or entities.
 function statements(text: string): string[] {
   const out: string[] = [];
   for (const line of text.split(/\r?\n/)) {
@@ -95,7 +85,6 @@ function statements(text: string): string[] {
   return out.map((statement) => statement.replace(/%%.*$/, "").trim()).filter(Boolean);
 }
 
-// One node at the start of `text`: its id and, if given, shape and label. Returns what's left of the text after it.
 function readNode(text: string): { id: string; label?: string; shape?: NodeShape; rest: string } | null {
   const match = NODE_ID.exec(text);
   if (!match) return null;
@@ -114,7 +103,6 @@ function readNode(text: string): { id: string; label?: string; shape?: NodeShape
   return { id, rest };
 }
 
-// Nodes joined by `&` at the start of `text`.
 function readNodes(text: string) {
   const nodes: NonNullable<ReturnType<typeof readNode>>[] = [];
   let rest = text;
@@ -129,10 +117,8 @@ function readNodes(text: string) {
   }
 }
 
-// The text's statements, after any front matter (a title, a theme), which comes first between lines of three dashes.
 const readStatements = (text: string) => statements(text.replace(/^\s*---\r?\n[\s\S]*?\r?\n---[^\S\n]*(\r?\n|$)/, ""));
 
-/** Reads a Mermaid flowchart. Throws a MermaidError when it isn't one. */
 export function parseFlowchart(text: string): Flowchart {
   const lines = readStatements(text);
   const header = /^(flowchart|graph)(?:\s+(TD|TB|BT|LR|RL))?\s*$/i.exec(lines[0] ?? "");
@@ -218,7 +204,6 @@ export function parseFlowchart(text: string): Flowchart {
   return { direction, nodes, edges, subgraphs, skipped };
 }
 
-/** How big text is on the board, as `measureText` in elements.ts says; tests use an estimate. */
 export type Measure = (text: string, fontSize: number) => { width: number; height: number };
 
 const estimate: Measure = (text, fontSize) => {
@@ -234,8 +219,6 @@ const RANK_GAP = 90;
 const NODE_GAP = 60;
 const FRAME_PADDING = 40;
 
-// Every node's place, rank by rank: ranks follow the edges (longest path from where they start, edges that loop back
-// ignored), and the nodes in each rank are ordered to sit near what leads to them.
 function rankNodes({ nodes, edges, subgraphs }: Flowchart) {
   const ids = [...nodes.keys()];
   const outgoing = new Map(ids.map((id) => [id, [] as string[]]));
@@ -289,10 +272,6 @@ function rankNodes({ nodes, edges, subgraphs }: Flowchart) {
   return ranks;
 }
 
-/**
- * The flowchart laid out as elements in the public API's form (see shared/src/api-elements.ts): a shape and a label
- * for each node, an arrow or line for each edge, and a frame for each subgraph, with ids starting `prefix`.
- */
 export function layoutFlowchart(chart: Flowchart, prefix: string, measure: Measure = estimate): ApiElement[] {
   const vertical = chart.direction === "TD" || chart.direction === "BT";
   const sizes = new Map<string, { width: number; height: number; text: { width: number; height: number } }>();
@@ -301,11 +280,9 @@ export function layoutFlowchart(chart: Flowchart, prefix: string, measure: Measu
     let width = Math.max(120, text.width + 40);
     let height = Math.max(60, text.height + 30);
     if (node.shape === "ellipse") [width, height] = [width * 1.3, height * 1.4];
-    // A square diamond, big enough for the label between its slanted sides.
     if (node.shape === "diamond") width = height = Math.max(width, height) * 1.25 * Math.SQRT2;
     sizes.set(node.id, { width, height, text });
   }
-  // The space a node takes along the flow (`major`) and across it (`minor`).
   const span = (id: string) => {
     const { width, height } = sizes.get(id)!;
     return vertical ? { major: height, minor: width } : { major: width, minor: height };
@@ -359,7 +336,6 @@ export function layoutFlowchart(chart: Flowchart, prefix: string, measure: Measu
       fontSize: FONT_SIZE,
     });
   }
-  // Frames go underneath: first in the list, so lowest in the stack.
   for (const subgraph of chart.subgraphs) {
     const inside = [...subgraph.nodes].flatMap((nodeId) => boxes.get(nodeId) ?? []);
     if (inside.length === 0) continue;
@@ -401,7 +377,6 @@ type SequenceStep =
   | { type: "branch"; keyword: string; text: string } // the next section of the open block: else, and or option
   | { type: "end" };
 
-/** A sequence diagram as read from Mermaid: its participants, its steps top to bottom, and the lines it couldn't read. */
 export type SequenceDiagram = { participants: Map<string, Participant>; steps: SequenceStep[]; skipped: string[] };
 
 const SEQUENCE_HEADER = /^sequenceDiagram\s*$/;
@@ -420,7 +395,6 @@ const SEQUENCE_IGNORED = /^(?:(?:de)?activate\s|acc(?:Title|Descr)\b)/i;
 // Coloured backgrounds and boxes around participants aren't drawn, but their `end` must still close them.
 const UNDRAWN_BLOCK = /^(rect|box)(\s|$)/i;
 
-/** Reads a Mermaid sequence diagram. Throws a MermaidError when it isn't one. */
 export function parseSequence(text: string): SequenceDiagram {
   const lines = readStatements(text);
   if (!SEQUENCE_HEADER.test(lines[0] ?? "")) {
@@ -524,7 +498,6 @@ export function parseSequence(text: string): SequenceDiagram {
     }
     skipped.push(line);
   }
-  // Blocks left open close at the end, as if their `end` had been written.
   while (open.length > 0) if (open.pop() !== "undrawn") add({ type: "end" });
   if (participants.size === 0) throw new MermaidError("That sequence diagram has no participants to import.");
   return { participants, steps, skipped };
@@ -540,11 +513,6 @@ const NOTE_FONT_SIZE = 16; // a note's text is as big as its shorter side allows
 // Mermaid draws lifelines and replies dashed. The board has no dashed lines, so they're grey instead.
 const QUIET = "#868e96";
 
-/**
- * The sequence diagram laid out as elements in the public API's form, with ids starting `prefix`: a box for each
- * participant (an ellipse for an actor) along the top with a grey lifeline down from it, the messages as arrows
- * between the lifelines in order, notes as sticky notes, and blocks (`loop`, `alt`…) as frames, one for each section.
- */
 export function layoutSequence(diagram: SequenceDiagram, prefix: string, measure: Measure = estimate): ApiElement[] {
   const people = [...diagram.participants.values()];
   const column = new Map(people.map((person, index) => [person.id, index]));
@@ -557,7 +525,6 @@ export function layoutSequence(diagram: SequenceDiagram, prefix: string, measure
     const size = measure(text, NOTE_FONT_SIZE);
     return { width: Math.max(160, size.width + 60), height: Math.max(NOTE_FONT_SIZE * 7, size.height + 40) };
   };
-  // A message to oneself reaches out to the right past its label, which sits halfway along it.
   const selfWidth = (text: string) => measure(text, FONT_SIZE).width + 60;
 
   // Lifelines far enough apart for the labels and notes between them: each need is a least distance between two.
@@ -591,7 +558,6 @@ export function layoutSequence(diagram: SequenceDiagram, prefix: string, measure
   const open: Open[] = [];
   const frames: { order: number; element: ApiElement }[] = [];
   const drawn: ApiElement[] = [];
-  // How far across the innermost open block reaches, so its frame goes round what's in it.
   const reach = (left: number, right: number) => {
     const block = open.at(-1);
     if (block) [block.left, block.right] = [Math.min(block.left, left), Math.max(block.right, right)];
@@ -655,7 +621,6 @@ export function layoutSequence(diagram: SequenceDiagram, prefix: string, measure
     } else {
       y += BLOCK_GAP;
       const block = open.pop()!;
-      // An empty block goes across them all.
       const [left, right] = Number.isFinite(block.left) ? [block.left, block.right] : [centres[0], centres.at(-1)!];
       for (const section of [block, ...block.branches]) {
         frames.push({
@@ -675,7 +640,6 @@ export function layoutSequence(diagram: SequenceDiagram, prefix: string, measure
     }
   });
 
-  // Frames go underneath, outer ones first; then the participants and their lifelines, and what's between them.
   const elements = frames.sort((a, b) => a.order - b.order).map((frame) => frame.element);
   people.forEach((person, index) => {
     const [x, width, text] = [centres[index], widths[index], texts[index]];
@@ -712,17 +676,12 @@ export function layoutSequence(diagram: SequenceDiagram, prefix: string, measure
   return elements;
 }
 
-/** What of the text couldn't be read, for the message after an import: how many lines, and the first few of them. */
 export function describeSkipped(skipped: string[]): string {
   const shown = skipped.slice(0, 3).map((line) => `“${line.length > 40 ? `${line.slice(0, 39)}…` : line}”`);
   const more = skipped.length > 3 ? ` and ${skipped.length - 3} more` : "";
   return `${skipped.length} ${skipped.length === 1 ? "line" : "lines"} of it couldn't be read: ${shown.join(", ")}${more}`;
 }
 
-/**
- * Board elements for Mermaid `text` (a flowchart or a sequence diagram), centred on `centre`, and the lines of it
- * that weren't understood. Throws a MermaidError when it can't be imported.
- */
 export function mermaidToElements(text: string, centre: { x: number; y: number }, measure?: Measure) {
   // Ids of their own on every import, so importing twice adds a second copy rather than changing the first.
   const prefix = `mm${[...crypto.getRandomValues(new Uint32Array(1))][0].toString(36)}-`;
@@ -748,7 +707,6 @@ export function mermaidToElements(text: string, centre: { x: number; y: number }
   return { elements: elements.map((element) => shift(element, dx, dy)), skipped: chart.skipped };
 }
 
-// The element moved by dx, dy. Lines and arrows keep what they're attached to.
 function shift(element: BoardElement, dx: number, dy: number): BoardElement {
   const moved = { ...element } as Record<string, unknown>;
   for (const key of ["x1", "x2"]) if (typeof moved[key] === "number") moved[key] = (moved[key] as number) + dx;
@@ -756,14 +714,11 @@ function shift(element: BoardElement, dx: number, dy: number): BoardElement {
   return moved as BoardElement;
 }
 
-// Mermaid text for a label: quoted, with quotes and line breaks written as Mermaid writes them.
 const quote = (text: string) => `"${text.replace(/"/g, "#quot;").replace(/\r?\n/g, "<br>")}"`;
 
 const middleOf = (box: Rect) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 const area = (box: Rect) => box.width * box.height;
 
-// The text inside shapes labels them (a sticky note has its own): each text element labels the smallest shape its
-// middle is in. Returns each shape's labels, and the shape each of those text elements labels.
 function labelShapes(elements: BoardElement[], shapes: BoardElement[]) {
   const boxes = new Map(shapes.map((shape) => [shape.id, getBounds(shape)]));
   const labels = new Map<string, string[]>();
@@ -781,11 +736,6 @@ function labelShapes(elements: BoardElement[], shapes: BoardElement[]) {
   return { labels, labelOf };
 }
 
-/**
- * The board's diagram as Mermaid: a sequence diagram if it has one (see elementsToSequence), or else a flowchart,
- * whose nodes are shapes and sticky notes (labelled by the note's text, or the text inside the shape),
- * edges lines and arrows attached at both ends, and subgraphs frames. Returns null when there's no node to export.
- */
 export function elementsToMermaid(elements: BoardElement[]): string | null {
   const sequence = elementsToSequence(elements);
   if (sequence) return sequence;
@@ -795,7 +745,6 @@ export function elementsToMermaid(elements: BoardElement[]): string | null {
   const nodeId = new Map(shapes.map((shape, index) => [shape.id, `n${index + 1}`]));
   const { labels, labelOf } = labelShapes(elements, shapes);
 
-  // Each node goes in the smallest frame its middle is in; frames in the frame they're in.
   const frames = elements.filter(isFrame);
   const frameBoxes = new Map(frames.map((frame) => [frame.id, getBounds(frame)]));
   const innermost = (box: Rect, except?: string) =>
@@ -851,19 +800,12 @@ export function elementsToMermaid(elements: BoardElement[]): string | null {
   return `${lines.join("\n")}\n`;
 }
 
-// Mermaid text for a sequence diagram's message, note or name: on one line, without a `;` that would end it.
 const plain = (text: string) => text.replace(/\r?\n/g, "<br>").replace(/;/g, "#59;");
 const FRAME_BLOCK = /^(loop|alt|opt|par|critical|break|else|and|option)(?:\s+([\s\S]*))?$/i;
 // The box a shape, note or frame is drawn in: getBounds adds the stroke, and a frame's name above it.
 const outline = (element: ShapeElement | StickyElement | FrameElement) =>
   normalizeRect(element.x1, element.y1, element.x2, element.y2);
 
-/**
- * The board's sequence diagram, if it has one: a rectangle or ellipse with a line hanging straight down from it is a
- * participant (an ellipse an actor) and its lifeline. Read top to bottom, arrows and lines that start on a lifeline
- * are its messages (grey ones dashed), sticky notes over or beside the lifelines its notes, and frames named after a
- * block (`loop …`, `alt …`, `else …`) its blocks. Returns null when nothing has a lifeline.
- */
 function elementsToSequence(elements: BoardElement[]): string | null {
   const shapes = elements.filter(
     (element): element is ShapeElement => element.type === "rectangle" || element.type === "ellipse",
@@ -942,7 +884,6 @@ function elementsToSequence(elements: BoardElement[]): string | null {
       const box = outline(element);
       const keyword = block[1].toLowerCase();
       const line = `${keyword}${block[2] ? ` ${plain(block[2])}` : ""}`;
-      // A later section (`else`, `and`, `option`) is written level with its block, whose `end` closes it too.
       if (keyword === "else" || keyword === "and" || keyword === "option") {
         events.push({ y: box.y, rank: 1, change: 0, outdent: true, line });
       } else {

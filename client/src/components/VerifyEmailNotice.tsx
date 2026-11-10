@@ -7,10 +7,6 @@ import { useAuth } from "../providers/AuthProvider";
 import { Button } from "./Button";
 import { useEmailEnabled } from "./OAuthButtons";
 
-/**
- * Asks someone who hasn't verified their email to do so, with a way to get a
- * new link. Shows nothing once the address is verified, or while email isn't set up.
- */
 export function VerifyEmailNotice({ className }: { className?: string }) {
   const { user } = useAuth();
   const emailEnabled = useEmailEnabled();
