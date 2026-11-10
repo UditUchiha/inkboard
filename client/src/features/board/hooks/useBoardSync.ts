@@ -3,52 +3,42 @@ import type {
   BoardMessage,
   Classroom,
   ClassroomMessage,
-  ClassroomPayload,
   Countdown,
   CountdownMessage,
-  CountdownPayload,
   CursorMessage,
-  CursorPayload,
   JoinReply as SocketJoinReply,
   OpMessage,
   PrivateMode,
   PrivateModeMessage,
   OpReply,
   Peer,
-  ReplayReply,
   ResetMessage,
   RevokedMessage,
   RoleMessage,
   SharedView,
-  SuggestionOutcome,
   SuggestionPutReply,
   SuggestionRemovalMessage,
   SuggestionsMessage,
   ViewportMessage,
-  VotePayload,
   Voting,
   VotingMessage,
 } from "@inkboard/shared/socket";
 import type { SuggestionDraft } from "@inkboard/shared/suggestions";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api } from "../../../lib/api";
 import type { BoardMeta, Role } from "../../../lib/api";
-import { readPass, savePass } from "../../../lib/linkPasses";
+import { readPass } from "../../../lib/linkPasses";
 import { useSocket } from "../../../providers/SocketProvider";
 import { SYNC_FORMAT } from "../constants/board";
 import { createCursorStore } from "../lib/render/cursors";
-import type { XY } from "../lib/elements/geometry";
 import { createOutbox } from "../lib/sync/outbox";
-import type { Piece, SettleResult } from "../lib/sync/outbox";
 import type { BoardStore } from "../lib/sync/store";
 import { createSuggester } from "../lib/sync/suggesting";
 import { createSuggestionStore } from "../lib/sync/suggestions";
-
-const CURSOR_INTERVAL_MS = 50;
-const VIEWPORT_INTERVAL_MS = 120;
-const ACK_TIMEOUT_MS = 10_000;
-const SLOW_TOAST = { id: "saving-slow" }; // one message however often it's said
+import { useCursorSending } from "./useCursorSending";
+import { useOutboxSender } from "./useOutboxSender";
+import { useSessionCommands } from "./useSessionCommands";
+import { useViewportSharing } from "./useViewportSharing";
 
 // What to tell a suggester when some of what they suggested wasn't kept, by the limit it met.
 const SUGGESTION_REFUSED: Record<"author" | "board" | "other", string> = {
@@ -57,19 +47,6 @@ const SUGGESTION_REFUSED: Record<"author" | "board" | "other", string> = {
   board: "This board has as many suggestions waiting as it can hold, so that one was undone.",
   other: "That couldn't be suggested (pictures can't be, for one), so it was undone.",
 };
-
-// What to tell the person when the server refuses a change for good (see outbox.ts).
-const REFUSED: Record<string, string> = {
-  tooLarge:
-    "That change was too big to save, so it was undone. The board may be full: delete something or start a new board.",
-  forbidden: "You can only view this board now, so your last change wasn't saved.",
-  ownerFull:
-    "This board's owner has used up their space, so that change was undone. Delete something or empty the trash to make room.",
-  invalid: "That change couldn't be saved, so it was undone.",
-  outside: "That change was outside your frame, so it was undone.",
-};
-
-export const OUTSIDE_FRAME = "In classroom mode you can change only what's inside your frame, so that was put back.";
 
 // Socket payload types live in @inkboard/shared/socket; dates in a reply arrive as strings (see Wire).
 export type { CursorMessage, OpReply, Peer, SharedView, ViewportMessage };
@@ -146,104 +123,30 @@ export function useBoardSync(
   const roleRef = useRef<Role>("viewer");
   const presenting = useRef(false); // see present
   const peerCount = useRef(0);
-  const latestViewport = useRef<{ view: SharedView; followed: string | null } | null>(null); // what we're looking at, see sendViewport
-  const viewSources = useRef(new Map<string, string>()); // socket id -> whose own view they're showing (see onViewport)
-  const viewportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const viewportListeners = useRef(new Set<ViewportListener>());
   const resync = useRef(() => {}); // shows the board as the server has it, dropping unsent changes
   const rejoin = useRef(() => {}); // joins again, keeping unsent changes on top
-  const onReply = useRef<(result: SettleResult) => void>(() => {}); // what to do with the server's answer to a change (set below)
 
-  const send = useCallback(
-    (piece: Piece) => {
-      const payload = { boardId, op: piece.op, ...(piece.group ? { group: piece.group } : {}) };
-      // The assertion: a piece is only sent once there is a socket (see flush, and the replies and cleanup that send).
-      socket!
-        .timeout(ACK_TIMEOUT_MS)
-        .emit("board:op", payload, (error: Error | null, response: OpReply | undefined) => {
-          onReply.current(outbox.settle(piece.seq, error, response));
-        });
-    },
-    [socket, boardId, outbox],
-  );
-
-  const flush = useCallback(() => {
-    // The cast, here and below: clearTimeout takes null as well as undefined, which its types don't say.
-    clearTimeout(flushTimer.current as ReturnType<typeof setTimeout> | undefined);
-    flushTimer.current = null;
-    if (!socket || !joined.current) return;
-    const piece = outbox.take();
-    if (piece) send(piece);
-  }, [socket, outbox, send]);
-
-  // Our view with whose own it is (`source`): ours, or whoever's it was before we took it by following. Someone following
-  // us never takes their own view back (see onViewport), so people following one another can't pass one round.
-  const viewportMessage = useCallback(() => {
-    // The assertion: both callers have looked for a view first.
-    const { view, followed } = latestViewport.current!;
-    return { ...view, source: followed ? (viewSources.current.get(followed) ?? followed) : socket?.id };
-  }, [socket]);
-
-  onReply.current = (result: SettleResult) => {
-    if (result.kind === "ok") {
-      if (result.cleaned.length > 0 || result.dropped.length > 0 || result.restored.length > 0) {
-        store.reconcile({ ...result, typing: outbox.typing() });
-      }
-      // In classroom mode, what a student did outside their frame was left out (and put back here).
-      if (result.outside) toast(OUTSIDE_FRAME, { id: OUTSIDE_FRAME });
-      else if (result.dropped.length > 0) {
-        const count = result.dropped.length;
-        toast.error(
-          `The board is full, so ${count === 1 ? "1 element" : `${count} elements`} couldn't be added. Delete something or start a new board.`,
-        );
-      }
-      if (result.next) send(result.next);
-      // A change in pieces is done: what was made meanwhile waited for it (see outbox.ts).
-      else if (outbox.hasPending() && joined.current) flushTimer.current ??= setTimeout(flush, 0);
-    } else if (result.kind === "retry" || result.kind === "rejoin") {
-      // A reconnect meanwhile showed the board as the server has it, maybe without this change yet; merging again is harmless.
-      if (result.again.upsert.length > 0 || result.again.remove.length > 0) store.applyRemote(result.again);
-      if (result.kind === "rejoin") {
-        // The server has no record of us being on this board: join again, then send.
-        joined.current = false;
-        rejoin.current();
-      } else if (joined.current) {
-        flushTimer.current ??= setTimeout(flush, result.delay);
-      }
-      // The server keeps turning changes away: they stay queued, and are sent again as it allows.
-      // The cast: only a retry has `slow` (a rejoin reads as undefined).
-      if ((result as { slow?: boolean }).slow)
-        toast("Saving is taking longer than usual. Your changes are kept and will go through.", SLOW_TOAST);
-    } else if (result.kind === "resync") {
-      // Retrying can't help: put this screen back to what everyone else has, so it doesn't keep a drawing that was never saved.
-      toast.error(REFUSED[result.reason] ?? REFUSED.invalid);
-      resync.current();
-    }
-  };
-
-  useEffect(() => {
-    store.setBroadcaster((op) => {
-      if (roleRef.current === "suggester") {
-        suggester.take(op);
-        return;
-      }
-      outbox.add(op);
-      flushTimer.current ??= setTimeout(flush, outbox.flushDelay());
-    });
-    return () => store.setBroadcaster(() => {});
-  }, [store, outbox, flush, suggester]);
-
-  sendSuggestions.current = (drafts, withdraw) =>
-    new Promise((resolve) => {
-      if (!socket || !joined.current) return resolve({ ok: false, reason: "noSession" });
-      if (withdraw.length > 0) socket.emit("suggestion:withdraw", { boardId, ids: withdraw }, () => {});
-      if (drafts.length === 0) return resolve({ ok: true, suggestions: [] });
-      socket
-        .timeout(ACK_TIMEOUT_MS)
-        .emit("suggestion:put", { boardId, suggestions: drafts }, (error: Error | null, reply?: SuggestionPutReply) =>
-          resolve(error || !reply ? { ok: false, reason: "noSession" } : reply),
-        );
-    });
+  const { send, flush } = useOutboxSender({
+    socket,
+    boardId,
+    store,
+    outbox,
+    suggester,
+    roleRef,
+    joined,
+    flushTimer,
+    rejoin,
+    resync,
+  });
+  const {
+    viewportMessage,
+    sendViewport,
+    subscribeViewport,
+    requestViewport,
+    latestViewport,
+    viewSources,
+    viewportListeners,
+  } = useViewportSharing(socket, joined, peerCount);
 
   useEffect(() => {
     if (!socket) return undefined;
@@ -486,150 +389,35 @@ export function useBoardSync(
       socket.off("suggestion:delete", onSuggestionsGone);
       socket.off("voting", onVoting);
     };
-  }, [socket, boardId, embed, store, outbox, cursors, suggestions, suggester, flush, send, viewportMessage]);
+  }, [
+    socket,
+    boardId,
+    embed,
+    store,
+    outbox,
+    cursors,
+    suggestions,
+    suggester,
+    flush,
+    send,
+    viewportMessage,
+    latestViewport,
+    viewSources,
+    viewportListeners,
+  ]);
 
-  // Shared (when anyone else is here) so others can follow: always what's on screen, also while following (`followed` is
-  // their socket id when `view` was taken from them). Trailing-edge throttled so the final position is always sent.
-  const sendViewport = useCallback(
-    (view: SharedView, followed: string | null = null) => {
-      latestViewport.current = { view, followed };
-      if (viewportTimer.current) return;
-      viewportTimer.current = setTimeout(() => {
-        viewportTimer.current = null;
-        if (socket && joined.current && peerCount.current > 1 && latestViewport.current) {
-          socket.volatile.emit("viewport", viewportMessage());
-        }
-      }, VIEWPORT_INTERVAL_MS);
-    },
-    [socket, viewportMessage],
-  );
-
-  const subscribeViewport = useCallback((listener: ViewportListener): (() => void) => {
-    viewportListeners.current.add(listener);
-    return () => viewportListeners.current.delete(listener);
-  }, []);
-
-  const requestViewport = useCallback(
-    (socketId: string) => {
-      socket?.emit("viewport:request", { socketId });
-    },
-    [socket],
-  );
-
-  // Throttled, but the last position is always sent, so a pointer that came to rest shows where it stopped.
-  const lastCursorAt = useRef(0);
-  const cursorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestCursor = useRef<CursorPayload>({});
-  useEffect(() => () => clearTimeout(cursorTimer.current as ReturnType<typeof setTimeout> | undefined), []);
-  const sendCursor = useCallback(
-    (point: XY | null, laser = false) => {
-      if (!socket || !joined.current) return;
-      const emit = (payload: CursorPayload) => {
-        lastCursorAt.current = performance.now();
-        socket.volatile.emit("cursor", payload);
-      };
-      latestCursor.current = point ? { ...point, ...(laser && { laser }) } : {};
-      const wait = CURSOR_INTERVAL_MS - (performance.now() - lastCursorAt.current);
-      if (!point || wait <= 0) {
-        clearTimeout(cursorTimer.current as ReturnType<typeof setTimeout> | undefined);
-        cursorTimer.current = null;
-        emit(latestCursor.current);
-      } else {
-        cursorTimer.current ??= setTimeout(() => {
-          cursorTimer.current = null;
-          if (joined.current) emit(latestCursor.current);
-        }, wait);
-      }
-    },
-    [socket],
-  );
-
-  // For members and, when the owner lets them, link visitors.
-  const loadReplay = useCallback(
-    (): Promise<ReplayReply> =>
-      new Promise((resolve) => {
-        if (!socket || !joined.current) resolve({ ok: false, error: "You're offline. Try again once you're back." });
-        else socket.emit("board:replay", { boardId }, resolve);
-      }),
-    [socket, boardId],
-  );
-
-  // Others are shown who presents and follow them (see useFollow); remembered so a reconnect joins as the presenter again.
-  const present = useCallback(
-    (on: boolean) => {
-      presenting.current = on;
-      if (joined.current) socket?.emit("present", { on });
-    },
-    [socket],
-  );
-
-  const controlTimer = useCallback(
-    (payload: CountdownPayload) => {
-      socket?.emit("countdown", payload);
-    },
-    [socket],
-  );
-
-  const setPrivate = useCallback(
-    (on: boolean) => {
-      socket?.emit("private", { on });
-    },
-    [socket],
-  );
-
-  // Resolves with whether it was done.
-  const changeClassroom = useCallback(
-    (payload: ClassroomPayload) =>
-      new Promise<boolean>((resolve) => {
-        if (!socket?.connected) return resolve(false);
-        socket
-          .timeout(10_000)
-          .emit("classroom", payload, (error: Error | null, reply?: { ok: boolean }) =>
-            resolve(!error && reply?.ok === true),
-          );
-      }),
-    [socket],
-  );
-
-  // Decisions go from this screen at once; accepting is the member's own change to the board, made before (see suggestions.ts).
-  const resolveSuggestions = useCallback(
-    (ids: string[], outcome: SuggestionOutcome) => {
-      if (ids.length === 0) return;
-      suggestions.remove(ids);
-      socket?.emit("suggestion:resolve", { boardId, ids, outcome }, (reply) => {
-        if (!reply?.ok) toast.error("That decision couldn't be saved. Open the board again and try once more.");
-      });
-    },
-    [socket, boardId, suggestions],
-  );
-
-  const vote = useCallback(
-    (payload: VotePayload) => {
-      socket?.emit("vote", payload);
-    },
-    [socket],
-  );
-
-  // Rejects with the server's reason (a wrong password, say), for the form to show.
-  const unlock = useCallback(
-    async (password: string) => {
-      const { pass } = await api.unlockBoard(boardId, password);
-      savePass(boardId, pass);
-      setPhase({ name: "connecting" });
-      rejoin.current();
-    },
-    [boardId],
-  );
-
-  const withdrawSuggestions = useCallback(
-    (ids: string[]) => {
-      if (ids.length === 0) return;
-      suggestions.remove(ids);
-      socket?.emit("suggestion:withdraw", { boardId, ids }, () => {});
-      suggester.rebuild();
-    },
-    [socket, boardId, suggestions, suggester],
-  );
+  const sendCursor = useCursorSending(socket, joined);
+  const commands = useSessionCommands({
+    socket,
+    boardId,
+    joined,
+    presenting,
+    rejoin,
+    suggestions,
+    suggester,
+    sendSuggestions,
+    setPhase,
+  });
 
   return {
     phase,
@@ -639,25 +427,17 @@ export function useBoardSync(
     peers,
     cursors, // a store (see cursors.ts): only what draws the pointers subscribes
     suggestions, // a store too (see suggestions.ts)
-    resolveSuggestions,
-    withdrawSuggestions,
+    ...commands,
     voting,
-    vote,
-    unlock,
     // The board as the server has it, without a suggester's own suggestions (see suggesting.ts).
     suggestedOver: suggester.board,
     online,
     saving,
     sendCursor,
     sendViewport,
-    loadReplay,
-    present,
     timer,
-    controlTimer,
     privateMode,
-    setPrivate,
     classroom,
-    changeClassroom,
     subscribeViewport,
     requestViewport,
     socket,

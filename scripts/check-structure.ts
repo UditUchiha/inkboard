@@ -13,7 +13,6 @@ const SIZE_DEBT = new Set<string>([
   "client/src/features/board/components/CommentsLayer.tsx",
   "client/src/features/board/components/PropertiesPanel.tsx",
   "client/src/features/board/components/ShareDialog.tsx",
-  "client/src/features/board/hooks/useBoardSync.ts",
 ]);
 
 const walk = (dir: string, out: string[] = []): string[] => {
