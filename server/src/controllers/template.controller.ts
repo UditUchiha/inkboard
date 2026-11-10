@@ -10,24 +10,20 @@ import { previewElements } from "../services/previews.ts";
 
 type TemplateDoc = InstanceType<typeof Template>;
 
-// Templates outlive boards and the free database holds 512 MB for everyone, so each one is
-// kept small and each person keeps only so many. Tests lower these.
+// templates outlive boards and the free database holds 512 MB, so each is kept small and each person keeps only so many; tests lower these
 export const TEMPLATE_LIMITS = { count: 30, bytes: 2_000_000 };
 
-// What the New board dialog needs: a light preview to draw, not the drawing. Starting a
-// board from a template is done by id (see createBoard), so the drawing never needs to be sent.
+// a light preview to draw, not the drawing: starting a board from a template is by id (see createBoard)
 const serializeTemplate = (
   template: Pick<TemplateDoc, "id" | "title" | "elementCount" | "preview" | "createdAt">,
 ): Api.TemplateSummary => ({
   id: template.id,
   title: template.title,
-  // Templates saved before the count was kept get it when first listed (see fillMissingPreviews), which the type can't see.
   elementCount: template.elementCount!,
   preview: template.preview,
   createdAt: template.createdAt,
 });
 
-// Templates saved before previews were stored get theirs now, once.
 async function fillMissingPreviews(templates: TemplateDoc[]) {
   const missing = templates.filter((template) => template.preview == null);
   if (missing.length === 0) return;
@@ -59,12 +55,9 @@ export async function listTemplates(req: Request, res: Response) {
   res.json({ templates: templates.map(serializeTemplate) } satisfies Api.TemplateListReply);
 }
 
-// An element looked at for the fields a connector adds, which any of them may be missing.
 type Connecting = Element & ConnectorFields;
 
-// Images belong to the board they were added to and go when it does, so a template (which
-// outlives the board) can't carry them. Lines and arrows that were attached to one are
-// let go of it, rather than left pointing at something that isn't there.
+// images go with their board, so a template (which outlives it) can't carry them; lines and arrows attached to one are let go of it
 function withoutImages(elements: Element[]): Element[] {
   const images = new Set<string | undefined>(
     elements.filter((element) => element.type === "image").map((element) => element.id),
@@ -72,7 +65,6 @@ function withoutImages(elements: Element[]): Element[] {
   return elements
     .filter((element) => element.type !== "image")
     .map((element) => {
-      // Only lines and arrows have these fields; the others have neither and are left as they are.
       const attached = (["start", "end"] as const).filter((end) => images.has((element as Connecting)[`${end}Id`]));
       if (attached.length === 0) return element;
       const released = { ...element } as Connecting;
@@ -84,7 +76,6 @@ function withoutImages(elements: Element[]): Element[] {
     });
 }
 
-/** Saves a copy of a board's current drawings as a template for new boards. */
 export async function createTemplate(
   req: Request<{}, unknown, { boardId?: unknown; title?: unknown } | undefined>,
   res: Response,
@@ -92,12 +83,10 @@ export async function createTemplate(
   const board = await findBoardForMember(String(req.body?.boardId ?? ""), req.userId);
   const given = req.body?.title ?? "";
   if (typeof given !== "string") throw new HttpError(400, "The name must be text.");
-  // A board's title can be longer than a template's name.
   const title = given.trim() || board.title.slice(0, 60);
   if (title.length > 60) throw new HttpError(400, "Use 60 characters or fewer for the name.");
 
   const everything = await currentElements(board.id);
-  // Held to the same rules as any board's elements: checked and cleaned, with anything too big to store left out.
   const elements = withoutImages(sanitizeElements(everything));
   if (elements.length === 0) {
     throw new HttpError(
@@ -112,9 +101,7 @@ export async function createTemplate(
     throw new HttpError(400, "This board is too big to keep as a template. Try one with fewer drawings.");
   }
 
-  // A template counts towards its owner's space. Checks and writes for one person run one at a
-  // time (see withRoom), so two saves sent together can't both pass the count either.
-  // `requireAuth` has set `userId` by now, which the types can't know.
+  // counts towards its owner's space; checks and writes run one at a time per person (see withRoom), so two saves sent together can't both pass
   const template = await withRoom(req.userId!, { bytes }, async () => {
     if ((await Template.countDocuments({ owner: req.userId })) >= TEMPLATE_LIMITS.count) {
       throw new HttpError(400, `You can keep up to ${TEMPLATE_LIMITS.count} templates. Delete one to save another.`);

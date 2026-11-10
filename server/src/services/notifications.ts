@@ -7,44 +7,36 @@ import { notifyUser } from "../realtime/index.ts";
 import { idOf, serializePerson } from "./boards.ts";
 import type { BoardDoc, Person, Ref } from "./boards.ts";
 
-/** The board a notification is about, as far as it shows it. */
 type NotifiedBoard = Pick<BoardDoc, "_id" | "title">;
 
-/** The person and the board a notification is about, looked up. */
 interface Links {
   actor: Person;
   board: NotifiedBoard;
 }
 
-/** The same as a notification holds them: looked up (populated), or only their ids. A guest is no one (null). */
 interface Held {
   actor?: Person | Types.ObjectId | null;
   board: NotifiedBoard | Types.ObjectId;
 }
 
-/** What serializeNotification reads of a notification itself. */
 type NotificationRow = Pick<
   InstanceType<typeof Notification>,
   "id" | "type" | "read" | "createdAt" | "excerpt" | "thread" | "actorName"
 >;
 
-// A notification holds its actor and board as ids, or as the people and boards themselves once populated. The
-// ones in the second argument are used when given, as for a notification just created (see notify), and otherwise the populated ones.
+// the actor and board arrive as ids or populated; the second argument's are used when given (a notification just created, see notify)
 export function serializeNotification(
   notification: NotificationRow & Held,
   { actor = notification.actor, board = notification.board }: Partial<Held> = {},
 ): NotificationItem {
   return {
     id: notification.id,
-    // The schema only lets the kinds there are through, which Mongoose reads as a string.
     type: notification.type as NotificationType,
     read: notification.read,
     createdAt: notification.createdAt,
-    // The schema fills in null when there is no excerpt, which the type can't see.
     excerpt: notification.excerpt as string | null,
     thread: notification.thread ? String(notification.thread) : null,
-    // Without them, a notification that is read back has been populated, which the type can't know. A guest
-    // (someone suggesting changes without an account) is known only by the name they went by.
+    // a guest (suggesting without an account) is known only by the name they went by
     actor: actor
       ? serializePerson(actor as Person)
       : { id: "guest", name: notification.actorName ?? "Someone", color: null, avatarUrl: null },
@@ -52,15 +44,12 @@ export function serializeNotification(
   };
 }
 
-// The most notifications one person keeps. They also expire after 60 days (see the model), but anyone can
-// make boards and invite someone, or mention them, as often as they like, and listing them reads them all.
+// they also expire after 60 days (see the model), but anyone can invite or mention someone as often as they like, and listing reads them all
 export const MAX_NOTIFICATIONS_PER_PERSON = 500;
 
-// Deletes each person's oldest notifications beyond the cap, read or not. Run after creating some.
 async function trimNotifications(userIds: string[]) {
   await Promise.all(
     userIds.map(async (user) => {
-      // Uses the { user, createdAt } index, and only walks past the newest ones kept.
       const extra = await Notification.find({ user })
         .sort({ createdAt: -1 })
         .skip(MAX_NOTIFICATIONS_PER_PERSON)
@@ -71,10 +60,7 @@ async function trimNotifications(userIds: string[]) {
   );
 }
 
-/**
- * Tells a board's owner that `author` suggested changes on it (see docs/suggest-mode.md). While an earlier
- * notification about suggestions on the board is still unread, they aren't sent another, whoever suggests.
- */
+// While an earlier notification about suggestions on the board is unread, no other is sent, whoever suggests.
 export async function notifySuggestion(boardId: string, author: Participant) {
   const board = await Board.findById(boardId).select("title owner").lean();
   if (!board || (!author.guest && author.userId === String(board.owner))) return;
@@ -87,7 +73,6 @@ export async function notifySuggestion(boardId: string, author: Participant) {
     actorName: author.name,
     board: board._id,
   });
-  // A signed-in author as a person (the notification holds only their id); a guest as no one.
   const actor = author.guest
     ? null
     : ({
@@ -100,16 +85,12 @@ export async function notifySuggestion(boardId: string, author: Participant) {
   await trimNotifications([String(board.owner)]);
 }
 
-/**
- * Warns a board's owner about what people from its link did there (see realtime/link-watch.ts): many of them
- * joined ("visitors"), or they removed much of it ("removals"). `excerpt` says what happened. Not sent again while
- * one of the same kind about the board is unread.
- */
+// Warns about what people from its link did there (see realtime/link-watch.ts); `excerpt` says what. Not resent while one of the same kind about the board is unread.
 export async function warnOwner(boardId: string, type: "visitors" | "removals", excerpt: string) {
   const board = await Board.findById(boardId).select("title owner").lean();
   if (!board) return;
   if (await Notification.exists({ user: board.owner, type, board: board._id, read: false })) return;
-  // Named for whom it's about, as a guest is: the list leaves out notifications with no one behind them.
+  // named for whom it's about, as a guest is: the list leaves out notifications with no one behind them
   const notification = await Notification.create({
     user: board.owner,
     type,
@@ -123,10 +104,8 @@ export async function warnOwner(boardId: string, type: "visitors" | "removals", 
 
 const EXCERPT_LENGTH = 140;
 
-// The one-line start of a comment, as notifications show it.
 const excerptOf = (body: string) => body.replace(/\s+/g, " ").slice(0, EXCERPT_LENGTH);
 
-/** What notify is told: who to notify, and what about. */
 interface Notify extends Links {
   users: Ref[];
   type: string;
@@ -134,12 +113,8 @@ interface Notify extends Links {
   excerpt?: string | null;
 }
 
-/**
- * Notifies each person in `users` (except the actor) and pushes it to their open tabs.
- * Someone who still hasn't read an earlier one of the same kind from the same person
- * about the same board and thread isn't sent another, so inviting, removing and
- * inviting again, or a burst of replies, doesn't pile up. Resolves with the ids of those it notified.
- */
+// Not sent to someone who hasn't read an earlier one of the same kind from the same person about the same board and
+// thread, so inviting, removing and inviting again, or a burst of replies, doesn't pile up. Resolves with the ids notified.
 export async function notify({ users, type, actor, board, thread = null, excerpt = null }: Notify) {
   const candidates = [...new Set(users.map(idOf))].filter((id) => id !== idOf(actor));
   if (candidates.length === 0) return [];
@@ -163,7 +138,7 @@ export async function notify({ users, type, actor, board, thread = null, excerpt
       actor: actor._id,
       board: board._id,
       thread,
-      // An email address is kept whole, so the owner can invite the person who asked.
+      // an email address is kept whole, so the owner can invite the person who asked
       excerpt: excerpt && (type === "access" ? excerpt : excerptOf(excerpt)),
     })),
   );

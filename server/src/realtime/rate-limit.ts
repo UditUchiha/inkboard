@@ -1,7 +1,5 @@
-// Each connection may send this many of an event at once and then this many more
-// per second, so one person (or a script) can't make the server do work for everyone
-// without end. A busy editor sends a change every 40 ms and a cursor a few times
-// that, so these leave room for that and no more.
+// Per connection: this many of an event at once, then this many more per second, so one person (or a script) can't make
+// the server do unbounded work. A busy editor sends a change every 40 ms and a cursor a few times that.
 export const LIMITS = {
   op: { burst: 100, perSecond: 40 },
   cursor: { burst: 40, perSecond: 30 },
@@ -11,22 +9,17 @@ export const LIMITS = {
   countdown: { burst: 5, perSecond: 1 },
   privateMode: { burst: 5, perSecond: 1 },
   classroom: { burst: 10, perSecond: 2 },
-  // A replay can be megabytes, read from the database each time.
   replay: { burst: 3, perSecond: 0.1 },
-  // Votes come a click at a time.
   vote: { burst: 20, perSecond: 5 },
 };
 
-/** How many of an event a connection may send at once, and how many more per second after that. */
 export interface Limit {
   burst: number;
   perSecond: number;
 }
 
-/** Says whether one more event is allowed right now. */
 export type Limiter = () => boolean;
 
-/** A function that says whether one more event is allowed right now (a token bucket). */
 export function createLimiter({ burst, perSecond }: Limit): Limiter {
   let tokens = burst;
   let last = Date.now();

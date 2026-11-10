@@ -90,13 +90,10 @@ import {
   withdrawSuggestions,
 } from "./suggestions.ts";
 
-// What a browser sends. Nothing in a payload has been checked when it arrives (a browser can send anything, or
-// nothing), so the handlers get it as Untrusted: every field is unknown until the handler has looked at it, and
-// the payload itself may be missing. What is sent by a browser that follows the rules is in @inkboard/shared/socket.
+// Payloads are unchecked, so handlers get them as Untrusted: every field unknown, the payload possibly missing.
 type Untrusted<Payload> = { [Field in keyof Payload]?: unknown } | null | undefined;
 
-// A handler for an event of the shared map, with the payload as Untrusted. Where an event has a reply, the browser
-// may leave out the callback for it, and the handler checks for one.
+// A shared-map handler with an Untrusted payload; the ack may be missing, so handlers check for it.
 type UntrustedHandler<Handler> = Handler extends () => void
   ? Handler
   : Handler extends (payload: infer Payload) => void
@@ -105,37 +102,32 @@ type UntrustedHandler<Handler> = Handler extends () => void
       ? (payload: Untrusted<Payload>, ack?: Ack) => void
       : never;
 
-/** Everything a browser can send, as the handlers hear it. */
 export type UntrustedClientEvents = {
   [Event in keyof ClientToServerEvents]: UntrustedHandler<ClientToServerEvents[Event]>;
 };
 
-/** There is one server, so there are no events between servers. */
 export type InterServerEvents = Record<never, never>;
 
-/** What a connection remembers. Most of it is set when the socket joins a board, and not before. */
 export interface SocketData {
-  // The signed-in account, or null for a guest, who has `guest` instead.
   user: PublicUser | null;
   guest?: { id: string; name: string };
-  // Whom the memory held for its unfinished groups counts against (see holdGroup).
+  // whom the memory held for unfinished groups counts against (see holdGroup)
   sender: string;
-  // The board's id as the database names it, and as the socket asked for it (see isOnBoard).
+  // the database's id for the board, and the spelling the socket asked with (see isOnBoard)
   boardId?: string | null;
   requestedId?: string;
-  // What this person may do on the board (see roleOf). Treated as no access until the first join sets it.
+  // null until the first join sets it, which means no access
   role: Role | null;
-  // What the board itself lets them do, which private mode can make suggesting for a while (see effectiveRole).
+  // the board's own role, before private mode turns editors into suggesters (see effectiveRole)
   boardRole?: Role | null;
-  // The pass for the board's link password the socket joined with, if any (see link-pass.ts).
+  // the link-password pass the socket joined with (see link-pass.ts)
   pass?: string;
-  // Whether the browser merges changes by the older rules (see prepareOperation).
+  // the browser merges by the older rules (see prepareOperation)
   legacy?: boolean;
-  // Whether they are presenting the board's frames, which the others are shown (see broadcastPresence).
   presenting?: boolean;
-  // Whether it's an embed on another site: it only ever views, and the others aren't shown it (see broadcastPresence).
+  // an embed on another site only views, and isn't shown to the others
   embed?: boolean;
-  // What the socket holds of a group sent in several pieces, and the timer that lets go of it (see holdGroup).
+  // unfinished piece-group and its idle timer (see holdGroup)
   heldGroup?: HeldGroup | ExpiredGroup | null;
   heldTimer?: ReturnType<typeof setTimeout> | null;
 }
@@ -143,19 +135,18 @@ export interface SocketData {
 export type RealtimeServer = Server<UntrustedClientEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 export type RealtimeSocket = Socket<UntrustedClientEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
-// An error as the code below reads it: the database and the services throw HttpErrors, which have a status.
+// the database and services throw HttpErrors, which carry a status
 type Failure = Error & { status?: number };
 
-// Unset until attachRealtime has run, which the hooks used by the REST API (written with `io?.`) can come before.
+// the REST hooks use `io?.` because they can run before attachRealtime
 let io: RealtimeServer;
 
 export function attachRealtime(httpServer: HttpServer) {
   io = new Server(httpServer, {
     cors: { origin: env.clientOrigins },
-    // Room for an uploaded image (up to IMAGE_LIMITS.image), its small copy, and the message around them.
+    // room for an image (IMAGE_LIMITS.image), its small copy, and the message around them
     maxHttpBufferSize: 3e6,
-    // Joining a big board sends megabytes of JSON, which compresses well. Small messages (cursors, most
-    // changes) are left alone: they cost more to compress than they save.
+    // big joins compress well; small messages (cursors, most changes) cost more to compress than they save
     perMessageDeflate: { threshold: 4096, zlibDeflateOptions: { level: 1 } },
   });
   io.use(authenticate);
@@ -165,41 +156,31 @@ export function attachRealtime(httpServer: HttpServer) {
 
 export { flushAllSessions };
 
-/**
- * Shuts down: saves every open board, disconnects everyone (which saves whatever
- * was still being written as they leave), and saves again to be sure.
- */
+// disconnecting saves what was still being written, hence the second flush
 export async function closeRealtime() {
   await flushAllSessions();
   await io?.close();
   await flushAllSessions();
 }
 
-// Replies that older browsers (still open during an update) understand too: they look for `tooLarge` and `readOnly`.
+// older browsers (open during an update) look for `tooLarge` and `readOnly`
 const TOO_LARGE: OpRefusal = { ok: false, reason: "tooLarge", tooLarge: true };
 const FORBIDDEN: OpRefusal = { ok: false, reason: "forbidden", readOnly: true };
-// Why a piece of a change sent in several was refused (see holdPiece). "expired": the server stopped
-// waiting for the rest of its group, so the sender sends the whole change again.
+// "expired": the server dropped the rest of the group, so the sender resends the whole change (see holdPiece)
 const GROUP_REFUSED: Record<GroupError, OpRefusal> = {
   invalid: { ok: false, reason: "invalid" },
   tooLarge: TOO_LARGE,
   expired: { ok: false, reason: "expired" },
 };
 
-// The pieces of a change sent in several take memory until the last one arrives (see holdPiece). So a
-// group whose next piece doesn't come for this long is let go, and what's held at once is capped for
-// each sender (an account, or a guest's address: a guest can open as many connections as they like)
-// and for the whole server. A piece past a cap is answered as if rate limited: the sender waits, then
-// sends the whole change again.
+// Held pieces take memory until the group completes: idle groups are dropped, and bytes are capped per sender (an
+// account, or a guest's address: guests can open many connections) and overall. Over a cap the sender gets "rate".
 const GROUP_IDLE_MS = 60_000;
 const MAX_HELD_BYTES_PER_SENDER = 2 * MAX_GROUP_BYTES;
 const MAX_HELD_BYTES = 4 * MAX_GROUP_BYTES;
 const held = { total: 0, bySender: new Map<string, number>() };
 
-/**
- * Sets what `socket` holds of a group (`group`, as holdPiece returns it, or null for nothing), counting
- * the bytes held. Returns false, and holds nothing, when keeping `group` would go past a cap.
- */
+// Returns false, holding nothing, when keeping `group` would pass a cap.
 function holdGroup(socket: RealtimeSocket, group: HeldGroup | ExpiredGroup | null) {
   const { sender } = socket.data;
   const before = socket.data.heldGroup?.bytes ?? 0;
@@ -212,36 +193,29 @@ function holdGroup(socket: RealtimeSocket, group: HeldGroup | ExpiredGroup | nul
   if (ofSender + change > 0) held.bySender.set(sender, ofSender + change);
   else held.bySender.delete(sender);
   socket.data.heldGroup = kept;
-  clearTimeout(socket.data.heldTimer!); // does nothing for null or undefined, which Node's types leave out
+  clearTimeout(socket.data.heldTimer!); // clearTimeout accepts null/undefined, which Node's types omit
   socket.data.heldTimer = kept?.pieces ? setTimeout(() => expireGroup(socket), GROUP_IDLE_MS).unref() : null;
   return fits;
 }
 
-// Lets go of a group whose next piece is overdue. Its id is kept, so a piece of it that turns up
-// later is told to send the whole change again rather than that it's invalid.
+// the id is kept, so a late piece is told to resend rather than "invalid"
 function expireGroup(socket: RealtimeSocket) {
   const { id } = socket.data.heldGroup ?? {};
   holdGroup(socket, id ? { id, expired: true } : null);
 }
 
-// A change that would grow a board by more than its owner has space left for (BOARD_LIMITS in
-// services/boards.ts) is refused; changes that don't grow it are always taken. Adding up what an
-// owner keeps reads all their boards, versions and templates, so it's done at most this often for each
-// owner (not each open board: one owner with several boards open shares one figure), and growth taken
-// in meanwhile is counted off what was left.
+// A change growing a board past its owner's remaining space (BOARD_LIMITS) is refused. Summing an owner's space reads
+// all their boards, versions and templates, so it's done at most this often per owner, and growth since is subtracted.
 const ROOM_CHECK_MS = 30_000;
-// Before a change is refused for lack of space, a figure older than this is looked up again, in case the
-// owner has made room since.
+// before refusing for space, a figure older than this is looked up again (the owner may have made room)
 const ROOM_REFRESH_MS = 3_000;
-// After a lookup fails, the next change tries again once this long has passed.
+// after a failed lookup, the next change retries once this long has passed
 const ROOM_RETRY_MS = 2_000;
-// `tooLarge` is for browsers still running an older version of the app, which don't know "ownerFull" and
-// would send the change again every moment for good: on `tooLarge` they undo it, as the current one does.
+// `tooLarge` is for older browsers, which don't know "ownerFull" and would resend forever: they undo the change
 const OWNER_FULL: OpRefusal = { ok: false, reason: "ownerFull", tooLarge: true };
 
-// owner id -> { room, at, pending, boards }: the bytes the owner has left as last looked up (`room`, at
-// time `at`; undefined until a lookup has worked), the lookup under way, and the owner's open boards
-// (id -> session), which tell whether anything has kept the figure up to date since it was looked up.
+// owner id -> last looked-up room (at `at`), the lookup under way, and the owner's open boards, which tell whether
+// anything has kept the figure current since
 const owners = new Map<string, OwnerEntry>();
 
 interface OwnerEntry {
@@ -254,7 +228,7 @@ interface OwnerEntry {
 function ownerEntry(owner: string) {
   let entry = owners.get(owner);
   if (!entry) {
-    // Anyone with nothing open any more is let go, so the map doesn't grow with every owner ever seen.
+    // drop owners with nothing open, so the map doesn't grow with every owner ever seen
     if (owners.size > 1000) {
       for (const [id, other] of owners) if (!other.pending && Date.now() - other.at >= ROOM_CHECK_MS) owners.delete(id);
     }
@@ -264,7 +238,7 @@ function ownerEntry(owner: string) {
   return entry;
 }
 
-/** Looks up what `owner` has left, or waits for the lookup already under way. Never rejects. */
+// never rejects
 function lookUpRoom(owner: string) {
   const entry = ownerEntry(owner);
   entry.pending ??= roomLeft(owner)
@@ -274,7 +248,7 @@ function lookUpRoom(owner: string) {
         entry.at = Date.now();
       },
       (error: Error) => {
-        // The figure is left as it was (unknown, at first) and tried again soon, by the next change.
+        // keep the old figure and retry on the next change
         entry.at = Date.now() - ROOM_CHECK_MS + ROOM_RETRY_MS;
         console.error(`Could not add up the space used by ${owner}: ${error.message}`);
       },
@@ -285,11 +259,8 @@ function lookUpRoom(owner: string) {
   return entry.pending;
 }
 
-/**
- * Notes that `session`'s board is open, and looks up what its owner has left (waiting for it, unless it's
- * known and recent), so the first change drawn doesn't have to go without a figure. A figure kept while
- * none of the owner's boards were open is dropped: nothing kept it up to date.
- */
+// Waits for the lookup unless a recent figure exists, so the first change has one. A figure kept while none of the
+// owner's boards were open is dropped: nothing kept it current.
 async function openOwner(session: Session) {
   if (!session.owner) return;
   const entry = ownerEntry(session.owner);
@@ -299,11 +270,8 @@ async function openOwner(session: Session) {
   if (Date.now() - entry.at >= ROOM_CHECK_MS) await lookUpRoom(session.owner);
 }
 
-/**
- * The bytes the owner of `session`'s board has left, as last looked up. Infinity when that isn't known
- * (no owner, or no lookup has worked yet: it is tried again, and this one change goes in; failing open
- * for a change or two beats refusing everything while the database is slow).
- */
+// Infinity when unknown (no owner, or no lookup has worked yet): failing open for a change or two beats refusing
+// everything while the database is slow.
 function ownerRoom(session: Session) {
   if (!session.owner) return Infinity;
   const entry = ownerEntry(session.owner);
@@ -311,11 +279,9 @@ function ownerRoom(session: Session) {
   return entry.room ?? Infinity;
 }
 
-/** How many bytes of unfinished groups connections hold right now, in all. */
 export const heldGroupBytes = () => held.total;
 
-// Joining and leaving a board run one after another for each connection (joining reads the
-// database), so a quick join, leave, join can't leave a socket in two boards' rooms.
+// join and leave run one at a time per connection, so a quick join, leave, join can't leave a socket in two rooms
 const turns = keyedQueue();
 
 const GUEST_ID = /^g_[a-z0-9]{6,32}$/i;
@@ -332,18 +298,14 @@ export function cleanGuestName(value: unknown) {
 
 const GUEST_KEY = /^[a-z0-9_-]{16,128}$/i;
 
-/**
- * The id a guest goes by: the one their browser keeps, when it also sends the key that id was first used with (see
- * GuestKey), or else one for this connection alone. Ids are shown to everyone on a board, so without the key, taking
- * someone's id would let a person act as them (in classroom mode, draw in their frame). A browser too old to send a
- * key gets one for the connection too.
- */
+// Ids are shown to everyone, so without the key an id was first used with, taking someone's id would let a person act
+// as them (in classroom mode, draw in their frame). No valid key (or an old browser) gets an id for this connection.
 async function guestIdentity(socket: RealtimeSocket, id: unknown, key: unknown): Promise<string> {
   const fallback = `g_${socket.id.replace(/[^a-z0-9]/gi, "")}`;
-  // Strings first: a pattern turns what it's given into one, so ["g_abcdef"] would pass it.
+  // strings first: a pattern coerces its input, so ["g_abcdef"] would pass
   if (typeof id !== "string" || !GUEST_ID.test(id) || typeof key !== "string" || !GUEST_KEY.test(key)) return fallback;
   const hash = createHash("sha256").update(key).digest("base64url");
-  // The first key an id comes with is the one it keeps.
+  // the first key an id comes with is the one it keeps
   const kept = await GuestKey.findOneAndUpdate(
     { _id: id },
     { $setOnInsert: { hash }, $set: { seenAt: new Date() } },
@@ -352,10 +314,8 @@ async function guestIdentity(socket: RealtimeSocket, id: unknown, key: unknown):
   return kept.hash === hash ? id : fallback;
 }
 
-// Connecting without a token is allowed: guests can open boards whose link is
-// shared. They pick a name (and keep a random id, and a key that proves it's theirs) so others can see who they are.
+// No token is allowed: guests open boards whose link is shared, with a name, a random id and a key proving it's theirs.
 async function authenticate(socket: RealtimeSocket, next: (error?: Error) => void) {
-  // The handshake's auth is whatever the browser put in it.
   const { token, guest }: { token?: unknown; guest?: { id?: unknown; name?: unknown; key?: unknown } } =
     socket.handshake.auth ?? {};
   if (!token) {
@@ -368,7 +328,7 @@ async function authenticate(socket: RealtimeSocket, next: (error?: Error) => voi
     return next();
   }
   try {
-    // Anything that isn't a token makes userForToken throw, which is refused below.
+    // anything that isn't a token makes userForToken throw
     const { user } = await userForToken(token as string);
     socket.data.user = user.toPublic();
     next();
@@ -382,26 +342,24 @@ function personOf(socket: Pick<RealtimeSocket, "data">): Participant {
   if (user) {
     return { userId: user.id, name: user.name, color: user.color, avatarUrl: user.avatarUrl, guest: false };
   }
-  // A socket without an account was given a guest by authenticate.
   return { userId: guest!.id, name: guest!.name, color: null, avatarUrl: null, guest: true };
 }
 
 const finite = (value: unknown) => Number.isFinite(Number(value));
 
-// An embed views whatever the person could do on the board, even on an edit link.
+// an embed only views, even on an edit link
 const roleFor = (socket: Pick<RealtimeSocket, "data">, role: Role | null): Role | null =>
   role && socket.data.embed ? "viewer" : role;
 
-// Private mode (see "private" below): while it's on, everyone who could change the board, bar whoever turned it on,
-// suggests instead, and their suggestions are sent only to themselves until it's turned off.
+// Private mode: everyone who could edit, bar whoever turned it on, suggests instead, and their suggestions go only to
+// themselves until it's turned off.
 function effectiveRole(socket: Pick<RealtimeSocket, "data">, session: Session | undefined): Role | null {
   const role = socket.data.boardRole ?? null;
   const by = session?.privateMode?.by;
   return by && canEdit(role) && personOf(socket).userId !== by ? "suggester" : role;
 }
 
-// Classroom mode (see classroom.ts): a student is someone the board lets edit who isn't one of its members, and while
-// it's on, they may change only what's inside the frame they claimed.
+// Classroom mode (see classroom.ts): a student is an editor who isn't a member, limited to the frame they claimed.
 const isStudent = (role: Role | null | undefined) => canEdit(role ?? null) && !isMemberRole(role ?? null);
 const frameIn = (session: Session) => (id: string) => {
   const element = session.index.get(id);
@@ -413,12 +371,10 @@ const classroomOf = (session: Session, socket: Pick<RealtimeSocket, "data">): Cl
   classroomFor(session.classroom, personOf(socket).userId, restrictedIn(session, socket.data.boardRole), (id) =>
     Boolean(frameIn(session)(id)),
   );
-// The frame a person may change things in (see zoneOf).
 const zoneIn = (session: Session, userId: string, role: Role | null | undefined) =>
   zoneOf(session.classroom, userId, restrictedIn(session, role), frameIn(session));
 
-// Whether a student's suggestion lies inside their frame (`zone`; nothing does when it's null), before and after.
-// A suggestion as a browser sent it, not yet checked (see readDraft in suggestions.ts).
+// a suggestion as sent, unchecked (see readDraft in suggestions.ts)
 type RawDraft = { kind?: unknown; target?: unknown; element?: { id?: unknown } } | null | undefined;
 
 function draftInside(draft: RawDraft, zone: FrameElement | null, session: Session) {
@@ -434,7 +390,6 @@ function draftInside(draft: RawDraft, zone: FrameElement | null, session: Sessio
   return draft?.kind === "add" ? !before : Boolean(before && insideZone(before, zone));
 }
 
-// Saves classroom mode soon, and tells everyone on the board it as they see it.
 function announceClassroom(session: Session) {
   markFacilitationDirty(session);
   for (const socket of socketsIn(session.boardId)) {
@@ -442,23 +397,21 @@ function announceClassroom(session: Session) {
   }
 }
 
-// Private mode as `socket` is told it.
 const privateModeFor = (session: Session, socket: Pick<RealtimeSocket, "data">): PrivateMode | null =>
   session.privateMode && { by: session.privateMode.name, canEnd: isMemberRole(socket.data.boardRole ?? null) };
 
-// Whether `socket` is shown a suggestion: in private mode, only its author is.
+// in private mode only its author is shown a suggestion
 const showsSuggestion = (session: Session, socket: Pick<RealtimeSocket, "data">) => (suggestion: Suggestion) =>
   !session.privateMode || sameAuthor(suggestion.author, personOf(socket));
 
-// The small copy sent with an image for thumbnails, or null. It's optional:
-// without one, thumbnails show the image itself, so a bad one is just dropped.
+// optional (thumbnails fall back to the image itself), so a bad one is dropped
 function readSmallCopy(data: unknown) {
   if (!Buffer.isBuffer(data) || data.length > IMAGE_LIMITS.small) return null;
   const mime = detectImageType(data);
   return mime ? { buffer: data, mime } : null;
 }
 
-// Where a socket connected from, as far as the proxies in front of this server say (see TRUST_PROXY).
+// as far as the proxies in front of this server say (see TRUST_PROXY)
 function addressOf(socket: RealtimeSocket) {
   const hops = String(socket.handshake.headers["x-forwarded-for"] ?? "")
     .split(",")
@@ -472,7 +425,6 @@ function addressOf(socket: RealtimeSocket) {
   return socket.handshake.address;
 }
 
-// Why an image didn't fit, for the person who tried to add it.
 function spaceMessage(limit: ImageLimit, role: Role | null, unverified: boolean | undefined) {
   const freeing = "Pictures you remove free their space once no saved version of the board shows them.";
   if (limit === "board") return `This board is out of image space. ${freeing}`;
@@ -486,29 +438,25 @@ function spaceMessage(limit: ImageLimit, role: Role | null, unverified: boolean 
   return "Image storage is full for now. Try again later.";
 }
 
-// Whether `claimed`, the board id in a message, is the board `socket` is on: its id as the database has
-// it, or as the socket asked for it (upper case, say: a client may name a board in either).
+// the board id in a message may be the database's or the spelling the socket asked with (upper case, say)
 function isOnBoard(socket: RealtimeSocket, claimed: unknown) {
   const { boardId, requestedId } = socket.data;
   return Boolean(boardId) && (claimed === boardId || claimed === requestedId);
 }
 
-// Where a change comes from: a browser on the board, or the public API (see applyOperation). `broadcast` passes it
-// on to everyone else on the board, and `present` says whether the sender is still there to take it in.
+// Where a change comes from: a browser on the board, or the public API (see applyOperation).
 interface Sender {
   boardId: string;
   legacy?: boolean | undefined;
-  // In classroom mode, the student's frame (null: they have none), outside which nothing they change is taken in;
-  // `whole` refuses the whole change when any of it is outside, for a change that isn't made on a screen.
+  // classroom mode: the student's frame (null: none); `whole` refuses the whole change if any of it is outside
   zone?: FrameElement | null | undefined;
   whole?: boolean;
   broadcast: (message: OpMessage) => void;
   present: () => boolean;
-  // Told how many elements a change removed, and the board from before it, when the sender came through the link.
+  // told how many elements were removed, and the board before, for senders who came through the link
   removed?: (count: number, before: Element[]) => void;
 }
 
-// What people from each open board's edit link did there lately (see link-watch.ts).
 const linkWatches = new WeakMap<Session, LinkWatch>();
 function watchOf(session: Session) {
   let watch = linkWatches.get(session);
@@ -519,8 +467,7 @@ function watchOf(session: Session) {
 const VISITORS_WARNING = `${LINK_VISITORS_WARNING} people who weren't invited have opened it with its edit link. If you didn't share the link that widely, restrict it in Share.`;
 const REMOVAL_LABEL = "Before the edit-link removals"; // short enough to read whole in version history
 
-// People from the link removed `count` elements from a board that was `before` it. When that adds up to much of it
-// (see noteRemovals), the board from before they began goes into version history, and its owner is told.
+// Much removal by people on the link (see noteRemovals) saves the earlier board in version history and warns the owner.
 function watchRemovals(session: Session, count: number, before: Element[]) {
   const earlier = noteRemovals(watchOf(session), count, before);
   if (!earlier) return;
@@ -538,7 +485,6 @@ function watchRemovals(session: Session, count: number, before: Element[]) {
     .catch((error: Error) => console.error(`Could not keep board ${session.boardId} from before: ${error.message}`));
 }
 
-// A browser on a board, as the sender of its changes. The socket is on the board (callers check), so it has an id.
 function socketSender(socket: RealtimeSocket): Sender {
   const boardId = socket.data.boardId!;
   return {
@@ -559,9 +505,8 @@ function socketSender(socket: RealtimeSocket): Sender {
   };
 }
 
-// Takes a change in, or refuses it, and replies. `refresh` says whether a refusal for lack of space
-// may be checked against a newer figure first (it may be a little out of date): that look-up is the only
-// wait, and the change is worked out again after it, from the board as it is then.
+// `refresh`: a refusal for lack of space may first be checked against a newer figure; that lookup is the only wait,
+// after which the change is planned again from the board as it then is.
 function takeOperation(
   sender: Sender,
   session: Session,
@@ -578,7 +523,7 @@ function takeOperation(
     index: session.index,
   });
   let plan = planOperation(session.elements, op, session.tombstones, { index: session.index, remember: false });
-  // In classroom mode, what a student would change outside their frame is left out, and they're told (see below).
+  // classroom mode: what a student would change outside their frame is left out, and they're told
   const outside =
     sender.zone === undefined
       ? null
@@ -593,8 +538,7 @@ function takeOperation(
     };
     plan = planOperation(session.elements, op, session.tombstones, { index: session.index, remember: false });
   }
-  // What actually changes: edits that newer ones already replaced are left out.
-  // Others are sent each element as the server now has it, merged.
+  // edits that newer ones already replaced are left out; the rest go out as the server now has them, merged
   const effect = effectOf(plan);
   const before = session.bytes;
   const room = ownerRoom(session);
@@ -604,10 +548,10 @@ function takeOperation(
     [...plan.buried.values()],
     room,
   );
-  // A change is only refused for the owner's room when the room is a figure, which a board without an owner never has.
+  // refused for the owner's room only when it's a figure, which a board without an owner never has
   if (refused === "owner" && refresh && Date.now() - ownerEntry(session.owner!).at > ROOM_REFRESH_MS) {
     lookUpRoom(session.owner!).then(() => {
-      // Nothing is taken in for a socket that left, or a board that closed, meanwhile.
+      // nothing is taken for a socket that left, or a board that closed, meanwhile
       if (sender.present() && getSession(boardId) === session) {
         takeOperation(sender, session, operation, reply, false);
       } else reply({ ok: false, reason: "noSession" });
@@ -615,7 +559,7 @@ function takeOperation(
     return;
   }
   if (refused) return reply(refused === "owner" ? OWNER_FULL : TOO_LARGE);
-  // The same: a finite room is the figure ownerRoom read from the owner's entry.
+  // a finite room is the figure ownerRoom read from the owner's entry
   if (Number.isFinite(room)) ownerEntry(session.owner!).room! -= Math.max(0, session.bytes - before);
 
   const board = session.elements; // as it was before this change
@@ -624,13 +568,12 @@ function takeOperation(
   if (dropped.size > 0) effect.upsert = effect.upsert.filter((element) => !dropped.has(element.id));
   if (effect.upsert.length > 0 || effect.remove.length > 0) {
     sender.broadcast({ boardId, op: effect });
-    // A suggested element now on the board was accepted; suggestions about an element that's gone go too.
+    // a suggested element now on the board was accepted; suggestions about removed elements go too
     const touched = [...effect.upsert.map((element) => element.id), ...effect.remove.map((removal) => removal.id)];
     announceSettled(session, settleSuggestions(session.suggestions, session, touched));
   }
 
-  // The sender made these changes on its own screen, so it's told where the board differs, its typing merged with
-  // others' included.
+  // the sender drew these on its own screen, so it's told where the board differs, its typing merged with others'
   const typed = mergedTyping(op.upsert, (id) => session.index.get(id));
   const merged = new Set(typed.map((element) => element.id));
   const cleaned = [...sanitized.changed.filter((element) => !merged.has(element.id)), ...typed];
@@ -639,7 +582,7 @@ function takeOperation(
     if (stored) cleaned.push(stored);
     else dropped.add(id);
   }
-  // What a student removed outside their frame is still on the board, as they're sent it.
+  // what a student removed outside their frame is still on the board
   const restored = (outside?.remove ?? []).flatMap((id) => session.index.get(id) ?? []);
   reply({
     ok: true,
@@ -650,12 +593,8 @@ function takeOperation(
   });
 }
 
-/**
- * Takes a change in from outside a browser (the public API, see controllers/api.controller.ts): the board is opened
- * as a join opens it, the change is checked, merged and passed on to everyone on the board as one from a browser
- * is, and the board is saved and let go afterwards if nobody has it open. Resolves to the reply a browser would get,
- * and the board's open session.
- */
+// Takes a change from outside a browser (the public API): opens the board as a join does, and saves and releases it if
+// nobody else has it open. Resolves to the reply a browser would get, and the session.
 export async function applyOperation(
   boardId: string,
   operation: RawOperation,
@@ -668,7 +607,7 @@ export async function applyOperation(
     boardId,
     broadcast: (message) => io.to(boardId).emit("board:op", message),
     present: () => true,
-    // In classroom mode a student's change is taken in whole, inside their frame, or not at all.
+    // classroom mode: a student's change is taken whole, inside their frame, or not at all
     zone: zoneIn(session, writer.userId, writer.role),
     whole: true,
   };
@@ -677,7 +616,6 @@ export async function applyOperation(
   return { reply, session };
 }
 
-// Tells everyone on the board about suggestions settleSuggestions let go of, and has the change saved.
 function announceSettled(session: Session, { accepted, gone }: { accepted: string[]; gone: string[] }) {
   const { boardId } = session;
   if (accepted.length > 0) io.to(boardId).emit("suggestion:delete", { boardId, ids: accepted, outcome: "accepted" });
@@ -685,7 +623,7 @@ function announceSettled(session: Session, { accepted, gone }: { accepted: strin
   if (accepted.length + gone.length > 0) markSuggestionsDirty(session);
 }
 
-// When each open board's owner was last looked into telling about new suggestions (see notifySuggestion).
+// when an open board's owner was last notified of suggestions
 const suggestionsNoted = new WeakMap<Session, number>();
 const SUGGESTION_NOTICE_MS = 60_000;
 
@@ -696,31 +634,24 @@ function handleConnection(socket: RealtimeSocket) {
   const limits: Record<string, Limiter> = Object.fromEntries(
     Object.entries(LIMITS).map(([name, limit]) => [name, createLimiter(limit)]),
   );
-  // Whom the memory held for its unfinished groups counts against (see holdGroup).
   socket.data.sender = socket.data.user ? `user:${socket.data.user.id}` : `address:${addressOf(socket)}`;
-  // A private room per account, for notifications and profile changes.
+  // a private room per account, for notifications and profile changes
   if (socket.data.user) socket.join(`user:${socket.data.user.id}`);
   const inTurn = (task: () => Promise<void>) => turns(socket.id, task).catch((error: unknown) => console.error(error));
 
   socket.on("board:join", (payload, ack) => inTurn(() => joinBoard(socket, payload, ack)));
   socket.on("board:leave", () => inTurn(() => leaveBoard(socket)));
 
-  // Replies { ok: true } with, when they apply, `cleaned` (elements as the board stored them, where that
-  // isn't how they were sent) and `dropped` (ids of elements it refused); or { ok: false, reason }:
-  // "noSession" (join the board first), "invalid", "tooLarge", "forbidden" or "rate".
   socket.on("board:op", (payload, ack) => {
     const reply = typeof ack === "function" ? ack : () => {};
     if (!limits.op()) return reply({ ok: false, reason: "rate" });
-    // isOnBoard has checked that the socket has a board.
     const session = isOnBoard(socket, payload?.boardId) ? getSession(socket.data.boardId!) : null;
     if (!session) return reply({ ok: false, reason: "noSession" });
     if (!canEdit(socket.data.role)) return reply(FORBIDDEN);
-    // The assertions and casts below: a payload that isOnBoard found a board id in is there, which TypeScript doesn't
-    // see through it. The op is whatever the browser sent: sanitizeOperation (through takeOperation) checks it.
+    // the op is unchecked: takeOperation sanitizes it
     let operation = payload!.op as RawOperation | null | undefined;
     if (payload!.group !== undefined) {
-      // One piece of a change sent in several (see holdPiece): nothing is taken in until the last arrives.
-      // holdPiece checks every part of the label, and refuses a piece with one that isn't right.
+      // one piece of a change sent in several: nothing is taken in until the last arrives (holdPiece checks the label)
       const piece = holdPiece(
         socket.data.heldGroup,
         payload!.group as PieceGroup | null | undefined,
@@ -734,15 +665,13 @@ function handleConnection(socket: RealtimeSocket) {
     takeOperation(socketSender(socket), session, operation, reply, true);
   });
 
-  // Uploading goes over the socket, not HTTP, so it is checked exactly like a
-  // drawing change: guests with an edit link can add images, viewers can't.
+  // over the socket, not HTTP, so it's checked like a drawing change: edit-link guests can add images, viewers can't
   socket.on("board:image", async (payload, ack) => {
     const reply = typeof ack === "function" ? ack : () => {};
-    // The next line checks that the socket is on a board, so it has an id.
     const boardId = socket.data.boardId as string;
     if (!isOnBoard(socket, payload?.boardId)) return reply({ ok: false, error: "Open the board first." });
     if (!canEdit(socket.data.role)) return reply({ ok: false, readOnly: true });
-    // In classroom mode, students add no pictures (see docs/classroom-mode.md).
+    // classroom mode: students add no pictures (docs/classroom-mode.md)
     const open = getSession(boardId);
     if (open && zoneIn(open, personOf(socket).userId, socket.data.boardRole) !== undefined) {
       return reply({ ok: false, error: "In classroom mode, pictures can't be added." });
@@ -757,9 +686,7 @@ function handleConnection(socket: RealtimeSocket) {
     if (!mime) return reply({ ok: false, error: "Use a PNG, JPEG, WebP or GIF image." });
 
     try {
-      // The assertion: the buffer above came out of the payload, so it is there.
       const small = readSmallCopy(payload!.small);
-      // What storeImage resolves with, read by the parts each kind of result has.
       const stored: {
         id?: string;
         full?: ImageLimit;
@@ -782,7 +709,7 @@ function handleConnection(socket: RealtimeSocket) {
           full: stored.full,
           error: spaceMessage(stored.full, socket.data.role, stored.unverified),
         });
-      reply({ ok: true, id: stored.id! }); // what is left after the results above is the id
+      reply({ ok: true, id: stored.id! });
     } catch (error) {
       console.error(error);
       reply({ ok: false, error: "The image couldn't be saved. Try again." });
@@ -801,16 +728,13 @@ function handleConnection(socket: RealtimeSocket) {
       .volatile.emit("cursor", visible ? { socketId: socket.id, x, y, ...laser } : { socketId: socket.id });
   });
 
-  // What part of the board someone is looking at, so others can follow along.
   socket.on("viewport", (payload) => {
     const boardId = socket.data.boardId;
     if (!boardId || !limits.viewport()) return;
     if (!(["x", "y", "zoom", "width", "height"] as const).every((key) => finite(payload?.[key]))) return;
-    // The assertions below: the check above found numbers in the payload, so it is there (which TypeScript
-    // doesn't see through it). The list is `as const` so that its keys are the payload's.
     const zoom = Number(payload!.zoom);
     if (zoom <= 0) return;
-    // `source`: whose own view it is, when it's one taken from someone they follow (see useBoardSync).
+    // `source`: whose own view this is, when taken from someone they follow (see useBoardSync)
     const source = typeof payload!.source === "string" && payload!.source.length <= 64 ? payload!.source : socket.id;
     socket.to(boardId).volatile.emit("viewport", {
       boardId,
@@ -824,7 +748,7 @@ function handleConnection(socket: RealtimeSocket) {
     });
   });
 
-  // Someone started following this person: ask them to send their view right away.
+  // someone started following this person: they send their view right away
   socket.on("viewport:request", (payload) => {
     const boardId = socket.data.boardId;
     if (!limits.followRequest()) return;
@@ -832,8 +756,7 @@ function handleConnection(socket: RealtimeSocket) {
     if (boardId && target?.data.boardId === boardId) target.emit("viewport:request", { boardId });
   });
 
-  // The board's replay (see services/replay.ts): for its members, and for people who came by its link when its
-  // owner lets them watch it (it shows what was drawn and later removed).
+  // members, and link visitors when the owner lets them watch (it shows what was drawn and later removed)
   socket.on("board:replay", async (payload, ack) => {
     const reply = typeof ack === "function" ? ack : () => {};
     const boardId = socket.data.boardId;
@@ -852,8 +775,7 @@ function handleConnection(socket: RealtimeSocket) {
     }
   });
 
-  // Dot voting (see voting.ts): anyone on the board votes, and those who can edit it run the round. Each person is
-  // sent the round as they see it, which only their own votes change while it's open.
+  // Dot voting (see voting.ts): anyone votes, editors run the round, and each person sees only their own votes while it's open.
   socket.on("vote", (payload) => {
     const boardId = socket.data.boardId;
     if (!boardId || socket.data.embed || !limits.vote()) return;
@@ -872,7 +794,7 @@ function handleConnection(socket: RealtimeSocket) {
     }
   });
 
-  // Started or stopped presenting: the others follow the presenter's view (see useFollow).
+  // the others follow the presenter's view (see useFollow)
   socket.on("present", async (payload) => {
     const boardId = socket.data.boardId;
     if (!boardId || !limits.present()) return;
@@ -880,7 +802,7 @@ function handleConnection(socket: RealtimeSocket) {
     await broadcastPresence(boardId);
   });
 
-  // The board's timer (see countdown.ts): anyone who can edit the board sets it, and everyone on it is told.
+  // the board's timer (see countdown.ts): editors set it, everyone is told
   socket.on("countdown", (payload) => {
     const boardId = socket.data.boardId;
     if (!boardId || !limits.countdown() || !canEdit(socket.data.role)) return;
@@ -894,9 +816,8 @@ function handleConnection(socket: RealtimeSocket) {
     io.to(boardId).emit("countdown", { boardId, countdown: countdownAt(next, now) });
   });
 
-  // Private mode: a member (the owner or an invited editor) turns it on or off, not a guest on an edit link. Turning it on makes the others who can edit
-  // suggesters (see effectiveRole), whose screens join again as such; turning it off makes them editors again and
-  // shows everyone every suggestion, for a member to accept or reject as usual.
+  // Private mode: a member (owner or invited editor, not an edit-link guest) turns it on or off. On: the other editors
+  // become suggesters and rejoin as such. Off: they're editors again and everyone sees every suggestion.
   socket.on("private", (payload) => {
     const boardId = socket.data.boardId;
     if (!boardId || !limits.privateMode() || !isMemberRole(socket.data.boardRole ?? null)) return;
@@ -910,7 +831,6 @@ function handleConnection(socket: RealtimeSocket) {
       const role = effectiveRole(other, session);
       if (role !== other.data.role) {
         other.data.role = role;
-        // The assertion: a socket on a board has a role there.
         other.emit("board:role", { boardId, role: role! });
       }
       other.emit("private", { boardId, privateMode: privateModeFor(session, other) });
@@ -918,8 +838,8 @@ function handleConnection(socket: RealtimeSocket) {
     if (!on) io.to(boardId).emit("suggestion:upsert", { boardId, suggestions: suggestionList(session.suggestions) });
   });
 
-  // Classroom mode (see classroom.ts): members start and stop it and free frames, and a student claims an empty frame.
-  // The reply says whether it was done (a frame two students reach for at once goes to the first).
+  // Classroom mode (see classroom.ts): members start and stop it and free frames; a student claims an empty frame, and
+  // a frame two students reach for at once goes to the first (the reply says whether it was done).
   socket.on("classroom", (payload, ack) => {
     const reply = typeof ack === "function" ? ack : () => {};
     const boardId = socket.data.boardId;
@@ -939,16 +859,13 @@ function handleConnection(socket: RealtimeSocket) {
     reply({ ok: true });
   });
 
-  // Suggestions (see suggestions.ts and docs/suggest-mode.md): only a suggester makes them, anyone takes back
-  // their own, and a member accepts them (by making the change, then saying so here) or rejects them. Each
-  // counts against the same limit as a change to the board. Returns the board's open session, or null after
-  // replying why there isn't one.
+  // Suggestions (see suggestions.ts, docs/suggest-mode.md): only a suggester makes them, anyone withdraws their own, a
+  // member resolves them. Each counts against the same limit as a board change. Returns the session, or null after replying.
   const suggestionSession = (
     payload: { boardId?: unknown } | null | undefined,
     reply: (refusal: SuggestionRefusal) => void,
   ): Session | null => {
     let refusal: SuggestionRefusal["reason"] | null = null;
-    // isOnBoard has checked that the socket has a board.
     const session = isOnBoard(socket, payload?.boardId) ? getSession(socket.data.boardId!) : null;
     if (!limits.op()) refusal = "rate";
     else if (!session) refusal = "noSession";
@@ -961,11 +878,10 @@ function handleConnection(socket: RealtimeSocket) {
     const session = suggestionSession(payload, reply);
     if (!session) return;
     if (socket.data.role !== "suggester") return reply(SUGGESTION_FORBIDDEN);
-    // The assertions: suggestionSession found a board id in the payload, so it is there.
     const sent = payload!.suggestions;
     if (!Array.isArray(sent)) return reply(SUGGESTION_INVALID);
     const { boardId } = session;
-    // In classroom mode, a student's suggestions outside their frame are left out, as their changes are.
+    // classroom mode: suggestions outside a student's frame are left out, as their changes are
     const zone = zoneIn(session, personOf(socket).userId, socket.data.boardRole);
     const outside: string[] = [];
     const drafts =
@@ -981,7 +897,7 @@ function handleConnection(socket: RealtimeSocket) {
     result.dropped.push(...outside);
     if (result.stored.length > 0) {
       for (const other of socketsIn(boardId)) {
-        // In private mode, only to their author's other screens (they are all this person's).
+        // in private mode, only to the author's other screens
         if (other !== socket && showsSuggestion(session, other)(result.stored[0])) {
           other.emit("suggestion:upsert", { boardId, suggestions: result.stored });
         }
@@ -991,7 +907,7 @@ function handleConnection(socket: RealtimeSocket) {
       socket.to(boardId).emit("suggestion:delete", { boardId, ids: result.withdrawn, outcome: "withdrawn" });
     }
     if (result.stored.length + result.withdrawn.length > 0) markSuggestionsDirty(session);
-    // A new suggestion (not one changed again) lets the owner know, looked into at most once a minute per open board.
+    // a new suggestion (not a changed one) notifies the owner, at most once a minute per open board
     const made = result.stored.some((suggestion) => suggestion.createdAt === suggestion.updatedAt);
     if (made && !session.privateMode && Date.now() - (suggestionsNoted.get(session) ?? 0) > SUGGESTION_NOTICE_MS) {
       suggestionsNoted.set(session, Date.now());
@@ -1037,10 +953,9 @@ function handleConnection(socket: RealtimeSocket) {
 
   socket.on("guest:rename", async (payload) => {
     if (socket.data.user) return;
-    // A socket without an account was given a guest by authenticate.
     socket.data.guest!.name = cleanGuestName(payload?.name);
     if (!socket.data.boardId) return;
-    // A frame they claimed in classroom mode shows their new name.
+    // a frame they claimed in classroom mode shows their new name
     const session = getSession(socket.data.boardId);
     const { userId, name } = personOf(socket);
     const claims = session?.classroom?.claims;
@@ -1051,7 +966,7 @@ function handleConnection(socket: RealtimeSocket) {
     await broadcastPresence(socket.data.boardId);
   });
 
-  // In turn too: a join still under way may put the socket in a room after it went.
+  // in turn too: a join still under way may put the socket in a room after it went
   socket.on("disconnect", () => inTurn(() => leaveBoard(socket)));
 }
 
@@ -1062,26 +977,23 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     const userId = socket.data.user?.id ?? null;
     const pass = typeof payload?.pass === "string" ? payload.pass.slice(0, 200) : undefined;
     const board = await findBoardForViewing(requestedId, userId, { pass });
-    // The board as the database names it. The id in the request may spell it another way (upper case hex
-    // finds it too), and a board must have one session and one room however it was asked for, or two
-    // people on it would each save over the other, and events for it would miss those who spelled it differently.
+    // The database's id: the request may spell it differently (upper case hex), and a board must have one session and room
+    // however it was asked for, or two people would save over each other and events would miss some.
     const boardId = board.id;
-    // Joining the board it's already on is only a fresh copy of it. Otherwise the socket leaves
-    // its board first, and the elements are read after that, so they include what it just did there.
+    // joining the board it's already on only refreshes it; otherwise leave first, so the elements read include what it just did
     if (socket.data.boardId !== boardId) await leaveBoard(socket);
-    // Before the socket is on the board: changes aren't queued behind a join, so one sent for this board
-    // while the join still waits (below) would otherwise be checked against the role on the board it left.
+    // before the socket is on the board: changes aren't queued behind a join, so one sent meanwhile is checked against this role
     socket.data.embed = payload?.embed === true;
     socket.data.boardRole = roleFor(socket, roleOf(board, userId, pass));
     socket.data.role = effectiveRole(socket, getSession(boardId));
     socket.data.pass = pass;
-    // Browsers still running an older version of the app merge changes by older rules (see prepareOperation).
+    // older browsers merge by older rules (see prepareOperation)
     socket.data.legacy = payload?.sync !== SYNC_FORMAT;
     socket.data.presenting = payload?.presenting === true;
     const session = await enterBoard(socket, boardId, requestedId);
     socket.data.role = effectiveRole(socket, session); // the board may have been opened just now, in private mode
-    // Many people from the edit link may mean it was shared further than meant: the owner is told. Not in classroom
-    // mode, where the link is handed to a whole class and each student can change only their own frame.
+    // many edit-link visitors may mean the link spread further than meant, so the owner is told (not in classroom mode,
+    // where the link goes to a whole class)
     if (
       socket.data.boardRole === "contributor" &&
       !session.classroom?.on &&
@@ -1092,11 +1004,10 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     await openOwner(session); // looked up now, so it's known by the time they draw
     watchLinkExpiry(board);
     if (userId && !socket.data.embed) recordOpen(userId, boardId); // a board seen on another site isn't "opened"
-    // Someone who gave the password as a guest and has logged in since: from now on they don't need the pass.
+    // they gave the password as a guest and have since logged in: they no longer need the pass
     if (userId && board.linkKey && !isMemberRole(socket.data.role)) await rememberUnlock(board, userId);
 
-    // With the stamps of what was removed lately, so a change to one of those
-    // that's still on its way can't bring it back on this screen.
+    // with the stamps of recently removed elements, so a change to one still on its way can't bring it back here
     reply({
       ok: true,
       board: serializeBoard(board, userId, session.elements, undefined, socket.data.role!),
@@ -1106,25 +1017,23 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
       privateMode: privateModeFor(session, socket),
       classroom: classroomOf(session, socket),
     });
-    // A round of voting under way, after the reply, which clears any this browser had.
+    // a voting round under way, sent after the reply (which clears any this browser had)
     if (session.voting) socket.emit("voting", { boardId, voting: votingFor(session.voting, personOf(socket).userId) });
     await broadcastPresence(boardId);
   } catch (error) {
-    // Anything can be thrown; the board and database lookups throw Errors, which may carry a status.
     if (!(error as Failure).status) console.error(error);
     reply({
       ok: false,
       status: (error as Failure).status ?? 500,
       error: (error as Failure).status ? (error as Failure).message : "This board couldn't be opened. Try again.",
-      // A link that asks for a password, or has expired, says which (see LinkLockedError).
+      // a link needing a password, or expired, says which
       ...(error instanceof LinkLockedError && { locked: error.locked }),
     });
   }
 }
 
-// Puts the socket in the board's room and returns the board's open session. Getting the
-// session and joining happen in the same turn, so it can't be closed in between.
-// `requestedId` is how the socket named the board, which it may keep using in its messages.
+// Joins the room and returns the open session, in one turn so it can't close in between. `requestedId` is the
+// spelling the socket may keep using.
 async function enterBoard(socket: RealtimeSocket, boardId: string, requestedId: string) {
   for (;;) {
     const session = await acquireSession(boardId);
@@ -1157,7 +1066,7 @@ async function handleDeparture(boardId: string) {
 
 async function broadcastPresence(boardId: string) {
   const sockets = await io.in(boardId).fetchSockets();
-  // The board's id comes second, so browsers on an older app, which expect just the list, still read it.
+  // the board id comes second so older browsers, which expect just the list, still read it
   io.to(boardId).emit(
     "presence",
     sockets
@@ -1169,27 +1078,22 @@ async function broadcastPresence(boardId: string) {
 
 function socketsIn(room: string) {
   const ids = io?.sockets.adapter.rooms.get(room) ?? [];
-  // filter(Boolean) drops the ids of sockets that have gone since, which the type can't see.
+  // drops the ids of sockets that have gone since
   return [...ids].map((id) => io.sockets.sockets.get(id)).filter(Boolean) as RealtimeSocket[];
 }
 
 // Hooks used by the REST API so open boards react to changes immediately.
 
-// A board as the hooks below read it: what serializeMeta and roleOf read of one with its people populated.
 type BoardDetails = Parameters<typeof serializeMeta>[0];
 
-// Each person gets the details their role allows: only members see email addresses.
+// only members see email addresses
 export function notifyMetaChanged(board: BoardDetails) {
   for (const socket of socketsIn(board.id)) {
     socket.emit("board:meta", serializeMeta(board, { redact: !isMemberRole(socket.data.role) }));
   }
 }
 
-/**
- * Re-checks everyone who has the board open after its access changed (an invite,
- * a removal, or the link setting): drops people who lost access, upgrades or
- * downgrades the rest, then sends fresh board details.
- */
+// Re-checks everyone with the board open after an access change: drops those who lost access, re-roles the rest.
 export async function syncAccess(board: BoardDetails) {
   if (!io) return;
   let dropped = false;
@@ -1197,7 +1101,7 @@ export async function syncAccess(board: BoardDetails) {
     const userId = socket.data.user?.id ?? null;
     const role = roleFor(socket, roleOf(board, userId, socket.data.pass));
     if (!role) {
-      // Said when it's the link's password or expiry, so the person can give the password or knows why.
+      // names the link's password or expiry, so the person can give the password or knows why
       const locked = (board.linkAccess !== "restricted" && linkLock(board, userId, socket.data.pass)) || undefined;
       socket.emit("board:revoked", { boardId: board.id, ...(locked && { locked }) });
       socket.leave(board.id);
@@ -1210,9 +1114,9 @@ export async function syncAccess(board: BoardDetails) {
       const effective = effectiveRole(socket, session);
       if (effective !== socket.data.role) {
         socket.data.role = effective;
-        socket.emit("board:role", { boardId: board.id, role: effective! }); // has a role: it's a board role or suggesting
+        socket.emit("board:role", { boardId: board.id, role: effective! });
       }
-      // Invited, or no longer, they may have become a student in classroom mode, or stopped being one.
+      // invited or not, they may have become a student in classroom mode, or stopped being one
       if (session?.classroom) socket.emit("classroom", { boardId: board.id, classroom: classroomOf(session, socket) });
     }
   }
@@ -1220,15 +1124,12 @@ export async function syncAccess(board: BoardDetails) {
   notifyMetaChanged(board);
 }
 
-// Timers that re-check who may be on a board when its link expires, by board id.
 const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // setTimeout can't wait longer than this; a later expiry is watched once someone joins nearer the time.
 const LONGEST_TIMER_MS = 2 ** 31 - 1;
 
-/**
- * Drops the people who opened a board by its link when the link expires (see syncAccess), rather than at their
- * next reconnect. Called whenever the link's expiry is set, and when someone joins the board.
- */
+// Drops people who opened by the link when it expires (see syncAccess), not at their next reconnect. Called when the
+// expiry is set and on join.
 export function watchLinkExpiry(board: { id: string; linkExpiresAt?: Date | null }) {
   clearTimeout(expiryTimers.get(board.id));
   expiryTimers.delete(board.id);
@@ -1252,12 +1153,8 @@ export function watchLinkExpiry(board: { id: string; linkExpiresAt?: Date | null
   expiryTimers.set(board.id, timer);
 }
 
-/**
- * Puts an earlier version's elements back on a board, for everyone who has it
- * open. Resolves with the board's elements as restored.
- */
 export async function replaceElements(boardId: string, snapshot: Element[], actor?: { name: string } | null) {
-  // Always through the open board, so someone opening it at this moment can't put the old one back.
+  // always through the open board, so someone opening it right now can't put the old one back
   const session = await acquireSession(boardId);
   const elements = resetSession(session, snapshot);
   io?.to(boardId).emit("board:reset", {
@@ -1266,14 +1163,14 @@ export async function replaceElements(boardId: string, snapshot: Element[], acto
     removed: removedStamps(session.tombstones),
     by: actor?.name ?? null,
   });
-  // Suggestions about elements the restore took away go, and suggested additions it brought back are on the board.
+  // suggestions about elements the restore took away go; suggested additions it brought back are on the board
   if (io) announceSettled(session, settleSuggestions(session.suggestions, session));
-  // With nobody on it, the board goes again, saved. (Someone opening it meanwhile keeps it open.)
+  // with nobody on it the board is saved and released (someone opening it meanwhile keeps it open)
   if (!io?.sockets.adapter.rooms.has(boardId)) await closeSession(boardId);
   return elements;
 }
 
-/** Comments are only shown to signed-in people. */
+// comments are shown only to signed-in people
 export function emitToSignedIn(boardId: string, event: "thread:upsert", payload: Thread): void;
 export function emitToSignedIn(boardId: string, event: "thread:delete", payload: ThreadRemoval): void;
 export function emitToSignedIn(
@@ -1282,8 +1179,7 @@ export function emitToSignedIn(
   payload: Thread | ThreadRemoval,
 ) {
   for (const socket of socketsIn(boardId)) {
-    // The casts: the overloads above have already matched the event with its payload, which emit can't follow
-    // from a union of events.
+    // the overloads already match event to payload, which emit can't follow from a union
     if (socket.data.user) socket.emit(event as "thread:upsert", payload as Thread);
   }
 }
@@ -1292,12 +1188,10 @@ export function notifyUser(userId: string, notification: NotificationItem) {
   io?.to(`user:${userId}`).emit("notification", notification);
 }
 
-/** Closes every connection of an account whose logins were all revoked (a password change, say). */
 export function disconnectUser(userId: string) {
   for (const socket of socketsIn(`user:${userId}`)) socket.disconnect(true);
 }
 
-/** Someone changed their name or color: update their open connections and boards. */
 export async function refreshUser(user: { id: string; toPublic(): PublicUser }) {
   const boards = new Set<string>();
   for (const socket of socketsIn(`user:${user.id}`)) {
@@ -1307,10 +1201,7 @@ export async function refreshUser(user: { id: string; toPublic(): PublicUser }) 
   await Promise.all([...boards].map(broadcastPresence));
 }
 
-/**
- * Sends everyone off a board that was deleted. A board moved to the trash keeps
- * its latest changes so it can be restored as it was.
- */
+// A trashed board keeps its latest changes so it can be restored as it was.
 export async function closeBoard(boardId: string, { keepChanges = false }: { keepChanges?: boolean } = {}) {
   if (!io) return;
   io.to(boardId).emit("board:deleted", { boardId });
