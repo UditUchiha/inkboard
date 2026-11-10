@@ -111,7 +111,6 @@ const KEEP_INSIDE = "In classroom mode you can draw only inside your frame.";
 const CLAIM_FIRST = "Click an empty frame to make it yours, then draw in it.";
 const MERMAID_GAP = 120; // between an imported diagram and what was on the board
 
-// The elements that carry text, which are the ones edited in place.
 type TextBearing = TextElement | StickyElement | Connector;
 
 // The cast: DRAWING_TOOLS holds only tools that are also the type of the element they draw.
@@ -120,7 +119,6 @@ function styleTarget(tool: ToolId, selected: BoardElement | null): ElementType |
   return DRAWING_TOOLS.has(tool) ? (tool as ElementType) : null;
 }
 
-/** What the editor takes: the store and sync (a scratch board's has `unsaved` too), who is looking, and `local`. */
 export type BoardEditorProps = {
   store: BoardStore;
   sync: BoardSync & { unsaved?: boolean };
@@ -128,27 +126,21 @@ export type BoardEditorProps = {
   local?: { onSave: () => void } | null;
 };
 
-/**
- * The whiteboard. `user` is null for guests. `local` is set for a guest's own
- * scratch board, which lives in the browser: there's no server, so sharing,
- * history and comments give way to a "Save board" button ({ onSave }).
- */
+// `local` is a guest's scratch board in the browser: no server, so sharing, history and comments give way to "Save board".
 export function BoardEditor({ store, sync, user, local = null }: BoardEditorProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { elements, canUndo, canRedo } = useBoardSnapshot(store);
   // The cast: the editor is only shown once the board's details are there (a scratch board has them from the start).
   const { meta: board, setMeta, role } = sync as BoardSync & { meta: BoardMeta };
-  // Viewers can only look, and contributors (edit link) can draw. Suggesters draw too, but what they do is sent as
-  // suggestions (see suggesting.ts), so the board's own settings (its title, pictures, comments) aren't theirs to change.
+  // Suggesters draw too, but what they do is sent as suggestions (see suggesting.ts), so the board's own settings aren't theirs.
   const readOnly = role === "viewer";
   const suggesting = role === "suggester";
   const isMember = role === "owner" || role === "editor";
-  // Classroom mode (see classroom.ts): while it's on, a student may change only what's inside the frame they claimed.
   const classroom = local ? null : sync.classroom;
   const classroomOn = Boolean(classroom?.on);
   const student = classroomOn && Boolean(classroom?.restricted);
-  // Comments are for signed-in people, and all of them can comment, viewers and suggesters too.
+  // Comments are for signed-in people, viewers and suggesters included.
   const commentsEnabled = Boolean(user) && !local;
   const canComment = commentsEnabled;
   const selfId = user?.id ?? getGuest().id;
@@ -164,7 +156,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [dialog, setDialog] = useState<"share" | "shortcuts" | "clear" | "template" | "ai" | "mermaid" | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  // A warning that much of the board was removed links to ?history, which opens its version history.
+  // ?history (linked from a mass-removal warning) opens the version history.
   const linkedHistory = new URLSearchParams(location.search).has("history");
   useEffect(() => {
     if (linkedHistory) setHistoryOpen(true);
@@ -173,18 +165,17 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [draft, setDraft] = useState<XY | null>(null); // where a new comment is being written
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  // A notification about suggestions links to ?suggestions, which opens them (also when the board is open already).
+  // ?suggestions (linked from a notification) opens suggestions, also when the board is already open.
   const linkedSuggestions = new URLSearchParams(location.search).has("suggestions");
   useEffect(() => {
     if (linkedSuggestions) setSuggestionsOpen(true);
   }, [linkedSuggestions, location.key]);
-  // A request for access links its owner to ?invite=<email>, which opens the Share dialog with the address filled in.
+  // ?invite=<email> (from an access request) opens the Share dialog with the address filled in.
   const linkedInvite = new URLSearchParams(location.search).get("invite");
   useEffect(() => {
     if (linkedInvite !== null && role === "owner") setDialog("share");
   }, [linkedInvite, role, location.key]);
-  // The board's replay, for members and (when its owner lets them) link visitors. Its link is the board's with
-  // ?replay, which opens it.
+  // ?replay opens the board's replay, for members and for link visitors the owner lets.
   const canReplay = !local && (isMember || board.linkReplay);
   const linkedReplay = new URLSearchParams(location.search).has("replay");
   const [replayOpen, setReplayOpen] = useState(false);
@@ -199,7 +190,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
 
   const selected = selectedId ? (store.getElement(selectedId) ?? null) : null;
-  // A picture being cropped: its handles crop it instead of resizing it. Selecting anything else ends it.
+  // Cropping a picture: its handles crop instead of resize; selecting anything else ends it.
   const [croppingId, setCroppingId] = useState<string | null>(null);
   useEffect(() => setCroppingId(null), [selectedId]);
   // A guest's scratch board lives in the browser, with nowhere to keep files; pictures can't be suggested.
@@ -207,7 +198,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const fileInput = useRef<HTMLInputElement>(null);
   const boardFileInput = useRef<HTMLInputElement>(null);
 
-  // Follow mode: tracking someone's view until we move ourselves.
   const { followingId, follow, stopFollowing, followedView } = useFollow({ sync, canvasSize, setViewport });
   const changeViewport = useCallback(
     (next: Viewport | ((current: Viewport) => Viewport)) => {
@@ -217,9 +207,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     [stopFollowing],
   );
 
-  // Share what we're looking at, so others can follow us: always what's on screen, also once we stop
-  // following without moving, or resize. A view taken from someone we follow is sent as theirs, so
-  // two people following each other don't pass it back and forth (see sendViewport).
+  // Share what's on screen so others can follow; a view taken from someone we follow is sent as theirs, so two people
+  // following each other don't pass it back and forth (see sendViewport).
   const { sendViewport } = sync;
   useEffect(() => {
     if (!canvasSize.width) return;
@@ -227,7 +216,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     sendViewport({ ...viewport, width: canvasSize.width, height: canvasSize.height }, followed);
   }, [viewport, canvasSize, sendViewport, followedView, followingId]);
 
-  // Suggestions (see suggestions.ts): drawn over the board for everyone, and decided on by members.
   const review = useSuggestionReview(sync, store);
   const elementById = useMemo(() => new Map(elements.map((element) => [element.id, element])), [elements]);
   const getElement = useCallback((id: string) => elementById.get(id), [elementById]);
@@ -240,29 +228,25 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     [classroom],
   );
   const [claiming, setClaiming] = useState<FrameElement | null>(null);
-  // A student's undo history holds where things were. Once the teacher moves or resizes their frame, going back would
-  // put things outside it, so it's let go.
+  // A student's undo history holds where things were; once the teacher moves their frame, going back would put things outside it.
   const zonePlace = zone ? `${zone.id}:${zone.x1},${zone.y1},${zone.x2},${zone.y2}` : "";
   const lastZonePlace = useRef(zonePlace);
   useEffect(() => {
     if (lastZonePlace.current && zonePlace && zonePlace !== lastZonePlace.current) store.forgetHistory();
     lastZonePlace.current = zonePlace;
   }, [zonePlace, store]);
-  // Editing the text of something: in classroom mode, only of what a student may change (an element picked from the
-  // outline may not be theirs).
+  // Classroom mode: an element picked from the outline may not be the student's to edit.
   const editText = useCallback(
     (edit: TextEdit) => {
       if (edit.isNew || canChange(edit.element, zone)) setEditing(edit);
     },
     [zone],
   );
-  // Connecting two shapes from the keyboard (see connectTargets): K with a shape selected offers the shapes an arrow
-  // from it could go to, nearest first, one at a time, and Enter draws the arrow. Selecting anything else stops it.
+  // K with a shape selected offers the shapes an arrow could go to, nearest first; Enter draws it (see connectTargets).
   const [connecting, setConnecting] = useState<{ fromId: string; targetId?: string } | null>(null);
   useEffect(() => setConnecting(null), [selectedId]);
   const connectFrom = connecting?.fromId === selectedId ? selected : null;
   const connectOptions = useMemo(
-    // In classroom mode, a student is offered only what they may change.
     () => (connectFrom ? connectTargets(elements, connectFrom).filter((target) => canChange(target, zone)) : []),
     [connectFrom, elements, zone],
   );
@@ -271,10 +255,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     connectOptions.findIndex((target) => target.id === connecting?.targetId),
   );
   const connectTo = connectOptions.at(connectIndex) ?? null;
-  // Bumped when a guest renames themselves from the claim dialog, so their name shows there anew.
   const [guestVersion, setGuestVersion] = useState(0);
-  // A suggester's screen shows the board with their suggestions in it; this is the board without them (see
-  // suggesting.ts), which their removals are drawn from and the panel reads. (Empty for everyone else.)
+  // A suggester's screen shows the board with their suggestions in it; this is the board without them (see suggesting.ts).
   const { elements: underneath } = useBoardSnapshot(sync.suggestedOver);
   const underneathById = useMemo(() => new Map(underneath.map((element) => [element.id, element])), [underneath]);
   const boardWithout = suggesting ? (id: string) => underneathById.get(id) : getElement;
@@ -317,7 +299,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     }));
   }, [threads, location.search, canvasSize]);
 
-  // The comment tool disappears if we lose the right to comment.
   useEffect(() => {
     if (!canComment && tool === "comment") setTool("pen");
   }, [canComment, tool]);
@@ -346,8 +327,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     if (next !== "select") setSelectedId(null);
   }, []);
 
-  // Dot voting (see Voting.tsx): when a round opens, everyone's pointer votes; when it ends, it goes back to what it was
-  // for. Clicking an element with the vote tool casts or takes back a vote on it.
+  // While a voting round is open everyone's pointer votes; when it ends the tool goes back (see Voting.tsx).
   const votingOpen = Boolean(sync.voting?.open);
   useEffect(() => {
     if (votingOpen) changeTool("vote");
@@ -360,7 +340,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     else if (choice) sync.vote(choice);
   }
 
-  // Fit existing drawings into view once, when the board first opens.
   const fitted = useRef(false);
   useEffect(() => {
     if (fitted.current || !canvasSize.width) return;
@@ -369,9 +348,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     if (bounds) setViewport(fitViewport(bounds, canvasSize, { padding: 96, maxZoom: 1 }));
   }, [canvasSize, store]);
 
-  // Presenting: the board's frames in reading order, one at a time, filling the screen (see Presenter). Our
-  // pointer is a laser for the others, who follow our view (see useFollow).
-  const [slide, setSlide] = useState<number | null>(null); // the frame on show, by its place in `slides`
+  // Our pointer is a laser for the others, who follow our view (see Presenter, useFollow).
+  const [slide, setSlide] = useState<number | null>(null);
   const slides = useMemo(() => slideFrames(elements), [elements]);
   const presenting = slide !== null;
   const shownFrame = presenting ? slides[Math.min(slide, slides.length - 1)] : undefined;
@@ -383,7 +361,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         0,
         slides.findIndex((frame) => frame.id === selectedId),
       ),
-    ); // from the selected frame, if any
+    );
     present(true);
   };
   const stopPresenting = useCallback(() => {
@@ -392,7 +370,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     sendCursor(null); // or the others keep seeing the laser until our pointer moves again
   }, [present, sendCursor]);
   const sendLaser = useCallback((point: XY | null) => sendCursor(point, true), [sendCursor]);
-  // Also when the window goes full screen, or someone changes the frame.
+  // Refits when the window goes full screen or the frame changes.
   useEffect(() => {
     if (shownFrame && canvasSize.width)
       changeViewport(fitViewport(getBounds(shownFrame), canvasSize, { padding: 24, maxZoom: MAX_ZOOM }));
@@ -412,16 +390,13 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     if (bounds) changeViewport(fitViewport(bounds, canvasSize, { padding: 96, maxZoom: 2 }));
   }, [store, canvasSize, changeViewport]);
 
-  // The selected element and, for a frame, everything inside it: they're deleted,
-  // copied and nudged together.
   const selectedGroup = useCallback(() => {
     const element = selectedId && store.getElement(selectedId);
     // In classroom mode, a student can't change what isn't in their frame, even picked from the outline.
     return element && canChange(element, zone) ? withContents(store.getElements(), element) : [];
   }, [selectedId, store, zone]);
 
-  // A message with an Undo button for the step just taken. It goes away once anything else is done,
-  // because then Undo would undo that instead.
+  // Undo message for the step just taken; it goes away once anything else is done, since Undo would undo that instead.
   const toastWithUndo = useCallback(
     (message: string) => {
       const mark = store.historyMark();
@@ -466,8 +441,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setSelectedId(copies[0].id);
   }, [selectedGroup, store, zone]);
 
-  // "front", "forward", "backward" or "back" in the stack. Only the element's
-  // stacking key changes, so it merges with anyone else's edits to it.
+  // Only the stacking key changes, so it merges with anyone else's edits to the element.
   const moveSelected = useCallback(
     (where: StackMove) => {
       const element = selectedId && store.getElement(selectedId);
@@ -478,8 +452,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     },
     [selectedId, store, zone],
   );
-  // Which stack moves are possible takes a pass over the board for each, so it's worked out
-  // when the board is quiet, not on every step of a drag.
+  // Each stack move takes a pass over the board, so it's worked out when the board is quiet, not on every drag step.
   const settledElements = useDeferredValue(elements);
   const settledSelection = useDeferredValue(selected);
   const stackMoves = useMemo<Partial<Record<StackMove, boolean>>>(
@@ -496,12 +469,10 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     (dx: number, dy: number) => {
       const group = selectedGroup();
       if (group.length === 0) return;
-      // In classroom mode, a nudge stops at the edge of the student's frame.
       const [x, y] = zone ? clampShift(group, zone, dx, dy) : [dx, dy];
       if (x === 0 && y === 0) return;
-      // Nudges in a row are one undo step while they move the same things. A
-      // frame nudged over something takes it along from then on, and that's a
-      // new step: the first one's undo doesn't know where it was.
+      // Nudges in a row are one undo step while they move the same things; a frame nudged over something takes it along
+      // from then on, a new step the first one's undo doesn't know about.
       store.commit(
         { undo: { upsert: group }, redo: { upsert: moveGroup(store.getElements(), group, x, y) } },
         { mergeKey: `nudge:${group.map((element) => element.id).join(",")}` },
@@ -510,22 +481,18 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     [selectedGroup, store, zone],
   );
 
-  // Selecting with the select tool, so the element's own panel shows (Delete, Duplicate) and Enter edits it:
-  // a frame just drawn, ready to be named or filled, or an element picked from the keyboard list.
+  // Select tool, so the element's own panel shows (Delete, Duplicate) and Enter edits it.
   const selectElement = useCallback((id: string) => {
     setTool("select");
     setSelectedId(id);
   }, []);
 
-  // Adds pictures to the board: shrinks and uploads each, then places it where it
-  // was dropped, or in the middle of the screen. Each one is a single undo step.
   // The cast: filled in on the next line, on every render, before anything reads it.
   const view = useRef(null as unknown as ImportView);
   view.current = { viewport, canvasSize };
 
-  // Picking an element from the keyboard-reachable list can select one that is off screen: bring it into view.
-  // Only when the selection changes, not when the window is resized, and without leaving someone we follow. So can
-  // the shape on offer while connecting from the keyboard.
+  // Selecting from the keyboard list or while connecting can pick an off-screen element: bring it into view, only when the
+  // selection changes (not on resize) and without leaving someone we follow.
   const inSight = connectTo?.id ?? selectedId;
   useEffect(() => {
     const { viewport, canvasSize } = view.current;
@@ -605,8 +572,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     if (changed) store.commit({ undo: { upsert: [{ ...current, text: base }] }, redo: { upsert: [changed] } });
   }
 
-  // In classroom mode, `element` moved as little as puts it inside the student's frame, or null (and they're told) when
-  // it can't be; as it is otherwise.
+  // Classroom mode: `element` moved as little as puts it inside the student's frame, or null (and they're told).
   function keepInZone<T extends BoardElement>(element: T): T | null {
     if (zone === undefined) return element;
     // The cast: fitInside only moves an element.
@@ -620,7 +586,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     const styleKey = panelType === "sticky" && key === "fill" ? "noteFill" : key;
     if (key !== "name" && key !== "alt") setStyle((current) => ({ ...current, [styleKey]: value }));
     if (selected) {
-      // In classroom mode, a change that would take it outside the student's frame (a bigger font, say) isn't made.
       if (!staysInside({ ...selected, [key]: value } as BoardElement, zone)) {
         toast(KEEP_INSIDE, { id: CLASSROOM_TOAST });
         return;
@@ -632,7 +597,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     }
   }
 
-  // Shows all of the selected picture again, at the scale it's shown.
   function uncropSelected() {
     if (selected?.type !== "image") return;
     store.commit({ undo: { upsert: [selected] }, redo: { upsert: [uncropImage(selected)] } });
@@ -647,7 +611,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     }
   }
 
-  // The part of the board on screen.
   const visibleArea = () => ({
     x: -viewport.x,
     y: -viewport.y,
@@ -655,7 +618,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     height: canvasSize.height / viewport.zoom,
   });
 
-  // An equation is a text written as $$…$$ (see math.ts): one is started in the middle of the screen, ready to type.
+  // An equation is a text written as $$…$$ (see math.ts).
   function addEquation() {
     const view = visibleArea();
     // The cast: createElement makes a text when asked for one.
@@ -664,10 +627,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setEditing({ element: { ...element, text: "$$  $$" }, isNew: true });
   }
 
-  // Drawing without a pointer: Enter with a drawing tool puts one of its elements in the middle of the screen. A shape
-  // is selected, ready to be moved with the arrow keys; a text or note is opened, ready to type.
+  // Enter with a drawing tool draws without a pointer: a shape is selected to move with the arrows, a text or note opened.
   function placeWithTool() {
-    // In classroom mode, a student's goes in their frame, or nowhere before they have one, and never a frame.
     if (zone === null || (zone && tool === "frame")) {
       toast(zone ? "In classroom mode, frames are the teacher's." : CLAIM_FIRST, { id: CLASSROOM_TOAST });
       return;
@@ -690,7 +651,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     }
   }
 
-  // Resizing from the keyboard: the bottom right corner (a line's end) moves by (dx, dy), as if dragged.
   function resizeSelected(dx: number, dy: number) {
     const element = selectedId && store.getElement(selectedId);
     if (!element || !canChange(element, zone)) return;
@@ -705,11 +665,10 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         pad: box.kind === "box" ? box.pad : 0,
       },
     );
-    if (!staysInside(next, zone)) return; // in classroom mode, it stops at the edge of the student's frame
+    if (!staysInside(next, zone)) return;
     store.commit({ undo: { upsert: [element] }, redo: { upsert: [next] } }, { mergeKey: `resize:${element.id}` });
   }
 
-  // Connecting from the keyboard (see `connecting`): K starts from the selected shape, if there's something to go to.
   function startConnect() {
     if (!selected) {
       toast("Select a shape first, then press K to connect it to another.");
@@ -730,15 +689,13 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setConnecting({ fromId: selected.id });
   }
 
-  // The next shape on offer (`by` 1), or the one before (-1), going round.
   function stepConnect(by: number) {
     if (!connecting || !connectTo) return;
     const count = connectOptions.length;
     setConnecting({ ...connecting, targetId: connectOptions[(connectIndex + by + count) % count].id });
   }
 
-  // The arrow to the shape on offer, drawn as a drag from one to the other would be: one undo step, then selected, so
-  // Enter gives it a label.
+  // Drawn as a drag between the shapes would be: one undo step, then selected, so Enter gives it a label.
   function finishConnect() {
     if (!connectFrom || !connectTo) return;
     const arrow = connectArrow(connectFrom, connectTo, style);
@@ -750,8 +707,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     selectElement(arrow.id);
   }
 
-  // Elements made all at once (drawn by Claude, imported from Mermaid): one undo step, brought into view if they
-  // aren't all on screen already, and a message to undo them by.
+  // Elements made all at once (Claude, Mermaid): one undo step, scrolled into view if not all on screen, with an undo message.
   function addDrawing(drawn: BoardElement[], message: string) {
     const before = drawn.flatMap((element) => store.getElement(element.id) ?? []);
     const added = drawn.filter((element) => !store.getElement(element.id)).map((element) => element.id);
@@ -767,7 +723,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const counted = (count: number) => `${count} ${count === 1 ? "element" : "elements"}`;
   const addAiDrawing = (drawn: BoardElement[], skipped: number) =>
     addDrawing(drawn, `Drew ${counted(drawn.length)}${skipped > 0 ? `; ${skipped} couldn't be drawn` : ""}`);
-  // An imported diagram goes in the middle of the screen, or beside everything on the board if it would cover something.
+  // Goes in the middle of the screen, or beside everything if it would cover something.
   const addMermaid = (diagram: BoardElement[], skipped: string[]) => {
     const area = unionRects(diagram.map(getBounds))!;
     const board = store.getElements();
@@ -780,8 +736,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     addDrawing(drawn, `Imported ${counted(drawn.length)}${skipped.length > 0 ? `; ${describeSkipped(skipped)}` : ""}`);
   };
 
-  // Handwriting to an equation (see handwriting.ts): the selected stroke and those written near it, or the strokes in
-  // the selected frame, read by Claude. The strokes being read, while the dialog checking what Claude read is open.
+  // Handwriting to an equation (see handwriting.ts): Claude reads the selected stroke and those near it, or a frame's.
   const [readingStrokes, setReadingStrokes] = useState<PenElement[] | null>(null);
   function convertToEquation() {
     const strokes = selected
@@ -800,7 +755,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     }
     setReadingStrokes(strokes);
   }
-  // The strokes, as they are now, give way to the equation in one undo step.
   function insertEquation(latex: string) {
     // The assertion: the dialog that calls this is open only while there are strokes being read.
     const read = readingStrokes!;
@@ -814,7 +768,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     toastWithUndo("Replaced the handwriting with an equation");
   }
 
-  // Classroom mode, for the teacher: started once there are frames for students to claim.
   async function startClassroom() {
     if (!store.getElements().some(isFrame)) {
       toast("Add a frame for each student first: draw one, select it, and use Make copies.");
@@ -828,7 +781,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     if (await sync.changeClassroom({ action: "release", frameId })) toast("That frame is free for a student to claim.");
   };
 
-  // `count` copies of a frame, with what's in it (a worksheet, say), one for each student: in rows beside the board.
+  // Copies of a frame with its contents, one per student, in rows beside the board.
   function copyFrameForClass(frame: FrameElement, count: number) {
     const board = store.getElements();
     const group = withContents(board, frame);
@@ -844,12 +797,10 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     addDrawing(copies, `Made ${count === 1 ? "a copy" : `${count} copies`} of “${frame.name || "the frame"}”`);
   }
 
-  // Shows a student their frame.
   function goToMyFrame() {
     if (myFrame) changeViewport(fitViewport(getBounds(myFrame), canvasSize, { padding: 48 }));
   }
 
-  // A student's claim on the frame they pressed on, as `name` when they're a guest who chose one.
   async function claimFrame(name: string | null) {
     const frame = claiming;
     if (!frame) return;
@@ -867,8 +818,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     changeViewport(fitViewport(getBounds(frame), canvasSize, { padding: 48 }));
   }
 
-  // A student pressed where they may not change anything (see BoardCanvas): offer them the frame they pressed on when
-  // they have none, or say why not. Read through a ref, so the canvas isn't drawn again for a new function each render.
+  // Offers the pressed frame when the student has none, or says why not. Read through a ref so the canvas isn't redrawn for
+  // a new function each render.
   const outsideZone = useRef((_point: XY) => {});
   outsideZone.current = (point: XY) => {
     if (tool === "frame") {
@@ -895,7 +846,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     toastWithUndo("Board cleared");
   }
 
-  // A student in classroom mode gets no panel for what they can't change.
   const panelType = readOnly || (selected && !canChange(selected, zone)) ? null : styleTarget(tool, selected);
   const others = useMemo(() => {
     const seen = new Map<string, Peer>();
@@ -907,7 +857,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
 
   const followed = others.find((person) => person.socketId === followingId);
 
-  // Opens the new copy, which is the person's own board.
   async function makeCopy() {
     try {
       const { board: copy } = await api.copyBoard(board.id);
@@ -923,10 +872,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     toast.success("Template saved. Find it when you start a new board.");
   }
 
-  // The element being edited as it is now, so its editor follows it if someone moves it meanwhile.
-  // The casts in what follows: what is drawn under an id is the same kind of element, so a connector stays one;
-  // the editor for a note or for text is only shown for one; and the board's details are only changed once they are
-  // there, so a rename never starts from null.
+  // The editor follows the element if someone moves it meanwhile.
+  // The casts below: an id gives the same kind of element, the note/text editors only show for one, and details are only changed once there.
   const edited = editing && (elements.find((element) => element.id === editing.element.id) ?? editing.element);
 
   return (
@@ -989,8 +936,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
         open={outlineOpen && !presenting}
         onOpenChange={setOutlineOpen}
       />
-      {/* What's selected, for screen readers. While connecting from the keyboard, the shape on offer, shown to all
-          under the toolbar (toasts come up from the bottom). */}
+      {/* Announces what's selected, or the shape on offer while connecting; shown to all under the toolbar. */}
       <div
         role="status"
         className={
@@ -1079,7 +1025,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
                 />
               ))}
 
-            {/* Top left: back to boards, title */}
             <div className="floating-panel absolute top-3 left-3 flex items-center gap-0.5 rounded-xl p-1">
               <Link
                 to={user ? "/boards" : "/"}
@@ -1097,7 +1042,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
               />
             </div>
 
-            {/* Tools: top centre on wide screens, bottom on phones. Viewers get a notice instead, and suggesters one too. */}
+            {/* Tools: top centre on wide screens, bottom on phones. */}
             <div className="absolute inset-x-3 bottom-3 flex flex-col-reverse items-center gap-2 md:inset-x-auto md:top-3 md:bottom-auto md:left-1/2 md:-translate-x-1/2 md:flex-col">
               {readOnly ? (
                 <ViewOnlyNotice
@@ -1158,7 +1103,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
               )}
             </div>
 
-            {/* Top right: people, share, menu */}
             <div className="absolute top-3 right-3 flex items-center gap-2">
               {others.length > 0 && (
                 <div className="max-sm:hidden">
@@ -1255,7 +1199,6 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
               />
             )}
 
-            {/* Style panel */}
             {panelType && (
               <div className={clsx("absolute left-3 max-md:bottom-[7.5rem] md:top-20", !panelOpen && "max-md:hidden")}>
                 <PropertiesPanel

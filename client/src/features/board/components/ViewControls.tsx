@@ -2,7 +2,6 @@ import { ListTree, Maximize, Minus, Palette, Plus, Redo2, Undo2 } from "lucide-r
 import { IconButton } from "../../../components/Button";
 import type { BoardStore } from "../lib/sync/store";
 
-/** What the view controls take: the board's store (for undo and redo), the zoom and what each button does. */
 export type ViewControlsProps = {
   store: BoardStore;
   readOnly: boolean;
@@ -20,7 +19,6 @@ export type ViewControlsProps = {
   onToggleOutline: () => void;
 };
 
-/** Bottom left: undo and redo, zoom, the board's outline and (on phones) the button that opens the style panel. */
 export function ViewControls({
   store,
   readOnly,

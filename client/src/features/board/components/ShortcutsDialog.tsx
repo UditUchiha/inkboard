@@ -1,8 +1,7 @@
 import { Dialog } from "../../../components/Dialog";
 import { COMMENT_TOOL, NUMBERED_TOOLS, TOOLS } from "../constants/board";
 
-// `navigator.platform` is deprecated; the user agent data (or, failing that, the user agent) says it as well.
-// The cast: TypeScript's DOM types don't have userAgentData yet, which only some browsers offer.
+// navigator.platform is deprecated; userAgentData isn't in TypeScript's DOM types yet, hence the cast.
 const platform =
   typeof navigator === "undefined"
     ? ""
@@ -11,10 +10,8 @@ const platform =
 const isMac = /Mac|iPhone|iPad/.test(platform);
 const MOD = isMac ? "⌘" : "Ctrl";
 
-// What something does and the keys that do it, each shown on a key cap.
 type Action = { label: string; keys: string[] };
 
-// What anyone can do, including people who can only view the board.
 const VIEW_ACTIONS: Action[] = [
   { label: "Pan while held", keys: ["Space"] },
   { label: "Zoom in / out", keys: [MOD, "+ / −"] },
@@ -24,7 +21,6 @@ const VIEW_ACTIONS: Action[] = [
   { label: "Show these shortcuts", keys: ["?"] },
 ];
 
-// What needs the right to edit.
 const EDIT_ACTIONS: Action[] = [
   { label: "Undo", keys: [MOD, "Z"] },
   { label: "Redo", keys: [MOD, "Shift", "Z"] },
@@ -68,7 +64,6 @@ function Keys({ keys }: { keys: string[] }) {
 
 type ShortcutsDialogProps = { open: boolean; onClose: () => void; readOnly?: boolean; canComment?: boolean };
 
-/** `readOnly`: the person can only look, so only what looking needs is listed. `canComment` adds the comment tool. */
 export function ShortcutsDialog({ open, onClose, readOnly = false, canComment = false }: ShortcutsDialogProps) {
   const tools = canComment ? [...TOOLS, COMMENT_TOOL] : TOOLS;
   const actions = readOnly ? VIEW_ACTIONS : [...EDIT_ACTIONS, ...VIEW_ACTIONS];

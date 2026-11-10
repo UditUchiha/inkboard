@@ -29,7 +29,6 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 }
 
 type SwatchProps = {
-  // Left out for a swatch that is not a colour (the one for no fill).
   color?: string;
   name: string;
   selected: boolean;
@@ -119,50 +118,35 @@ const STACK_BUTTONS: { where: StackMove; label: string; icon: LucideIcon }[] = [
   { where: "front", label: "Bring to front", icon: ArrowUpToLine },
 ];
 
-// What the panel can change, and the type of what each is set to.
 type Settings = Pick<
   Style,
   "stroke" | "fill" | "strokeWidth" | "penSize" | "sketchy" | "route" | "startHead" | "font" | "fontSize"
 > & { name: string; alt: string };
 
-/** A change made in the panel: what is set (say "fill") and the value it is set to (a colour, or null for none). */
 export type StyleChange = { [K in keyof Settings]: [key: K, value: Settings[K]] }[keyof Settings];
 
-/** What the panel shows: the style new elements are drawn with, or the selected element (which has the same fields). */
 export type PanelValues = Partial<Settings> & {
-  // What a label's font control waits for: an arrow or line without text has no label to set a font for.
+  // An arrow or line without text has no label to set a font for.
   text?: string;
-  // Set when the values are an element's.
   type?: ElementType;
-  // The part of a picture that is shown, if it's cropped.
   crop?: ImageCrop;
 };
 
-/** What the properties panel takes: what it is for, what it shows and what its buttons do. */
 export type PropertiesPanelProps = {
-  // The kind of element it is for: the selected one, or what the drawing tool makes.
   type: ElementType;
   values: PanelValues;
   onChange: (...change: StyleChange) => void;
-  // Whether it is for a selected element, which adds the layer, duplicate and delete buttons.
   selection: boolean;
   onDuplicate: () => void;
   onDelete: () => void;
-  // Which moves in the stack are possible.
   stackMoves?: Partial<Record<StackMove, boolean>>;
   onMove: (where: StackMove) => void;
-  // For a picture: whether it's being cropped, starting or finishing that, and showing all of it again.
   cropping?: boolean;
   onToggleCrop?: () => void;
   onUncrop?: () => void;
-  // More for a selected element, below its buttons (a frame's classroom section, see ClassroomPanels).
   children?: ReactNode;
 };
 
-/**
- * Shows the style options for the active drawing tool, or for the selected
- * element when the select tool is active.
- */
 export function PropertiesPanel({
   type,
   values,

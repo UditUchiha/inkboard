@@ -69,21 +69,16 @@ const REFUSED: Record<string, string> = {
   outside: "That change was outside your frame, so it was undone.",
 };
 
-/** Told when, in classroom mode, something a student did outside their frame was put back (see useBoardSync). */
 export const OUTSIDE_FRAME = "In classroom mode you can change only what's inside your frame, so that was put back.";
 
-// The shapes of what the socket carries are declared once, in @inkboard/shared/socket, and are exported from here
-// by the names the rest of the app uses. A reply that carries dates arrives with them as strings (see Wire).
+// Socket payload types live in @inkboard/shared/socket; dates in a reply arrive as strings (see Wire).
 export type { CursorMessage, OpReply, Peer, SharedView, ViewportMessage };
 export type { OpRefusal, Participant, RemovedStamp } from "@inkboard/shared/socket";
 
-/** The reply to joining a board: the board as this person may see it, with the stamps of what was removed lately. */
 export type JoinReply = Wire<SocketJoinReply>;
 
-/** Told of every view someone else shares (see subscribeViewport). */
 export type ViewportListener = (view: ViewportMessage) => void;
 
-/** Where opening the board has got to. */
 export type Phase =
   | { name: "connecting" }
   | { name: "error"; status: number; message?: string; locked?: LinkLock }
@@ -91,24 +86,15 @@ export type Phase =
   | { name: "deleted" }
   | { name: "revoked"; wasViewer: boolean };
 
-/** What the board's other events carry, so one meant for the board we left can be told from ours. */
+// What other events carry, so one meant for the board we left can be told from ours.
 type ForBoard = { boardId?: string };
 
-/** Whether someone with `role` changes the board itself: viewers only look, and suggesters' changes are suggestions. */
 export const drawsOnBoard = (role: Role) => role !== "viewer" && role !== "suggester";
 
-/** What the sync hook gives the editor: where opening the board has got to, who is here, and how to share a view. */
 export type BoardSync = ReturnType<typeof useBoardSync>;
 
-/**
- * Connects a board store to the server: joins the board's room, streams local
- * changes (batched every 40ms), applies collaborators' changes, and tracks
- * presence and cursors. Edits made while offline are queued and sent after
- * reconnecting. The queue and what to do with the server's replies are in outbox.ts.
- * Someone who may only suggest has their edits sent as suggestions instead (see
- * suggesting.ts); `selfId` (their account's id, or their guest id) tells theirs apart.
- */
-/** The board's timer as this browser keeps it: as the server last said, and when (by this browser's clock) it heard. */
+// Batches local changes every 40ms and applies collaborators'; offline edits are queued (see outbox.ts). A suggester's
+// edits go as suggestions (see suggesting.ts); `selfId` tells theirs apart.
 export type BoardTimer = Countdown & { at: number };
 
 const timerFrom = (countdown: Countdown | null | undefined): BoardTimer | null =>
@@ -122,7 +108,7 @@ export function useBoardSync(
   const socket = useSocket();
   const [phase, setPhase] = useState<Phase>({ name: "connecting" });
   const [meta, setMeta] = useState<BoardMeta | null>(null);
-  const [role, setRole] = useState<Role>("viewer"); // "owner" | "editor" can draw; "viewer" can only look
+  const [role, setRole] = useState<Role>("viewer");
   const [peers, setPeers] = useState<Peer[]>([]);
   const [timer, setTimer] = useState<BoardTimer | null>(null);
   const [privateMode, setPrivateMode] = useState<PrivateMode | null>(null);
@@ -190,9 +176,8 @@ export function useBoardSync(
     if (piece) send(piece);
   }, [socket, outbox, send]);
 
-  // Our view as it's sent: with whose own view it is (`source`), ours, or, when it's one we took
-  // from someone we follow, whoever's they took it from. Someone following us never takes their
-  // own view back (see onViewport), so people following one another can't pass one round.
+  // Our view with whose own it is (`source`): ours, or whoever's it was before we took it by following. Someone following
+  // us never takes their own view back (see onViewport), so people following one another can't pass one round.
   const viewportMessage = useCallback(() => {
     // The assertion: both callers have looked for a view first.
     const { view, followed } = latestViewport.current!;
@@ -216,8 +201,7 @@ export function useBoardSync(
       // A change in pieces is done: what was made meanwhile waited for it (see outbox.ts).
       else if (outbox.hasPending() && joined.current) flushTimer.current ??= setTimeout(flush, 0);
     } else if (result.kind === "retry" || result.kind === "rejoin") {
-      // A reconnect in the meantime showed the board as the server has it,
-      // which may not include this change yet. Merging it in again is harmless otherwise.
+      // A reconnect meanwhile showed the board as the server has it, maybe without this change yet; merging again is harmless.
       if (result.again.upsert.length > 0 || result.again.remove.length > 0) store.applyRemote(result.again);
       if (result.kind === "rejoin") {
         // The server has no record of us being on this board: join again, then send.
@@ -231,8 +215,7 @@ export function useBoardSync(
       if ((result as { slow?: boolean }).slow)
         toast("Saving is taking longer than usual. Your changes are kept and will go through.", SLOW_TOAST);
     } else if (result.kind === "resync") {
-      // Retrying can't help. Put this screen back to what everyone else has, so it
-      // doesn't keep a drawing that was never saved.
+      // Retrying can't help: put this screen back to what everyone else has, so it doesn't keep a drawing that was never saved.
       toast.error(REFUSED[result.reason] ?? REFUSED.invalid);
       resync.current();
     }
@@ -240,7 +223,6 @@ export function useBoardSync(
 
   useEffect(() => {
     store.setBroadcaster((op) => {
-      // A suggester's changes are suggestions, not changes to the board.
       if (roleRef.current === "suggester") {
         suggester.take(op);
         return;
@@ -268,12 +250,10 @@ export function useBoardSync(
     let active = true;
     let joining = false;
     let gone = false; // the board was deleted, or we can't see it any more: nothing joins it again
-    // The board's id as events name it. The server names a board by its own spelling of the id (lower
-    // case), whichever way the address spelled it, so that is taken from the reply to joining.
+    // The server names a board by its own spelling of the id (lower case), so take it from the reply to joining.
     let eventId = boardId.toLowerCase();
 
-    // Another board in the same screen: nothing of the last one may carry over,
-    // above all changes not sent yet, which would otherwise be sent to this board.
+    // Another board on the same screen: nothing of the last one may carry over, above all unsent changes.
     if (outbox.switchTo(boardId)) {
       loaded.current = false;
       joined.current = false;
@@ -326,7 +306,6 @@ export function useBoardSync(
         setTimer(timerFrom(response.countdown));
         setPrivateMode(response.privateMode ?? null);
         setClassroom(response.classroom ?? null);
-        // A suggester sees the board with their suggestions on it.
         if (joinedRole === "suggester") suggester.joined(elements, response.removed);
         setMeta(boardMeta);
         // A round of voting under way is sent next; one that ended while this browser was away is gone.
@@ -353,8 +332,7 @@ export function useBoardSync(
     const onDisconnect = () => {
       joined.current = false;
       joining = false;
-      // What was sent and not confirmed may be lost. It goes out again after joining, and shows on top
-      // of the board as the server has it, instead of vanishing for a while.
+      // What was sent and not confirmed may be lost: it goes out again after joining and shows on top meanwhile.
       outbox.requeueSent();
       setOnline(false);
       setPeers([]);
@@ -380,8 +358,7 @@ export function useBoardSync(
     const onMeta = (next: BoardMeta) => {
       if (!next?.id || String(next.id).toLowerCase() === eventId) setMeta((current) => ({ ...current, ...next }));
     };
-    // A reply that comes after this (a change the server no longer has a board for) must not join
-    // again, which would put an error in place of saying what happened.
+    // A late reply must not join again, which would put an error in place of saying what happened.
     const leaveForGood = () => {
       gone = true;
       joined.current = false;
@@ -393,7 +370,6 @@ export function useBoardSync(
       leaveForGood();
       setPhase({ name: "deleted" });
     };
-    // Someone restored an earlier version: everything on the board is replaced.
     const onReset = (payload: ResetMessage) => {
       if (forOther(payload)) return;
       const { elements, removed, by } = payload;
@@ -407,13 +383,11 @@ export function useBoardSync(
     };
     const onViewport = (view: ViewportMessage) => {
       if (forOther(view)) return;
-      // Our own view, passed back by someone following us (perhaps through others who follow them):
-      // taking it would send it round again, a little bigger each time on screens of other shapes.
+      // Our own view, passed back by someone following us: taking it would send it round again, a little bigger each time.
       if (view.source === socket.id) return;
       viewSources.current.set(view.socketId, view.source ?? view.socketId);
       for (const listener of viewportListeners.current) listener(view);
     };
-    // Someone started following us: send our view right away instead of waiting for a pan.
     const onViewportRequest = (payload: BoardMessage) => {
       if (!forOther(payload) && latestViewport.current) socket.volatile.emit("viewport", viewportMessage());
     };
@@ -437,7 +411,7 @@ export function useBoardSync(
       roleRef.current = nextRole;
       setRole(nextRole);
       if (suggesting) suggester.forget();
-      if (lostEditing || suggesting) resync.current(); // drop unsent edits and history
+      if (lostEditing || suggesting) resync.current();
     };
     const onCountdown = (payload: CountdownMessage) => {
       if (!forOther(payload)) setTimer(timerFrom(payload.countdown));
@@ -487,8 +461,7 @@ export function useBoardSync(
       active = false;
       resync.current = () => {}; // a late reply must not re-join a board we've left
       rejoin.current = () => {};
-      // Everything not sent yet goes now, the rest of a change in pieces too, ahead of leaving: the
-      // server would refuse what came after (and forget a group it had only part of).
+      // Everything unsent goes now, ahead of leaving: the server would refuse what came after and forget a half-received group.
       clearTimeout(flushTimer.current as ReturnType<typeof setTimeout> | undefined);
       flushTimer.current = null;
       if (joined.current) for (const piece of outbox.drain()) send(piece);
@@ -515,10 +488,8 @@ export function useBoardSync(
     };
   }, [socket, boardId, embed, store, outbox, cursors, suggestions, suggester, flush, send, viewportMessage]);
 
-  // What part of the board we're looking at, shared (when anyone else is here) so
-  // others can follow along: always what's on screen, also while following someone
-  // (`followed`: their socket id, when `view` is the one taken from them), so whoever
-  // follows us sees it too. Trailing-edge throttled so the final position is always sent.
+  // Shared (when anyone else is here) so others can follow: always what's on screen, also while following (`followed` is
+  // their socket id when `view` was taken from them). Trailing-edge throttled so the final position is always sent.
   const sendViewport = useCallback(
     (view: SharedView, followed: string | null = null) => {
       latestViewport.current = { view, followed };
@@ -573,7 +544,7 @@ export function useBoardSync(
     [socket],
   );
 
-  // The board's replay (see replay.ts), for members and, when the owner lets them, people who came by the link.
+  // For members and, when the owner lets them, link visitors.
   const loadReplay = useCallback(
     (): Promise<ReplayReply> =>
       new Promise((resolve) => {
@@ -583,8 +554,7 @@ export function useBoardSync(
     [socket, boardId],
   );
 
-  // Starting or stopping a presentation: the others are shown who presents, and follow them (see useFollow).
-  // Remembered, so a reconnect joins as the presenter again.
+  // Others are shown who presents and follow them (see useFollow); remembered so a reconnect joins as the presenter again.
   const present = useCallback(
     (on: boolean) => {
       presenting.current = on;
@@ -593,7 +563,6 @@ export function useBoardSync(
     [socket],
   );
 
-  // Starting, pausing, resuming or stopping the board's timer. Everyone, this browser too, hears back what it is now.
   const controlTimer = useCallback(
     (payload: CountdownPayload) => {
       socket?.emit("countdown", payload);
@@ -601,7 +570,6 @@ export function useBoardSync(
     [socket],
   );
 
-  // Turning private mode on or off (see PrivateMode). Everyone, this browser too, hears back what it is now.
   const setPrivate = useCallback(
     (on: boolean) => {
       socket?.emit("private", { on });
@@ -609,8 +577,7 @@ export function useBoardSync(
     [socket],
   );
 
-  // Classroom mode (see Classroom): a member starts or stops it or frees a frame, a student claims one. Resolves with
-  // whether it was done; everyone, this browser too, hears back what it is now.
+  // Resolves with whether it was done.
   const changeClassroom = useCallback(
     (payload: ClassroomPayload) =>
       new Promise<boolean>((resolve) => {
@@ -624,8 +591,7 @@ export function useBoardSync(
     [socket],
   );
 
-  // A member's decision on suggestions. They go from this screen at once; accepting one is the member's own
-  // change to the board, made before this (see acceptance in suggestions.ts).
+  // Decisions go from this screen at once; accepting is the member's own change to the board, made before (see suggestions.ts).
   const resolveSuggestions = useCallback(
     (ids: string[], outcome: SuggestionOutcome) => {
       if (ids.length === 0) return;
@@ -637,7 +603,6 @@ export function useBoardSync(
     [socket, boardId, suggestions],
   );
 
-  // Dot voting: running a round, and casting or taking back a vote. Everyone hears back the round as they see it.
   const vote = useCallback(
     (payload: VotePayload) => {
       socket?.emit("vote", payload);
@@ -645,8 +610,7 @@ export function useBoardSync(
     [socket],
   );
 
-  // Gives the password the board's link asks for, keeps the pass it gets, and opens the board with it. Rejects
-  // with the server's reason (a wrong password, say), for the form to show.
+  // Rejects with the server's reason (a wrong password, say), for the form to show.
   const unlock = useCallback(
     async (password: string) => {
       const { pass } = await api.unlockBoard(boardId, password);
@@ -657,7 +621,6 @@ export function useBoardSync(
     [boardId],
   );
 
-  // A suggester taking back their own suggestions: the board shows without them again.
   const withdrawSuggestions = useCallback(
     (ids: string[]) => {
       if (ids.length === 0) return;

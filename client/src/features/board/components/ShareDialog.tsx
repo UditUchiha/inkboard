@@ -12,7 +12,6 @@ import { api, errorMessage } from "../../../lib/api";
 import type { BoardMeta, LinkAccess, Person, Role } from "../../../lib/api";
 import { embedCode } from "../lib/files/embed";
 
-// A way the link can open the board, as the dialog offers it.
 type LinkOption = { value: LinkAccess; icon: LucideIcon; title: string; detail: string };
 
 const LINK_OPTIONS: LinkOption[] = [
@@ -57,7 +56,6 @@ const DESCRIPTIONS: Record<Role, string> = {
   viewer: "You can view this board. Only people the owner invites can make changes.",
 };
 
-// How long from now the link can be set to work for: null is for good.
 const EXPIRY_CHOICES: [label: string, days: number | null][] = [
   ["Never", null],
   ["1 day", 1],
@@ -69,7 +67,6 @@ const formatWhen = (date: Date) => date.toLocaleString(undefined, { dateStyle: "
 
 type LinkLockSettingsProps = { board: BoardMeta; onBoardChange: (updated: BoardMeta) => void };
 
-/** The owner's settings for a shared link: a password it asks for, when it stops working, and the replay. */
 function LinkLockSettings({ board, onBoardChange }: LinkLockSettingsProps) {
   const [editing, setEditing] = useState(false);
   const [password, setPassword] = useState("");
@@ -78,7 +75,7 @@ function LinkLockSettings({ board, onBoardChange }: LinkLockSettingsProps) {
   const expiresAt = board.linkExpiresAt ? new Date(board.linkExpiresAt) : null;
   const expired = Boolean(expiresAt && expiresAt.getTime() <= Date.now());
 
-  // Saves a change, and says whether it went through; why not is shown by the password form, or as a toast.
+  // The password form or a toast shows why a save didn't go through.
   async function save(lock: Parameters<typeof api.setLinkLock>[1], done: string) {
     setSaving(true);
     setError("");
@@ -233,12 +230,9 @@ type ShareDialogProps = {
   onClose: () => void;
   board: BoardMeta;
   role: Role;
-  // Who is looking, or null for a guest.
   currentUser: Person | null;
-  // Filled into the invite field when the dialog opens (from a request for access).
   initialEmail?: string;
   onBoardChange: (updated: BoardMeta) => void;
-  // Called once the person has left the board.
   onLeft: () => void;
 };
 
@@ -258,9 +252,8 @@ export function ShareDialog({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null); // who Remove / Leave is waiting on a second click for
   const [savingAccess, setSavingAccess] = useState(false);
-  const [copied, setCopied] = useState<"link" | "embed" | null>(null); // which copy button just did
+  const [copied, setCopied] = useState<"link" | "embed" | null>(null);
 
-  // Start fresh each time the dialog opens.
   useEffect(() => {
     if (!open) return;
     setEmail(initialEmail);
@@ -322,7 +315,6 @@ export function ShareDialog({
     }
   }
 
-  // Copies `text`, and says which button did for a moment.
   async function copy(text: string, which: "link" | "embed") {
     try {
       await navigator.clipboard.writeText(text);

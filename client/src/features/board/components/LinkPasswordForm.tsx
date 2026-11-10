@@ -4,7 +4,7 @@ import { Button } from "../../../components/Button";
 import { TextField } from "../../../components/Field";
 import { errorMessage } from "../../../lib/api";
 
-/** Asks for the password a board's link asks for. `onUnlock` gives it to the server, and rejects if it's wrong. */
+// `onUnlock` rejects when the password is wrong.
 export function LinkPasswordForm({ onUnlock }: { onUnlock: (password: string) => Promise<void> }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");

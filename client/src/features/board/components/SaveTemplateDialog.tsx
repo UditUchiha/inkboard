@@ -9,11 +9,10 @@ type SaveTemplateDialogProps = {
   open: boolean;
   onClose: () => void;
   defaultTitle: string;
-  // Saves the template under the name; it rejects with what to tell the person if it can't.
+  // Rejects with the message to show if saving fails.
   onSave: (title: string) => Promise<void>;
 };
 
-/** Names a template made from the board as it is now. */
 export function SaveTemplateDialog({ open, onClose, defaultTitle, onSave }: SaveTemplateDialogProps) {
   const [title, setTitle] = useState(defaultTitle);
   const [saving, setSaving] = useState(false);

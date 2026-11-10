@@ -85,7 +85,7 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
     setBusy(true);
     try {
       await api.restoreVersion(boardId, version.id);
-      // The same id as the "someone restored a version" toast everyone gets, so the restorer sees just this one.
+      // Same id as the restore toast everyone gets, so the restorer sees just one.
       toast.success("Version restored. What was here before is saved in the history.", { id: "board-restored" });
       onRestored();
     } catch (error) {
@@ -161,7 +161,6 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
           >
             Restore this version
           </Button>
-          {/* Saved versions are kept until someone deletes them; autosaves clear on their own. */}
           {version.kind === "named" && (
             <IconButton label="Delete this version" icon={Trash2} onClick={() => setConfirming("delete")} />
           )}
@@ -171,7 +170,6 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
   );
 }
 
-/** A side panel listing a board's saved versions, with previews and restore. For members only. */
 export function VersionHistory({ boardId, onClose }: { boardId: string; onClose: () => void }) {
   const [versions, setVersions] = useState<Version[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -196,8 +194,7 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
     load();
   }, [load]);
 
-  // Keep the list current: after someone restores a version, when coming back to the tab, and now and then
-  // (autosaves and other people's saved versions don't announce themselves).
+  // Autosaves and other people's saves don't announce themselves, so refresh on restore, tab focus and a timer.
   const socket = useSocket();
   useEffect(() => {
     const refresh = () => document.visibilityState === "visible" && load({ quiet: true });
@@ -264,7 +261,7 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
             No versions yet. The board is saved automatically as people draw, and you can save a named version any time.
           </p>
         )}
-        {/* The casts: versions is null while loading, and null > 0 is false, as meant; the types can't follow that. */}
+        {/* the cast: versions is null while loading, and null > 0 is false as intended */}
         {(versions?.length as number) > 0 && (
           <ul>
             {versions!.map((version) => (

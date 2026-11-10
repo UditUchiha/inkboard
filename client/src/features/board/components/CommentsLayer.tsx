@@ -19,7 +19,6 @@ import type { NewMessage, ThreadApi } from "../hooks/useThreads";
 
 const POPOVER_WIDTH = 320;
 
-// Mentions are shown highlighted.
 function MessageBody({ message }: { message: ThreadMessage }) {
   const names = message.mentions.map((person) => person.name);
   if (names.length === 0) return <>{message.body}</>;
@@ -41,7 +40,6 @@ type ReactionsProps = {
   onReact: (emoji: string, on: boolean) => void;
 };
 
-// Who reacted to a comment with what, and (for those who may react) a way to add one or take theirs back.
 function Reactions({ message, selfId, canReact, onReact }: ReactionsProps) {
   const [picking, setPicking] = useState(false);
   const reactions = message.reactions ?? []; // a server from before reactions sends none
@@ -152,9 +150,8 @@ type PopoverProps = { point: XY; size: Size; label: string; onClose: () => void;
 
 function Popover({ point, size, label, onClose, children }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
-  // Where focus was before the popover opened. Read while it first renders: by the time effects run,
-  // a field in it with autoFocus has already taken focus.
-  // The cast: what has focus is an HTMLElement (an SVG one would have `focus` too, which is all that is used).
+  // Focus before the popover opened, read on first render: by effect time an autoFocus field has already taken it.
+  // the cast: what has focus is an HTMLElement (only focus() is used)
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
 
   // Keyboard users land in the popover (unless a field in it already took focus).
@@ -163,11 +160,9 @@ function Popover({ point, size, label, onClose, children }: PopoverProps) {
     if (!ref.current!.contains(document.activeElement)) ref.current!.focus({ preventScroll: true });
   }, []);
 
-  // ...and get back to where they were, but only if focus is still inside the popover as it closes. This has to be
-  // checked before the popover leaves the page (a layout cleanup), since removing a focused element drops focus to
-  // the body, which looks the same as someone having clicked the canvas.
-  // The focus itself moves a moment later, so that React's development-only unmount-and-remount of effects (which
-  // never really closes the popover) doesn't pull focus out of the field that just took it.
+  // Focus goes back only if it is still inside as the popover closes, checked before it leaves the page
+  // (removing a focused element drops focus to the body). Moved a tick later so React dev's effect remount
+  // doesn't pull focus out of the field that just took it.
   const mounted = useRef(false);
   useLayoutEffect(() => {
     const popover = ref.current;
@@ -179,7 +174,7 @@ function Popover({ point, size, label, onClose, children }: PopoverProps) {
     };
   }, [opener]);
 
-  // The pin is 36px wide and sits right of the point it marks, so clear it on either side.
+  // The pin is 36px wide and sits right of its point, so clear it on either side.
   const left = point.x + 48 + POPOVER_WIDTH > size.width ? Math.max(8, point.x - 12 - POPOVER_WIDTH) : point.x + 48;
   const top = Math.min(Math.max(point.y - 40, 64), Math.max(64, size.height - 360));
   return (
@@ -202,7 +197,7 @@ type ComposerProps = {
   members: Person[];
   submitLabel: string;
   placeholder: string;
-  // Sends what was written; it rejects with what to tell the person if that fails.
+  // Rejects with the message to show if sending fails.
   onSubmit: (message: NewMessage) => Promise<void>;
   autoFocus?: boolean;
 };
@@ -363,26 +358,19 @@ function ThreadView({
 type CommentsLayerProps = {
   threads: Thread[];
   viewport: Viewport;
-  // The canvas's size, which the popovers keep inside.
   size: Size;
   activeId: string | null;
   onActive: (id: string | null) => void;
-  // Where a new comment is being written, if one is.
   draft: XY | null;
   onDraftClose: () => void;
   members: Person[];
   canComment: boolean;
-  // Whether this person may resolve anyone's threads (people who can edit the board), not only their own.
   canResolveAny: boolean;
   canDeleteAny: boolean;
   selfId: string;
   api: ThreadApi;
 };
 
-/**
- * Comment pins over the canvas, plus the popover for the open thread or the
- * box for a new one. `members` are the people who can be @mentioned.
- */
 export function CommentsLayer({
   threads,
   viewport,

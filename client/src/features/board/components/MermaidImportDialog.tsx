@@ -10,19 +10,13 @@ import type { Measure } from "../lib/mermaid/mermaid";
 type MermaidImportDialogProps = {
   open: boolean;
   onClose: () => void;
-  // Where the diagram goes: the middle of the screen.
   getCentre: () => { x: number; y: number };
-  // Puts the diagram on the board, and says which lines of the text weren't understood.
   onImported: (elements: BoardElement[], skipped: string[]) => void;
 };
 
 // Labels measured as the board draws them, so they sit in the middle of their shapes.
 const measure: Measure = (text, fontSize) => measureText({ fontSize, font: "hand" }, text);
 
-/**
- * Pastes a Mermaid flowchart or sequence diagram onto the board as shapes, labels, arrows, notes and frames (see
- * mermaid.ts). Which it is comes from its first line.
- */
 export function MermaidImportDialog({ open, onClose, getCentre, onImported }: MermaidImportDialogProps) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");

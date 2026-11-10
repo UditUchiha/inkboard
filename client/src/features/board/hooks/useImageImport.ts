@@ -16,10 +16,9 @@ import type { BoardStore } from "../lib/sync/store";
 
 const MAX_IMAGES_AT_ONCE = 10;
 
-/** What the screen shows now, which is where a picture lands. */
 export type ImportView = { viewport: Viewport; canvasSize: Size };
 
-/** What useImageImport takes. `local` is set for a board kept in the browser, which has nowhere to keep pictures. */
+// `local`: a board kept in the browser, which has nowhere to keep pictures.
 type ImageImportOptions = {
   store: BoardStore;
   socket: AppSocket | null;
@@ -31,15 +30,9 @@ type ImageImportOptions = {
   setSelectedId: (id: string | null) => void;
 };
 
-/** What the editor gets to call: adding pictures, and importing a board file. */
 export type ImageImport = ReturnType<typeof useImageImport>;
 
-/**
- * Putting pictures and board files on the board: from the toolbar and menu (`addImages`,
- * `importBoardFile`), and by pasting or dropping them anywhere on the page. `view` is a ref
- * to `{ viewport, canvasSize }`, so a picture lands where the screen is now, not where it was
- * when the upload started. `setTool` and `setSelectedId` select what was added.
- */
+// `view` is a ref, so a picture lands where the screen is now, not where it was when the upload started.
 export function useImageImport({
   store,
   socket,
@@ -50,8 +43,7 @@ export function useImageImport({
   setTool,
   setSelectedId,
 }: ImageImportOptions) {
-  // Adds pictures to the board: shrinks and uploads each, then places it where it
-  // was dropped, or in the middle of the screen. Each one is a single undo step.
+  // Each picture is a single undo step.
   const addImages = useCallback(
     async (files: File[], dropPoint: XY | null = null) => {
       if (local) {
@@ -94,9 +86,7 @@ export function useImageImport({
     [local, socket, boardId, store, view, setTool, setSelectedId],
   );
 
-  // Adds what's in a board file (see boardFile.ts) to this board, centred on
-  // the screen, as one undo step. Its pictures are uploaded again so they
-  // belong to this board.
+  // One undo step; pictures are uploaded again so they belong to this board.
   const importBoardFile = useCallback(
     async (file: File) => {
       let parsed: ParsedBoardFile;
@@ -114,8 +104,8 @@ export function useImageImport({
       }
 
       const progress = toast.loading(`Importing ${file.name}…`);
-      const uploaded = new Map<string, string>(); // image id in the file -> id on this board
-      const failures: string[] = []; // why pictures couldn't be added
+      const uploaded = new Map<string, string>();
+      const failures: string[] = [];
       const wanted = new Set(
         parsed.elements.filter((element) => element.type === "image").map((element) => element.imageId),
       );
@@ -131,7 +121,6 @@ export function useImageImport({
             if (picked.small) primeImage(id, picked.small, { small: true });
             uploaded.set(oldId, id);
           } catch (error) {
-            // Left out below, and counted in the message.
             failures.push(
               error instanceof ImageError || error instanceof BoardFileError
                 ? error.message
@@ -146,7 +135,7 @@ export function useImageImport({
         // The assertion: `has` has just said the id is there.
         return uploaded.has(element.imageId) ? [{ ...element, imageId: uploaded.get(element.imageId)! }] : [];
       });
-      const missing = parsed.elements.length - kept.length; // pictures that couldn't be added
+      const missing = parsed.elements.length - kept.length;
       const why = local ? "Save this board to your account to import pictures." : (failures[0] ?? "");
       if (kept.length === 0) {
         toast.error(`None of that file's pictures could be added. ${why}`.trim(), { id: progress });
@@ -178,7 +167,6 @@ export function useImageImport({
     [local, socket, boardId, store, view, setTool, setSelectedId],
   );
 
-  // Pictures (and board files) can be pasted or dropped onto the board.
   const importBoardFileRef = useRef(importBoardFile);
   importBoardFileRef.current = importBoardFile;
   const addImagesRef = useRef(addImages);
@@ -201,8 +189,7 @@ export function useImageImport({
     };
     const onDrop = (event: DragEvent) => {
       if (!carriesFiles(event)) return;
-      // Left alone, the browser opens a dropped file in the tab, leaving the board,
-      // so this happens even for people who can only view it.
+      // Left alone, the browser opens a dropped file in the tab, so this runs even for people who can only view.
       event.preventDefault();
       const files = imagesIn(event.dataTransfer.files);
       if (readOnly || blocked(event)) return;

@@ -4,10 +4,8 @@ import { errorMessage } from "../../../lib/api";
 import { isComposing } from "../lib/mentions";
 import { titleToSave } from "../lib/titleEdit";
 
-/** What a rename leaves the board's details as: at least its new title. */
 export type RenamedBoard = { title: string };
 
-/** What the board title takes: the board, how to rename it, and what to do with the board once it is. */
 export type BoardTitleProps = {
   board: { title: string };
   rename: (title: string) => Promise<RenamedBoard>;
@@ -15,14 +13,12 @@ export type BoardTitleProps = {
   readOnly: boolean;
 };
 
-/** The board's name: an input for people who can edit it (`rename` saves it), plain text for viewers. */
 export function BoardTitle({ board, rename, onRenamed, readOnly }: BoardTitleProps) {
   const [title, setTitle] = useState(board.title);
-  // The name the field showed when typing in it began, or null before then. Only focusing the field
-  // doesn't count, so a rename someone else makes still shows, and leaving the field doesn't undo it.
+  // Null until typing starts, so a rename someone else makes still shows and leaving the field doesn't undo it.
   const base = useRef<string | null>(null);
   useEffect(() => {
-    if (readOnly) base.current = null; // the field is gone, and what was typed in it with it
+    if (readOnly) base.current = null;
     if (base.current === null) setTitle(board.title);
   }, [board.title, readOnly]);
 

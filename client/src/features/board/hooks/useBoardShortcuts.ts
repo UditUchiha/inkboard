@@ -14,7 +14,6 @@ const ARROW_KEYS: Record<string, [dx: number, dy: number]> = {
   ArrowRight: [1, 0],
 };
 
-/** What the keys do. Each can change every render (see useBoardShortcuts). */
 export type ShortcutActions = {
   duplicateSelected: () => void;
   moveSelected: (where: StackMove) => void;
@@ -33,17 +32,13 @@ export type ShortcutActions = {
   stopFollowing: () => void;
 };
 
-/**
- * What useBoardShortcuts takes. The setters are typed by what the shortcuts pass them (a state setter fits),
- * and `fileInput` is the hidden input the "I" key opens.
- */
 export type ShortcutOptions = {
   store: BoardStore;
   readOnly: boolean;
   canComment: boolean;
   canAddImages: boolean;
   selectedId: string | null;
-  // Whether an arrow from the selection is being connected from the keyboard, so Tab, arrow keys, Enter and Esc are its.
+  // An arrow from the selection is being connected from the keyboard: Tab, arrows, Enter and Esc are its.
   connecting: boolean;
   fileInput: RefObject<HTMLInputElement | null>;
   actions: ShortcutActions;
@@ -55,25 +50,20 @@ export type ShortcutOptions = {
   setDialog: (dialog: "shortcuts") => void;
 };
 
-// What the listeners are, kept in a ref so they always read the latest render's.
+// A ref, so the listeners bound once always read the latest render's values.
 type KeyHandlers = {
   onKeyDown: (event: KeyboardEvent) => void;
   onKeyUp: (event: KeyboardEvent) => void;
   onBlur: () => void;
 };
 
-// Tools are reachable by letter (V, P, R…), and the first nine by position (1–9) too.
 function toolForKey(key: string, withComments: boolean): Tool | null {
   const byLetter = (withComments ? [...TOOLS, COMMENT_TOOL] : TOOLS).find((item) => item.key === key);
   if (byLetter) return byLetter;
   return /^[1-9]$/.test(key) && Number(key) <= NUMBERED_TOOLS ? TOOLS[Number(key) - 1] : null;
 }
 
-/**
- * The board's keyboard shortcuts. `actions` are what the keys do (each can change every render);
- * the rest says what the board is like now. The listeners are bound once and read the latest
- * of all of it through a ref, so they aren't taken off and put back on every render.
- */
+// Listeners are bound once and read the latest props through a ref, so they aren't rebound every render.
 export function useBoardShortcuts({
   store,
   readOnly,

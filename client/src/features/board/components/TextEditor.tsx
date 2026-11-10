@@ -17,7 +17,6 @@ export function cutText(value: string): string {
   return kept.length < value.length && /[\uD800-\uDBFF]$/.test(kept) ? kept.slice(0, -1) : kept;
 }
 
-// A key pressed in one of the editors' textareas.
 type InlineKeyEvent = KeyboardEvent<HTMLTextAreaElement>;
 
 // Keys pressed to pick or cancel what an input method is composing (Japanese, Chinese, Korean…) aren't for the editor.
@@ -28,14 +27,8 @@ const finishesText = (event: InlineKeyEvent) =>
   event.key === "Escape" || (event.key === "Enter" && (event.metaKey || event.ctrlKey));
 const finishesLabel = (event: InlineKeyEvent) => event.key === "Escape" || (event.key === "Enter" && !event.shiftKey);
 
-/**
- * What the three inline editors share: a textarea that takes focus when it opens (with the
- * caret at the end, or everything selected if `selectAll`), starts from `board` (the text
- * as the board has it) and takes in what others type in it meanwhile (see followText),
- * commits once (on blur, which is also how a key that `finishes` the edit ends it) with the
- * text and what it was typed against, and keeps its keys to itself. Spread `inputProps`
- * onto the textarea.
- */
+// Shared by the three inline editors: commits once (on blur, which is also how a `finishes` key ends it) and
+// merges what others type meanwhile (see followText). Spread `inputProps` onto the textarea.
 function useInlineEditor(
   board: string,
   onCommit: (text: string, base: string) => void,
@@ -113,10 +106,8 @@ function useInlineEditor(
   return { value, inputProps };
 }
 
-/** What each inline editor takes: the viewport it is placed by, and what to do with the text once it is done. */
 type EditorProps = { viewport: Viewport; onCommit: (text: string, base: string) => void };
 
-/** What the text editor takes: the text being edited, as the board has it now. */
 export type TextEditorProps = EditorProps & { element: TextElement };
 
 export function TextEditor({ element, viewport, onCommit }: TextEditorProps) {
@@ -149,13 +140,8 @@ export function TextEditor({ element, viewport, onCommit }: TextEditorProps) {
   );
 }
 
-/** What the note editor takes: the sticky note being edited, as the board has it now. */
 export type NoteEditorProps = EditorProps & { element: StickyElement };
 
-/**
- * Edits a sticky note's text in place: the note itself, with its text wrapped
- * and sized as the canvas will draw it (see notes.ts).
- */
 export function NoteEditor({ element, viewport, onCommit }: NoteEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text, onCommit, { finishes: finishesText });
 
@@ -179,8 +165,7 @@ export function NoteEditor({ element, viewport, onCommit }: NoteEditorProps) {
       <textarea
         {...inputProps}
         aria-label="Sticky note text"
-        // Words break between letters when they're too long for a line, as on the canvas. Text that doesn't fit
-        // scrolls (without a scroll bar) so the caret stays in view, instead of running out of the note.
+        // Long words break between letters as on the canvas; overflow scrolls without a bar so the caret stays in view.
         className="m-0 block resize-none overflow-x-hidden overflow-y-auto border-0 bg-transparent p-0 text-center whitespace-pre-wrap [overflow-wrap:anywhere] [scrollbar-width:none] outline-none [&::-webkit-scrollbar]:hidden"
         style={{
           width: layout.width * zoom,
@@ -197,13 +182,8 @@ export function NoteEditor({ element, viewport, onCommit }: NoteEditorProps) {
   );
 }
 
-/** What the label editor takes: the line or arrow being labelled, as the board has it now, and the point halfway along it. */
 export type LabelEditorProps = EditorProps & { element: Connector; middle: XY };
 
-/**
- * Edits a line's or arrow's label in place, centred on `middle` (halfway along
- * the connector, in board units), as the canvas will draw it.
- */
 export function LabelEditor({ element, middle, viewport, onCommit }: LabelEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text ?? "", onCommit, {
     finishes: finishesLabel,

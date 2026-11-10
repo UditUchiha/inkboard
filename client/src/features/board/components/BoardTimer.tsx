@@ -10,11 +10,9 @@ import type { BoardTimer as Timed } from "../hooks/useBoardSync";
 
 const PRESET_MINUTES = [1, 3, 5, 10, 15];
 
-/** How long the timer has left at `now`, in milliseconds (a `now` from before it was heard of counts as then). */
 export const timeLeft = (timer: Timed, now: number): number =>
   timer.running ? Math.max(0, timer.left - Math.max(0, now - timer.at)) : timer.left;
 
-/** Milliseconds as the timer shows them: 4:05, or 1:02:03 past an hour. Partial seconds count up, so 0:00 means done. */
 export function formatTimeLeft(ms: number): string {
   const total = Math.ceil(ms / 1000);
   const hours = Math.floor(total / 3600);
@@ -23,7 +21,7 @@ export function formatTimeLeft(ms: number): string {
   return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
 }
 
-// Three rising notes, made on the spot: a browser that hasn't been clicked yet may keep it quiet, which is fine.
+// Three rising notes made on the spot; a browser that hasn't had a click may keep it quiet.
 function chime() {
   try {
     const audio = new AudioContext();
@@ -45,7 +43,6 @@ function chime() {
   }
 }
 
-// A number of minutes to start the timer for, typed in the menu.
 function CustomMinutes({ onStart }: { onStart: (seconds: number) => void }) {
   const close = useCloseMenu();
   const [minutes, setMinutes] = useState("");
@@ -82,7 +79,6 @@ function CustomMinutes({ onStart }: { onStart: (seconds: number) => void }) {
   );
 }
 
-/** The button that starts the board's timer for everyone (see BoardTimer), for those who can edit the board. */
 export function StartTimer({ onStart }: { onStart: (seconds: number) => void }) {
   return (
     <Menu side="top" trigger={(props) => <IconButton label="Timer" icon={Timer} {...props} />}>
@@ -98,17 +94,12 @@ export function StartTimer({ onStart }: { onStart: (seconds: number) => void }) 
   );
 }
 
-/** What the board's timer takes: the timer, whether this person may set it, and how to. */
 export type BoardTimerProps = {
   timer: Timed | null;
   canControl: boolean;
   onControl: (payload: CountdownPayload) => void;
 };
 
-/**
- * The board's timer, which everyone on it sees count down under the toolbar, once someone who can edit the board
- * has started it (see StartTimer). They pause, resume or stop it here. When time is up it says so, with a chime.
- */
 export function BoardTimer({ timer, canControl, onControl }: BoardTimerProps) {
   const [now, setNow] = useState(Date.now);
   const left = timer ? timeLeft(timer, now) : 0;
