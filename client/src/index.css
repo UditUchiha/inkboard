@@ -190,6 +190,19 @@
   }
 }
 
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+/* Entrance for the landing page: each child sets --i for its place in the stagger. */
+.rise-in {
+  animation: rise-in 600ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+
 dialog[open] {
   animation: dialog-in 160ms ease-out;
 }
