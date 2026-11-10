@@ -46,6 +46,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Structure
+        run: npm run check:structure
+
       # Only dependencies that ship to users; a dev-tool advisory shouldn't block a merge.
       - name: Audit
         run: npm audit --omit=dev --audit-level=high

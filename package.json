@@ -2,6 +2,7 @@
   "name": "inkboard",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "A real-time collaborative whiteboard with hand-drawn shapes, live cursors and sharing.",
   "workspaces": [
     "client",
@@ -23,7 +24,9 @@
     "lint": "eslint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "check:structure": "node scripts/check-structure.ts",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:structure"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
