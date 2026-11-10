@@ -1,7 +1,7 @@
 import type { Element } from "@inkboard/shared/types";
 
 // Watches what people who came through a board's link (not members) do there, so a leaked link is noticed: the owner is
-// told when many join, and when they remove much of the board, a copy of which is kept in version history (see index.ts).
+// told when many join, and when they remove much of the board, a copy of which is kept in version history (see link-alerts.ts).
 
 export const LINK_VISITORS_WARNING = 10;
 export const MASS_REMOVAL = 30;

@@ -35,7 +35,7 @@ const SKIP_WARNING_INTERVAL_MS = 60 * 60 * 1000;
 
 export interface Session {
   boardId: string;
-  // null for a board without an owner (see ownerRoom in index.ts)
+  // null for a board without an owner (see ownerRoom in owner-room.ts)
   owner: string | null;
   elements: Element[];
   index: Map<string, Element>;
