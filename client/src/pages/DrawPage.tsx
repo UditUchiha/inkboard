@@ -14,7 +14,8 @@ import type { AccountUser } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { useSocket } from "../providers/SocketProvider";
 
-// /draw is the no-account whiteboard, kept in this browser; signing up sends them back here and the drawing becomes their first board.
+// /draw is the no-account whiteboard, kept in this browser; signing up sends them back here and the drawing becomes
+// their first board.
 
 type ScratchEditorProps = { user?: AccountUser | null; onSave?: (() => void) | null };
 
@@ -61,7 +62,8 @@ function ScratchEditor({ user = null, onSave = null }: ScratchEditorProps) {
   return <BoardEditor store={store} sync={sync} user={user} local={{ onSave: save }} />;
 }
 
-// If importing fails the drawing is still here (`onKeep`), so nothing is lost. The page keeps `created` so an earlier try's board is filled in rather than remade.
+// If importing fails the drawing is still here (`onKeep`), so nothing is lost. The page keeps `created` so an earlier
+// try's board is filled in rather than remade.
 function ImportScratch({ onKeep, created }: ImportScratchProps) {
   const navigate = useNavigate();
   const socket = useSocket();

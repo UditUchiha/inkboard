@@ -214,7 +214,8 @@ export function createBoardStore({
   let tombstones: Tombstones = new Map(); // removed element id -> { version, versionNonce, element }
   let buried = new Map<string, number>(); // removed element id -> size of the data its tombstone keeps, oldest first
   let buriedChars = 0;
-  // Stamped past this so an undo that revives an element wins over its removal on the server, even after the tombstone is forgotten.
+  // Stamped past this so an undo that revives an element wins over its removal on the server, even after the tombstone
+  // is forgotten.
   let removedHere = new Map<string, number>();
   let undoStack: HistoryStep[] = [];
   let redoStack: HistoryStep[] = [];
@@ -234,7 +235,8 @@ export function createBoardStore({
     for (const listener of listeners) listener();
   }
 
-  // A change that omits a field takes it away and has no say when copies merge, so kind defaults are filled in first (withDefaults).
+  // A change that omits a field takes it away and has no say when copies merge, so kind defaults are filled in first
+  // (withDefaults).
   // `base` is what the change was made from where that isn't the board now (a drag step, an undo).
   function stamp(op: Operation, base: readonly BoardElement[] = []): Effect | null {
     const upsert = (op.upsert ?? []).map(withDefaults);
@@ -360,7 +362,8 @@ export function createBoardStore({
     return released;
   }
 
-  // Re-attaches released connectors when going back, from the state they were released into, so labels and colors set since stay.
+  // Re-attaches released connectors when going back, from the state they were released into, so labels and colors set
+  // since stay.
   function attachingBack<Entry extends HistoryEntry>(
     entry: Entry,
     step: "undo" | "redo",

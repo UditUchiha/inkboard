@@ -17,7 +17,8 @@ import imageRoutes from "./routes/image.routes.ts";
 
 const defaultClientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
 
-// 200 while the process is up even if the database is briefly unreachable: hosts such as Render restart an instance whose
+// 200 while the process is up even if the database is briefly unreachable: hosts such as Render restart an instance
+// whose
 // health check fails, and a restart doesn't fix a database blip. `database` and `status` still say what's wrong.
 function health(req: Request, res: Response) {
   const database = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
@@ -45,7 +46,8 @@ export function createApp({ clientDist = defaultClientDist } = {}) {
 
   app.use(
     helmet({
-      // the host terminates HTTPS (upgrading would break plain-HTTP local runs); blob: lets a just-added picture show from the person's own copy
+      // the host terminates HTTPS (upgrading would break plain-HTTP local runs); blob: lets a just-added picture show
+      // from the person's own copy
       contentSecurityPolicy: {
         directives: {
           upgradeInsecureRequests: null,
@@ -87,7 +89,8 @@ export function createApp({ clientDist = defaultClientDist } = {}) {
       express.static(clientDist, {
         index: false,
         setHeaders(res, filePath) {
-          // only the build's hashed files never change; an "assets" folder higher in the absolute path doesn't make a file one of them
+          // only the build's hashed files never change; an "assets" folder higher in the absolute path doesn't make a
+          // file one of them
           if (path.relative(clientDist, filePath).split(path.sep)[0] === "assets") {
             res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
           }

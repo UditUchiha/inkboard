@@ -2,7 +2,8 @@ import { MAX_VOTES_PER_PERSON, VOTABLE_TYPES } from "@inkboard/shared/limits";
 import type { Voting } from "@inkboard/shared/socket";
 import type { ElementType } from "@inkboard/shared/types";
 
-// Dot voting: an editor starts a round, giving each person a few votes to put on elements, one each at most. Each person
+// Dot voting: an editor starts a round, giving each person a few votes to put on elements, one each at most. Each
+// person
 // sees only their own votes until the round ends, so nobody follows the crowd. A round is saved with the board.
 
 export type VotingState = { open: boolean; votes: number; ballots: Map<string, Set<string>> };

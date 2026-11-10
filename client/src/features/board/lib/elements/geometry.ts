@@ -229,7 +229,8 @@ export function stalePointers(held: Map<number, HeldPointer>, pointerId: number,
 
 export type PressRole = "start" | "pinch" | "take over" | "ignore";
 
-// "take over" is a pen landing beside a resting palm; "ignore" a palm beside a pen, a mouse click while touching, or a third finger.
+// "take over" is a pen landing beside a resting palm; "ignore" a palm beside a pen, a mouse click while touching, or a
+// third finger.
 export function pressRole(held: { type: string }[], type: string): PressRole {
   if (held.length === 0) return "start";
   if (type === "pen" && held.every((pointer) => pointer.type === "touch")) return "take over";

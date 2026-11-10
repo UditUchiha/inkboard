@@ -45,7 +45,8 @@ const SUGGESTION_INVALID = { ok: false, reason: "invalid" } as const;
 
 export function registerSuggestions(socket: RealtimeSocket, limits: SocketLimits) {
   // Suggestions (see suggestions.ts, docs/suggest-mode.md): only a suggester makes them, anyone withdraws their own, a
-  // member resolves them. Each counts against the same limit as a board change. Returns the session, or null after replying.
+  // member resolves them. Each counts against the same limit as a board change. Returns the session, or null after
+  // replying.
   const suggestionSession = (
     payload: { boardId?: unknown } | null | undefined,
     reply: (refusal: SuggestionRefusal) => void,

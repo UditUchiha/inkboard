@@ -28,7 +28,8 @@ const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const tooMany = { error: "Too many attempts. Wait a few minutes and try again." };
 
-// each kind of request has its own allowance, so a school signing in from one address doesn't use up the next class's sign-ups; the ones that guess at or flood an account also count per email
+// each kind of request has its own allowance, so a school signing in from one address doesn't use up the next class's
+// sign-ups; the ones that guess at or flood an account also count per email
 const perAddress = ({
   windowMs = 15 * MINUTE,
   limit,
@@ -76,7 +77,8 @@ const perEmail = ({
   });
 
 // Logins that worked don't count. Guesses at one account count per network address, so whoever makes them only locks
-// themselves out: a limit on the account alone would let anyone keep its owner from logging in (M9). Guesses spread over
+// themselves out: a limit on the account alone would let anyone keep its owner from logging in (M9). Guesses spread
+// over
 // many addresses are held back by each address's allowance and the cost of every check.
 const loginLimits = [
   perAddress({ limit: 30, failedOnly: true }),

@@ -2,8 +2,10 @@ import type { Request, Response } from "express";
 import { HttpError } from "../lib/http-error.ts";
 import * as publicApi from "../services/public-api.ts";
 
-// The MCP server (modelcontextprotocol.io): assistants use boards through the public API's actions (services/public-api.ts,
-// docs/api.md) with the same API tokens. Streamable HTTP without sessions: each POST is one JSON-RPC message answered with
+// The MCP server (modelcontextprotocol.io): assistants use boards through the public API's actions
+// (services/public-api.ts,
+// docs/api.md) with the same API tokens. Streamable HTTP without sessions: each POST is one JSON-RPC message answered
+// with
 // JSON; tools only, which is all the protocol asks of a server that offers only tools.
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];

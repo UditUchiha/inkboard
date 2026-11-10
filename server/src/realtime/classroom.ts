@@ -2,8 +2,10 @@ import type { Classroom } from "@inkboard/shared/socket";
 import type { Element, FrameElement, Plan } from "@inkboard/shared/types";
 import { insideZone } from "@inkboard/shared/zones";
 
-// Classroom mode (docs/classroom-mode.md): while a member has it on, each student (an editor who isn't a member) claims one
-// empty frame and may change only what lies inside it (shared/src/zones.ts). Claims survive turning it off, and are saved with the board.
+// Classroom mode (docs/classroom-mode.md): while a member has it on, each student (an editor who isn't a member) claims
+// one
+// empty frame and may change only what lies inside it (shared/src/zones.ts). Claims survive turning it off, and are
+// saved with the board.
 
 export interface ClassroomState {
   on: boolean;
@@ -33,7 +35,8 @@ export function readClassroom(saved: unknown): ClassroomState | null {
 export const savedClassroom = (state: ClassroomState | null) =>
   state && { on: state.on, claims: [...state.claims].map(([frameId, claim]) => ({ frameId, ...claim })) };
 
-// undefined when nothing changes or it isn't the actor's to do: members start, stop and free frames; a student claims an
+// undefined when nothing changes or it isn't the actor's to do: members start, stop and free frames; a student claims
+// an
 // empty frame while it's on and they have none (a claim whose frame was deleted doesn't count)
 export function nextClassroom(
   state: ClassroomState | null,

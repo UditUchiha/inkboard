@@ -33,13 +33,15 @@ export default function SettingsPage() {
     setParams({}, { replace: true });
   }, [params, setParams]);
 
-  // A successful connect brings a note of the account in the fragment, confirmed with this tab's `bind`; cleared first so it's used once.
+  // A successful connect brings a note of the account in the fragment, confirmed with this tab's `bind`; cleared first
+  // so it's used once.
   useEffect(() => {
     const fragment = new URLSearchParams(window.location.hash.slice(1));
     const connect = fragment.get("connect");
     const provider = fragment.get("provider") as string;
     if (!connect) {
-      // A connection this tab started that didn't come back (login ran out, person went back) mustn't look like it worked; a failed one has its own message above.
+      // A connection this tab started that didn't come back (login ran out, person went back) mustn't look like it
+      // worked; a failed one has its own message above.
       const unfinished = dropConnecting() as string;
       if (isProvider(unfinished)) {
         toast.error(`Connecting ${providerLabel(unfinished)} didn't finish. Try again.`);

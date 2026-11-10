@@ -1,4 +1,5 @@
-// The link only verifies the account it was sent for, for someone logged in to it, so the page says who is logged in and offers a way out.
+// The link only verifies the account it was sent for, for someone logged in to it, so the page says who is logged in
+// and offers a way out.
 
 import type { AccountUser } from "./api";
 import type { AuthStatus } from "../providers/AuthProvider";

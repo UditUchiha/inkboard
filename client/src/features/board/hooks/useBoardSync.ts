@@ -292,7 +292,8 @@ export function useBoardSync(
     };
     const onViewport = (view: ViewportMessage) => {
       if (forOther(view)) return;
-      // Our own view, passed back by someone following us: taking it would send it round again, a little bigger each time.
+      // Our own view, passed back by someone following us: taking it would send it round again, a little bigger each
+      // time.
       if (view.source === socket.id) return;
       viewSources.current.set(view.socketId, view.source ?? view.socketId);
       for (const listener of viewportListeners.current) listener(view);
@@ -370,7 +371,8 @@ export function useBoardSync(
       active = false;
       resync.current = () => {}; // a late reply must not re-join a board we've left
       rejoin.current = () => {};
-      // Everything unsent goes now, ahead of leaving: the server would refuse what came after and forget a half-received group.
+      // Everything unsent goes now, ahead of leaving: the server would refuse what came after and forget a
+      // half-received group.
       clearTimeout(flushTimer.current as ReturnType<typeof setTimeout> | undefined);
       flushTimer.current = null;
       if (joined.current) for (const piece of outbox.drain()) send(piece);

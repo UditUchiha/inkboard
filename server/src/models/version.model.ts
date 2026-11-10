@@ -4,7 +4,8 @@ import type { Element } from "@inkboard/shared/types";
 
 const { ObjectId, Mixed } = mongoose.Schema.Types;
 
-// "auto": taken while people draw; "named": saved on purpose; "restore": the state just before an older version was restored
+// "auto": taken while people draw; "named": saved on purpose; "restore": the state just before an older version was
+// restored
 export const VERSION_KINDS = ["auto", "named", "restore"];
 
 const versionSchema = new mongoose.Schema(

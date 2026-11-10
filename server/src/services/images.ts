@@ -22,7 +22,8 @@ import {
 } from "./image-storage.ts";
 import type { CopyImages, ImageContent, ImageFilter } from "./image-storage.ts";
 
-// The browser shrinks pictures before sending, so the size limit is a backstop for anyone talking to the server directly.
+// The browser shrinks pictures before sending, so the size limit is a backstop for anyone talking to the server
+// directly.
 // The free database holds 512 MB for everything, so space is budgeted per board, per account (all boards someone owns,
 // whoever added the pictures) and for the whole app. Tests lower these.
 export const IMAGE_LIMITS = {
@@ -129,7 +130,8 @@ function sizeProblem(buffer: Buffer, mime: string, side: number) {
 }
 
 // Checked against the space left and then stored, one owner at a time, so two arriving together can't both pass a check
-// that only one fits. Different owners don't wait for each other (they can overshoot the app-wide limit by a few uploads).
+// that only one fits. Different owners don't wait for each other (they can overshoot the app-wide limit by a few
+// uploads).
 const uploading = keyedQueue();
 
 // last minute's uploads per account (board, for guests) and per network address, to slow down floods
@@ -171,8 +173,10 @@ async function limitBroken(
   return null;
 }
 
-// A background sweep, unless the scope was swept lately, so a board full of pictures in use doesn't start a pointless sweep
-// per upload. The upload that ran out of room doesn't wait (a sweep would hold up everyone uploading to that owner); a retry
+// A background sweep, unless the scope was swept lately, so a board full of pictures in use doesn't start a pointless
+// sweep
+// per upload. The upload that ran out of room doesn't wait (a sweep would hold up everyone uploading to that owner); a
+// retry
 // a moment later finds the room. Sweeps of one scope run one after another.
 const lastSweep = new Map<string, number>();
 const sweeping = keyedQueue();
@@ -198,8 +202,10 @@ export interface StoreImage extends ImageContent {
 export type StoreResult =
   { id: string } | { full: ImageLimit; unverified?: true } | { missing: true } | { refused: string };
 
-// `{ full }` names the limit it would break (with `unverified: true` when the owner's smaller allowance for an unconfirmed
-// address ran out); `{ refused }` is a sentence for a turned-away uploader or picture (too many lately, unreadable, too many
+// `{ full }` names the limit it would break (with `unverified: true` when the owner's smaller allowance for an
+// unconfirmed
+// address ran out); `{ refused }` is a sentence for a turned-away uploader or picture (too many lately, unreadable, too
+// many
 // pixels; a small copy that is, is just dropped). When there's no room a sweep starts in the background, so removing
 // pictures frees space for the next try.
 export async function storeImage({

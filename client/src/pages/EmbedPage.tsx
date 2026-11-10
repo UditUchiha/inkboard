@@ -17,7 +17,8 @@ import { getGuest } from "../lib/guest";
 const NOOP = () => {};
 
 // Embedded in an <iframe> on another site: live to look at, pan and zoom, never edited and without showing who's on the
-// board (the server enforces both, see `embed` in JoinPayload). Only boards with a shared link open, as a frame doesn't share the app's sign-in.
+// board (the server enforces both, see `embed` in JoinPayload). Only boards with a shared link open, as a frame doesn't
+// share the app's sign-in.
 export default function EmbedPage() {
   const { boardId } = useParams<{ boardId: string }>();
   return <EmbeddedBoard key={boardId} boardId={boardId!} />;

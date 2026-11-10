@@ -6,7 +6,8 @@ import { applyOperation } from "../realtime/index.ts";
 import { ApiElementError, fromApiElement, MAX_API_ELEMENTS, toApiElement } from "@inkboard/shared/api-elements";
 import { canEdit, currentElements, findBoardForViewing, roleOf, withRoom } from "./boards.ts";
 
-// What the public API and MCP server do (docs/api.md), for the token's person, through the same access rules, checks and
+// What the public API and MCP server do (docs/api.md), for the token's person, through the same access rules, checks
+// and
 // merging as a browser's (see applyOperation).
 
 const MAX_TITLE_LENGTH = 80;
@@ -63,7 +64,8 @@ async function openForEditing(userId: string, boardId: string) {
   return opened;
 }
 
-// an element with the id of one on the board changes just the fields given; also returns the ids of new ones it had no room for
+// an element with the id of one on the board changes just the fields given; also returns the ids of new ones it had no
+// room for
 export async function writeElements(userId: string, boardId: string, inputs: unknown) {
   if (!Array.isArray(inputs) || inputs.length === 0) throw new HttpError(400, "Send `elements`, a list of elements.");
   if (inputs.length > MAX_API_ELEMENTS) throw new HttpError(400, `Send at most ${MAX_API_ELEMENTS} elements at once.`);

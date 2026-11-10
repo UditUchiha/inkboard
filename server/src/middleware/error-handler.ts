@@ -8,7 +8,8 @@ export function notFound(req: Request, res: Response, next: NextFunction) {
 
 const DUPLICATE_KEY = 11000;
 
-// libraries (body-parser, MongoDB, Express itself) put these on errors they throw; anything can be thrown, so every field is optional
+// libraries (body-parser, MongoDB, Express itself) put these on errors they throw; anything can be thrown, so every
+// field is optional
 interface LibraryError {
   type?: string;
   code?: number | string;
@@ -33,11 +34,13 @@ export function errorHandler(err: LibraryError | null | undefined, req: Request,
   if (err?.type === "entity.too.large") {
     return res.status(413).json({ error: "The request is too large." });
   }
-  // two requests racing to create the same unique thing: the loser lost fair and square. The key values hold personal details, so they're not logged or sent.
+  // two requests racing to create the same unique thing: the loser lost fair and square. The key values hold personal
+  // details, so they're not logged or sent.
   if (err?.code === DUPLICATE_KEY) {
     return res.status(409).json({ error: "That already exists." });
   }
-  // request mistakes that libraries report with their own status (malformed URL, unsupported Content-Encoding) aren't server faults
+  // request mistakes that libraries report with their own status (malformed URL, unsupported Content-Encoding) aren't
+  // server faults
   const status = (err?.status ?? err?.statusCode) as number;
   if (Number.isInteger(status) && status >= 400 && status < 500) {
     return res.status(status).json({ error: "The request couldn't be read." });

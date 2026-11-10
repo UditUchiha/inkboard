@@ -86,8 +86,10 @@ export default function DemoBoard() {
     renderScene(canvas, { elements, viewport: { x: 0, y: 0, zoom: scale }, dpr });
   }, [size, scale, loopCount, progress, doodles, fontsReady]);
 
-  // A finger scrolls the page (touch-pan-y) and a stroke that turns into a scroll is cancelled, but Chromium holds a pen to that too,
-  // so a pen stroke would scroll instead of drawing. A hovering pen turns that off until it leaves; one landing without hover
+  // A finger scrolls the page (touch-pan-y) and a stroke that turns into a scroll is cancelled, but Chromium holds a
+  // pen to that too,
+  // so a pen stroke would scroll instead of drawing. A hovering pen turns that off until it leaves; one landing without
+  // hover
   // (Apple Pencil) is held by its touchmoves, which don't scroll while drawing.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -134,7 +136,8 @@ export default function DemoBoard() {
     penStroke.current = false;
   };
 
-  // A stroke the browser took over (a finger that began scrolling the page) isn't a drawing: the dot it began with goes.
+  // A stroke the browser took over (a finger that began scrolling the page) isn't a drawing: the dot it began with
+  // goes.
   const cancelDrawing = () => {
     const id = drawing.current;
     stopDrawing();

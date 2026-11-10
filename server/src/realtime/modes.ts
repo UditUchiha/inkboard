@@ -11,7 +11,8 @@ import { sameAuthor, suggestionList } from "./suggestions.ts";
 import type { RealtimeSocket, SocketLimits } from "./types.ts";
 import { io, personOf, socketsIn } from "./hub.ts";
 
-// Roles under embeds, private mode and classroom mode, and the events that run voting, the timer, private mode and classroom mode.
+// Roles under embeds, private mode and classroom mode, and the events that run voting, the timer, private mode and
+// classroom mode.
 
 // an embed only views, even on an edit link
 export const roleFor = (socket: Pick<RealtimeSocket, "data">, role: Role | null): Role | null =>
@@ -55,7 +56,8 @@ export const showsSuggestion = (session: Session, socket: Pick<RealtimeSocket, "
   !session.privateMode || sameAuthor(suggestion.author, personOf(socket));
 
 export function registerModes(socket: RealtimeSocket, limits: SocketLimits) {
-  // Dot voting (see voting.ts): anyone votes, editors run the round, and each person sees only their own votes while it's open.
+  // Dot voting (see voting.ts): anyone votes, editors run the round, and each person sees only their own votes while
+  // it's open.
   socket.on("vote", (payload) => {
     const boardId = socket.data.boardId;
     if (!boardId || socket.data.embed || !limits.vote()) return;

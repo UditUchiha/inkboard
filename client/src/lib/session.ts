@@ -1,4 +1,5 @@
-// Which login a tab keeps when it logs out. The stored login is shared by every tab; kept apart from the provider to test without a browser.
+// Which login a tab keeps when it logs out. The stored login is shared by every tab; kept apart from the provider to
+// test without a browser.
 
 // The signature isn't checked: this only tells whether two tokens are the same person; the server checks every token.
 export function tokenUserId(token: string) {
@@ -11,8 +12,10 @@ export function tokenUserId(token: string) {
   }
 }
 
-// `explicit` logout always ends logged out here. Otherwise (token refused) a newer login for the same account is adopted
-// (the password may have changed in another tab), a different account's isn't. `clearStored` only when the stored token is this tab's own.
+// `explicit` logout always ends logged out here. Otherwise (token refused) a newer login for the same account is
+// adopted
+// (the password may have changed in another tab), a different account's isn't. `clearStored` only when the stored token
+// is this tab's own.
 export function logoutPlan({
   own,
   stored,

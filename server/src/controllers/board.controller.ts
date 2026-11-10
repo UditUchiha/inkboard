@@ -148,7 +148,8 @@ const COPY_FULL: Record<ImageLimit, string> = {
   total: "Image storage is full for now, so this board's pictures can't be copied. Try again later.",
 };
 
-// The drawing as people see it now, with its own copies of the pictures (so it survives the original's deletion), but none
+// The drawing as people see it now, with its own copies of the pictures (so it survives the original's deletion), but
+// none
 // of the comments, history, suggestions or people. Anyone signed in who can open the board can copy it, viewers too.
 export async function copyBoard(req: BoardRequest, res: Response) {
   const source = await findBoardForViewing(req.params.boardId, req.userId);
@@ -217,7 +218,8 @@ function readLinkExpiry(value: unknown) {
   return at;
 }
 
-// A new password, or none, ends every pass given for the old one, so people opening by the link are asked again; invited people never are.
+// A new password, or none, ends every pass given for the old one, so people opening by the link are asked again;
+// invited people never are.
 export async function setLinkAccess(
   req: BoardRequest<{ linkAccess?: unknown; password?: unknown; expiresAt?: unknown; linkReplay?: unknown }>,
   res: Response,
@@ -250,7 +252,8 @@ export async function setLinkAccess(
   res.json({ board: serializeMeta(board) } satisfies Api.BoardMetaReply);
 }
 
-// Answers with the pass that opens the link from now on (see link-pass.ts); someone signed in is also remembered, so the board stays on their dashboard. Open to guests.
+// Answers with the pass that opens the link from now on (see link-pass.ts); someone signed in is also remembered, so
+// the board stays on their dashboard. Open to guests.
 export async function unlockBoard(req: BoardRequest<{ password?: unknown }>, res: Response) {
   const { boardId } = req.params;
   const board = mongoose.isValidObjectId(boardId)
@@ -285,7 +288,8 @@ export async function starBoard(req: BoardRequest<{ starred?: unknown }>, res: R
   res.json({ starred } satisfies Api.StarReply);
 }
 
-// Everyone loses access until the owner restores it, so the invited are told: a board vanishing without a word looks like a bug.
+// Everyone loses access until the owner restores it, so the invited are told: a board vanishing without a word looks
+// like a bug.
 export async function deleteBoard(req: BoardRequest, res: Response) {
   const board = await findBoardForMember(req.params.boardId, req.userId);
   if (!isOwner(board, req.userId)) {
@@ -323,7 +327,8 @@ export async function imageUsage(req: Request, res: Response) {
 
 const MAX_PREVIEWS = 24;
 
-// up to 24 boards the person can open, as { [boardId]: elements }; boards that are gone or off limits are left out, and a deleted board is only for its owner
+// up to 24 boards the person can open, as { [boardId]: elements }; boards that are gone or off limits are left out, and
+// a deleted board is only for its owner
 export async function listPreviews(req: Request, res: Response) {
   const ids = String(req.query.ids ?? "")
     .split(",")
@@ -347,7 +352,8 @@ async function findTrashed(boardId: string, userId: string | undefined) {
 // takes no room: a trashed board still counts against its owner's limits (see withRoom)
 export async function restoreBoard(req: BoardRequest, res: Response) {
   const board = await findTrashed(req.params.boardId, req.userId);
-  // one write that only takes a board nobody has started deleting for good, so a restore and a purge can't both go ahead (see destroyBoard)
+  // one write that only takes a board nobody has started deleting for good, so a restore and a purge can't both go
+  // ahead (see destroyBoard)
   const restored = await Board.updateOne(
     { _id: board._id, deletedAt: { $ne: null }, purgingAt: null },
     { $set: { deletedAt: null } },
@@ -400,7 +406,8 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
   if (idOf(invitee) === idOf(board.owner)) {
     throw new HttpError(400, "You already own this board.");
   }
-  // anyone can sign up with any address, so only an address shown to be theirs gets boards shared with it (needs email set up to send the link)
+  // anyone can sign up with any address, so only an address shown to be theirs gets boards shared with it (needs email
+  // set up to send the link)
   if (emailConfigured() && !invitee.emailVerified) {
     throw new HttpError(
       409,
@@ -408,7 +415,8 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
     );
   }
 
-  // one write that adds them only if they aren't there yet, so invites sent at once can't add or notify twice; `updatedAt` stays, as sharing isn't editing
+  // one write that adds them only if they aren't there yet, so invites sent at once can't add or notify twice;
+  // `updatedAt` stays, as sharing isn't editing
   const added = await Board.updateOne(
     { _id: board._id, deletedAt: null, collaborators: { $ne: invitee._id } },
     { $addToSet: { collaborators: invitee._id } },
@@ -428,7 +436,8 @@ export async function addCollaborator(req: BoardRequest<{ email?: unknown }>, re
 }
 
 // The owner is notified with the asker's email, which the notification's link fills into the Share dialog. An unread
-// request isn't sent again. With email set up, only a verified owner is emailed (only an address shown to be theirs is sent the asker's).
+// request isn't sent again. With email set up, only a verified owner is emailed (only an address shown to be theirs is
+// sent the asker's).
 export async function requestAccess(req: BoardRequest, res: Response) {
   const { boardId } = req.params;
   const board = mongoose.isValidObjectId(boardId)

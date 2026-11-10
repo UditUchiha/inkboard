@@ -44,7 +44,8 @@ function takeDailySlot(purpose: EmailPurpose | "access-request") {
 
 export const emailConfigured = () => Boolean(env.email.brevoApiKey && env.email.from);
 
-// Throws if the service refuses or the daily limit is used up. `purpose` "reset-password" may use the share kept for resets.
+// Throws if the service refuses or the daily limit is used up. `purpose` "reset-password" may use the share kept for
+// resets.
 export async function sendEmail({
   to,
   subject,

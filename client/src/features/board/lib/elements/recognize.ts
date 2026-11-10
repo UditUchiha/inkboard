@@ -23,7 +23,8 @@ const THIN = 0.1; // a closed shape whose short side is less than this share of 
 const HEAD_REACH = [0.12, 0.4];
 // Barb spread from the way back along the shaft: less retraces the line, more is a corner (L, Z).
 const HEAD_SPREAD = [Math.PI / 9, (Math.PI * 5) / 12];
-// A triangle or diamond must fit this many times better than the next shape: a pentagon is as near a diamond as an ellipse.
+// A triangle or diamond must fit this many times better than the next shape: a pentagon is as near a diamond as an
+// ellipse.
 const MARGIN = 1.5;
 
 export function recognizeStroke(points: readonly Point[], minSize = 0): RecognizedShape | null {

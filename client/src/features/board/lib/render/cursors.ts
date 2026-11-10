@@ -13,7 +13,8 @@ export interface CursorStore {
   clear(): void;
 }
 
-// Pointers move about 20 times a second per person, so they live outside React state: only RemoteCursors subscribes and the editor isn't re-rendered.
+// Pointers move about 20 times a second per person, so they live outside React state: only RemoteCursors subscribes and
+// the editor isn't re-rendered.
 
 const NONE: Cursors = {};
 

@@ -68,12 +68,14 @@ let croppingId: string | null = null;
 let zoomNow = 1; // screen pixels per board unit, in the scene being rendered
 let claimsNow: ReadonlyMap<string, { name: string; mine: boolean }> = new Map(); // classroom mode's, see RenderOptions
 
-// Zoomed far out, unseen detail isn't drawn in full: text under READABLE_TEXT screen pixels can't be read, and notes under NOTE_SHADOW_MIN show no shadow.
+// Zoomed far out, unseen detail isn't drawn in full: text under READABLE_TEXT screen pixels can't be read, and notes
+// under NOTE_SHADOW_MIN show no shadow.
 const READABLE_TEXT = 3;
 const NOTE_SHADOW_MIN = 24;
 const readable = (fontSize: number) => fontSize * zoomNow >= READABLE_TEXT;
 
-// Under this many screen pixels a sketchy wobble is sub-pixel and Rough.js's several strokes per shape cost the most, so plain paths are used.
+// Under this many screen pixels a sketchy wobble is sub-pixel and Rough.js's several strokes per shape cost the most,
+// so plain paths are used.
 const PLAIN_SHAPE_MAX = 40;
 
 function drawMoved({ dx, dy }: Moved, ctx: CanvasRenderingContext2D, draw: () => void) {
@@ -483,7 +485,8 @@ function drawFromTiles(canvas: HTMLCanvasElement, options: RenderOptions): boole
     return false;
   }
   if (hiddenId || cropping || background || smallImages || suggestions.length > 0) return false;
-  // Tiles are in device pixels so a board point always lands on the same one and they join up; the board sits a whole number of pixels along.
+  // Tiles are in device pixels so a board point always lands on the same one and they join up; the board sits a whole
+  // number of pixels along.
   const scale = dpr * viewport.zoom;
   const left = Math.round(viewport.x * scale);
   const top = Math.round(viewport.y * scale);

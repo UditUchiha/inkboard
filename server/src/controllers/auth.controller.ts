@@ -54,7 +54,8 @@ function checkNewPassword(password: string) {
   }
 }
 
-// after the answer, so a request's duration doesn't depend on the mail service (or, for resets, on whether the address has an account)
+// after the answer, so a request's duration doesn't depend on the mail service (or, for resets, on whether the address
+// has an account)
 function sendInBackground(sending: Promise<unknown>, what: string) {
   sending.catch((error: Error) => console.error(`Couldn't send ${what}: ${error.message}`));
 }
@@ -65,7 +66,8 @@ function releaseProviders(user: UserDoc) {
   return linked.length > 0;
 }
 
-// every token made so far stops working and open sockets close; the caller hands the person a new token if they should stay
+// every token made so far stops working and open sockets close; the caller hands the person a new token if they should
+// stay
 async function endAllSessions(user: UserDoc) {
   user.revokeSessions();
   await user.save();
@@ -141,7 +143,8 @@ export async function updateProfile(req: BodyRequest<{ name?: unknown; color?: u
   res.json({ user: user.toAccount() } satisfies UserReply);
 }
 
-// Setting a first password on an account made with Google or GitHub takes a recent login (there's no old password to prove who is asking).
+// Setting a first password on an account made with Google or GitHub takes a recent login (there's no old password to
+// prove who is asking).
 export async function changePassword(
   req: BodyRequest<{ currentPassword?: unknown; newPassword?: unknown }>,
   res: Response,
@@ -169,7 +172,8 @@ function requireEmail() {
 
 // Needs the login too (C5): the link proves who holds the inbox, the login proves they hold the account. Without it,
 // someone who signed up with another person's address could have the owner's click verify it for them, get the owner's
-// invites, and connect their own Google or GitHub, which a later password reset would keep. No other logins need ending:
+// invites, and connect their own Google or GitHub, which a later password reset would keep. No other logins need
+// ending:
 // every login to an unverified account is by its password, which the person verifying has just shown they hold.
 export async function verifyEmail(req: BodyRequest<{ token?: unknown }>, res: Response) {
   const userId = await redeemSecret(req.body?.token, "verify-email", req.userId);

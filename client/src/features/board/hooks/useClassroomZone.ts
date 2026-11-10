@@ -26,7 +26,8 @@ export function useClassroomZone({ sync, store, local, elementById }: ClassroomZ
     () => (classroom?.on ? new Map(classroom.claims.map((claim) => [claim.frameId, claim])) : undefined),
     [classroom],
   );
-  // A student's undo history holds where things were; once the teacher moves their frame, going back would put things outside it.
+  // A student's undo history holds where things were; once the teacher moves their frame, going back would put things
+  // outside it.
   const zonePlace = zone ? `${zone.id}:${zone.x1},${zone.y1},${zone.x2},${zone.y2}` : "";
   const lastZonePlace = useRef(zonePlace);
   useEffect(() => {

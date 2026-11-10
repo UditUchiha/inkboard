@@ -2,7 +2,8 @@ import { MAX_ALT_LENGTH, MAX_FRAME_NAME_LENGTH, MAX_TEXT_LENGTH } from "./limits
 import type { Element, FieldGroup, Splice, TextBases, TextField } from "./types.ts";
 
 // How two people typing in the same text at once both keep what they typed (docs/realtime-sync.md, "Typing in the same
-// text"). A change carries its `base`, the text it was made against; where the board's text changed since, both changes are
+// text"). A change carries its `base`, the text it was made against; where the board's text changed since, both changes
+// are
 // applied as character diffs (a three-way merge), and the result is stamped newer than both. Done where changes meet in
 // order: on the server, and in the browser when it stamps its own change or shows someone else's typing.
 
@@ -14,7 +15,8 @@ export const TEXT_FIELDS: Record<TextField, { group: FieldGroup; max: number }> 
 
 export type Hunk = [start: number, end: number, insert: string];
 
-// about a millisecond of work; typing takes far less, two unrelated long texts take more and aren't merged (the newer change wins), which also keeps a sent change from making the server work hard
+// about a millisecond of work; typing takes far less, two unrelated long texts take more and aren't merged (the newer
+// change wins), which also keeps a sent change from making the server work hard
 const DIFF_BUDGET = 100_000;
 
 // Myers' diff: as few letters added and removed as can be, in order, none touching another. Null past DIFF_BUDGET.
@@ -47,7 +49,8 @@ function sameEnds(a: string, b: string): [prefix: number, suffix: number] {
   return [prefix, suffix];
 }
 
-// Myers' O((N+M)D): [where in `a`, the letter put there] for an insert, [where in `a`, null] for a delete; keeps each round's reach (only the diagonals it touched) to trace the path back
+// Myers' O((N+M)D): [where in `a`, the letter put there] for an insert, [where in `a`, null] for a delete; keeps each
+// round's reach (only the diagonals it touched) to trace the path back
 function shortestEdit(a: string, b: string): [at: number, inserted: string | null][] | null {
   const n = a.length;
   const m = b.length;
@@ -96,7 +99,9 @@ function traceBack(rounds: Int32Array[], n: number, m: number, b: string): [numb
   return edits.reverse();
 }
 
-// A letter either deleted is gone; what either typed is kept; typed at the same spot, `current`'s goes first. Two changes that come to the same text are one change made twice. Null when the diffs are too much work or the result is longer than `max`: the newer change then wins whole.
+// A letter either deleted is gone; what either typed is kept; typed at the same spot, `current`'s goes first. Two
+// changes that come to the same text are one change made twice. Null when the diffs are too much work or the result is
+// longer than `max`: the newer change then wins whole.
 export function mergeText(base: string, current: string, incoming: string, max = Infinity): string | null {
   if (incoming === current || incoming === base) return current;
   if (current === base) return incoming;
@@ -129,7 +134,8 @@ export function mergeText(base: string, current: string, incoming: string, max =
   return merged.length <= max ? merged : null;
 }
 
-// Text added right at the place goes after it, so someone typing there carries on before it; a place inside a replaced stretch goes to the end of the replacement.
+// Text added right at the place goes after it, so someone typing there carries on before it; a place inside a replaced
+// stretch goes to the end of the replacement.
 export function mapIndex(hunks: readonly Hunk[], index: number): number {
   let shift = 0;
   for (const [start, end, insert] of hunks) {
@@ -142,7 +148,8 @@ export function mapIndex(hunks: readonly Hunk[], index: number): number {
 
 export type Typing = { value: string; base: string; start: number; end: number };
 
-// `board` is the text after someone else typed in it: their change is merged into what's typed, as the server will merge the two, and the selection keeps its place (see mapIndex).
+// `board` is the text after someone else typed in it: their change is merged into what's typed, as the server will
+// merge the two, and the selection keeps its place (see mapIndex).
 export function followText(typing: Typing, board: string): Typing {
   if (board === typing.base) return typing;
   const value = mergeText(typing.base, board, typing.value, MAX_TEXT_LENGTH) ?? typing.value;

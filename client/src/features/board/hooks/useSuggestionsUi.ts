@@ -30,7 +30,8 @@ export function useSuggestionsUi({
   const review = useSuggestionReview(sync, store);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
-  // A suggester's screen shows the board with their suggestions in it; this is the board without them (see suggesting.ts).
+  // A suggester's screen shows the board with their suggestions in it; this is the board without them (see
+  // suggesting.ts).
   const { elements: underneath } = useBoardSnapshot(sync.suggestedOver);
   const underneathById = useMemo(() => new Map(underneath.map((element) => [element.id, element])), [underneath]);
   const boardWithout = suggesting ? (id: string) => underneathById.get(id) : getElement;

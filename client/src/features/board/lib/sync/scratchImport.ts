@@ -8,7 +8,8 @@ import { SYNC_FORMAT } from "../../constants/board";
 import type { Scratch } from "./scratch";
 import { toOperations } from "./store";
 
-// Creating a board over HTTP takes a body of up to 2 MB and a drawing can be bigger, so what doesn't fit goes over the socket.
+// Creating a board over HTTP takes a body of up to 2 MB and a drawing can be bigger, so what doesn't fit goes over the
+// socket.
 
 const FIRST_REQUEST_BYTES = 1_200_000;
 const REPLY_TIMEOUT_MS = 20_000;
@@ -96,7 +97,8 @@ export async function importScratch({
     FIRST_REQUEST_BYTES,
   );
   if (created) {
-    // The drawing may have changed since that try, so all of it is sent and the rest removed; resending is harmless as changes merge by stamp.
+    // The drawing may have changed since that try, so all of it is sent and the rest removed; resending is harmless as
+    // changes merge by stamp.
     try {
       await sendPieces(socket, created.id, operations, new Set(scratch.elements.map((element) => element.id)));
       return created;

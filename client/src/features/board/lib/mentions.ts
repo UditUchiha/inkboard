@@ -8,7 +8,8 @@ const WORD_CHARACTER = /[\p{L}\p{N}_]/u;
 
 export const MENTION_AT_CARET = /(^|\s)@(\S*)$/;
 
-// The longest name wins ("@Ann Lee" is not "@Ann"); a name only counts when not followed by more of a word or preceded by one ("a@Ann.com" is an address).
+// The longest name wins ("@Ann Lee" is not "@Ann"); a name only counts when not followed by more of a word or preceded
+// by one ("a@Ann.com" is an address).
 export function findMentions(text: string, names: string[]): Mention[] {
   const candidates = [...new Set(names)].filter(Boolean).sort((a, b) => b.length - a.length);
   const found: Mention[] = [];

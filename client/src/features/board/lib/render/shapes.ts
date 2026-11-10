@@ -11,7 +11,8 @@ import type { Ink } from "./ink";
 
 const generator = rough.generator();
 
-// Elements are immutable, so generated shapes are cached per object (and reused for moved copies); light and dark keep separate caches.
+// Elements are immutable, so generated shapes are cached per object (and reused for moved copies); light and dark keep
+// separate caches.
 const drawableCaches = { light: createDrawingCache<Drawable[]>(), dark: createDrawingCache<Drawable[]>() };
 const penPathCache = createDrawingCache<Path2D>();
 

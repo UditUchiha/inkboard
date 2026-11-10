@@ -31,7 +31,8 @@ interface Fits {
   full: boolean;
 }
 
-// Every version is a full copy of the board (up to 12 MB, a fifth of that compressed) and the free database holds 512 MB
+// Every version is a full copy of the board (up to 12 MB, a fifth of that compressed) and the free database holds 512
+// MB
 // for everything, so each board's history has a budget. Tests lower these.
 export const VERSION_LIMITS = {
   // Over budget the newest `keepAuto` go last; a new automatic version, or a new saved one when there is no other room,
@@ -41,7 +42,8 @@ export const VERSION_LIMITS = {
   restore: 10,
   // never removed automatically, so a new one is refused past this count or when they'd take the whole budget
   named: 50,
-  // as MongoDB stores them (compressed); the history is never left bigger. Only saved versions count towards their owner's
+  // as MongoDB stores them (compressed); the history is never left bigger. Only saved versions count towards their
+  // owner's
   // space (see ownerBytes); automatic ones are bounded by this alone, per board.
   bytes: 30_000_000,
 };
@@ -57,7 +59,8 @@ export interface PackedElements {
 }
 
 // gzipped JSON, with the pictures it shows listed beside it and its size as MongoDB stores that: about a fifth of the
-// board's size (brotli is a little smaller but takes seconds). The biggest boards take a fifth of a second, so it runs on
+// board's size (brotli is a little smaller but takes seconds). The biggest boards take a fifth of a second, so it runs
+// on
 // zlib's own threads; stringifying first takes the copy at once, so changes made meanwhile don't reach it.
 export async function packElements(elements: Element[]): Promise<PackedElements> {
   const json = JSON.stringify(elements);
@@ -110,7 +113,8 @@ const totalBytes = (versions: Entry[]) => versions.reduce((sum, version) => sum 
 const INCOMING = "incoming";
 
 // Over budget, the oldest beyond the few usually kept go first, then those few, oldest first. Saved versions are never
-// deleted here, so `full` means they alone (the incoming one included) fill the budget, or are too many (`named: true`).
+// deleted here, so `full` means they alone (the incoming one included) fill the budget, or are too many (`named:
+// true`).
 // Any automatic version can be evicted for the incoming one, so a new saved version is refused only for lack of room
 // among saved versions, never because of autosaves, which people can't delete.
 function makeRoom(history: Entry[], incoming: Pick<Entry, "kind" | "bytes"> | null): Refused | Fits {
@@ -134,7 +138,8 @@ function makeRoom(history: Entry[], incoming: Pick<Entry, "kind" | "bytes"> | nu
 
 // A saved (named) or before-restore version is refused (400, with the reason) when there's no room; an automatic one is
 // skipped and this resolves null. That only happens when saved versions plus this copy fill the budget. A board being
-// erased or gone gets no new versions (see removeVersions). `drawing` may arrive packed, from a caller that needed its size.
+// erased or gone gets no new versions (see removeVersions). `drawing` may arrive packed, from a caller that needed its
+// size.
 export async function recordVersion(
   boardId: ObjectIdLike,
   drawing: Element[] | PackedElements,
@@ -142,7 +147,8 @@ export async function recordVersion(
 ) {
   const { packed, imageIds, elementCount, bytes } = Array.isArray(drawing) ? await packElements(drawing) : drawing;
   return writing(String(boardId), async () => {
-    // checked inside the queue: erasing waits behind writes running, and a later write finds the board marked, so no version outlives its board
+    // checked inside the queue: erasing waits behind writes running, and a later write finds the board marked, so no
+    // version outlives its board
     if (!(await Board.exists({ _id: boardId, purgingAt: null }))) {
       if (kind === "auto") return null;
       throw new HttpError(404, "This board doesn't exist or has been deleted.");
@@ -163,7 +169,8 @@ export async function recordVersion(
       elementCount,
       bytes,
     });
-    // written first and pruned after, so a failure leaves an extra version (pruned next write), not a history missing its replacement
+    // written first and pruned after, so a failure leaves an extra version (pruned next write), not a history missing
+    // its replacement
     if (room.doomed.size > 0) await Version.deleteMany({ _id: { $in: [...room.doomed] } });
     return version;
   });
@@ -194,7 +201,8 @@ export function pruneVersions(boardId: ObjectIdLike) {
 }
 
 // Automatic and before-restore versions are left out on purpose: people can't delete them, so counting them would let
-// ordinary use fill an owner's space for good. They're bounded by VERSION_LIMITS.bytes per board and BOARD_LIMITS.perOwner.
+// ordinary use fill an owner's space for good. They're bounded by VERSION_LIMITS.bytes per board and
+// BOARD_LIMITS.perOwner.
 export async function savedVersionBytes(boardIds: Types.ObjectId[]) {
   if (boardIds.length === 0) return 0;
   await measureOldVersions(boardIds, { kind: "named" });

@@ -58,7 +58,8 @@ const toHex = (rgb: number[]) => `#${rgb.map((n) => Math.round(n).toString(16).p
 
 export const contrastWithWhite = (rgb: number[]) => 1.05 / (luminance(rgb) + 0.05);
 
-// Old palette colors become their replacement, and a color too light for white text is darkened keeping its hue, so saved colors never put unreadable initials on screen.
+// Old palette colors become their replacement, and a color too light for white text is darkened keeping its hue, so
+// saved colors never put unreadable initials on screen.
 export function readableColor<T extends string | null | undefined>(color: T) {
   if (typeof color !== "string") return color;
   const lower = color.toLowerCase();

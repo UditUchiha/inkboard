@@ -1,6 +1,7 @@
 import type { Element, FrameElement } from "./types.ts";
 
-// Classroom mode's rule for what is inside a student's frame, from the stored numbers alone so the browser and the server
+// Classroom mode's rule for what is inside a student's frame, from the stored numbers alone so the browser and the
+// server
 // agree. It's coarser than drawing: text can't be measured without a browser, so its width is estimated.
 
 export interface Box {

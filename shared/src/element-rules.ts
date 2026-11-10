@@ -15,7 +15,8 @@ import type {
   TurnableType,
 } from "./types.ts";
 
-// Elements come from anyone who can edit a board, guests on an edit link included, so nothing is trusted. What an element *is*
+// Elements come from anyone who can edit a board, guests on an edit link included, so nothing is trusted. What an
+// element *is*
 // (id, type, geometry, points, text, image id) must be right or it's refused; how it *looks* is forgiven (a bad color,
 // width or font is replaced or brought into range, so older saved elements stay editable); unknown fields are dropped.
 
@@ -23,11 +24,13 @@ export const COORDINATE_LIMIT = 10_000_000; // far beyond any real drawing
 export { MAX_ALT_LENGTH, MAX_FRAME_NAME_LENGTH, MAX_TEXT_LENGTH };
 // The smallest part of a picture a crop can keep, as a fraction of its side.
 const MIN_CROP = 0.001;
-// refused before anything is done with it; MAX_ELEMENT_BYTES on the server allows about 11,000, so this only stops absurd ones
+// refused before anything is done with it; MAX_ELEMENT_BYTES on the server allows about 11,000, so this only stops
+// absurd ones
 export const MAX_STROKE_POINTS = 50_000;
 export const IMAGE_ID = /^[a-f0-9]{32}$/;
 
-// a Set<string> can only say yes or no; this also tells TypeScript what a member is (each set holds exactly the values of its type)
+// a Set<string> can only say yes or no; this also tells TypeScript what a member is (each set holds exactly the values
+// of its type)
 type Choices<T extends string> = { has(value: unknown): value is T };
 
 const SHAPE_TYPES = new Set(["line", "arrow", "rectangle", "ellipse", "triangle", "diamond"]) as unknown as Choices<
@@ -81,14 +84,16 @@ const isCoordinate = (value: unknown): value is number =>
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
-// made when first needed: a browser without Intl.Segmenter (Firefox before 125) must still open this module; those cut between code points, which may split an emoji sequence
+// made when first needed: a browser without Intl.Segmenter (Firefox before 125) must still open this module; those cut
+// between code points, which may split an emoji sequence
 let graphemes: Intl.Segmenter | null | undefined;
 const segmentsOf = (text: string): string[] => {
   if (graphemes === undefined) graphemes = typeof Intl.Segmenter === "function" ? new Intl.Segmenter() : null;
   return graphemes ? Array.from(graphemes.segment(text), ({ segment }) => segment) : Array.from(text);
 };
 
-// never in the middle of a letter with its accents, an emoji or anything else drawn as one; looks only a little past `max`, so it costs the same for any length
+// never in the middle of a letter with its accents, an emoji or anything else drawn as one; looks only a little past
+// `max`, so it costs the same for any length
 export function cutText(text: string, max: number): string {
   if (text.length <= max) return text;
   let end = 0;
@@ -125,8 +130,10 @@ const ARROW_DEFAULTS = { ...CONNECTOR_DEFAULTS, startHead: false };
 // version 0, older than any edit, so whatever anyone actually set wins over it
 const UNSET = { version: 0, versionNonce: 0 };
 
-// Lines and arrows saved before they had every field get defaults, stamped as never set. A copy lacking a group has no say
-// in a merge (see mergeElement), so without this undoing a label on an old arrow couldn't be said and the label would stay.
+// Lines and arrows saved before they had every field get defaults, stamped as never set. A copy lacking a group has no
+// say
+// in a merge (see mergeElement), so without this undoing a label on an old arrow couldn't be said and the label would
+// stay.
 export function withDefaults(element: Element): Element {
   const defaults: Record<string, string | boolean> | null =
     element?.type === "arrow" ? ARROW_DEFAULTS : element?.type === "line" ? CONNECTOR_DEFAULTS : null;
@@ -147,7 +154,8 @@ const corner = (element: Fields): element is Fields & { x1: number; y1: number }
 const box = (element: Fields): element is Fields & { x1: number; y1: number; x2: number; y2: number } =>
   corner(element) && isCoordinate(element.x2) && isCoordinate(element.y2);
 
-// Both ends can't attach to the same element (the line would be a dot or double back): the second attachment is left out.
+// Both ends can't attach to the same element (the line would be a dot or double back): the second attachment is left
+// out.
 function connectorFields(element: Fields): ConnectorFields {
   const kept: ConnectorFields = {};
   for (const [key, side] of [
@@ -225,7 +233,8 @@ function cleanByType(element: Fields): Element | null {
     return { id, type, x1, y1, x2, y2, name };
   }
   if (type === "image") {
-    // the type is checked first because the pattern coerces its input: an array holding a valid id would pass, and the server's search for pictures in use would miss it
+    // the type is checked first because the pattern coerces its input: an array holding a valid id would pass, and the
+    // server's search for pictures in use would miss it
     const imageId = element.imageId;
     if (typeof imageId !== "string" || !IMAGE_ID.test(imageId) || !box(element)) return null;
     const { x1, y1, x2, y2 } = element;
@@ -276,7 +285,8 @@ export function cleanElement(element: unknown): Element | null {
     (clean as { angle?: number }).angle = element.angle;
   }
   if (isOrderKey(element.index)) clean.index = element.index;
-  // `version` is the newest stamp and `stamps` lists only older ones; an invalid one (past MAX_VERSION, say) is dropped and the change is stamped as the newest edit
+  // `version` is the newest stamp and `stamps` lists only older ones; an invalid one (past MAX_VERSION, say) is dropped
+  // and the change is stamped as the newest edit
   if (isVersion(element.version)) {
     clean.version = element.version;
     if (isNonce(element.versionNonce)) clean.versionNonce = element.versionNonce;

@@ -1,7 +1,8 @@
 import { MAX_COUNTDOWN_SECONDS } from "@inkboard/shared/limits";
 import type { Countdown } from "@inkboard/shared/socket";
 
-// The board's timer: editors start, pause, resume and stop it. It lives in the open session and is saved with the board,
+// The board's timer: editors start, pause, resume and stop it. It lives in the open session and is saved with the
+// board,
 // so it carries on counting when everyone has left.
 
 export type CountdownState = { total: number; left: number; since: number | null };

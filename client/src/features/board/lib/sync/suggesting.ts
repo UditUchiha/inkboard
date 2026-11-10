@@ -7,7 +7,8 @@ import { createBoardStore, newVersionNonce } from "./store";
 import type { BoardStore } from "./store";
 import type { Suggestion, SuggestionStore } from "./suggestions";
 
-// Suggest mode (docs/suggest-mode.md): edits go to the person's own copy, the editor's store, which keeps merging others' changes;
+// Suggest mode (docs/suggest-mode.md): edits go to the person's own copy, the editor's store, which keeps merging
+// others' changes;
 // each change is sent as a suggestion, never to the board. `board` keeps the board as the server has it, to tell
 // what each change is and to show it again when a suggestion goes.
 
@@ -38,7 +39,8 @@ export function createSuggester({
   delay = SUGGEST_DELAY_MS,
 }: SuggesterOptions) {
   const board = createBoardStore();
-  // Changes not yet in a suggestion the server sent back; shown over the board on rebuild so nothing being sent vanishes.
+  // Changes not yet in a suggestion the server sent back; shown over the board on rebuild so nothing being sent
+  // vanishes.
   const unconfirmed = new Map<string, Unconfirmed>();
   let batch = 0; // the batch now filling, which unconfirmed changes belong to until it's sent
   let timer: ReturnType<typeof setTimeout> | null = null;

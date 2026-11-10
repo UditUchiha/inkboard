@@ -9,7 +9,8 @@ try {
 
 const mode = process.env.NODE_ENV;
 const isProduction = mode === "production";
-// development defaults (a signing secret) only for these two modes: a start without NODE_ENV (Docker, a VPS) mustn't quietly sign logins with a public secret
+// development defaults (a signing secret) only for these two modes: a start without NODE_ENV (Docker, a VPS) mustn't
+// quietly sign logins with a public secret
 const isLocal = mode === "development" || mode === "test";
 
 const MIN_SECRET_BYTES = 32;
@@ -79,13 +80,16 @@ export const env = {
     : isProduction
       ? []
       : ["http://localhost:5173"],
-  // Where sign-in sends people back and email links point. Without APP_URL the request's own address is used (see lib/app-url.ts), which keeps sign-in working on a custom domain.
+  // Where sign-in sends people back and email links point. Without APP_URL the request's own address is used (see
+  // lib/app-url.ts), which keeps sign-in working on a custom domain.
   appUrl: (process.env.APP_URL ?? "").replace(/\/$/, ""),
-  // Render's own address, only for email links when APP_URL isn't set (a fixed address, unlike the Host header, but not necessarily the one people use), so sign-in never redirects to it
+  // Render's own address, only for email links when APP_URL isn't set (a fixed address, unlike the Host header, but not
+  // necessarily the one people use), so sign-in never redirects to it
   renderUrl: (process.env.CLIENT_ORIGIN ? "" : (process.env.RENDER_EXTERNAL_URL ?? "")).replace(/\/$/, ""),
   // where Google and GitHub send people back; only needed when it differs from APP_URL
   apiUrl: (process.env.API_URL ?? "").replace(/\/$/, ""),
-  // Brevo's API, as Render's free plan blocks SMTP; EMAIL_FROM must be a sender verified in Brevo. Without them emails are printed to the log (development).
+  // Brevo's API, as Render's free plan blocks SMTP; EMAIL_FROM must be a sender verified in Brevo. Without them emails
+  // are printed to the log (development).
   email: {
     brevoApiKey: process.env.BREVO_API_KEY || null,
     from: process.env.EMAIL_FROM || null,

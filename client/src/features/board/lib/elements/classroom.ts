@@ -4,8 +4,10 @@ import type { Box } from "@inkboard/shared/zones";
 import { getBounds, translate } from "./elements";
 import type { XY } from "./geometry";
 
-// Classroom mode (docs/classroom-mode.md): a student's changes stay inside their frame, so the server (shared/src/zones.ts) never turns them away.
-// What they make must also lie inside the frame as drawn (getBounds, strokes and all), so it stays in when the teacher moves the frame.
+// Classroom mode (docs/classroom-mode.md): a student's changes stay inside their frame, so the server
+// (shared/src/zones.ts) never turns them away.
+// What they make must also lie inside the frame as drawn (getBounds, strokes and all), so it stays in when the teacher
+// moves the frame.
 
 export type Zone = FrameElement | null | undefined;
 

@@ -92,7 +92,8 @@ export function useOutboxSender({
         // A change in pieces is done: what was made meanwhile waited for it (see outbox.ts).
         else if (outbox.hasPending() && joined.current) flushTimer.current ??= setTimeout(flush, 0);
       } else if (result.kind === "retry" || result.kind === "rejoin") {
-        // A reconnect meanwhile showed the board as the server has it, maybe without this change yet; merging again is harmless.
+        // A reconnect meanwhile showed the board as the server has it, maybe without this change yet; merging again is
+        // harmless.
         if (result.again.upsert.length > 0 || result.again.remove.length > 0) store.applyRemote(result.again);
         if (result.kind === "rejoin") {
           // The server has no record of us being on this board: join again, then send.
@@ -106,7 +107,8 @@ export function useOutboxSender({
         if ((result as { slow?: boolean }).slow)
           toast("Saving is taking longer than usual. Your changes are kept and will go through.", SLOW_TOAST);
       } else if (result.kind === "resync") {
-        // Retrying can't help: put this screen back to what everyone else has, so it doesn't keep a drawing that was never saved.
+        // Retrying can't help: put this screen back to what everyone else has, so it doesn't keep a drawing that was
+        // never saved.
         toast.error(REFUSED[result.reason] ?? REFUSED.invalid);
         resync.current();
       }

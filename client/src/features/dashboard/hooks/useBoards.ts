@@ -17,7 +17,8 @@ export function fillPreviews(list: BoardSummary[] | null | undefined, found: Map
 const fetchLists = () => Promise.all([api.listBoards(), api.listTrash()]);
 
 export function useBoards() {
-  // A change landing while the list is null leaves it undefined, which only an update to a board that isn't there could do.
+  // A change landing while the list is null leaves it undefined, which only an update to a board that isn't there could
+  // do.
   const [boards, setBoards] = useState<BoardSummary[] | null | undefined>(null);
   const [trash, setTrash] = useState<BoardSummary[] | undefined>([]);
   const [loadError, setLoadError] = useState("");

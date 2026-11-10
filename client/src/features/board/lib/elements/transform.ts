@@ -106,7 +106,8 @@ function moveLineEnd(element: Connector, handleId: string, point: XY, snap: bool
   return { ...element, x1: start.x2, y1: start.y2 };
 }
 
-// The side opposite the handle stays put, even turned. `pad` is the selection gap the handle sits outside by, so nothing jumps when the drag starts.
+// The side opposite the handle stays put, even turned. `pad` is the selection gap the handle sits outside by, so
+// nothing jumps when the drag starts.
 export function resizeElement(
   original: BoardElement,
   handleId: string,
@@ -124,7 +125,8 @@ export function resizeElement(
   // A pen stroke with no width (or height) has nothing to scale along it, so it keeps its size that way.
   const flatX = original.type === "pen" && frame.width < 1;
   const flatY = original.type === "pen" && frame.height < 1;
-  // Not for a flat stroke (a line's proportions would scale by a drag over a size of nothing). A picture being cropped (`maxSize`) changes shape freely.
+  // Not for a flat stroke (a line's proportions would scale by a drag over a size of nothing). A picture being cropped
+  // (`maxSize`) changes shape freely.
   const lockAspect =
     (keepAspect || original.type === "text" || (original.type === "image" && !maxSize)) &&
     dx !== 0 &&

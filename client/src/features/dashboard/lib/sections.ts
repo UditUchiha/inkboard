@@ -5,7 +5,8 @@ import type { BoardFiling, ListedBoard, Role, TrashedBoard } from "../../../lib/
 
 export const TRASH_DAYS = 30;
 
-// Listed boards carry this person's filing, trashed ones their deletion dates; both are shown the same way, so those fields are optional.
+// Listed boards carry this person's filing, trashed ones their deletion dates; both are shown the same way, so those
+// fields are optional.
 export type BoardSummary = Omit<ListedBoard, keyof BoardFiling> &
   Partial<BoardFiling> &
   Partial<Pick<TrashedBoard, "deletedAt" | "purgeAt">> & {

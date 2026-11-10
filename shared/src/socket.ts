@@ -1,4 +1,5 @@
-// The events between browser and server over Socket.IO, checked on both sides so a renamed field stops the other from type
+// The events between browser and server over Socket.IO, checked on both sides so a renamed field stops the other from
+// type
 // checking. Types only. Payloads are what a well-behaved peer sends; the server treats what it receives as unknown (see
 // Untrusted on the server). Like api.ts, a `Date` here is an ISO string on the receiving side (see Wire in api.ts).
 
@@ -68,7 +69,8 @@ export interface ViewportRequestPayload {
   socketId: string;
 }
 
-// An editor starts a round with `votes` for each person (at most MAX_VOTES_PER_PERSON), ends it (which shows everyone the results), or clears it; anyone on the board votes on an element, one each at most, while it's open.
+// An editor starts a round with `votes` for each person (at most MAX_VOTES_PER_PERSON), ends it (which shows everyone
+// the results), or clears it; anyone on the board votes on an element, one each at most, while it's open.
 export type VotePayload =
   { action: "start"; votes: number } | { action: "end" | "clear" } | { action: "cast" | "retract"; id: string };
 
@@ -112,7 +114,9 @@ export type JoinReply =
     }
   | { ok: false; status: number; error: string; locked?: LinkLock };
 
-// `tooLarge` and `readOnly` are also set for older browsers, which look for them. "expired": the server stopped waiting for the rest of a change sent in pieces; "ownerFull": the owner has no space left; "outside": classroom mode, a change outside the student's frame.
+// `tooLarge` and `readOnly` are also set for older browsers, which look for them. "expired": the server stopped waiting
+// for the rest of a change sent in pieces; "ownerFull": the owner has no space left; "outside": classroom mode, a
+// change outside the student's frame.
 export interface OpRefusal {
   ok: false;
   reason: "rate" | "noSession" | "invalid" | "tooLarge" | "forbidden" | "expired" | "ownerFull" | "outside";
@@ -120,7 +124,9 @@ export interface OpRefusal {
   readOnly?: true;
 }
 
-// `cleaned`: elements as the board stored them where that isn't how they were sent; `dropped`: ids of new elements it refused. In classroom mode what a student changed outside their frame is left out (`outside`): those changes come back in `cleaned`, new elements in `dropped`, removed ones in `restored`, as the board has them.
+// `cleaned`: elements as the board stored them where that isn't how they were sent; `dropped`: ids of new elements it
+// refused. In classroom mode what a student changed outside their frame is left out (`outside`): those changes come
+// back in `cleaned`, new elements in `dropped`, removed ones in `restored`, as the board has them.
 export type OpReply =
   { ok: true; cleaned?: Element[]; dropped?: string[]; restored?: Element[]; outside?: true } | OpRefusal;
 
@@ -135,13 +141,16 @@ export type ReplayReply = { ok: true; steps: ReplayStep[]; elements: Element[] }
 export type ImageReply =
   { ok: true; id: string } | { ok: false; error?: string; readOnly?: true; tooLarge?: true; full?: ImageLimit };
 
-// "noSession": join the board first; "forbidden": the sender may not do this on the board; "invalid": the payload isn't one
+// "noSession": join the board first; "forbidden": the sender may not do this on the board; "invalid": the payload isn't
+// one
 export interface SuggestionRefusal {
   ok: false;
   reason: "rate" | "noSession" | "forbidden" | "invalid";
 }
 
-// `withdrawn`: the sender's suggestions a draft took back by making an element just as it is on the board; `dropped`: element ids of drafts left out (invalid, about an element that isn't on the board (or, for an addition, is), someone else's, or too many, in which case `full` says which limit they met)
+// `withdrawn`: the sender's suggestions a draft took back by making an element just as it is on the board; `dropped`:
+// element ids of drafts left out (invalid, about an element that isn't on the board (or, for an addition, is), someone
+// else's, or too many, in which case `full` says which limit they met)
 export type SuggestionPutReply =
   | { ok: true; suggestions: Suggestion[]; withdrawn?: string[]; dropped?: string[]; full?: "board" | "author" }
   | SuggestionRefusal;
@@ -195,7 +204,8 @@ export interface CountdownMessage extends BoardMessage {
   countdown: Countdown | null;
 }
 
-// while it's on, what everyone but `by` draws is a suggestion only they see, until it's turned off and all of it is shown
+// while it's on, what everyone but `by` draws is a suggestion only they see, until it's turned off and all of it is
+// shown
 export interface PrivateMode {
   by: string;
   canEnd: boolean;
@@ -249,7 +259,8 @@ export interface SuggestionsMessage extends BoardMessage {
   suggestions: Suggestion[];
 }
 
-// why: a member accepted or rejected them, their author withdrew them, or what they were about is gone (removed, accepted another way, or too old)
+// why: a member accepted or rejected them, their author withdrew them, or what they were about is gone (removed,
+// accepted another way, or too old)
 export interface SuggestionRemovalMessage extends BoardMessage {
   ids: string[];
   outcome: SuggestionOutcome | "withdrawn" | "gone";

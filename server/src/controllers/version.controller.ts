@@ -75,7 +75,8 @@ export async function saveVersion(req: BoardRequest<{ label?: unknown }>, res: R
 
   // packed first, so the owner's space is checked against what the version will take, compressed
   const drawing = await packElements(await currentElements(board.id));
-  // counts towards the board owner's space, whoever saves it (recordVersion holds it to the board's own count and budget)
+  // counts towards the board owner's space, whoever saves it (recordVersion holds it to the board's own count and
+  // budget)
   const full = isOwner(board, req.userId)
     ? undefined
     : "The board's owner has used up their space, so it can't keep another saved version. Ask them to make room.";

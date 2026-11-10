@@ -5,7 +5,8 @@ import type { Font } from "@inkboard/shared/types";
 import { FONTS } from "../../constants/board";
 import { dataUrlOf } from "./files";
 
-// Embedded so text looks the same wherever the SVG is opened; only the Latin set of each (40-90 KB apiece), other scripts fall back to the viewer's fonts.
+// Embedded so text looks the same wherever the SVG is opened; only the Latin set of each (40-90 KB apiece), other
+// scripts fall back to the viewer's fonts.
 const FONT_FILES: Partial<Record<string, { family: string; url: string; descriptors: string }>> = {
   hand: { family: "Caveat Variable", url: caveatUrl, descriptors: "font-weight: 400 700;" },
   sans: { family: "Archivo Variable", url: archivoUrl, descriptors: "font-weight: 100 900; font-stretch: 62% 125%;" },

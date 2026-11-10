@@ -56,7 +56,8 @@ export function useBoardInsertions({
     setEditing({ element: { ...element, text: "$$  $$" }, isNew: true });
   }
 
-  // Enter with a drawing tool draws without a pointer: a shape is selected to move with the arrows, a text or note opened.
+  // Enter with a drawing tool draws without a pointer: a shape is selected to move with the arrows, a text or note
+  // opened.
   function placeWithTool() {
     if (zone === null || (zone && tool === "frame")) {
       toast(zone ? "In classroom mode, frames are the teacher's." : CLAIM_FIRST, { id: CLASSROOM_TOAST });
@@ -80,7 +81,8 @@ export function useBoardInsertions({
     }
   }
 
-  // Elements made all at once (Claude, Mermaid): one undo step, scrolled into view if not all on screen, with an undo message.
+  // Elements made all at once (Claude, Mermaid): one undo step, scrolled into view if not all on screen, with an undo
+  // message.
   function addDrawing(drawn: BoardElement[], message: string) {
     const before = drawn.flatMap((element) => store.getElement(element.id) ?? []);
     const added = drawn.filter((element) => !store.getElement(element.id)).map((element) => element.id);

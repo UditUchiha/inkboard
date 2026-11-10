@@ -56,7 +56,8 @@ const goHome = <ButtonLink to="/">Go home</ButtonLink>;
 
 export default function BoardPage() {
   const { boardId } = useParams<{ boardId: string }>();
-  // Moving between boards keeps this page mounted; keyed, each board gets its own editor and sync state, so unsent edits can't reach the other board.
+  // Moving between boards keeps this page mounted; keyed, each board gets its own editor and sync state, so unsent
+  // edits can't reach the other board.
   return <OpenBoard key={boardId} boardId={boardId!} />;
 }
 

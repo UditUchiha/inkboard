@@ -7,7 +7,8 @@ import mongoose from "mongoose";
 import type { R2Settings } from "../config/env.ts";
 import type { ObjectIdLike } from "./boards.ts";
 
-// Where uploaded images live (see docs/image-storage.md). Each has an entry in `images.files` (name, size, type, board),
+// Where uploaded images live (see docs/image-storage.md). Each has an entry in `images.files` (name, size, type,
+// board),
 // which the space limits and sweeps look up by. The bytes are in GridFS when R2 isn't set up, or in R2 (entry says
 // `storage: "r2"`); older images stay in GridFS until scripts/move-images-to-r2.ts moves them. A small copy
 // (about 400 px, for thumbnails) is stored as "<id>.small" and goes wherever its image goes.
@@ -184,7 +185,8 @@ export async function openImage(id: string, { small = false }: { small?: boolean
   if (!file) return null;
   if (file.storage === "r2") {
     const response = await (await storeFor(file)).get(file.filename);
-    // an entry whose object is gone reads as an image that lost its data (see routes/image.routes.ts); fetch's body type is the browser's stream, same as Node's
+    // an entry whose object is gone reads as an image that lost its data (see routes/image.routes.ts); fetch's body
+    // type is the browser's stream, same as Node's
     const stream = response?.body ? Readable.fromWeb(response.body as NodeReadableStream) : Readable.from([]);
     return { stream, mime: file.metadata?.mime, size: file.length };
   }

@@ -34,7 +34,8 @@ export const MAX_SUGGESTIONS_PER_AUTHOR = 100;
 export const MAX_SUGGESTION_BYTES = 2_000_000;
 export const SUGGESTION_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 
-// each keeps a change made before the removal, and arriving after it, from bringing the element back; past this the oldest are forgotten, so a long session doesn't keep growing
+// each keeps a change made before the removal, and arriving after it, from bringing the element back; past this the
+// oldest are forgotten, so a long session doesn't keep growing
 export const MAX_REMOVALS_REMEMBERED = 50_000;
 
 export const LINK_PASSWORD_MIN = 4;

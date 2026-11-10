@@ -5,7 +5,8 @@ import { Board } from "../models/board.model.ts";
 import { getSession } from "../realtime/sessions.ts";
 import type { BoardDoc } from "./boards.ts";
 
-// Dashboard cards draw each board from a slimmed copy so a page of boards doesn't send every stroke. Thumbnails are a few
+// Dashboard cards draw each board from a slimmed copy so a page of boards doesn't send every stroke. Thumbnails are a
+// few
 // hundred pixels wide, so strokes keep only points that matter at that size, the busiest boards keep only their biggest
 // elements, text is cut to what a thumbnail shows, and everything loses the sync bookkeeping.
 
@@ -28,7 +29,8 @@ export type { PreviewElement };
 
 const round = (value: number, places: number) => Math.round(value * 10 ** places) / 10 ** places;
 
-// text counts by its corner only (its size depends on fonts the server lacks); loops, not Math.min(...points), as a long stroke has too many points to spread
+// text counts by its corner only (its size depends on fonts the server lacks); loops, not Math.min(...points), as a
+// long stroke has too many points to spread
 function extent(element: Located): Box | null {
   const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   const include = (x: unknown, y: unknown) => {
@@ -109,7 +111,8 @@ function previewStroke(element: PenElement, tolerance: number): PenElement {
   const points = simplifyPoints(valid, tolerance).map(([x, y, pressure]): Point => [
     round(x, 1),
     round(y, 1),
-    // without real pen pressure a stroke's width comes from how far apart its points are, so thinned points would draw it too thin; an even middle pressure keeps its normal width
+    // without real pen pressure a stroke's width comes from how far apart its points are, so thinned points would draw
+    // it too thin; an even middle pressure keeps its normal width
     element.pressure && Number.isFinite(pressure) ? round(pressure, 2) : 0.5,
   ]);
   return { ...element, points, pressure: true };
@@ -134,8 +137,10 @@ export function previewElements(elements: Element[]): PreviewElement[] {
   ) as PreviewElement[];
 }
 
-// Saved boards' previews are kept until the board changes (every save moves `updatedAt`); the longest unused go first past
-// these limits. Open boards change constantly, so theirs are kept per version of the in-memory element list. Tests lower these.
+// Saved boards' previews are kept until the board changes (every save moves `updatedAt`); the longest unused go first
+// past
+// these limits. Open boards change constantly, so theirs are kept per version of the in-memory element list. Tests
+// lower these.
 export const PREVIEW_CACHE_LIMITS = { entries: 5000, bytes: 20_000_000 };
 const saved = new Map<string, { updatedAt: number | undefined; preview: PreviewElement[]; bytes: number }>();
 let savedBytes = 0;

@@ -59,7 +59,8 @@ const xml = (value: string): string =>
     .replace(/[&<>"']/g, (char) => XML_ESCAPES[char]);
 const num = (value: number): string => String(Math.round(value * 100) / 100);
 
-// The canvas draws text from the top of the em box, SVG places it by baseline; measured in the browser by `measureBaselines`.
+// The canvas draws text from the top of the em box, SVG places it by baseline; measured in the browser by
+// `measureBaselines`.
 const FALLBACK_BASELINE = 0.8;
 
 function turned(element: BoardElement, inner: string): string {
@@ -104,7 +105,8 @@ function noteSvg(element: StickyElement, baselines: Baselines, shadowId: string)
     )
     .join("");
   const box = `x="${num(x)}" y="${num(y)}" width="${num(width)}" height="${num(height)}"`;
-  // Only lines that fit are written, in a note-sized viewport, so a note too small for one cuts off at its edge as on the canvas.
+  // Only lines that fit are written, in a note-sized viewport, so a note too small for one cuts off at its edge as on
+  // the canvas.
   const shadow = Math.min(width, height);
   return [
     `<filter id="${shadowId}" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="${num(shadow * 0.015)}" stdDeviation="${num(shadow * 0.025)}" flood-color="#16213a" flood-opacity="0.18"/></filter>`,

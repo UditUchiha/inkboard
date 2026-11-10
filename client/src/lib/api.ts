@@ -138,7 +138,8 @@ export const api = {
     request<Wire<shared.UserReply>>(`/auth/oauth/${provider}`, { method: "DELETE" }),
 
   listBoards: () => request<Wire<shared.BoardListReply>>("/boards"),
-  // Previews (a light copy of each drawing, to draw cards from) of up to 24 boards, as { previews: { [id]: elements } }.
+  // Previews (a light copy of each drawing, to draw cards from) of up to 24 boards, as { previews: { [id]: elements }
+  // }.
   boardPreviews: (ids: string[]) => request<Wire<shared.PreviewsReply>>(`/boards/previews?ids=${ids.join(",")}`),
   createBoard: (input: string | CreateBoardInput = {}) =>
     request<Wire<shared.BoardReply>>("/boards", {

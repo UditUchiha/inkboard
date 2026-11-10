@@ -21,7 +21,8 @@ import type { Person, Ref } from "../services/boards.ts";
 import { notify } from "../services/notifications.ts";
 import type { BoardRequest } from "./board.controller.ts";
 
-// Anyone signed in who can open the board reads, comments and reacts, view-link people too; editors and a thread's starter
+// Anyone signed in who can open the board reads, comments and reacts, view-link people too; editors and a thread's
+// starter
 // resolve and move it. Members can be @mentioned.
 
 const populateThread = [

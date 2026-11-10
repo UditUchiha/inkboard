@@ -19,12 +19,16 @@ import type { OAuthProvider, UserDoc } from "../models/user.model.ts";
 import { refreshUser } from "../realtime/index.ts";
 import { emailConfigured } from "../services/email.ts";
 
-// Authorization-code flow (see docs/api.md, "OAuth sign-in"). The login token never goes in a URL: the callback hands the
+// Authorization-code flow (see docs/api.md, "OAuth sign-in"). The login token never goes in a URL: the callback hands
+// the
 // app a short-lived, single-use code (in the fragment, which never reaches logs) that only the tab holding the `bind`
-// it was made for can trade (exchangeLoginCode). Otherwise anyone could send a victim to /auth/callback#token=<attacker's
+// it was made for can trade (exchangeLoginCode). Otherwise anyone could send a victim to
+// /auth/callback#token=<attacker's
 // login> and leave them signed in to the attacker's account (login CSRF, C5). Connecting a provider works the same way
-// (confirmLink). Nothing rests on cookies set by the app's own requests, which browsers block as third-party when the app
-// and API are on different sites (M2, M10). Failures return an error code, so a link can't put text of its own on the page.
+// (confirmLink). Nothing rests on cookies set by the app's own requests, which browsers block as third-party when the
+// app
+// and API are on different sites (M2, M10). Failures return an error code, so a link can't put text of its own on the
+// page.
 
 const STATE_COOKIE = "inkboard_oauth";
 const STATE_TTL_SECONDS = 10 * 60;
@@ -89,7 +93,8 @@ interface EnabledProvider extends ProviderConfig {
   client: OAuthClient;
 }
 
-// only this file signs tokens with these audiences, so what `verifyPurposeToken` hands back is known to have these claims
+// only this file signs tokens with these audiences, so what `verifyPurposeToken` hands back is known to have these
+// claims
 interface LinkTicketClaims extends TokenClaims {
   sub: string;
   provider: string;
@@ -206,7 +211,8 @@ function providerFrom(req: Request): EnabledProvider {
 // the provider sends people back to the API; with trust proxy on in production, req.protocol is the public one
 const callbackUrl = (req: Request, provider: string) => `${apiUrlFor(req)}/api/auth/oauth/${provider}/callback`;
 
-// only follow redirects to paths inside the app: browsers read a backslash as a slash and drop tabs and newlines, so "/\evil.example" would leave the site
+// only follow redirects to paths inside the app: browsers read a backslash as a slash and drop tabs and newlines, so
+// "/\evil.example" would leave the site
 const unsafeChar = (char: string) => char === "\\" || char <= "\u001f" || char === "\u007f";
 export const safeNext = (value: unknown) =>
   typeof value === "string" && /^\/(?!\/)/.test(value) && ![...value].some(unsafeChar) ? value : "/boards";
@@ -214,7 +220,8 @@ export const safeNext = (value: unknown) =>
 const hashOf = (value: string) => createHash("sha256").update(value).digest("base64url");
 
 // exchanged codes, by id, until they'd have expired anyway: a second lock beside `bind`, so a repeated redirect (back
-// button, copied URL) can't sign in twice. In memory, so with several processes the short life and `bind` limit a replay.
+// button, copied URL) can't sign in twice. In memory, so with several processes the short life and `bind` limit a
+// replay.
 const spentCodes = new Map<string, number>();
 
 function spendLoginCode(id: string | undefined, expiresAt: number) {
@@ -244,7 +251,8 @@ const cookieOptions = (): CookieOptions => ({
   path: COOKIE_PATH,
 });
 
-// connecting before the address is verified could hand the account to whoever signed up with it first; without email set up nothing can be verified
+// connecting before the address is verified could hand the account to whoever signed up with it first; without email
+// set up nothing can be verified
 const mustVerifyFirst = (user: Pick<UserDoc, "emailVerified">) => emailConfigured() && !user.emailVerified;
 
 function failSignIn(req: Request, res: Response, code: string, to: string, provider: string, next?: string) {
@@ -379,7 +387,8 @@ export async function exchangeLoginCode(
   res.json({ token: signToken(user), user: user.toAccount() } satisfies Session);
 }
 
-// another account got there first (a sign-up or connect running at the same moment); a MongoDB duplicate-key error has a numeric code
+// another account got there first (a sign-up or connect running at the same moment); a MongoDB duplicate-key error has
+// a numeric code
 const isDuplicate = (error: unknown) => (error as { code?: unknown } | null)?.code === 11000;
 
 async function connectProvider(
@@ -409,7 +418,8 @@ async function findOrCreateUser(provider: EnabledProvider, profile: ProviderProf
   if (existing) return existing;
 
   if (!profile.email) throw new SignInError("no-email");
-  // Emails aren't verified at sign-up, so silently attaching a provider to an existing password account could hand it to
+  // Emails aren't verified at sign-up, so silently attaching a provider to an existing password account could hand it
+  // to
   // whoever created it: the owner connects from settings instead. The account may be this person's own, made a moment
   // ago by a sign-in running at the same time as this one.
   if (await User.exists({ email: profile.email.toLowerCase() })) {

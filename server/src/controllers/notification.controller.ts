@@ -8,8 +8,10 @@ import { serializeNotification } from "../services/notifications.ts";
 
 const PAGE_SIZE = 30;
 
-// Notifications about boards they can no longer open (deleted, or they were removed) are never shown or counted, so they
-// can't leak the board's title or what was said; the notice that a board they're invited to is in the trash is shown while it is.
+// Notifications about boards they can no longer open (deleted, or they were removed) are never shown or counted, so
+// they
+// can't leak the board's title or what was said; the notice that a board they're invited to is in the trash is shown
+// while it is.
 async function visibleNotifications(userId: string | undefined) {
   const ids = await Notification.distinct("board", { user: userId });
   const boards = await Board.find({ _id: { $in: ids }, purgingAt: null }).select(`${ACCESS_FIELDS} deletedAt`);
@@ -33,7 +35,8 @@ export async function listNotifications(req: Request, res: Response) {
     // a suggestion's maker can be a guest, who has no account
     notifications: page.filter((n) => n.actor || n.actorName).map((n) => serializeNotification(n)),
     more,
-    // the oldest notification looked at, shown or skipped, so a page whose every item was skipped still moves on; null on the last page
+    // the oldest notification looked at, shown or skipped, so a page whose every item was skipped still moves on; null
+    // on the last page
     next: more ? page.at(-1)!.id : null,
     unread,
   } satisfies NotificationPage);

@@ -1,7 +1,8 @@
 import { cleanElement } from "./element-rules.ts";
 import type { Element } from "./types.ts";
 
-// An element as the public API and MCP server show and take it (docs/api.md): a box is x, y, width, height; a line or arrow its
+// An element as the public API and MCP server show and take it (docs/api.md): a box is x, y, width, height; a line or
+// arrow its
 // ends (x1…y2) and what they're attached to (from, to); a pen stroke its points.
 export type ApiElement = { id: string; type: string; [field: string]: unknown };
 
@@ -15,7 +16,8 @@ export const MAX_API_ELEMENTS = 500;
 
 export class ApiElementError extends Error {}
 
-// Web Crypto, which browsers and Node both have; shared code loads neither's types, so the one function used is declared here
+// Web Crypto, which browsers and Node both have; shared code loads neither's types, so the one function used is
+// declared here
 declare const crypto: { getRandomValues<T extends Uint32Array>(array: T): T };
 const randomWords = (count: number) => crypto.getRandomValues(new Uint32Array(count));
 const newId = () => [...randomWords(3)].map((word) => word.toString(36)).join("");
@@ -59,7 +61,8 @@ function middleOf(element: Element | undefined): [number, number] | undefined {
   return [(element.x1 + element.x2) / 2, (element.y1 + element.y2) / 2];
 }
 
-// Whole and unstamped, so the board takes it as the newest edit (see prepareOperation). Throws an ApiElementError naming `label` when the input can't be an element.
+// Whole and unstamped, so the board takes it as the newest edit (see prepareOperation). Throws an ApiElementError
+// naming `label` when the input can't be an element.
 export function fromApiElement(
   input: unknown,
   existing: Element | undefined,

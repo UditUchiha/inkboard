@@ -208,7 +208,8 @@ export function useCanvasPointer({
 
   function handlePointerDown(event: PointerEvent<HTMLCanvasElement>) {
     if (event.button !== 0 && event.button !== 1) return;
-    // A pointer let go of without its pointerup reaching the canvas ends what it was doing, so it can't hold the canvas up.
+    // A pointer let go of without its pointerup reaching the canvas ends what it was doing, so it can't hold the canvas
+    // up.
     for (const id of stalePointers(pointers.current, event.pointerId, event.pointerType, event.timeStamp))
       releasePointer(id);
     // One pointer draws and a second finger makes a pinch; a pen beside a resting palm takes over (see pressRole).
@@ -220,7 +221,8 @@ export function useCanvasPointer({
     canvasRef.current!.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, { screen, type: event.pointerType, at: event.timeStamp });
 
-    // A focused title, frame name or color field lets go of focus (and so saves), or keys meant for the board still go to it.
+    // A focused title, frame name or color field lets go of focus (and so saves), or keys meant for the board still go
+    // to it.
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && focused !== document.body) focused.blur();
 
@@ -246,7 +248,8 @@ export function useCanvasPointer({
       startPan(screen);
       return;
     }
-    // Classroom mode: a student's press outside their frame (or with the frame tool) pans; the editor says why or offers the frame.
+    // Classroom mode: a student's press outside their frame (or with the frame tool) pans; the editor says why or
+    // offers the frame.
     const { zone: allowed } = latest.current;
     const free = activeTool === "comment" || activeTool === "vote";
     if (allowed !== undefined && !free && (activeTool === "frame" || !(allowed && pointInside(world, allowed)))) {
@@ -257,7 +260,8 @@ export function useCanvasPointer({
 
     switch (activeTool) {
       case "select": {
-        // A handle on the selected element beats what's under it, bar a connection dot beside a line's end (see selectPress).
+        // A handle on the selected element beats what's under it, bar a connection dot beside a line's end (see
+        // selectPress).
         const { selected, handle: grabbed, grab } = selectPress(world, vp);
         if (grabbed) {
           // The assertions here and below: a handle is found only on the selected element, so there is one.
@@ -277,7 +281,8 @@ export function useCanvasPointer({
           setTurning(grabbed === "rotate");
           return;
         }
-        // Dragging from a connection dot draws an arrow out of that side, even with another arrow pinned there (see dotGrab).
+        // Dragging from a connection dot draws an arrow out of that side, even with another arrow pinned there (see
+        // dotGrab).
         if (grab) {
           startConnector("arrow", world, screen, vp, activeStyle, { select: true });
           return;

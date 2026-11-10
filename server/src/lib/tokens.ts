@@ -24,7 +24,8 @@ export interface TokenClaims {
   [claim: string]: unknown;
 }
 
-// carries the account's `tokenVersion`: changing or resetting the password bumps it, ending every earlier login (see `revokeSessions`)
+// carries the account's `tokenVersion`: changing or resetting the password bumps it, ending every earlier login (see
+// `revokeSessions`)
 export function signToken(user: { id: string; tokenVersion?: number | null }) {
   return jwt.sign({ sub: user.id, tv: user.tokenVersion ?? 0 }, env.jwtSecret, {
     algorithm: "HS256",
@@ -43,7 +44,8 @@ export function verifyPurposeToken(token: string, audience: string) {
 
 export function verifyToken(token: string) {
   const claims = jwt.verify(token, env.jwtSecret, { algorithms: ALGORITHMS }) as TokenClaims;
-  // logins from before tokens had an audience carry none (and no `purpose`, as old link tickets did), so they stay valid until they expire
+  // logins from before tokens had an audience carry none (and no `purpose`, as old link tickets did), so they stay
+  // valid until they expire
   const legacy = claims.aud === undefined && claims.purpose === undefined;
   if ((claims.aud !== SESSION && !legacy) || typeof claims.sub !== "string") throw new Error("Not a login token");
   return claims;

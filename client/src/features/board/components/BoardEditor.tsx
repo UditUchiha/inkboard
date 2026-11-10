@@ -44,12 +44,14 @@ export interface BoardEditorProps {
   local?: { onSave: () => void } | null;
 }
 
-// `local` is a guest's scratch board in the browser: no server, so sharing, history and comments give way to "Save board".
+// `local` is a guest's scratch board in the browser: no server, so sharing, history and comments give way to "Save
+// board".
 export function BoardEditor({ store, sync, user, local = null }: BoardEditorProps) {
   const { elements, canUndo, canRedo } = useBoardSnapshot(store);
   // The cast: the editor is only shown once the board's details are there (a scratch board has them from the start).
   const { meta: board, setMeta, role } = sync as BoardSync & { meta: BoardMeta };
-  // Suggesters draw too, but what they do is sent as suggestions (see suggesting.ts), so the board's own settings aren't theirs.
+  // Suggesters draw too, but what they do is sent as suggestions (see suggesting.ts), so the board's own settings
+  // aren't theirs.
   const readOnly = role === "viewer";
   const suggesting = role === "suggester";
   const isMember = role === "owner" || role === "editor";

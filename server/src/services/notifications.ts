@@ -24,7 +24,8 @@ type NotificationRow = Pick<
   "id" | "type" | "read" | "createdAt" | "excerpt" | "thread" | "actorName"
 >;
 
-// the actor and board arrive as ids or populated; the second argument's are used when given (a notification just created, see notify)
+// the actor and board arrive as ids or populated; the second argument's are used when given (a notification just
+// created, see notify)
 export function serializeNotification(
   notification: NotificationRow & Held,
   { actor = notification.actor, board = notification.board }: Partial<Held> = {},
@@ -44,7 +45,8 @@ export function serializeNotification(
   };
 }
 
-// they also expire after 60 days (see the model), but anyone can invite or mention someone as often as they like, and listing reads them all
+// they also expire after 60 days (see the model), but anyone can invite or mention someone as often as they like, and
+// listing reads them all
 export const MAX_NOTIFICATIONS_PER_PERSON = 500;
 
 async function trimNotifications(userIds: string[]) {
@@ -85,7 +87,8 @@ export async function notifySuggestion(boardId: string, author: Participant) {
   await trimNotifications([String(board.owner)]);
 }
 
-// Warns about what people from its link did there (see realtime/link-watch.ts); `excerpt` says what. Not resent while one of the same kind about the board is unread.
+// Warns about what people from its link did there (see realtime/link-watch.ts); `excerpt` says what. Not resent while
+// one of the same kind about the board is unread.
 export async function warnOwner(boardId: string, type: "visitors" | "removals", excerpt: string) {
   const board = await Board.findById(boardId).select("title owner").lean();
   if (!board) return;
@@ -114,7 +117,8 @@ interface Notify extends Links {
 }
 
 // Not sent to someone who hasn't read an earlier one of the same kind from the same person about the same board and
-// thread, so inviting, removing and inviting again, or a burst of replies, doesn't pile up. Resolves with the ids notified.
+// thread, so inviting, removing and inviting again, or a burst of replies, doesn't pile up. Resolves with the ids
+// notified.
 export async function notify({ users, type, actor, board, thread = null, excerpt = null }: Notify) {
   const candidates = [...new Set(users.map(idOf))].filter((id) => id !== idOf(actor));
   if (candidates.length === 0) return [];

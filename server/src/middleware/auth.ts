@@ -9,7 +9,8 @@ declare module "express-serve-static-core" {
   }
 }
 
-// connecting a provider or setting a first password works without the old password, so a possibly days-old (stolen) token isn't enough
+// connecting a provider or setting a first password works without the old password, so a possibly days-old (stolen)
+// token isn't enough
 export const RECENT_LOGIN_SECONDS = 15 * 60;
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -43,7 +44,8 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
 }
 
 export function assertRecentLogin(req: Request) {
-  // without a login time the login doesn't count as recent: a missing time would make the sum NaN, which is never more than the limit
+  // without a login time the login doesn't count as recent: a missing time would make the sum NaN, which is never more
+  // than the limit
   const issuedAt = req.loginIssuedAt;
   if (issuedAt === undefined || Date.now() / 1000 - issuedAt > RECENT_LOGIN_SECONDS) {
     throw new HttpError(403, "For your security, log out and log in again, then try this again.");

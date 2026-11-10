@@ -1,5 +1,7 @@
-// Errors come back as a *code* (?error=expired&provider=google), never text, so a link can't put words of its own into an
-// official-looking message. Codes come from server/src/controllers/oauth.controller.ts; `next` is only followed inside the app.
+// Errors come back as a *code* (?error=expired&provider=google), never text, so a link can't put words of its own into
+// an
+// official-looking message. Codes come from server/src/controllers/oauth.controller.ts; `next` is only followed inside
+// the app.
 
 const PROVIDER_LABELS: Record<string, string> = { google: "Google", github: "GitHub" };
 

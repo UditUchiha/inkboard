@@ -7,7 +7,8 @@ import type { UserDoc } from "../models/user.model.ts";
 import { sendEmail } from "./email.ts";
 import type { EmailPurpose } from "./email.ts";
 
-// Verify and reset links each hold a random secret that works once; also the email telling an owner someone asked for access.
+// Verify and reset links each hold a random secret that works once; also the email telling an owner someone asked for
+// access.
 
 const HOUR_MS = 3600 * 1000;
 export const LINK_LIFETIME_MS: Record<EmailPurpose, number> = {
@@ -21,7 +22,8 @@ type Recipient = Pick<UserDoc, "_id" | "name" | "email">;
 
 const hashOf = (secret: string) => createHash("sha256").update(secret).digest("hex");
 
-// Once sent, earlier links stop working; if sending fails the new link is dropped and the earlier one keeps working. Resolves
+// Once sent, earlier links stop working; if sending fails the new link is dropped and the earlier one keeps working.
+// Resolves
 // false, sending nothing, if one was made less than RESEND_AFTER_MS ago.
 async function sendLink(user: Recipient, purpose: EmailPurpose, send: (secret: string) => Promise<void>) {
   const recent = await EmailToken.exists({
@@ -47,7 +49,8 @@ async function sendLink(user: Recipient, purpose: EmailPurpose, send: (secret: s
   return true;
 }
 
-// Resolves with the user id it was for, or null if unknown, used or expired. With `userId`, a link for another account is left working.
+// Resolves with the user id it was for, or null if unknown, used or expired. With `userId`, a link for another account
+// is left working.
 export async function redeemSecret(secret: unknown, purpose: EmailPurpose, userId?: string) {
   if (typeof secret !== "string" || secret.length < 20 || secret.length > 100) return null;
   const filter: { hash: string; purpose: EmailPurpose; expiresAt: { $gt: Date }; user?: string } = {
@@ -155,8 +158,10 @@ export function sendAccessRequestEmail(
 
 const PROVIDER_ACCOUNTS_MIGRATION = "verify-accounts-made-by-providers";
 
-// Accounts without a password were made through Google or GitHub, which give only verified addresses. Leaves a record in
-// `migrations`, so later starts skip the scan; accounts made since have the field. Accounts with a password stay unverified until a link is clicked.
+// Accounts without a password were made through Google or GitHub, which give only verified addresses. Leaves a record
+// in
+// `migrations`, so later starts skip the scan; accounts made since have the field. Accounts with a password stay
+// unverified until a link is clicked.
 export async function verifyAccountsMadeByProviders() {
   const migrations = mongoose.connection.collection<{ _id: string; ranAt?: Date }>("migrations");
   if (await migrations.findOne({ _id: PROVIDER_ACCOUNTS_MIGRATION })) return 0;

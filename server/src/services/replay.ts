@@ -11,7 +11,8 @@ export interface Step {
 }
 
 // A log of steps, each what changed in a few seconds of work (see takeStep in realtime/sessions.ts). Past `bytes` the
-// oldest are folded into the first, so the replay starts from the board as it was before the recent work. Tests lower these.
+// oldest are folded into the first, so the replay starts from the board as it was before the recent work. Tests lower
+// these.
 export const REPLAY_LIMITS = {
   stepMs: 3000,
   bytes: 5_000_000,

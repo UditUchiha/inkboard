@@ -39,7 +39,8 @@ export type EraseGesture = {
   letGo: Map<string, Connector>;
   last: XY;
 };
-// Nothing moves before the pointer has gone somewhere, so `originals`, `ready` and `current` are set when the drag begins.
+// Nothing moves before the pointer has gone somewhere, so `originals`, `ready` and `current` are set when the drag
+// begins.
 export type MoveGesture = {
   kind: "move";
   startScreen: XY;
@@ -141,7 +142,8 @@ export function useGestureLifecycle({
     }
   }
 
-  // Records the gesture as an undo step, or puts back what it changed if `cancelled`; what someone else removed stays removed.
+  // Records the gesture as an undo step, or puts back what it changed if `cancelled`; what someone else removed stays
+  // removed.
   function finishGesture({ cancelled = false } = {}) {
     const g = gesture.current;
     gesture.current = null;
@@ -183,7 +185,8 @@ export function useGestureLifecycle({
     }
   }
 
-  // A pen stroke held still at its end becomes the shape it looks like (see recognize.ts); long multi-part strokes stay.
+  // A pen stroke held still at its end becomes the shape it looks like (see recognize.ts); long multi-part strokes
+  // stay.
   function snapToShape(g: DrawGesture) {
     if (gesture.current !== g || g.element.type !== "pen" || g.done.length > 0 || !store.getElement(g.element.id))
       return;

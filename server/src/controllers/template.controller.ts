@@ -10,7 +10,8 @@ import { previewElements } from "../services/previews.ts";
 
 type TemplateDoc = InstanceType<typeof Template>;
 
-// templates outlive boards and the free database holds 512 MB, so each is kept small and each person keeps only so many; tests lower these
+// templates outlive boards and the free database holds 512 MB, so each is kept small and each person keeps only so
+// many; tests lower these
 export const TEMPLATE_LIMITS = { count: 30, bytes: 2_000_000 };
 
 // a light preview to draw, not the drawing: starting a board from a template is by id (see createBoard)
@@ -57,7 +58,8 @@ export async function listTemplates(req: Request, res: Response) {
 
 type Connecting = Element & ConnectorFields;
 
-// images go with their board, so a template (which outlives it) can't carry them; lines and arrows attached to one are let go of it
+// images go with their board, so a template (which outlives it) can't carry them; lines and arrows attached to one are
+// let go of it
 function withoutImages(elements: Element[]): Element[] {
   const images = new Set<string | undefined>(
     elements.filter((element) => element.type === "image").map((element) => element.id),
@@ -101,7 +103,8 @@ export async function createTemplate(
     throw new HttpError(400, "This board is too big to keep as a template. Try one with fewer drawings.");
   }
 
-  // counts towards its owner's space; checks and writes run one at a time per person (see withRoom), so two saves sent together can't both pass
+  // counts towards its owner's space; checks and writes run one at a time per person (see withRoom), so two saves sent
+  // together can't both pass
   const template = await withRoom(req.userId!, { bytes }, async () => {
     if ((await Template.countDocuments({ owner: req.userId })) >= TEMPLATE_LIMITS.count) {
       throw new HttpError(400, `You can keep up to ${TEMPLATE_LIMITS.count} templates. Delete one to save another.`);

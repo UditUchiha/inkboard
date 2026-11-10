@@ -29,7 +29,8 @@ const BYTES_PER_EXTRA_MS = 4000;
 const persistDelay = (session: Session) =>
   Math.min(MAX_PERSIST_DELAY_MS, BASE_PERSIST_DELAY_MS + Math.round(session.bytes / BYTES_PER_EXTRA_MS));
 
-// the first change after a quiet spell this long saves the board as a version: a checkpoint from before each burst of work
+// the first change after a quiet spell this long saves the board as a version: a checkpoint from before each burst of
+// work
 const CHECKPOINT_INTERVAL_MS = 10 * 60 * 1000;
 const SKIP_WARNING_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -98,7 +99,8 @@ export function acquireSession(boardId: string): Promise<Session> {
   return pending;
 }
 
-// Call right after `acquireSession`, in the same turn, and acquire again when this says no: it closed (and saved) between.
+// Call right after `acquireSession`, in the same turn, and acquire again when this says no: it closed (and saved)
+// between.
 export function holdSession(session: Session) {
   if (sessions.get(session.boardId) !== session) return false;
   session.closing = false;
@@ -115,7 +117,8 @@ function measure(session: Unmeasured): asserts session is Session {
 }
 
 // Returns null when the change fits, or why not: "element" (one is too big), "board" (it would be too big) or "owner"
-// (it would grow the board by more than `room`). Changes that don't grow a board are always accepted. `buried` changes to
+// (it would grow the board by more than `room`). Changes that don't grow a board are always accepted. `buried` changes
+// to
 // removed elements don't add to the board, but each must fit as an element, since it's passed on and could come back.
 // When it fits, size tracking is updated, so call updateSession with the same change next.
 export function admit(
@@ -147,8 +150,10 @@ export function admit(
 // their stamp, which still stops older changes bringing them back
 const MAX_BURIED_BYTES = MAX_BOARD_BYTES;
 
-// Tombstone stamps are also saved with the board, so a change made long ago by someone offline can't bring back what was
-// removed since. An open board keeps up to MAX_REMOVED_IN_MEMORY (as many as browsers keep), so a long session loses none early.
+// Tombstone stamps are also saved with the board, so a change made long ago by someone offline can't bring back what
+// was
+// removed since. An open board keeps up to MAX_REMOVED_IN_MEMORY (as many as browsers keep), so a long session loses
+// none early.
 export const REMOVED_LIMITS = { ageMs: 30 * 24 * 3600 * 1000, count: MAX_ELEMENTS_PER_BOARD };
 const MAX_REMOVED_IN_MEMORY = MAX_REMOVALS_REMEMBERED;
 
@@ -395,7 +400,8 @@ export function markFacilitationDirty(session: Session) {
   session.timer ??= setTimeout(() => persist(session), BASE_PERSIST_DELAY_MS);
 }
 
-// One save at a time per board, so an older copy can't land after a newer one: changes made during a save go in the next
+// One save at a time per board, so an older copy can't land after a newer one: changes made during a save go in the
+// next
 // round of the same save, and callers share the one promise.
 function persist(session: Session) {
   clearTimeout(session.timer!); // clearTimeout accepts null, which Node's types omit
@@ -413,7 +419,8 @@ async function save(session: Session) {
     session.suggestionsDirty = false;
     session.facilitationDirty = false;
     try {
-      // the plain driver is 2-3x faster than Mongoose for a big elements array, so updatedAt is kept current by hand; only
+      // the plain driver is 2-3x faster than Mongoose for a big elements array, so updatedAt is kept current by hand;
+      // only
       // what changed is written (suggestions change often and don't change the board)
       await Board.collection.updateOne(
         { _id: new mongoose.Types.ObjectId(session.boardId) },
@@ -423,7 +430,8 @@ async function save(session: Session) {
               ? {
                   elements: session.elements,
                   removed: removedList(session),
-                  // measured as boards are (drawingBytes in services/boards.ts), which adds up a little differently from session.bytes
+                  // measured as boards are (drawingBytes in services/boards.ts), which adds up a little differently
+                  // from session.bytes
                   bytes: mongoose.mongo.BSON.calculateObjectSize({ elements: session.elements }),
                   updatedAt: new Date(),
                 }

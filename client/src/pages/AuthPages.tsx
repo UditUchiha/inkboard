@@ -5,7 +5,8 @@ import { RegisterScreen } from "../features/auth/components/RegisterScreen";
 import { ResetPasswordScreen } from "../features/auth/components/ResetPasswordScreen";
 import { VerifyEmailScreen } from "../features/auth/components/VerifyEmailScreen";
 
-// After login or sign-up <GuestOnly> redirects to ?next=… or /boards; Google and GitHub come back through /auth/callback.
+// After login or sign-up <GuestOnly> redirects to ?next=… or /boards; Google and GitHub come back through
+// /auth/callback.
 
 export function LoginPage() {
   const [params] = useSearchParams();

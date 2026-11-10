@@ -5,7 +5,8 @@ import { copyGroup } from "../elements/connectors";
 import { getSceneBounds } from "../elements/elements";
 import type { XY } from "../elements/geometry";
 
-// A .inkboard.json file: elements plus pictures as data URLs so it stands alone; importing adds them with new ids and re-uploads the pictures.
+// A .inkboard.json file: elements plus pictures as data URLs so it stands alone; importing adds them with new ids and
+// re-uploads the pictures.
 
 export const BOARD_FILE_TYPE = "inkboard";
 export const BOARD_FILE_VERSION = 1;

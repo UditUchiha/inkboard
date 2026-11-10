@@ -54,7 +54,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     tokenRef.current = token;
   });
 
-  // See logoutPlan. When the server refused this tab's token, a newer login for the same account stored by another tab is followed rather than lost.
+  // See logoutPlan. When the server refused this tab's token, a newer login for the same account stored by another tab
+  // is followed rather than lost.
   const endSession = useCallback((explicit: boolean) => {
     const { adopt, clearStored } = logoutPlan({ own: tokenRef.current, stored: readToken(), explicit });
     if (clearStored) writeToken(null);

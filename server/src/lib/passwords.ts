@@ -4,7 +4,8 @@ import { promisify } from "node:util";
 import bcrypt from "bcryptjs";
 
 // scrypt runs on libuv's thread pool, so a login doesn't stall the event loop (bcryptjs is plain JavaScript and does).
-// Older bcrypt hashes are accepted and replaced at the next login. Stored as `scrypt$N$r$p$salt$hash` (base64). The type
+// Older bcrypt hashes are accepted and replaced at the next login. Stored as `scrypt$N$r$p$salt$hash` (base64). The
+// type
 // arguments pick promisify's overload for scrypt's options form.
 const scryptAsync = promisify<BinaryLike, BinaryLike, number, ScryptOptions, Buffer>(scrypt);
 
@@ -34,7 +35,8 @@ export async function verifyPasswordHash(password: string, stored: string) {
   return { ok, needsRehash: ok };
 }
 
-// compared against when no account matches, so answering takes as long and the response time doesn't reveal who has an account
+// compared against when no account matches, so answering takes as long and the response time doesn't reveal who has an
+// account
 const decoy = hashPassword(randomBytes(16).toString("base64"));
 export async function spendPasswordTime(password: string) {
   await verifyPasswordHash(password, await decoy);
@@ -42,13 +44,15 @@ export async function spendPasswordTime(password: string) {
 
 // A bcrypt check takes about twice as long as scrypt, so a wrong guess at an account still on bcrypt would answer later
 // than one at no account and give away that it exists. Failed logins therefore wait until a bcrypt check would have
-// finished, by timer rather than more hashing, which keeps the event loop and CPU free. The decoy is a cost-12 hash, the
+// finished, by timer rather than more hashing, which keeps the event loop and CPU free. The decoy is a cost-12 hash,
+// the
 // cost the old hashes used.
 const LEGACY_DECOY = "$2b$12$2VHidUVRV7tXCUQS/wirVOg1H6mWk2ZJZhAQhYyKHvOl3XtkLOvWy";
 
 // The wait is measured, and one measurement can be wrong either way: taken while the server is busy (arrangeable right
 // after a restart) it would stall every failed login, and taken too fast it would let bcrypt accounts show. So the
-// shortest of the last few is used, new ones are taken now and then, and the result is clamped to what a bcrypt check can reasonably take.
+// shortest of the last few is used, new ones are taken now and then, and the result is clamped to what a bcrypt check
+// can reasonably take.
 const SAMPLE_WINDOW = 9;
 const FIRST_SAMPLES = 3;
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
@@ -67,7 +71,8 @@ export interface CheckTimerOptions {
   sleep?: (ms: number) => Promise<unknown>;
 }
 
-// `measure`, `now` and `sleep` can be swapped (tests do). Only the first failed login waits for a measurement; the rest are taken in the background.
+// `measure`, `now` and `sleep` can be swapped (tests do). Only the first failed login waits for a measurement; the rest
+// are taken in the background.
 export function createCheckTimer({
   measure = timeLegacyCheck,
   now = () => performance.now(),

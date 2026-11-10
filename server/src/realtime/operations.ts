@@ -48,7 +48,8 @@ export const MAX_BOARD_BYTES = 12_000_000;
 
 export const elementBytes = (element: Element) => mongoose.mongo.BSON.calculateObjectSize({ element });
 
-// older browsers send just the id; a removal with an invalid stamp (past MAX_VERSION, say) is stamped as the newest edit
+// older browsers send just the id; a removal with an invalid stamp (past MAX_VERSION, say) is stamped as the newest
+// edit
 function cleanRemoval(entry: string | (MaybeStamped & { id?: unknown }) | null | undefined): Removal | null {
   if (isValidId(entry)) return { id: entry };
   if (!entry || typeof entry !== "object" || !isValidId(entry.id)) return null;
@@ -90,8 +91,10 @@ export interface PieceResult {
   error?: GroupError;
 }
 
-// `held` is what the connection has of a group (or null); this adds the piece `op` of `group` ({ id, index, total }). Pieces
-// come in order from index 0, which abandons any group held before. Returns `{ held }` to keep waiting, `{ held: null, op }`
+// `held` is what the connection has of a group (or null); this adds the piece `op` of `group` ({ id, index, total }).
+// Pieces
+// come in order from index 0, which abandons any group held before. Returns `{ held }` to keep waiting, `{ held: null,
+// op }`
 // with the pieces joined once the last is in, or `{ held: null, error }` when the group is dropped. A held
 // `{ id, expired: true }` makes later pieces of that group "expired", so the sender sends it all again.
 export function holdPiece(
@@ -130,7 +133,8 @@ export function holdPiece(
   return { held: null, op: { upsert: listed("upsert"), remove: listed("remove") } };
 }
 
-// typing is one text at a time, so this is far more than the editor sends; it bounds the server's diffing (see sanitizeOperation)
+// typing is one text at a time, so this is far more than the editor sends; it bounds the server's diffing (see
+// sanitizeOperation)
 export const MAX_TYPED_PER_CHANGE = 20;
 
 // The sender has only its own text, so it's sent the stored elements whose text merged with someone else's typing.
@@ -149,7 +153,8 @@ export function mergedTyping(sent: readonly Element[], stored: (id: string) => E
   return merged;
 }
 
-// `changed` lists elements as they'll be stored when that differs from what was sent; `refused` lists ids that can't be stored.
+// `changed` lists elements as they'll be stored when that differs from what was sent; `refused` lists ids that can't be
+// stored.
 export function sanitizeOperation(op: RawOperation | null | undefined): SanitizedOperation | null {
   if (!op || typeof op !== "object") return null;
   const upsert: Element[] = [];
@@ -244,8 +249,10 @@ export function prepareOperation(
   return { upsert, remove };
 }
 
-// Restored elements are stamped as the newest edit of everything, and elements the snapshot lacks are removed by a removal
-// just as new, so changes still on their way from before the restore can't undo parts of it. They're stamped well ahead:
+// Restored elements are stamped as the newest edit of everything, and elements the snapshot lacks are removed by a
+// removal
+// just as new, so changes still on their way from before the restore can't undo parts of it. They're stamped well
+// ahead:
 // each step of a drag is a new version, so someone mid-drag can have dozens on the way.
 export const RESTORE_LEAD = 1000;
 

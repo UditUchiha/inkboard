@@ -38,7 +38,8 @@ export function VerifyEmailScreen({ token, linkEmail }: VerifyEmailScreenProps) 
       .catch((error: unknown) => setResult({ phase: "failed", message: errorMessage(error) }));
   }
 
-  // The link only verifies the account it was sent for, for someone logged in to it, so the page says who is logged in and offers to switch when it's another account (verifyView).
+  // The link only verifies the account it was sent for, for someone logged in to it, so the page says who is logged in
+  // and offers to switch when it's another account (verifyView).
   const view = verifyView({ status, user, linkEmail });
   const signedIn = view === "confirm" || view === "switch";
   const here = `${location.pathname}${location.search}`;

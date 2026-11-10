@@ -15,7 +15,8 @@ export type NoteLayout = {
   height: number;
 };
 
-// Wrapped to the note's width, centered and as large as fits; everything that draws a note uses this so it looks the same everywhere.
+// Wrapped to the note's width, centered and as large as fits; everything that draws a note uses this so it looks the
+// same everywhere.
 
 export const NOTE_PADDING = 0.09; // of the note's shorter side, on every edge
 export const MIN_NOTE_FONT_SIZE = 6;

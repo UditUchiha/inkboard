@@ -16,9 +16,11 @@ import type { PendingChange, Typing } from "./store";
 
 export type { PendingChange };
 
-// Changes made here that the server hasn't confirmed (see useBoardSync); no sockets or React, so replies can be tested alone.
+// Changes made here that the server hasn't confirmed (see useBoardSync); no sockets or React, so replies can be tested
+// alone.
 // A big change goes out in pieces sharing a `group`, so the server takes them in together or not at all.
-// Nothing else is sent meanwhile: the server holds one group per connection, so a removal sent mid-upload would be applied first, then undone.
+// Nothing else is sent meanwhile: the server holds one group per connection, so a removal sent mid-upload would be
+// applied first, then undone.
 
 // A stroke is sent whole each time, so a longer flush keeps its traffic flat instead of growing with every point.
 const FLUSH_INTERVAL_MS = 40;
@@ -28,7 +30,8 @@ const MAX_EXTRA_FLUSH_MS = 400;
 // Retry delay by reason ("expired": the server stopped waiting for the rest of a big change).
 export const RETRY_DELAY_MS: Record<string, number> = { timeout: 400, rate: 1000, expired: 0 };
 
-// "rate" refusals back off exponentially up to MAX_RATE_DELAY_MS, with jitter so limited connections don't return together;
+// "rate" refusals back off exponentially up to MAX_RATE_DELAY_MS, with jitter so limited connections don't return
+// together;
 // after SLOW_AFTER in a row the retry sets `slow`, so the screen can say saving takes a while.
 const MAX_RATE_DELAY_MS = 30_000;
 const SLOW_AFTER = 3;
@@ -169,7 +172,8 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
     return again;
   }
 
-  // The server holds a change's pieces until the last arrives, so after a failure the whole change is queued again as a new group.
+  // The server holds a change's pieces until the last arrives, so after a failure the whole change is queued again as a
+  // new group.
   function requeue({ op, rest, batch }: Inflight, seq: number | undefined, taken: boolean): Effect {
     const again = restore(op, seq, taken);
     for (const done of batch.sent) {
@@ -234,7 +238,8 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
       return pieces;
     },
 
-    // Results: ignore, ok (maybe a `next` piece), retry after `delay`, rejoin, or resync (can't be saved: show the server's board).
+    // Results: ignore, ok (maybe a `next` piece), retry after `delay`, rejoin, or resync (can't be saved: show the
+    // server's board).
     settle(seq: number, error: Error | null, response: AckReply | undefined): SettleResult {
       const entry = inflight.get(seq);
       if (!entry) return { kind: "ignore" };
@@ -289,7 +294,8 @@ export function createOutbox({ onChange = () => {}, random = Math.random }: Outb
       changed();
     },
 
-    // Typed-here text the server hasn't answered: others' changes don't replace it here; the server's answer merges them (store.applyRemote).
+    // Typed-here text the server hasn't answered: others' changes don't replace it here; the server's answer merges
+    // them (store.applyRemote).
     typing() {
       const elements: BoardElement[] = [];
       for (const { op, rest } of inflight.values()) for (const piece of [op, ...rest]) elements.push(...piece.upsert);

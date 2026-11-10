@@ -1,4 +1,5 @@
-// Passes for boards whose link asks for a password, by board id, so it isn't asked each visit; a pass stops working when the owner changes
+// Passes for boards whose link asks for a password, by board id, so it isn't asked each visit; a pass stops working
+// when the owner changes
 // the password. Without storage (private window, blocked data) the password is asked each time.
 
 const KEY = "inkboard.linkPasses";

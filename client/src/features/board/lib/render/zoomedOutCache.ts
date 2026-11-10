@@ -1,8 +1,10 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
 import type { Rect } from "../elements/geometry";
 
-// Zoomed far out a pan or remote edit redraws thousands of shapes that barely change, so the board is kept as tiles drawn
-// once and copied while the view moves; a tile is redrawn only when something in it (or the zoom, colors or pictures) changes.
+// Zoomed far out a pan or remote edit redraws thousands of shapes that barely change, so the board is kept as tiles
+// drawn
+// once and copied while the view moves; a tile is redrawn only when something in it (or the zoom, colors or pictures)
+// changes.
 
 export const TILES_MAX_ZOOM = 0.3;
 
@@ -28,7 +30,8 @@ export function tilesTouching({ x, y, width, height }: Rect, scale: number): Til
 
 export const tileCount = ({ i0, i1, j0, j1 }: TileRange): number => (i1 - i0 + 1) * (j1 - j0 + 1);
 
-// A rectangle per element added, removed or changed; null when the order changed, as that changes what covers what everywhere.
+// A rectangle per element added, removed or changed; null when the order changed, as that changes what covers what
+// everywhere.
 export function changedAreas(
   before: BoardElement[],
   after: BoardElement[],
@@ -69,7 +72,8 @@ export function createTileCache<Tile>(release: (tile: Tile) => void = () => {}, 
   }
 
   return {
-    // Returns whether `key` (everything but the elements that a tile depends on: zoom, colors…) is unchanged: tiles are only worth drawing for a look that stays.
+    // Returns whether `key` (everything but the elements that a tile depends on: zoom, colors…) is unchanged: tiles are
+    // only worth drawing for a look that stays.
     sync(key: string, elements: BoardElement[], scale: number, areaOf: (element: BoardElement) => Rect): boolean {
       const same = kept?.key === key;
       if (!same) this.clear();

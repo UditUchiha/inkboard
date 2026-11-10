@@ -1,6 +1,7 @@
 import { PEOPLE_COLORS, readableColor } from "./format";
 
-// Only replaced palette colors move to their replacement; any other stays as is: `readableColor` darkens light custom colors for display,
+// Only replaced palette colors move to their replacement; any other stays as is: `readableColor` darkens light custom
+// colors for display,
 // and saving that value (even with only the name changed) would replace the one the person chose.
 export function formColor(color: string | null | undefined) {
   const shown = readableColor(color);

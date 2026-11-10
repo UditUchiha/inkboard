@@ -4,7 +4,8 @@ import type { Rect, TurnedRect, XY } from "./geometry";
 
 // A connector runs from (x1, y1) to (x2, y2) by its `route`: straight (default), curved (one cubic Bézier) or
 // elbow (right angles, straight out of a shape before turning). An attached end leaves its shape's side
-// (connectors.ts supplies that and the shape's box via `setEndDirections`); a free end goes along the axis pointing more towards the other end.
+// (connectors.ts supplies that and the shape's box via `setEndDirections`); a free end goes along the axis pointing
+// more towards the other end.
 
 export const ROUTES: Route[] = ["straight", "curved", "elbow"];
 export const ELBOW_GAP = 24; // how far an elbow runs out of a shape before it turns
@@ -135,7 +136,8 @@ function runsIntoTurned(p: XY, q: XY, { cx, cy, width, height, angle }: TurnedRe
   return true;
 }
 
-// A turned shape's upright box would hold the end on its side and make every route seem to cross it, so its own frame is used.
+// A turned shape's upright box would hold the end on its side and make every route seem to cross it, so its own frame
+// is used.
 function boxesCrossed(points: XY[], boxes: AttachedBox[]) {
   return boxes.filter((box) =>
     points.some((point, i) => {
@@ -147,7 +149,8 @@ function boxesCrossed(points: XY[], boxes: AttachedBox[]) {
   ).length;
 }
 
-// Right-angled route: fewest boxes crossed, then fewest turns, then shortest; never doubles back. Free ends have no gap.
+// Right-angled route: fewest boxes crossed, then fewest turns, then shortest; never doubles back. Free ends have no
+// gap.
 function elbow(
   start: XY,
   startDirection: XY,

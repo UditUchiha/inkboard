@@ -136,7 +136,8 @@ export const isMemberRole = (role: Role | null) => role === "owner" || role === 
 
 export const canEdit = (role: Role | null) => isMemberRole(role) || role === "contributor";
 
-// a drawing can be megabytes and most requests only need to know who can open the board, so elements come only when asked for
+// a drawing can be megabytes and most requests only need to know who can open the board, so elements come only when
+// asked for
 async function loadBoard(boardId: ObjectIdLike, { elements = false }: { elements?: boolean } = {}) {
   if (!mongoose.isValidObjectId(boardId)) {
     throw new HttpError(404, "This board doesn't exist.");
@@ -174,8 +175,10 @@ export async function findBoardForViewing(
   return board;
 }
 
-// The free database holds 512 MB for everyone, so what one person keeps is limited: boards (trashed ones included, until
-// erased), and the space their boards, those boards' saved versions and their templates take together, as MongoDB stores
+// The free database holds 512 MB for everyone, so what one person keeps is limited: boards (trashed ones included,
+// until
+// erased), and the space their boards, those boards' saved versions and their templates take together, as MongoDB
+// stores
 // them. Writes that add on purpose (a new board with a drawing, a saved version, a template) are checked; drawing on a
 // board is held to the board's own limit (12 MB) and counts once written. Automatic versions don't count: people can't
 // delete them, so they could fill the space for good. VERSION_LIMITS.bytes bounds them per board. Tests lower these.
@@ -224,7 +227,8 @@ const SPACE_USED_UP =
 // one owner at a time, so writes sent together can't all pass a check that only one of them fits in
 const forOwner = keyedQueue();
 
-// Runs `write` once `ownerId` has room for it: for another board when `board` is true, and for `bytes` more. Throws (400)
+// Runs `write` once `ownerId` has room for it: for another board when `board` is true, and for `bytes` more. Throws
+// (400)
 // otherwise, with `full` as the reason when space runs out. A blank board is tiny, so `bytes: 0` skips the sum.
 export function withRoom<Result>(
   ownerId: ObjectIdLike,
@@ -251,8 +255,10 @@ export async function currentElements(boardId: ObjectIdLike) {
   return saved?.elements ?? [];
 }
 
-// Pass `trashedBefore` to leave a board alone that was restored or trashed again meanwhile. The board is claimed first, in
-// one write marking it as being deleted, after which it can't be restored (see restoreBoard); everything that belongs to it
+// Pass `trashedBefore` to leave a board alone that was restored or trashed again meanwhile. The board is claimed first,
+// in
+// one write marking it as being deleted, after which it can't be restored (see restoreBoard); everything that belongs
+// to it
 // goes next and the board last, so a failure part-way leaves a marked board, not unreachable versions and comments, and
 // the next trash sweep (or another try) finishes it.
 export async function destroyBoard(boardId: ObjectIdLike, { trashedBefore }: { trashedBefore?: Date } = {}) {
@@ -301,7 +307,8 @@ export function serializeMeta(board: BoardMeta, { redact = false }: { redact?: b
   };
 }
 
-// `state` includes this person's own filing (the dashboard); `role` is for when it was worked out with a link-password pass
+// `state` includes this person's own filing (the dashboard); `role` is for when it was worked out with a link-password
+// pass
 export function serializeBoard(
   board: BoardView,
   userId: unknown,
@@ -328,7 +335,8 @@ export function serializeListed(board: BoardView, userId: unknown, state: Filing
   return listed;
 }
 
-// For a board shared by link this is what puts it on their dashboard. Best effort: failing to record never blocks opening.
+// For a board shared by link this is what puts it on their dashboard. Best effort: failing to record never blocks
+// opening.
 export async function recordOpen(userId: ObjectIdLike, boardId: ObjectIdLike) {
   try {
     await BoardState.updateOne(

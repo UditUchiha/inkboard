@@ -128,7 +128,8 @@ export interface BoardListReply {
   boards: ListedBoard[];
 }
 
-// bytes used by the boards someone owns (trashed included) out of what they may hold; `unverified` marks the smaller limit of an unconfirmed address
+// bytes used by the boards someone owns (trashed included) out of what they may hold; `unverified` marks the smaller
+// limit of an unconfirmed address
 export interface ImageUsage {
   used: number;
   limit: number;

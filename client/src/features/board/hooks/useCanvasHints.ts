@@ -59,7 +59,8 @@ export function useCanvasHints(store: BoardStore, latest: RefObject<Latest>, too
     return id ? drawnElement(store.getElements(), id) : null;
   };
 
-  // A handle or a connection dot, never both (see dotBeatsHandle): the selected shape has handles where its dots would be.
+  // A handle or a connection dot, never both (see dotBeatsHandle): the selected shape has handles where its dots would
+  // be.
   function selectPress(world: XY, vp: Viewport, under?: Under) {
     const selected = drawnSelected();
     const handle = selected ? handleAt(selected, world, vp.zoom) : null;

@@ -44,7 +44,8 @@ function writeScratch(scratch: Scratch): boolean {
   }
 }
 
-// When the browser has no room left localStorage is stale, and what's uploaded on signing up must be this tab's drawing.
+// When the browser has no room left localStorage is stale, and what's uploaded on signing up must be this tab's
+// drawing.
 let live: Scratch | null = null;
 
 export function currentScratch(): Scratch {

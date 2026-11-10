@@ -1,6 +1,8 @@
-// Changes proposed by someone who may only suggest, which a member accepts or rejects (docs/suggest-mode.md). Each is about
+// Changes proposed by someone who may only suggest, which a member accepts or rejects (docs/suggest-mode.md). Each is
+// about
 // one element: add (not on the board), change (only the groups the author changed are taken on accepting, so another
-// group edited meanwhile stays) or remove. A change or removal remembers the stamps its groups had (`base`), to tell when the element was edited since (see isOutdated).
+// group edited meanwhile stays) or remove. A change or removal remembers the stamps its groups had (`base`), to tell
+// when the element was edited since (see isOutdated).
 
 import { compareStamps, copyGroup, FIELD_GROUPS, groupStamps } from "./board-merge.ts";
 import type { Participant } from "./socket.ts";
@@ -30,7 +32,8 @@ export type Suggestion = AddSuggestion | ChangeSuggestion | RemoveSuggestion;
 export type SuggestionDraft =
   { kind: "add"; element: Element } | { kind: "change"; element: Element } | { kind: "remove"; target: string };
 
-// An addition is known by its element's id; a change or removal by author and element, so each person has at most one per element (a further edit replaces it). The prefixes keep the two apart, as element ids can be any short string.
+// An addition is known by its element's id; a change or removal by author and element, so each person has at most one
+// per element (a further edit replaces it). The prefixes keep the two apart, as element ids can be any short string.
 export function suggestionId(kind: SuggestionKind, authorId: string, elementId: string) {
   return kind === "add" ? `add:${elementId}` : `on:${authorId}:${elementId}`;
 }

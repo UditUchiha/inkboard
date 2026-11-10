@@ -19,7 +19,8 @@ export type Connectable = AnyElement;
 
 export type SidePoint = XY & { dx: number; dy: number };
 
-// What a connector end at a point attaches to: a shape and, on one of its dots, that side; otherwise floating, or nothing.
+// What a connector end at a point attaches to: a shape and, on one of its dots, that side; otherwise floating, or
+// nothing.
 export type Connection =
   { target: Connectable; side: Side } | { target: Connectable; side: null } | { target: null; side: null };
 
@@ -294,7 +295,8 @@ function dotIsFree(
   return !hit || isFrame(hit) || hit.id === found.target.id;
 }
 
-// A press on a dot starts an arrow unless something else is drawn there (dots sit just outside shapes, where a neighbour may be).
+// A press on a dot starts an arrow unless something else is drawn there (dots sit just outside shapes, where a
+// neighbour may be).
 // An arrow pinned to this side runs out through the dot, so only the dot's core (DOT_CORE) counts for it.
 export function dotGrab(
   elements: BoardElement[],
@@ -306,7 +308,8 @@ export function dotGrab(
   return dotIsFree(elements, point, found, { zoom, tolerance, ...known }) ? found : null;
 }
 
-// The dots show while the pointer is over a shape or its dots; a dot a press wouldn't start from isn't shown as hovered.
+// The dots show while the pointer is over a shape or its dots; a dot a press wouldn't start from isn't shown as
+// hovered.
 export function dotHover(
   elements: BoardElement[],
   point: XY,
@@ -320,7 +323,8 @@ export function dotHover(
   return hit && canConnectTo(hit) ? { target: hit, side: null } : null;
 }
 
-// A handle wins over a dot, except a line's or arrow's end: a pinned end sits inside its dot, so the nearer of the two wins.
+// A handle wins over a dot, except a line's or arrow's end: a pinned end sits inside its dot, so the nearer of the two
+// wins.
 export function dotBeatsHandle(
   selected: BoardElement,
   handle: string | null,

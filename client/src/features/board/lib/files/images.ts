@@ -159,13 +159,15 @@ export const imagesVersion = (): number => version;
 
 const keyFor = (imageId: string, small: boolean): string => (small ? `${imageId}/small` : imageId);
 
-// Pictures on show are kept however many: dropping one would make the next redraw fetch it, and then another, flashing every picture back to its placeholder.
+// Pictures on show are kept however many: dropping one would make the next redraw fetch it, and then another, flashing
+// every picture back to its placeholder.
 export function showingImages(
   canvas: HTMLCanvasElement,
   imageIds: ReadonlySet<string>,
   { small = false }: ImageOptions = {},
 ): void {
-  // Sweep here, not only in evict() (a no-op while the cache is small): a canvas that left the page mustn't stay referenced with its pixels.
+  // Sweep here, not only in evict() (a no-op while the cache is small): a canvas that left the page mustn't stay
+  // referenced with its pixels.
   for (const other of shown.keys()) if (other !== canvas && other.isConnected === false) shown.delete(other);
   if (imageIds.size === 0) shown.delete(canvas);
   else shown.set(canvas, new Set([...imageIds].map((imageId) => keyFor(imageId, small))));
@@ -231,7 +233,8 @@ export function getImage(imageId: string, { small = false }: ImageOptions = {}):
   const key = keyFor(imageId, small);
   const entry = entries.get(key);
   if (!entry) return track(key, imageUrl(imageId, { small }));
-  // A failed download is retried with growing waits, so a picture that is gone for good isn't asked for every few seconds.
+  // A failed download is retried with growing waits, so a picture that is gone for good isn't asked for every few
+  // seconds.
   const wait = Math.min(RETRY_AFTER_MS * 2 ** (entry.failures - 1), MAX_RETRY_AFTER_MS);
   if (entry.state === "failed" && Date.now() - entry.failedAt > wait) {
     return track(key, imageUrl(imageId, { small }), { failures: entry.failures });

@@ -12,7 +12,8 @@ import type { Element, FieldGroup, GroupStamps } from "@inkboard/shared/types";
 import mongoose from "mongoose";
 import { MAX_ELEMENT_BYTES } from "./operations.ts";
 
-// The suggestions open on a board (see shared/src/suggestions.ts, docs/suggest-mode.md), kept and saved with it. Nothing here
+// The suggestions open on a board (see shared/src/suggestions.ts, docs/suggest-mode.md), kept and saved with it.
+// Nothing here
 // changes the board: a member accepts a suggestion by making the change themselves.
 
 export interface SuggestionState {
@@ -83,7 +84,8 @@ export interface PutResult {
 
 type Draft = { kind?: unknown; element?: unknown; target?: unknown } | null | undefined;
 
-// A suggestion, the id of the author's suggestion it takes back (it makes the element just as it is on the board), or null.
+// A suggestion, the id of the author's suggestion it takes back (it makes the element just as it is on the board), or
+// null.
 function readDraft(
   draft: Draft,
   board: Board,
@@ -121,7 +123,8 @@ function readDraft(
   return make("change", current.id, { target: current.id, element: proposed, groups, base: stampsOf(current, groups) });
 }
 
-// the limit that keeping the suggestion would go past, or null; `authorFull` is whether its author already has as many open as one person may
+// the limit that keeping the suggestion would go past, or null; `authorFull` is whether its author already has as many
+// open as one person may
 function limitMet(state: SuggestionState, id: string, size: number, authorFull: boolean): PutResult["full"] | null {
   const isNew = !state.byId.has(id);
   if (isNew && state.byId.size >= MAX_SUGGESTIONS_PER_BOARD) return "board";

@@ -3,7 +3,8 @@ import { env } from "../config/env.ts";
 
 const requestUrl = (req: Request) => `${req.protocol}://${req.get("host")}`;
 
-// the callback address a sign-in provider sends people back to: API_URL, else APP_URL when the server hosts the app, else the request's address
+// the callback address a sign-in provider sends people back to: API_URL, else APP_URL when the server hosts the app,
+// else the request's address
 export const apiUrlFor = (req: Request) => env.apiUrl || env.appUrl || requestUrl(req);
 
 // Where people open the app, for redirects into it and links in emails. Without APP_URL the Host header decides, so

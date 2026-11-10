@@ -38,7 +38,8 @@ interface SessionCommandsOptions {
   setPhase: (phase: Phase) => void;
 }
 
-// What this screen asks of the session: the replay, timer, private mode, classroom, votes, suggestions and the link password.
+// What this screen asks of the session: the replay, timer, private mode, classroom, votes, suggestions and the link
+// password.
 export function useSessionCommands({
   socket,
   boardId,
@@ -74,7 +75,8 @@ export function useSessionCommands({
     [socket, boardId, joined],
   );
 
-  // Others are shown who presents and follow them (see useFollow); remembered so a reconnect joins as the presenter again.
+  // Others are shown who presents and follow them (see useFollow); remembered so a reconnect joins as the presenter
+  // again.
   const present = useCallback(
     (on: boolean) => {
       presenting.current = on;
@@ -111,7 +113,8 @@ export function useSessionCommands({
     [socket],
   );
 
-  // Decisions go from this screen at once; accepting is the member's own change to the board, made before (see suggestions.ts).
+  // Decisions go from this screen at once; accepting is the member's own change to the board, made before (see
+  // suggestions.ts).
   const resolveSuggestions = useCallback(
     (ids: string[], outcome: SuggestionOutcome) => {
       if (ids.length === 0) return;

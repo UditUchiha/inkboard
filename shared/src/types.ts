@@ -44,7 +44,8 @@ export type Splice = [prefix: number, suffix: number, middle: string];
 
 export type TextBases = Partial<Record<TextField, Splice>>;
 
-// `base` is only on a change on its way to a board, never on an element a board keeps (see text-merge.ts); stamps are missing on an element from an older browser
+// `base` is only on a change on its way to a board, never on an element a board keeps (see text-merge.ts); stamps are
+// missing on an element from an older browser
 type Common = Partial<Stamp> & { id: string; index?: string; stamps?: ElementStamps; base?: TextBases };
 
 export type PenElement = Common & {
@@ -117,7 +118,9 @@ export type ConnectorFields = {
   font?: Font;
 };
 
-// One kind because they share geometry and look and merge the same way. Only a line or arrow has the connector fields and an unfillable (null) fill. A triangle points up from its base along the bottom of its box; a diamond's corners are the middles of its box's sides.
+// One kind because they share geometry and look and merge the same way. Only a line or arrow has the connector fields
+// and an unfillable (null) fill. A triangle points up from its base along the bottom of its box; a diamond's corners
+// are the middles of its box's sides.
 export type ShapeElement = Common &
   ConnectorFields & {
     type: "line" | "arrow" | "rectangle" | "ellipse" | "triangle" | "diamond";

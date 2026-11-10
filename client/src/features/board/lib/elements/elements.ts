@@ -60,8 +60,10 @@ export type ConnectorLabel = Rect & { lines: string[]; font: string; fontSize: n
 
 export type ArrowHead = [Pair, Pair, Pair];
 
-// Elements are immutable plain JSON objects, so the renderer can cache work per element (shapes: shared/src/element types).
-// A frame holds what lies wholly inside it; nothing records membership, so a remote change can't leave them disagreeing.
+// Elements are immutable plain JSON objects, so the renderer can cache work per element (shapes: shared/src/element
+// types).
+// A frame holds what lies wholly inside it; nothing records membership, so a remote change can't leave them
+// disagreeing.
 // Lines and arrows have no `angle`: they are reshaped by moving an end.
 
 const TURNABLE_TYPES = new Set<BoardElement["type"]>([
@@ -582,7 +584,8 @@ export function duplicate(element: BoardElement, dx = 16, dy = 16): BoardElement
   return copy;
 }
 
-// A click without a drag shouldn't leave an invisible shape behind: one under 3 screen pixels across (at `zoom`) is that.
+// A click without a drag shouldn't leave an invisible shape behind: one under 3 screen pixels across (at `zoom`) is
+// that.
 export function isDegenerate(element: BoardElement, zoom = 1): boolean {
   if (element.type === "pen") return false;
   if (element.type === "text") return !element.text.trim();

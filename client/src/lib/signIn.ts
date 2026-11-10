@@ -1,5 +1,7 @@
-// Sign in with Google or GitHub (server/src/controllers/oauth.controller.ts): a random `bind` stays in this tab's sessionStorage
-// and only its hash goes out in the URL. The redirect's code is only good with that `bind`, so a redirect made elsewhere
+// Sign in with Google or GitHub (server/src/controllers/oauth.controller.ts): a random `bind` stays in this tab's
+// sessionStorage
+// and only its hash goes out in the URL. The redirect's code is only good with that `bind`, so a redirect made
+// elsewhere
 // (login CSRF) finds none and signs nobody in.
 
 import type { Session } from "./api";
@@ -43,7 +45,8 @@ export function forgetSignInBind() {
   }
 }
 
-// Resolves signed-in, offline (the `bind` is kept to try again) or incomplete (no code or `bind`, or the server refused them).
+// Resolves signed-in, offline (the `bind` is kept to try again) or incomplete (no code or `bind`, or the server refused
+// them).
 type SignInResult = { outcome: "signed-in"; session: Session } | { outcome: "offline" } | { outcome: "incomplete" };
 
 export async function completeSignIn({

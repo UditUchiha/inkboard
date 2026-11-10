@@ -1,12 +1,14 @@
 import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import type { Element, StackMove } from "./types.ts";
 
-// An element's place in the stack is its `index`, a fractional-indexing key ("a0", "a1", … "b00"); boards are sorted by key,
+// An element's place in the stack is its `index`, a fractional-indexing key ("a0", "a1", … "b00"); boards are sorted by
+// key,
 // then by id (two people adding at once pick the same key), and the last element is on top.
 
 const MAX_KEY_LENGTH = 100;
 const KEY_CHARACTERS = /^[0-9A-Za-z]+$/;
-// The leading letter says how long the whole-number part is ("a" 1 digit … "z" 26, "Z" down to "A" below "a0"). Real boards never pass "c", but a made-up longest key can only be lengthened, until keys are too long to take.
+// The leading letter says how long the whole-number part is ("a" 1 digit … "z" 26, "Z" down to "A" below "a0"). Real
+// boards never pass "c", but a made-up longest key can only be lengthened, until keys are too long to take.
 const KEY_START = /^[N-Za-m]/;
 
 export function isOrderKey(key: unknown): key is string {
@@ -36,7 +38,8 @@ export const topKey = (elements: readonly Pick<Element, "index">[]): string | nu
 
 export const STACK_MOVES: readonly StackMove[] = ["front", "forward", "backward", "back"];
 
-// stepping past an element that doesn't overlap would change nothing anyone can see; null when there's nowhere to move it
+// stepping past an element that doesn't overlap would change nothing anyone can see; null when there's nowhere to move
+// it
 export function keyToMove(
   elements: readonly Element[],
   id: string,
@@ -68,7 +71,8 @@ export function keyToMove(
     while (previous >= 0 && keys[previous] === keys[target]) previous -= 1;
     key = generateKeyBetween(previous >= 0 ? keys[previous] : null, keys[target]);
   }
-  // keys stepped into the same gap again and again grow; past the longest the server takes, the move would only happen on this screen
+  // keys stepped into the same gap again and again grow; past the longest the server takes, the move would only happen
+  // on this screen
   return isOrderKey(key) ? key : null;
 }
 

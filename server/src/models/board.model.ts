@@ -12,8 +12,10 @@ const boardSchema = new mongoose.Schema(
     owner: { type: ObjectId, ref: "User", required: true, index: true },
     collaborators: [{ type: ObjectId, ref: "User", index: true }],
     linkAccess: { type: String, enum: LINK_ACCESS, default: "restricted" },
-    // hashed password, and a random key set with it that changes whenever it does: the key is the pass people are given, so a
-    // new password, or none, ends every pass (see services/link-pass.ts). Never sent to anyone else; members need neither.
+    // hashed password, and a random key set with it that changes whenever it does: the key is the pass people are
+    // given, so a
+    // new password, or none, ends every pass (see services/link-pass.ts). Never sent to anyone else; members need
+    // neither.
     linkPassword: { type: String, default: null, select: false },
     linkKey: { type: String, default: null },
     linkUnlocked: [{ type: ObjectId, ref: "User" }],
@@ -23,7 +25,8 @@ const boardSchema = new mongoose.Schema(
     elements: { type: [Mixed], default: [] },
     // { id, version, versionNonce, at }; only needed when the board is opened for editing (see realtime/sessions.ts)
     removed: { type: [Mixed], default: [], select: false },
-    // proposed by "suggest" links, for a member to accept or reject (see shared/src/suggestions.ts); saved with the open board like its elements
+    // proposed by "suggest" links, for a member to accept or reject (see shared/src/suggestions.ts); saved with the
+    // open board like its elements
     suggestions: { type: [Mixed], default: [], select: false },
     // saved with the open board, so they carry on when everyone has left and comes back
     countdown: { type: Mixed, default: null, select: false },
@@ -32,7 +35,8 @@ const boardSchema = new mongoose.Schema(
     classroom: { type: Mixed, default: null, select: false },
     starredBy: [{ type: ObjectId, ref: "User", index: true }],
     deletedAt: { type: Date, default: null, index: true },
-    // from then on it can't be restored, and if the deletion is cut off the next trash sweep finishes it (see destroyBoard)
+    // from then on it can't be restored, and if the deletion is cut off the next trash sweep finishes it (see
+    // destroyBoard)
     purgingAt: { type: Date, default: null },
     // of `elements` as MongoDB stores them, so an owner's space adds up without reading every drawing (see ownerBytes);
     // null on boards saved before it existed, until measured

@@ -1,4 +1,5 @@
-// Where keys are for typing, not the board's shortcuts: not a color picker, slider or checkbox, which have no use for them.
+// Where keys are for typing, not the board's shortcuts: not a color picker, slider or checkbox, which have no use for
+// them.
 const TEXT_INPUTS = new Set(["text", "search", "email", "url", "tel", "password", "number"]);
 
 export const isTypingTarget = (target: EventTarget | null): boolean =>
@@ -19,7 +20,8 @@ const PRESSABLE = [
 export const isPressable = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && Boolean(target.closest(PRESSABLE));
 
-// Keys belong to a menu or modal dialog wherever focus is, or a popover (a comment) when focus is inside it: focus back on the board
+// Keys belong to a menu or modal dialog wherever focus is, or a popover (a comment) when focus is inside it: focus back
+// on the board
 // returns the shortcuts, and the popover handles its own Escape.
 export const isOverlayKey = (target: EventTarget | null, root: ParentNode = document): boolean =>
   Boolean(root.querySelector("dialog[open], [role='menu'], [aria-modal='true']")) ||

@@ -37,7 +37,8 @@ function useInlineEditor(
   const ref = useRef<HTMLTextAreaElement>(null);
   const committed = useRef(false);
   const [value, setValue] = useState(board);
-  // The text on the board this edit is typed against: as it was when editing began, or when someone else last changed it.
+  // The text on the board this edit is typed against: as it was when editing began, or when someone else last changed
+  // it.
   const base = useRef(board);
   // Whether an input method is composing: what it holds isn't in the textarea's value yet, so merging waits.
   const composingNow = useRef(false);
