@@ -10,7 +10,6 @@ const APP_WIDE = ["client/src/components/", "client/src/hooks/", "client/src/lib
 
 // Files still over the size limit. Remove an entry in the change that splits the file; never add one.
 const SIZE_DEBT = new Set<string>([
-  "client/src/features/board/components/BoardCanvas.tsx",
   "client/src/features/board/components/CommentsLayer.tsx",
   "client/src/features/board/components/PropertiesPanel.tsx",
   "client/src/features/board/components/ShareDialog.tsx",
