@@ -30,7 +30,7 @@ export function BoardCornerTools({
   onShortcuts,
 }: BoardCornerToolsProps) {
   return (
-    <div className="absolute right-3 bottom-[4.25rem] flex items-center gap-2 md:bottom-3">
+    <div className="absolute right-3 bottom-[7.5rem] flex items-center gap-2 sm:bottom-[4.25rem] md:bottom-3">
       <SyncStatus online={sync.online} saving={sync.saving} readOnly={readOnly} local={local} unsaved={sync.unsaved} />
       {!local && drawsOnBoard(role) && !sync.timer && (
         <div className="floating-panel rounded-xl p-1">
