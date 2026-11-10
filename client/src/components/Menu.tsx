@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import type { LucideIcon } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 
 const MenuContext = createContext<() => void>(() => {});
@@ -30,7 +30,9 @@ export function Menu({ trigger, children, align = "end", side = "bottom", classN
   const returnFocus = useRef(false);
   const isOpen = useRef(false);
   const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
+  useLayoutEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  });
 
   // `restoreFocus` puts focus back on the button that opened the menu (Escape, picking an item), but
   // not when the menu closes because someone clicked elsewhere.
@@ -92,6 +94,7 @@ export function Menu({ trigger, children, align = "end", side = "bottom", classN
 
   return (
     <div ref={rootRef} className="relative">
+      {/* eslint-disable-next-line react-hooks/refs -- the render prop's onClick only runs in a click, never during render */}
       {trigger({
         "aria-haspopup": "menu",
         "aria-expanded": open,

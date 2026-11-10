@@ -45,7 +45,7 @@ export default function DemoBoard() {
   const canvasRef = useRef<HTMLCanvasElement>(null!);
   const size = useElementSize(containerRef);
   const [fontsReady, setFontsReady] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(() => (prefersReducedMotion() ? 1 : 0));
   const [doodles, setDoodles] = useState<PenElement[]>([]);
   const drawing = useRef<string | null>(null);
   const penStroke = useRef(false); // whether what is being drawn is a pen's
@@ -61,10 +61,7 @@ export default function DemoBoard() {
   }, []);
 
   useEffect(() => {
-    if (prefersReducedMotion()) {
-      setProgress(1);
-      return undefined;
-    }
+    if (prefersReducedMotion()) return undefined;
     let frame: number;
     let start: number | undefined;
     const tick = (now: number) => {

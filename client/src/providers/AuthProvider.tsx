@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { api, setAuthToken, setUnauthorizedHandler } from "../lib/api";
 import type { AccountUser, ApiError, LoginInput, RegisterInput, Session } from "../lib/api";
@@ -50,7 +50,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   setAuthToken(token);
   const tokenRef = useRef(token);
-  tokenRef.current = token;
+  useLayoutEffect(() => {
+    tokenRef.current = token;
+  });
 
   // See logoutPlan. When the server refused this tab's token, a newer login for the same account stored by another tab is followed rather than lost.
   const endSession = useCallback((explicit: boolean) => {

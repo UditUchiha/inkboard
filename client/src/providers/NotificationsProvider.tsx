@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -53,7 +53,9 @@ export function NotificationsProvider({ children }: NotificationsProviderProps) 
   const [loadingMore, setLoadingMore] = useState(false);
   const signedIn = status === "authenticated";
   const itemsRef = useRef(items);
-  itemsRef.current = items;
+  useLayoutEffect(() => {
+    itemsRef.current = items;
+  });
   // Bumped whenever the list starts over, so an older page that was on its way isn't added to the new list.
   const generation = useRef(0);
   // Where the next older page starts, as the server says: past every row it looked at, shown or not, so a page
@@ -86,10 +88,15 @@ export function NotificationsProvider({ children }: NotificationsProviderProps) 
 
   // Loads what is saved and merges it with anything that arrived live meanwhile, now and after every reconnect
   // (notifications sent while the socket was down are only saved, not delivered).
-  useEffect(() => {
-    generation.current += 1;
+  const [wasSignedIn, setWasSignedIn] = useState(signedIn);
+  if (signedIn !== wasSignedIn) {
+    setWasSignedIn(signedIn);
     setItems([]);
     setMore(false);
+  }
+
+  useEffect(() => {
+    generation.current += 1;
     cursor.current = null;
   }, [signedIn]);
 

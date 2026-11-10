@@ -14,6 +14,8 @@ export function fillPreviews(list: BoardSummary[] | null | undefined, found: Map
   );
 }
 
+const fetchLists = () => Promise.all([api.listBoards(), api.listTrash()]);
+
 export function useBoards() {
   // A change landing while the list is null leaves it undefined, which only an update to a board that isn't there could do.
   const [boards, setBoards] = useState<BoardSummary[] | null | undefined>(null);
@@ -27,19 +29,22 @@ export function useBoards() {
     return known && known.updatedAt === board.updatedAt ? { ...board, preview: known.preview } : board;
   };
 
-  const refresh = useCallback(async () => {
-    const [{ boards: list }, { boards: trashed }] = await Promise.all([api.listBoards(), api.listTrash()]);
+  const apply = useCallback(([{ boards: list }, { boards: trashed }]: Awaited<ReturnType<typeof fetchLists>>) => {
     setBoards(list.map(withKnownPreview));
     setTrash(trashed.map(withKnownPreview));
   }, []);
 
+  const refresh = useCallback(async () => apply(await fetchLists()), [apply]);
+
   useEffect(() => {
     let active = true;
-    refresh().catch((error: unknown) => active && setLoadError(errorMessage(error)));
+    fetchLists()
+      .then(apply)
+      .catch((error: unknown) => active && setLoadError(errorMessage(error)));
     return () => {
       active = false;
     };
-  }, [refresh]);
+  }, [apply]);
 
   const patch = useCallback(
     (ids: string[], changes: Partial<BoardSummary>) =>

@@ -52,7 +52,9 @@ type ShowOlderItemProps = { loading: boolean; onClick: () => void; onLostFocus: 
 function ShowOlderItem({ loading, onClick, onLostFocus }: ShowOlderItemProps) {
   const ref = useRef<HTMLButtonElement>(null);
   const lost = useRef(onLostFocus);
-  lost.current = onLostFocus;
+  useLayoutEffect(() => {
+    lost.current = onLostFocus;
+  });
   useLayoutEffect((): (() => void) => {
     const button = ref.current;
     return () => document.activeElement === button && lost.current();

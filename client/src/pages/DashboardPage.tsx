@@ -74,8 +74,13 @@ export default function DashboardPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  useEffect(() => setSelected(new Set()), [section.id, query, view]);
-  useEffect(() => setLimit(PAGE_SIZE), [section.id, query, sort]);
+  const [last, setLast] = useState({ sectionId: section.id, query, view, sort });
+  if (last.sectionId !== section.id || last.query !== query || last.view !== view || last.sort !== sort) {
+    const listChanged = last.sectionId !== section.id || last.query !== query;
+    setLast({ sectionId: section.id, query, view, sort });
+    if (listChanged || last.view !== view) setSelected(new Set());
+    if (listChanged || last.sort !== sort) setLimit(PAGE_SIZE);
+  }
 
   const counts = useMemo(
     () =>

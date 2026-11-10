@@ -52,6 +52,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
       if (error.message === "unauthorized") logout();
     });
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the socket is an outside resource created here and shared once it exists
     setSocket(next);
     return () => {
       next.disconnect();
