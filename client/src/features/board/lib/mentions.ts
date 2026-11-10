@@ -1,25 +1,14 @@
-// Finding "@Name" mentions in comment text. Kept apart from the components so it can be tested.
-
-/** Someone who can be mentioned. */
 export type Mentionable = { id: string; name: string };
 
-/** Where a mention sits in a text: its "@" is at `start`, and it ends before `end`. */
 export type Mention = { start: number; end: number; name: string };
 
-/** A piece of a text, and whether it is a mention. */
 export type Piece = { text: string; mention: boolean };
 
 const WORD_CHARACTER = /[\p{L}\p{N}_]/u;
 
-/** Matches "@" at the end of `before` (the text up to the caret), capturing what was typed after it. */
 export const MENTION_AT_CARET = /(^|\s)@(\S*)$/;
 
-/**
- * Where each "@Name" sits in `text`, as { start, end, name } in order.
- * The longest name wins when one is the start of another ("@Ann Lee" is not
- * "@Ann"), and a name only counts when it isn't followed by more of a word
- * ("@Anna" is not "@Ann"), nor preceded by one ("a@Ann.com" is an address).
- */
+// The longest name wins ("@Ann Lee" is not "@Ann"); a name only counts when not followed by more of a word or preceded by one ("a@Ann.com" is an address).
 export function findMentions(text: string, names: string[]): Mention[] {
   const candidates = [...new Set(names)].filter(Boolean).sort((a, b) => b.length - a.length);
   const found: Mention[] = [];
@@ -47,7 +36,6 @@ export function findMentions(text: string, names: string[]): Mention[] {
   return found;
 }
 
-/** The ids of picked people whose "@Name" is still in the text. */
 export function activeMentions(text: string, members: Mentionable[], ids: string[]): string[] {
   const mentioned = new Set(
     findMentions(
@@ -61,7 +49,6 @@ export function activeMentions(text: string, members: Mentionable[], ids: string
   });
 }
 
-/** The text cut into pieces, each marked as a mention or plain: [{ text, mention }]. */
 export function splitMentions(text: string, names: string[]): Piece[] {
   const pieces: Piece[] = [];
   let cursor = 0;

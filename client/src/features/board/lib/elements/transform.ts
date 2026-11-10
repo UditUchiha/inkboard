@@ -4,9 +4,6 @@ import type { Connector } from "./elements";
 import { clamp, constrainEnd, rotatePoint } from "./geometry";
 import type { Pair, TurnedRect, XY } from "./geometry";
 
-// Resizing and turning a selected element. Everything here is plain math on
-// elements and points in board coordinates, so it can be tested without a browser.
-
 export const MIN_SIZE = 4;
 export const MIN_FONT_SIZE = 8;
 export const MAX_FONT_SIZE = 400;
@@ -16,10 +13,8 @@ const SELECTION_GAP = 6; // screen pixels between an element and its selection b
 const ROTATE_HANDLE_DISTANCE = 26; // screen pixels above the box
 const HANDLE_REACH = 9; // screen pixels around a handle that count as grabbing it
 
-/** A handle on a selected element: "nw", "n", "ne", "e", "se", "s", "sw" or "w" to resize, "rotate" to turn, "start" or "end" for a line's ends. */
 export type Handle = { id: string } & XY;
 
-/** What to draw around a selected element (see getSelectionBox): a line's end handles, or a box and its handles. */
 export type SelectionBox =
   | { kind: "line"; handles: Handle[] }
   | {
@@ -32,7 +27,6 @@ export type SelectionBox =
       handles: Handle[];
     };
 
-// Which way each handle pulls: -1 is the left or top edge, 1 the right or bottom.
 const DIRECTIONS: Record<string, Pair> = {
   nw: [-1, -1],
   n: [0, -1],
@@ -49,13 +43,6 @@ const EDGES = new Set(["n", "e", "s", "w"]);
 const isLine = (element: BoardElement): element is Connector => element.type === "line" || element.type === "arrow";
 const normalizeAngle = (angle: number) => Math.atan2(Math.sin(angle), Math.cos(angle));
 
-/**
- * What to draw around a selected element and where its handles are.
- * Boxes (rectangles, ellipses, strokes, text, notes, frames) get eight resize
- * handles and, unless they're frames, a turn handle; lines and arrows get a
- * handle on each end. `zoom` keeps handle
- * sizes steady on screen.
- */
 export function getSelectionBox(element: BoardElement, zoom: number): SelectionBox {
   if (isLine(element)) {
     return {
@@ -88,7 +75,6 @@ export function getSelectionBox(element: BoardElement, zoom: number): SelectionB
   return { kind: "box", frame, pad, halfWidth, halfHeight, top: place(0, -halfHeight), handles };
 }
 
-/** The handle under a point, if any. Corners win over edges, which win over the turn handle. */
 export function handleAt(element: BoardElement, point: XY, zoom: number): string | null {
   const reach = HANDLE_REACH / zoom;
   const { handles } = getSelectionBox(element, zoom);
@@ -102,12 +88,10 @@ export function handleAt(element: BoardElement, point: XY, zoom: number): string
   return near[0].id;
 }
 
-/** The mouse cursor to show over a handle, turned along with the element. */
 export function cursorForHandle(handleId: string, angle = 0): string {
   if (handleId === "rotate") return "grab";
   if (handleId === "start" || handleId === "end") return "crosshair";
   const [dx, dy] = DIRECTIONS[handleId];
-  // Direction of the handle on screen, in eighths of a turn, clockwise from "east".
   const eighths = Math.round(((Math.atan2(dy, dx) + angle) / Math.PI) * 4);
   const cursors = ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"];
   return cursors[((eighths % 4) + 4) % 4];
@@ -122,12 +106,7 @@ function moveLineEnd(element: Connector, handleId: string, point: XY, snap: bool
   return { ...element, x1: start.x2, y1: start.y2 };
 }
 
-/**
- * Drags a resize handle to `point`. The side opposite the handle stays where it
- * is, even when the element is turned. `keepAspect` (Shift) keeps proportions on
- * corners; text and pictures always keep them. `pad` is the selection gap the handle sits
- * outside the element by, so the element doesn't jump when the drag starts.
- */
+// The side opposite the handle stays put, even turned. `pad` is the selection gap the handle sits outside by, so nothing jumps when the drag starts.
 export function resizeElement(
   original: BoardElement,
   handleId: string,
@@ -145,9 +124,7 @@ export function resizeElement(
   // A pen stroke with no width (or height) has nothing to scale along it, so it keeps its size that way.
   const flatX = original.type === "pen" && frame.width < 1;
   const flatY = original.type === "pen" && frame.height < 1;
-  // Not for a flat stroke: its proportions are a line, so keeping them would scale by the ratio of a drag to
-  // a size of nothing. It's scaled along its real side only, as it is without Shift.
-  // A picture being cropped (`maxSize`, see cropImage) changes shape freely.
+  // Not for a flat stroke (a line's proportions would scale by a drag over a size of nothing). A picture being cropped (`maxSize`) changes shape freely.
   const lockAspect =
     (keepAspect || original.type === "text" || (original.type === "image" && !maxSize)) &&
     dx !== 0 &&
@@ -155,7 +132,6 @@ export function resizeElement(
     !flatX &&
     !flatY;
 
-  // The fixed point, and the point's position along the element's own axes from it.
   const [ax, ay] = rotatePoint(
     frame.cx - (dx * frame.width) / 2,
     frame.cy - (dy * frame.height) / 2,
@@ -181,7 +157,6 @@ export function resizeElement(
   if (flatX) width = frame.width;
   if (flatY) height = frame.height;
 
-  // Where the new box is centred: half its size out from the fixed point.
   const [cx, cy] = rotatePoint(ax + dx * (width / 2), ay + dy * (height / 2), ax, ay, frame.angle);
 
   switch (original.type) {
@@ -213,22 +188,15 @@ export function resizeElement(
   }
 }
 
-/** All of a picture: what one without a crop shows. */
 export const WHOLE_PICTURE: ImageCrop = { x: 0, y: 0, w: 1, h: 1 };
 
-/**
- * Drags a handle of a picture being cropped to `point`: the side opposite the handle stays where it is, as when
- * resizing, but the picture keeps its scale, so the box shows more or less of it. It can't show past the picture's
- * edges. `pad` is as for resizeElement.
- */
+// Like resizing but the picture keeps its scale, so the box shows more or less of it, never past its edges.
 export function cropImage(original: ImageElement, handleId: string, point: XY, { pad = 0 } = {}): ImageElement {
   const crop = original.crop ?? WHOLE_PICTURE;
   const { width, height } = getFrame(original);
-  // Board units the whole picture takes each way, at the size it's shown.
   const perX = width / crop.w;
   const perY = height / crop.h;
   const [dx, dy] = DIRECTIONS[handleId];
-  // How far each side can go before it shows past the picture's edge.
   const maxSize = {
     width: (dx > 0 ? 1 - crop.x : crop.x + crop.w) * perX,
     height: (dy > 0 ? 1 - crop.y : crop.y + crop.h) * perY,
@@ -242,7 +210,6 @@ export function cropImage(original: ImageElement, handleId: string, point: XY, {
   return { ...resized, crop: { x, y, w, h } };
 }
 
-/** The whole of a cropped picture, at the scale it's shown and about the same centre. */
 export function uncropImage(element: ImageElement): ImageElement {
   const { crop, ...rest } = element;
   if (!crop) return element;
@@ -252,10 +219,6 @@ export function uncropImage(element: ImageElement): ImageElement {
   return { ...rest, x1: cx - halfWidth, y1: cy - halfHeight, x2: cx + halfWidth, y2: cy + halfHeight };
 }
 
-/**
- * Turns an element by however far the pointer has swung around its centre since
- * the drag began. `snap` (Shift) lands on 15 degree steps.
- */
 export function rotateElement(
   original: BoardElement,
   startPoint: XY,

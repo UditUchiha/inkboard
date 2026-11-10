@@ -6,18 +6,14 @@ import { useSyncExternalStore } from "react";
 import { personColor } from "../../../../lib/format";
 import type { HistoryEntry } from "./store";
 
-// The suggestions open on a board (see shared/src/suggestions.ts and docs/suggest-mode.md): kept outside React state,
-// like the pointers in cursors.ts, so the editor isn't rendered again for each one that arrives.
+// Kept outside React state, like cursors.ts, so the editor isn't rendered again for each arriving suggestion.
 
 export type { Suggestion };
 
-/** The store of a board's open suggestions, oldest first, for useSuggestions. */
 export interface SuggestionStore {
   subscribe(listener: () => void): () => void;
   getSnapshot(): readonly Suggestion[];
-  /** Replaces them all (joining a board). */
   load(list: readonly Suggestion[]): void;
-  /** Adds these, or replaces the ones with the same ids. */
   upsert(list: readonly Suggestion[]): void;
   remove(ids: readonly string[]): void;
   clear(): void;
@@ -57,24 +53,20 @@ export function createSuggestionStore(): SuggestionStore {
   };
 }
 
-/** A store with nothing in it, for boards nobody can suggest on (a guest's scratch board). */
 export const noSuggestions = createSuggestionStore();
 
 export function useSuggestions(store: SuggestionStore): readonly Suggestion[] {
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
-/** The element a suggestion is about: the one it adds, or the one on the board it changes or removes. */
 export const elementIdOf = (suggestion: Suggestion) =>
   suggestion.kind === "add" ? suggestion.element.id : suggestion.target;
 
 // Suggestions one person makes within this long of each other are shown, and decided on, as one.
 export const GROUP_GAP_MS = 2 * 60 * 1000;
 
-/** Suggestions shown as one: one person's, made close together. Its id is its first suggestion's. */
 export type SuggestionGroup = { id: string; author: Participant; suggestions: Suggestion[] };
 
-/** `list` (oldest first) as groups: each person's suggestions made within GROUP_GAP_MS of the one before. */
 export function groupSuggestions(list: readonly Suggestion[]): SuggestionGroup[] {
   const groups: SuggestionGroup[] = [];
   const latest = new Map<string, { group: SuggestionGroup; at: number }>();
@@ -93,12 +85,7 @@ export function groupSuggestions(list: readonly Suggestion[]): SuggestionGroup[]
   return groups;
 }
 
-/**
- * The edit accepting `suggestions` makes to the board, as one step in history (see store.commit), from the board's
- * elements as `getElement` has them: additions put on the board under their own ids, changes' groups taken onto the
- * element as it is now, removals carried out. A suggestion about an element that has gone meanwhile (or an addition
- * already on the board) is left out of the edit, and listed in `skipped`. `accepted` are the ids of the rest.
- */
+// Skips suggestions about elements that have gone (or additions already on the board), listing them in `skipped`.
 export function acceptance(
   suggestions: readonly Suggestion[],
   getElement: (id: string) => BoardElement | undefined,
@@ -138,35 +125,23 @@ export function acceptance(
   };
 }
 
-/** What the canvas draws for a suggestion (see renderScene). */
 export type SuggestionMark = {
   id: string;
   kind: Suggestion["kind"];
-  // What to draw: the element as suggested (an addition, or a change taken onto the element as it is), or the
-  // element a removal is about.
   element: BoardElement;
   color: string;
   outdated: boolean;
   highlighted: boolean;
-  // Whether the element is drawn, faded, as well as outlined: it isn't among what the screen shows (a suggested
-  // addition or change, or, on the suggester's own screen, what they'd remove).
+  // Drawn faded as well as outlined when the element isn't among what the screen shows.
   ghost: boolean;
 };
 
-/**
- * A suggester's own suggestions are already in what their screen shows (see suggesting.ts): `isOwn` tells which
- * they are, and `underneath` has the board without them, where an element they'd remove still is.
- */
+// `underneath` is the board without the suggester's own suggestions, where an element they'd remove still is.
 export type OwnSuggestions = {
   isOwn: (suggestion: Suggestion) => boolean;
   underneath: (id: string) => BoardElement | undefined;
 };
 
-/**
- * The marks for `suggestions` on the board as `getElement` has it. Ones about an element that has gone are left out.
- * With `own`, those of the suggester looking are outlined where they are on their screen, and the elements they'd
- * remove are drawn, faded, from the board underneath.
- */
 export function suggestionMarks(
   suggestions: readonly Suggestion[],
   getElement: (id: string) => BoardElement | undefined,
@@ -199,7 +174,6 @@ export function suggestionMarks(
   return marks;
 }
 
-/** A few words on what a group suggests: "Adds 2, changes 1". */
 export function summarize(suggestions: readonly Suggestion[]) {
   const count = (kind: Suggestion["kind"]) => suggestions.filter((suggestion) => suggestion.kind === kind).length;
   const parts = [

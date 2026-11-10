@@ -9,7 +9,6 @@ import type { Rect } from "../elements/geometry";
 // Every this many steps the board is kept whole, so going to any step applies at most this many.
 const CHECKPOINT_EVERY = 50;
 
-/** A replay as it's watched: how many frames it has, the board at each, when each was, and where to look. */
 export type Replay = {
   length: number;
   frameAt: (index: number) => BoardElement[];
@@ -23,10 +22,6 @@ function apply(board: Map<string, BoardElement>, step: ReplayStep) {
   for (const element of step.upsert) board.set(element.id, element);
 }
 
-/**
- * The frames of a board's replay: the board after each step, then the board as it is now (`now`), which a step
- * still to be recorded may not have reached yet.
- */
 export function createReplay(steps: ReplayStep[], now: BoardElement[]): Replay {
   const checkpoints: Map<string, BoardElement>[] = [];
   const board = new Map<string, BoardElement>();

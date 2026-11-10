@@ -20,8 +20,6 @@ export function timeAgo(date: string | number | Date, now = Date.now()) {
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const firstLetter = (word: string): string => graphemes.segment(word)[Symbol.iterator]().next().value?.segment ?? "";
 
-/** One or two capitals for an avatar. Emoji and accented letters stay whole instead of being cut in half. */
-/** A size in bytes as people read it: "350 KB", "4.2 MB", "25 MB". */
 export function formatBytes(bytes: number) {
   if (bytes < 100_000) return `${Math.max(bytes ? 1 : 0, Math.round(bytes / 1000))} KB`;
   return bytes < 10_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.round(bytes / 1_000_000)} MB`;
@@ -31,13 +29,11 @@ export function initials(name = "") {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   const first = firstLetter(parts[0]);
-  // `at(-1)` is a word whenever there is more than one.
   const last = parts.length > 1 ? firstLetter(parts.at(-1)!) : "";
   return (first + last).toUpperCase();
 }
 
-// Collaborator colors: distinct, readable on paper and on the blueprint theme, and dark enough for white
-// text on top of them (4.5:1).
+// Distinct, readable on paper and the blueprint theme, and dark enough for white text (4.5:1).
 export const PEOPLE_COLORS = ["#c2410c", "#237a35", "#1971c2", "#9c36b5", "#c2255c", "#0b7285", "#946200", "#5f3dc4"];
 
 export function colorFor(id = "") {
@@ -46,7 +42,6 @@ export function colorFor(id = "") {
   return PEOPLE_COLORS[Math.abs(hash) % PEOPLE_COLORS.length];
 }
 
-// The lighter colors people could pick before, and the darker ones that replaced them.
 const LEGACY_COLORS: Record<string, string> = {
   "#e8590c": "#c2410c",
   "#2f9e44": "#237a35",
@@ -61,14 +56,9 @@ const channel = (value: number) => {
 const luminance = ([r, g, b]: number[]) => 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 const toHex = (rgb: number[]) => `#${rgb.map((n) => Math.round(n).toString(16).padStart(2, "0")).join("")}`;
 
-/** How well white text reads on `rgb` (WCAG contrast ratio, 1 to 21). */
 export const contrastWithWhite = (rgb: number[]) => 1.05 / (luminance(rgb) + 0.05);
 
-/**
- * `color` as a background white text can be read on (4.5:1): an old palette color becomes the one that replaced it,
- * and any other color too light for white text is darkened until it is, keeping its hue. Colors saved before the
- * palette changed (or set some other way) would otherwise put unreadable initials and names on screen.
- */
+// Old palette colors become their replacement, and a color too light for white text is darkened keeping its hue, so saved colors never put unreadable initials on screen.
 export function readableColor<T extends string | null | undefined>(color: T) {
   if (typeof color !== "string") return color;
   const lower = color.toLowerCase();
@@ -81,6 +71,5 @@ export function readableColor<T extends string | null | undefined>(color: T) {
   return toHex(rgb);
 }
 
-/** The color someone chose in their settings (made readable), or one picked from their id. */
 export const personColor = (person?: { id?: string; userId?: string; color?: string | null } | null) =>
   readableColor(person?.color) || colorFor(person?.id ?? person?.userId ?? "");

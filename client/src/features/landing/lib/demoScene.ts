@@ -91,7 +91,6 @@ export function circleStroke() {
   return points;
 }
 
-/** Someone drawing on the demo: the name and color of their cursor, and where it waits once they are done. */
 export type Collaborator = { name: string; color: string; rest?: { x: number; y: number } };
 
 // Maya draws the loop, so she has no resting place; Sam only waits, so his is always there.

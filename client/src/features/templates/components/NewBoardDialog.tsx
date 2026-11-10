@@ -58,12 +58,6 @@ function BuiltinChoice({ template, disabled, onChoose }: BuiltinChoiceProps) {
   );
 }
 
-/**
- * Pick how a new board starts: blank, a built-in template, or one of the
- * person's own saved templates. `onCreate` receives what to send to
- * api.createBoard ({} for blank, { title, elements } or { templateId }).
- * Saved templates are listed as light previews; the server copies the full one when a board starts from it.
- */
 type NewBoardDialogProps = {
   open: boolean;
   onClose: () => void;
@@ -93,7 +87,6 @@ export function NewBoardDialog({ open, onClose, onCreate, busy = false }: NewBoa
     setDeletingId(template.id);
     try {
       await api.deleteTemplate(template.id);
-      // Only a listed template has a Delete button, so the list is loaded by now.
       setMine((list) => list!.filter((item) => item.id !== template.id));
       toast.success(`Deleted the “${template.title}” template`);
     } catch (error) {

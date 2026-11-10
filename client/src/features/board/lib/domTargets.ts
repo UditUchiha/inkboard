@@ -1,9 +1,6 @@
-// What a keyboard or drag event's target is, for deciding whether the board's shortcuts apply.
-
 // Where keys are for typing, not the board's shortcuts: not a color picker, slider or checkbox, which have no use for them.
 const TEXT_INPUTS = new Set(["text", "search", "email", "url", "tel", "password", "number"]);
 
-// The cast: the tag says it is an input, which TypeScript does not follow.
 export const isTypingTarget = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement &&
   (target.isContentEditable ||
@@ -22,11 +19,8 @@ const PRESSABLE = [
 export const isPressable = (target: EventTarget | null): boolean =>
   target instanceof HTMLElement && Boolean(target.closest(PRESSABLE));
 
-/**
- * True when keys belong to something open over the board rather than to its shortcuts: a menu or a
- * modal dialog wherever focus is, or a popover (a comment) when focus is inside it. Focus back on the
- * board gives the shortcuts back even with a popover still open, and the popover handles its own Escape.
- */
+// Keys belong to a menu or modal dialog wherever focus is, or a popover (a comment) when focus is inside it: focus back on the board
+// returns the shortcuts, and the popover handles its own Escape.
 export const isOverlayKey = (target: EventTarget | null, root: ParentNode = document): boolean =>
   Boolean(root.querySelector("dialog[open], [role='menu'], [aria-modal='true']")) ||
   (target instanceof HTMLElement && Boolean(target.closest("[role='dialog']")));

@@ -54,12 +54,11 @@ import {
   getSceneBounds,
   isFrame,
   placedElement,
-  slideFrames,
-  stackKey,
   translate,
   withContents,
 } from "../lib/elements/elements";
 import type { Connector } from "../lib/elements/elements";
+import { slideFrames, stackKey } from "../lib/elements/order";
 import { ExportError } from "../lib/files/exportSize";
 import { fitViewport, rectContains, rectsOverlap, unionRects, zoomAround } from "../lib/elements/geometry";
 import type { Rect, Viewport, XY } from "../lib/elements/geometry";

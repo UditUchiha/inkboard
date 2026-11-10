@@ -2,37 +2,21 @@ import type { Route, ShapeElement } from "@inkboard/shared/types";
 import { clamp, rotatePoint } from "./geometry";
 import type { Rect, TurnedRect, XY } from "./geometry";
 
-// The paths lines and arrows are drawn along. A connector runs from (x1, y1)
-// to (x2, y2) by its `route`:
-//
-//   straight (the default)  one segment
-//   curved                  one cubic Bézier, leaving and arriving along each end's direction
-//   elbow                   right angles only, running straight out of a shape before turning
-//
-// An end's direction is the way the path leaves it. For an end attached to a
-// shape it's out of the shape's side (connectors.ts works that out and hands
-// it over with `setEndDirections`, along with the shape's box, which an elbow
-// goes round); for a free end, along whichever axis points more towards the
-// other end.
+// A connector runs from (x1, y1) to (x2, y2) by its `route`: straight (default), curved (one cubic Bézier) or
+// elbow (right angles, straight out of a shape before turning). An attached end leaves its shape's side
+// (connectors.ts supplies that and the shape's box via `setEndDirections`); a free end goes along the axis pointing more towards the other end.
 
 export const ROUTES: Route[] = ["straight", "curved", "elbow"];
 export const ELBOW_GAP = 24; // how far an elbow runs out of a shape before it turns
 
 const CURVE_SAMPLES = 32;
 
-/** The way a path leaves each end of a connector (a unit vector), where it is attached; a free end has none. */
 export type EndDirections = { start?: XY | null; end?: XY | null };
 
-/** The box of a shape an end is attached to, and, for a turned shape, the shape itself (its frame). */
 export type AttachedBox = Rect & { turned?: TurnedRect };
 
-/** The boxes of the shapes a connector's ends are attached to. */
 export type EndBoxes = { start?: AttachedBox | null; end?: AttachedBox | null };
 
-/**
- * A connector's path: the corners of a polyline, or a cubic Bézier's [start, control, control, end]
- * when `curved`.
- */
 export type Path = { points: XY[]; curved: boolean };
 
 type Ends = { directions: EndDirections; boxes: EndBoxes };
@@ -40,10 +24,6 @@ type Ends = { directions: EndDirections; boxes: EndBoxes };
 const endDirections = new WeakMap<ShapeElement, Ends>(); // drawn connector -> its directions and boxes, each { start, end }: null for a free end
 const paths = new WeakMap<ShapeElement, Path>();
 
-/**
- * Records which way the path leaves each attached end of a drawn connector (unit
- * vectors) and the box of the shape each is attached to (see connectors.ts).
- */
 export function setEndDirections(connector: ShapeElement, directions: EndDirections, boxes: EndBoxes) {
   endDirections.set(connector, { directions, boxes });
 }
@@ -53,7 +33,6 @@ const along = (point: XY, direction: XY, distance: number): XY => ({
   y: point.y + direction.y * distance,
 });
 
-// The axis direction from `from` that points more towards `to`.
 function freeDirection(from: XY, to: XY): XY {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -63,11 +42,6 @@ function freeDirection(from: XY, to: XY): XY {
 
 const isRouted = (element: ShapeElement) => element.route === "curved" || element.route === "elbow";
 
-/**
- * The path `element` (a line or arrow) is drawn along: `{ points, curved }`.
- * A curved path's points are a cubic Bézier's [start, control, control, end];
- * otherwise they're the corners of a polyline, ends included.
- */
 export function connectorPath(element: ShapeElement): Path {
   let path = paths.get(element);
   if (!path) {
@@ -97,7 +71,6 @@ function buildPath(element: ShapeElement, { directions, boxes }: Ends): Path {
       end,
       endDirection,
       { start: directions.start ? ELBOW_GAP : 0, end: directions.end ? ELBOW_GAP : 0 },
-      // filter(Boolean) leaves only the boxes there are, which TypeScript doesn't see.
       [boxes.start, boxes.end].filter(Boolean) as AttachedBox[],
     ),
     curved: false,
@@ -106,11 +79,9 @@ function buildPath(element: ShapeElement, { directions, boxes }: Ends): Path {
 
 const same = (a: XY, b: XY) => Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6;
 
-// `points` without repeats, or corners that don't turn.
 function simplify(points: XY[]): XY[] {
   const kept: XY[] = [];
   for (const point of points) {
-    // The non-null assertion: `kept` isn't empty, as the first check says.
     if (kept.length > 0 && same(kept.at(-1)!, point)) continue;
     if (kept.length >= 2) {
       const [a, b] = kept.slice(-2);
@@ -123,7 +94,6 @@ function simplify(points: XY[]): XY[] {
   return kept;
 }
 
-// Whether a path ever doubles back on itself: no segment may head against the one before.
 function doublesBack(points: XY[]) {
   for (let i = 2; i < points.length; i += 1) {
     const [a, b, c] = [points[i - 2], points[i - 1], points[i]];
@@ -140,12 +110,9 @@ export function pathLength(points: XY[]): number {
   return length;
 }
 
-// Whether the span from `from` to `to` runs into the inside of the span `low` to `low + size`.
 const runsInto = (from: number, to: number, low: number, size: number) =>
   Math.max(from, to) > low + 1e-6 && Math.min(from, to) < low + size - 1e-6;
 
-// Whether the segment from `p` to `q` runs into the inside of a turned rectangle (`frame`: { cx, cy, width,
-// height, angle }): clipped to it in its own upright space, something of the segment is left.
 function runsIntoTurned(p: XY, q: XY, { cx, cy, width, height, angle }: TurnedRect) {
   const [ax, ay] = rotatePoint(p.x, p.y, cx, cy, -angle);
   const [bx, by] = rotatePoint(q.x, q.y, cx, cy, -angle);
@@ -153,7 +120,6 @@ function runsIntoTurned(p: XY, q: XY, { cx, cy, width, height, angle }: TurnedRe
   const [dx, dy] = [bx - ax, by - ay];
   let low = 0;
   let high = 1;
-  // Each edge as (how fast the segment heads out through it, how far inside it the segment starts).
   for (const [out, inside] of [
     [-dx, ax - cx + halfWidth],
     [dx, cx + halfWidth - ax],
@@ -169,9 +135,7 @@ function runsIntoTurned(p: XY, q: XY, { cx, cy, width, height, angle }: TurnedRe
   return true;
 }
 
-// How many of `boxes` the path runs through (touching a box's edge doesn't count). A box whose shape is
-// turned (`box.turned`, its frame) is the shape itself: its upright box would hold the end on the shape's
-// side and the run out of it, so every route would seem to cross it and none would be ranked worse.
+// A turned shape's upright box would hold the end on its side and make every route seem to cross it, so its own frame is used.
 function boxesCrossed(points: XY[], boxes: AttachedBox[]) {
   return boxes.filter((box) =>
     points.some((point, i) => {
@@ -183,14 +147,7 @@ function boxesCrossed(points: XY[], boxes: AttachedBox[]) {
   ).length;
 }
 
-/**
- * Right-angled corners from `start` to `end`. The path runs `gaps.start` out
- * of the start along its direction, and arrives at the end along the opposite
- * of the end's direction after running `gaps.end` straight in, then takes the
- * route that crosses the fewest of `boxes` (the shapes it joins), and of those
- * the fewest turns, and of those the shortest, that never doubles back. Free
- * ends have no gap, so they can be left any way.
- */
+// Right-angled route: fewest boxes crossed, then fewest turns, then shortest; never doubles back. Free ends have no gap.
 function elbow(
   start: XY,
   startDirection: XY,
@@ -202,7 +159,6 @@ function elbow(
   const a = along(start, startDirection, gaps.start);
   const b = along(end, endDirection, gaps.end);
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  // Where the middle of the route can run: down the middle, between the run-outs, or round the outside of the shapes.
   const xs = [mid.x, Math.max(a.x, b.x), Math.min(a.x, b.x)];
   const ys = [mid.y, Math.max(a.y, b.y), Math.min(a.y, b.y)];
   for (const box of boxes) {
@@ -228,7 +184,6 @@ function elbow(
     const score = [boxesCrossed(points, boxes), doublesBack(points) ? 1 : 0, points.length, pathLength(points)];
     if (!best || compareScores(score, best.score) < 0) best = { points, score };
   }
-  // The non-null assertion: the loop above runs, as there are always some middles to try.
   return best!.points;
 }
 
@@ -245,7 +200,6 @@ function bezierPoint([p0, p1, p2, p3]: XY[], t: number): XY {
   return { x: a * p0.x + b * p1.x + c * p2.x + d * p3.x, y: a * p0.y + b * p1.y + c * p2.y + d * p3.y };
 }
 
-// Where along a Bézier (t between 0 and 1) one axis stops going one way and turns back.
 function turningPoints([p0, p1, p2, p3]: number[]) {
   const a = p3 - 3 * p2 + 3 * p1 - p0;
   const b = 2 * (p2 - 2 * p1 + p0);
@@ -263,7 +217,6 @@ function turningPoints([p0, p1, p2, p3]: number[]) {
   return roots.filter((t) => t > 0 && t < 1);
 }
 
-/** The points that decide how far the path reaches: its corners, or a curve's ends and its furthest points each way. */
 export function pathExtremes(path: Path): XY[] {
   if (!path.curved) return path.points;
   const turns = [
@@ -275,7 +228,6 @@ export function pathExtremes(path: Path): XY[] {
 
 const polylines = new WeakMap<Path, XY[]>(); // path -> its points along a curve; a path never changes
 
-/** The path as a polyline: its corners, or points along its curve. */
 export function pathPolyline(path: Path): XY[] {
   if (!path.curved) return path.points;
   let polyline = polylines.get(path);
@@ -286,7 +238,6 @@ export function pathPolyline(path: Path): XY[] {
   return polyline;
 }
 
-/** Halfway along the path, where its label goes. */
 export function pathMiddle(path: Path): XY {
   if (path.curved) return bezierPoint(path.points, 0.5);
   const { points } = path;
@@ -300,20 +251,16 @@ export function pathMiddle(path: Path): XY {
     }
     remaining -= length;
   }
-  // The non-null assertion: a path has its two ends at least.
   return points.at(-1)!;
 }
 
-/** The point the path arrives at `end` ("start" or "end") from: where an arrowhead there points from. */
 export function approachTo(path: Path, end: "start" | "end"): XY {
   const points = end === "end" ? path.points : [...path.points].reverse();
-  // The non-null assertion: a path has its two ends at least.
   const tip = points.at(-1)!;
   for (let i = points.length - 2; i >= 0; i -= 1) if (!same(points[i], tip)) return points[i];
   return tip;
 }
 
-/** SVG path data for the path. */
 export function pathData(path: Path): string {
   const [first, ...rest] = path.points;
   const at = (point: XY) => `${point.x} ${point.y}`;

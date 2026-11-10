@@ -2,16 +2,13 @@
 // (The reference is for the server's tests, which load this through the board store and don't know import.meta.glob.)
 import type { Element as BoardElement, TextElement } from "@inkboard/shared/types";
 
-// Equations. A text written as `$$…$$` is drawn as the TeX between the signs, typeset by MathJax.
-// It stays a text everywhere else (the server, sync, the API), so nothing new is stored. MathJax
-// is loaded the first time a board shows one, and the source is drawn until then.
+// A text written as `$$…$$` is typeset by MathJax but stays a text everywhere else (server, sync, API);
+// MathJax loads the first time a board shows one, and the source is drawn until then.
 
-/** A formula typeset by MathJax: what goes inside its <svg>, its viewBox, and its width and height in ems. */
 export type Formula = { viewBox: string; body: string; width: number; height: number };
 
 const FORMULA = /^\s*\$\$([\s\S]*?)\$\$\s*$/;
 
-/** The TeX of a text written as `$$…$$` (empty for `$$ $$`), or null if it's plain text. */
 export const mathSource = (text: string): string | null => FORMULA.exec(text)?.[1].trim() ?? null;
 
 type Typeset = (tex: string) => Promise<Formula>;
@@ -53,7 +50,6 @@ function typeset(tex: string): Entry {
   return created;
 }
 
-/** The typeset formula a text is written as, starting it the first time; null for plain text or until it's ready. */
 export function formulaOf(text: string): Formula | null {
   const tex = mathSource(text);
   return tex ? typeset(tex).formula : null;
@@ -64,20 +60,15 @@ function changed() {
   for (const listener of listeners) listener();
 }
 
-/**
- * Calls `listener` each time a formula is typeset or its picture loads, so measurements made from its source
- * can be forgotten and canvases redrawn. (A callback, so this module needs nothing of the browser's at load.)
- */
+// A callback, so this module needs nothing of the browser at load.
 export function onFormulasChanged(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-/** The formula as a standalone SVG, `width` × `height` pixels, drawn in `color`. */
 export const formulaSvg = (formula: Formula, color: string, width: number, height: number): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${formula.viewBox}" width="${width}" height="${height}" color="${color}">${formula.body}</svg>`;
 
-// The picture of a formula in a color, made the first time it's asked for.
 function pictureOf(formula: Formula, color: string): HTMLImageElement {
   let byColor = pictures.get(formula);
   if (!byColor) pictures.set(formula, (byColor = new Map()));
@@ -95,18 +86,15 @@ function pictureOf(formula: Formula, color: string): HTMLImageElement {
   return image;
 }
 
-/** A picture of the formula in `color` to draw on a canvas, or null until it has loaded (canvases redraw then). */
 export function formulaPicture(formula: Formula, color: string): HTMLImageElement | null {
   const image = pictureOf(formula, color);
   return image.complete && image.naturalWidth > 0 ? image : null;
 }
 
-/** Resolves once every equation in `elements` is typeset and its picture loaded, for an export. */
 export async function loadFormulas(elements: readonly BoardElement[]): Promise<void> {
   const texts = elements.filter(
     (element): element is TextElement => element.type === "text" && Boolean(mathSource(element.text)),
   );
-  // The assertion: each of these texts is a formula.
   await Promise.all(texts.map((element) => typeset(mathSource(element.text)!).ready));
   await Promise.all(
     texts.map((element) => {

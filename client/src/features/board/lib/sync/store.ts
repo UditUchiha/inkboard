@@ -34,46 +34,29 @@ import type {
 } from "@inkboard/shared/types";
 import type { ConnectorChange } from "../elements/connectors";
 
-// Every change to a board is an operation: { upsert: Element[], remove: Removal[] }.
-// The rules for taking one in, the same in the browser and on the server, are
-// in shared/src/board-merge.ts: each group of an element's properties (its
-// shape, its color, its text, …) carries the stamp of its latest change, the
-// newest stamp wins group by group, and removed elements leave a tombstone.
-// So everyone ends up with the same board whatever order changes arrive in.
-//
-// This store stamps the changes made here. A change only stamps the groups it
-// actually changed, compared with the element it was made from (its `base`),
-// and takes everything else from the element as it is now. So moving a shape
-// while someone else recolors it keeps both: the move doesn't carry the old
-// color along.
+// Changes merge per property group by stamp (shared/src/board-merge.ts), so every client converges.
+// A change stamps only the groups it changed against its `base`: a move doesn't carry a stale color.
 
 export { applyOperation };
 
-/** A change waiting to be sent: an element as it now is, or the removal of one (see toOperation). */
 export type PendingChange = (BoardElement & { removal?: undefined }) | { removal: Effect["remove"][number] };
 
-/** What a person's edit is recorded as in history: the steps that undo it and redo it, and what they were made from. */
 export type HistoryEntry = {
   undo?: Operation;
   redo?: Operation;
-  // The elements the undo and the redo step were made from, where that isn't the board as it is (see stamp).
+  // The elements the undo/redo step was made from, where that isn't the board as it is (see stamp).
   undoBase?: readonly BoardElement[];
   redoBase?: readonly BoardElement[];
 };
 
-/** A step in history: its entry, the key that lets a run of like edits share one step, and when it was last added to. */
 export type HistoryStep = HistoryEntry & { mergeKey?: string | undefined; at: number };
 
-/** Options for recording an edit: edits with the same `mergeKey` close together become one step in history. */
 export type RecordOptions = { mergeKey?: string | undefined };
 
-/** What the store shows to a screen: the board's elements, and whether there is something to undo or redo. */
 export type BoardSnapshot = { elements: BoardElement[]; canUndo: boolean; canRedo: boolean };
 
-/** Told of each change made here once it is stamped, to be sent to everyone else. */
 export type Broadcaster = (op: Effect) => void;
 
-/** What the server answered to a change sent from here (see reconcile). */
 export type Reconciliation = {
   cleaned?: readonly BoardElement[];
   dropped?: readonly string[];
@@ -83,44 +66,29 @@ export type Reconciliation = {
   typing?: Typing;
 };
 
-/** Text typed here, as the property groups it's in by element id: what a change typed, or what's still unanswered. */
 export type Typing = ReadonlyMap<string, ReadonlySet<FieldGroup>>;
 
-/** What createBoardStore takes: how the editor lets connectors go, and the board's size limit (see there). */
 export type BoardStoreOptions = {
   release?: (elements: BoardElement[], ids: Set<string>) => ConnectorChange[];
   maxElements?: number;
   onFull?: (count: number) => void;
 };
 
-/** A board's elements and local undo history, with the changes made here and by others merged in. */
 export type BoardStore = {
-  /** For React's useSyncExternalStore: calls `listener` after every change, until what it returns is called. */
   subscribe(listener: () => void): () => void;
   getSnapshot(): BoardSnapshot;
-  /** Identifies the latest step in history, for telling whether anything has been done since. */
   historyMark(): HistoryStep | undefined;
   getElements(): BoardElement[];
   getElement(id: string): BoardElement | undefined;
-  /** The stamps of what was removed lately, as load and rejoin take them. */
   removedStamps(): RemovedStamp[];
-  /** Sets who is told of each stamped change made here. */
   setBroadcaster(fn: Broadcaster): void;
-  /** Replaces everything and forgets history (first load). */
   load(next: BoardElement[], removed?: unknown): void;
-  /** Reconnected: the board as the server has it, with `unsent` on top. History is kept. */
   rejoin(next: BoardElement[], unsent?: Operation, removed?: unknown): void;
-  /** Applies a collaborator's change, keeping the text of `typing` as it is here. */
   applyRemote(op: Operation, typing?: Typing): void;
-  /** Shows what the server stored, where it differs from what was sent. */
   reconcile(reply: Reconciliation): void;
-  /** Forgets the undo and redo history (it would put things back where they can't go). */
   forgetHistory(): void;
-  /** A live, in-progress change, not in history. Returns the connectors it let go of. */
   apply(op: Operation, options?: { base?: readonly BoardElement[] }): ConnectorChange[];
-  /** Adds a finished change to history (its redo state is already applied). */
   record(entry: HistoryEntry, options?: RecordOptions): void;
-  /** Applies a change and adds it to history in one step. */
   commit(entry: HistoryEntry, options?: RecordOptions): void;
   undo(): void;
   redo(): void;
@@ -131,19 +99,11 @@ export const newVersionNonce = (): number => Math.floor(Math.random() * 2 ** 31)
 const versionOf = (stamped?: MaybeStamped | null): number => stampOf(stamped).version;
 const removalOf = (entry: Removal | string): Removal => (typeof entry === "string" ? { id: entry } : entry);
 
-// Whether `a` and `b` differ in any field of `group`.
 const differs = (a: Fields, b: Fields, group: FieldGroup): boolean =>
   FIELD_GROUPS[group].some((field) => field in a !== field in b || a[field] !== b[field]);
 
-/**
- * `element` (ours) with the server's copy of it (`theirs`, in a reply to a change) taken in group by
- * group: a group is replaced when ours still has the stamp it was sent with (`sent`, the newest stamp
- * of the change) or the stamp the server's copy has (the same change, which it only cleaned). A group
- * that someone else's change has replaced since has a newer stamp, and stays as it is. Text the change
- * typed (in `typed`) is replaced whatever its stamp: the server merged it with others' typing that came
- * first, which this screen kept from showing meanwhile (see applyRemote). Text typed here since (in
- * `typing`) stays, for the server's answer to that to replace.
- */
+// Takes the server's copy group by group, only where ours still carries the stamp that was sent (or the same
+// change, cleaned). Text the change typed always takes the server's merged copy; text typed since stays.
 function mergeServerCopy(
   element: BoardElement,
   theirs: BoardElement,
@@ -153,13 +113,11 @@ function mergeServerCopy(
 ): BoardElement {
   const mine = groupStamps(element);
   const server = groupStamps(theirs);
-  // The assertions: Boolean(a && b) has checked that both are there, which TypeScript doesn't follow.
   const same = (a: Stamp | undefined, b: Stamp | undefined) => Boolean(a && b) && compareStamps(a!, b!) === 0;
   const fields: Fields = { id: element.id };
   const stamps: GroupStamps = {};
   let taken = 0;
   let kept = 0;
-  // The cast: Object.keys gives strings, and these are the keys of a GroupStamps, which are groups.
   for (const group of new Set([...Object.keys(mine), ...Object.keys(server)] as FieldGroup[])) {
     const take =
       server[group] &&
@@ -175,15 +133,9 @@ function mergeServerCopy(
   return withStamps(fields, stamps);
 }
 
-/**
- * The text fields a change typed into (in `changed` groups): `fields` has the change over the element as it is
- * here (`live`), and where someone else's typing reached this screen since the change was made from `from` (an
- * undo of typing, say), the two are merged in it, as the server would. Returns what each of those fields is
- * here, to send along (see text-merge.ts): the server merges in typing it has that this screen hasn't seen yet.
- */
+// Merges the text a change typed with typing that reached this screen after its `from`, as the server would.
 function typedOnto(fields: Fields, from: Fields, live: Fields, changed: FieldGroup[]): TextBases | undefined {
   let bases: TextBases | undefined;
-  // Object.entries can only say "strings"; these are the keys of TEXT_FIELDS, so they are text fields.
   for (const [field, { group, max }] of Object.entries(TEXT_FIELDS) as [
     TextField,
     { group: FieldGroup; max: number },
@@ -199,7 +151,6 @@ function typedOnto(fields: Fields, from: Fields, live: Fields, changed: FieldGro
   return bases;
 }
 
-// `element` with the `groups` it had `before` a change was taken in put back, where the change replaced them.
 function keepTyping(
   element: BoardElement,
   before: BoardElement | undefined,
@@ -219,15 +170,12 @@ function keepTyping(
   return kept ? withStamps(fields, now) : element;
 }
 
-// `op` without the bases of its typing, to be taken in as it is rather than merged into what's here: a change
-// from the server was merged there already, and one of ours taken in again (to send again, or to show over the
-// board on a reconnect) is here already, so merging its typing in again would type it twice.
+// Taken as is, not merged: merging typing a second time would type it twice.
 function asItIs(op: Operation): Operation {
   if (!op.upsert?.some((element) => element.base)) return op;
   return { ...op, upsert: op.upsert.map((element) => (element.base ? withoutBase(element) : element)) };
 }
 
-/** Changes waiting to be sent (id -> element, or { removal }) as one operation. */
 export function toOperation(pending: ReadonlyMap<string, PendingChange>): Effect {
   const op: Effect = { upsert: [], remove: [] };
   for (const [, value] of pending) {
@@ -240,37 +188,22 @@ export function toOperation(pending: ReadonlyMap<string, PendingChange>): Effect
 const MAX_HISTORY = 200;
 const MERGE_WINDOW_MS = 1000;
 
-// Removed elements' last data is kept (see board-merge.ts), up to about this
-// much of it as JSON. Past it the oldest keep only their stamp, as on the server.
+// Cap on the JSON size of tombstone data kept (board-merge.ts); older ones keep only their stamp, as on the server.
 const MAX_BURIED_CHARS = 4_000_000;
 
-// Of the removals seen, the newest this many are remembered, as many as the server keeps
-// for an open board; the oldest are forgotten, so a long session on a busy board doesn't
-// keep growing. (Removals made here are also remembered apart: see `removedHere`.)
+// As many removals as the server remembers for an open board, so a long session doesn't grow forever.
 const MAX_TOMBSTONES = MAX_REMOVALS_REMEMBERED;
 
-/** Tombstones from the stamps the server sends with a board: [{ id, version, versionNonce }]. */
 function tombstonesFrom(removed: unknown): Tombstones {
   const tombstones: Tombstones = new Map();
-  // The cast: what the server sends is checked below, entry by entry.
   for (const entry of (Array.isArray(removed) ? removed : []) as (MaybeStamped & { id?: unknown })[]) {
     if (typeof entry?.id === "string" && isStamped(entry)) tombstones.set(entry.id, stampOf(entry));
   }
   return tombstones;
 }
 
-// Holds a board's elements plus a local undo history. History entries store
-// the inverse operation for just the elements a person changed, so undoing
-// never wipes out what collaborators drew in the meantime.
-//
-// `release(elements, ids)` says what else a change made here that removes
-// `ids` must change: the editor passes connectors.ts's releaseFrom, so
-// connectors let go of shapes that go (see withReleases). It's handed in
-// rather than imported so the store stays free of drawing code, and runs
-// as it is in Node (the server's tests play it against the server's rules).
-//
-// `maxElements` is how many elements the board may hold: a change that would
-// add more leaves the extra ones out, and `onFull(count)` says how many.
+// History entries hold the inverse for just what a person changed, so undo never wipes collaborators' work.
+// `release` is injected (not imported) so the store stays free of drawing code and runs in Node tests.
 export function createBoardStore({
   release = () => [],
   maxElements = Infinity,
@@ -281,9 +214,7 @@ export function createBoardStore({
   let tombstones: Tombstones = new Map(); // removed element id -> { version, versionNonce, element }
   let buried = new Map<string, number>(); // removed element id -> size of the data its tombstone keeps, oldest first
   let buriedChars = 0;
-  // The version of each removal made here (id -> version, latest last). Bringing an element back
-  // (an undo) is stamped past the removal it undoes from this, even once its tombstone is forgotten:
-  // stamped no newer, it would lose to the removal on the server, while showing here.
+  // Stamped past this so an undo that revives an element wins over its removal on the server, even after the tombstone is forgotten.
   let removedHere = new Map<string, number>();
   let undoStack: HistoryStep[] = [];
   let redoStack: HistoryStep[] = [];
@@ -303,26 +234,17 @@ export function createBoardStore({
     for (const listener of listeners) listener();
   }
 
-  // Stamps a change made here, or returns null if it changes nothing. `base`
-  // holds the elements the change was made from, where that isn't simply what's
-  // on the board now (a step of a drag is made from the step before; an undo
-  // from the state it undoes).
-  //
-  // A change that leaves out a field the element has takes it away, and a copy
-  // without a field has no say in it when copies merge (see mergeElement). So
-  // fields an element's kind always has are filled in first (see withDefaults):
-  // undoing a label on an arrow that had none sends an empty one, not none.
+  // A change that omits a field takes it away and has no say when copies merge, so kind defaults are filled in first (withDefaults).
+  // `base` is what the change was made from where that isn't the board now (a drag step, an undo).
   function stamp(op: Operation, base: readonly BoardElement[] = []): Effect | null {
     const upsert = (op.upsert ?? []).map(withDefaults);
     const remove = (op.remove ?? []).map(removalOf);
     const ids = new Set([...upsert.map((element) => element.id), ...remove.map((removal) => removal.id)]);
     const current = new Map<string, BoardElement>();
-    // The assertion: `has` has just said the element is there.
     for (const id of ids) if (byId().has(id)) current.set(id, byId().get(id)!);
     const before = new Map(base.map((element) => [element.id, withDefaults(element)]));
-    // One version past the newest this element has had here, with a new nonce.
     const next = (id: string, ...also: MaybeStamped[]): Stamp => ({
-      // Never past MAX_VERSION: a version beyond it is refused by everyone else.
+      // Never past MAX_VERSION: everyone else refuses a higher one.
       version: Math.min(
         MAX_VERSION,
         Math.max(
@@ -348,7 +270,6 @@ export function createBoardStore({
     for (const element of upsert) {
       const live = current.get(element.id);
       if (!live) {
-        // New elements go on top; one coming back (an undo) returns to its place.
         const tombstone = tombstones.get(element.id);
         let index = tombstone ? (element.index ?? tombstone.element?.index) : undefined;
         if (!isOrderKey(index)) index = keyAbove(top);
@@ -360,7 +281,6 @@ export function createBoardStore({
       }
       const from = before.get(element.id) ?? live;
       const groups = new Set([...groupsOf(element), ...groupsOf(from)]);
-      // The store keeps the stack order; a change that leaves `index` out isn't moving the element in it.
       if (!("index" in element)) groups.delete("index");
       const changed = [...groups].filter((group) => differs(element, from, group));
       if (changed.length === 0) continue;
@@ -377,9 +297,7 @@ export function createBoardStore({
     return stamped.upsert.length > 0 || stamped.remove.length > 0 ? stamped : null;
   }
 
-  // Takes in an operation (see board-merge.ts), keeping the data tombstones hold within MAX_BURIED_CHARS.
   function take(op: Operation) {
-    // The plan works from the index (rather than building one) and commitPlan brings it up to date.
     const plan = planOperation(elements, op, tombstones, { index: byId() });
     elements = commitPlan(plan, tombstones).elements;
     for (const [id, tombstone] of plan.graves) {
@@ -393,7 +311,6 @@ export function createBoardStore({
     }
     for (const [id, size] of buried) {
       if (buriedChars <= MAX_BURIED_CHARS) break;
-      // The assertion: an id in `buried` has a tombstone, which is where its size was taken from.
       const { element: _data, ...stamp } = tombstones.get(id)!;
       tombstones.set(id, stamp);
       buried.delete(id);
@@ -407,17 +324,13 @@ export function createBoardStore({
     }
   }
 
-  // The server's copy is the reference: its tombstones (stamps) replace ours.
   function startRemoved(removed: unknown) {
     tombstones = tombstonesFrom(removed);
     buried = new Map();
     buriedChars = 0;
   }
 
-  // A change made here that removes shapes also lets go of the connectors
-  // attached to them, where they're drawn (see connectors.ts), unless it
-  // changes those connectors itself. Otherwise they'd jump back to where they
-  // were first drawn. Returns `op` with them, and them: [{ before, after }].
+  // Connectors on removed shapes are released too, or they would jump back to their drawn position.
   function withReleases(op: Operation): { op: Operation; released: ConnectorChange[] } {
     const removing = new Set((op.remove ?? []).map((entry) => removalOf(entry).id));
     if (removing.size === 0) return { op, released: [] };
@@ -427,18 +340,15 @@ export function createBoardStore({
     return { op: { ...op, upsert: [...(op.upsert ?? []), ...released.map(({ after }) => after)] }, released };
   }
 
-  // `op` without the new elements that don't fit on the board.
   function withinLimit(op: Operation): Operation {
     const room = maxElements - elements.length;
     const added = (op.upsert ?? []).filter((element) => !byId().has(element.id));
     if (added.length <= room) return op;
     const refused = new Set(added.slice(Math.max(0, room)).map((element) => element.id));
     onFull(refused.size);
-    // The assertion: `added` came from `op.upsert`, so there is one.
     return { ...op, upsert: op.upsert!.filter((element) => !refused.has(element.id)) };
   }
 
-  // Returns the connectors it let go of (see withReleases).
   function apply(op: Operation, { base }: { base?: readonly BoardElement[] } = {}): ConnectorChange[] {
     const { op: full, released } = withReleases(withinLimit(op));
     const stamped = stamp(full, base);
@@ -450,12 +360,7 @@ export function createBoardStore({
     return released;
   }
 
-  // `entry` with the connectors its `step` ("undo" or "redo") let go of put
-  // back in the other step, so going back attaches them again. The step itself
-  // works them out afresh each time, from where they're drawn then. They're
-  // put back from the state they were let go into (`undoBase` / `redoBase`),
-  // so going back changes only what letting go changed, not a label or color
-  // someone gave them since.
+  // Re-attaches released connectors when going back, from the state they were released into, so labels and colors set since stay.
   function attachingBack<Entry extends HistoryEntry>(
     entry: Entry,
     step: "undo" | "redo",
@@ -466,7 +371,6 @@ export function createBoardStore({
     const ids = new Set(released.map(({ before }) => before.id));
     const kept = (entry[other]?.upsert ?? []).filter((element) => !ids.has(element.id)); // from a step before
     const upsert = [...kept, ...released.map(({ before }) => before)];
-    // The const: the key is `undoBase` or `redoBase`, not just any string.
     const baseKey = `${other}Base` as const;
     const base = [
       ...(entry[baseKey] ?? []).filter((element) => !ids.has(element.id)),
@@ -475,10 +379,7 @@ export function createBoardStore({
     return { ...entry, [other]: { ...entry[other], upsert }, [baseKey]: base };
   }
 
-  // `step` without what someone else has removed since: that isn't brought back
-  // or removed again. An element a step puts back is the exception when the
-  // step it reverses (or, for a new shape, the step itself) is what removed it:
-  // those ids are `revived`.
+  // Skips what someone else removed since, unless this step's reverse removed it (`revived`).
   function stillApplies(step: Operation = {}, revived: readonly (Removal | string)[] = []): Operation {
     const live = byId();
     const back = new Set(revived.map((entry) => removalOf(entry).id));
@@ -512,7 +413,6 @@ export function createBoardStore({
       return () => listeners.delete(listener);
     },
     getSnapshot: () => snapshot,
-    /** Identifies the latest step in history, for telling whether anything has been done since. */
     historyMark: () => undoStack.at(-1),
     getElements: () => elements,
     getElement: (id) => byId().get(id),
@@ -521,10 +421,6 @@ export function createBoardStore({
       broadcast = fn;
     },
 
-    /**
-     * Replace everything and forget history (first load). `removed` are the
-     * stamps of what was removed from the board lately, as the server sends them.
-     */
     load(next, removed = []) {
       setElements(inStackOrder(next.map(withDefaults)));
       startRemoved(removed);
@@ -533,18 +429,12 @@ export function createBoardStore({
       redoStack = [];
       publish();
     },
-    /**
-     * Reconnected: the board as the server has it (with `removed`, as for
-     * load), with `unsent` (changes made here that it hasn't confirmed) on top.
-     * History is kept.
-     */
     rejoin(next, unsent = { upsert: [], remove: [] }, removed = []) {
       setElements(inStackOrder(next.map(withDefaults)));
       startRemoved(removed);
       take(asItIs(unsent));
       publish();
     },
-    /** Apply a collaborator's change. */
     applyRemote(op, typing = new Map()) {
       const before = new Map<string, BoardElement>();
       for (const id of typing.keys()) {
@@ -552,29 +442,12 @@ export function createBoardStore({
         if (element) before.set(id, element);
       }
       take(asItIs(op));
-      // Text typed here that the server hasn't answered yet stays: the server merges it with this change, and its
-      // answer shows the two together. Taking this change's text meanwhile would hide what was just typed.
+      // Typed-here text the server hasn't answered yet stays; its answer merges the two.
       if (before.size > 0) {
-        // The assertion: `before` only has ids that are in `typing`.
         setElements(elements.map((element) => keepTyping(element, before.get(element.id), typing.get(element.id)!)));
       }
       publish();
     },
-    /**
-     * What the server answered to a change sent from here: the elements as it
-     * stored them where that differs from what was sent (`cleaned`; text cut to
-     * its limit, say), and the ids of new ones it refused because the board is full
-     * (`dropped`). Those are shown as the server has them, unless they've been changed since.
-     * `sent` (id -> stamp) are the stamps they were sent with: a change the server refused to
-     * an element it has comes back as its own, older copy, which replaces ours if ours is still
-     * the one that was sent, or this screen would keep a change nobody else has. That's decided
-     * group by group (see mergeServerCopy), so a change merged in from someone else since, to a
-     * group that wasn't part of what was sent, isn't undone along with it. `restored` are elements
-     * removed here that the server kept (in classroom mode, a student's outside their frame): they
-     * come back as the server has them, and are no longer remembered as removed. `typed` is the text
-     * the change typed, which comes back merged with others' typing, and `typing` text typed here
-     * since, which stays (both by element id: see mergeServerCopy).
-     */
     forgetHistory() {
       undoStack = [];
       redoStack = [];
@@ -588,7 +461,6 @@ export function createBoardStore({
         tombstones.delete(element.id);
         removedHere.delete(element.id);
       }
-      // (Sorted again: their copy may sit elsewhere in the stack.)
       setElements(
         inStackOrder([
           ...elements.flatMap((element) => {
@@ -603,29 +475,15 @@ export function createBoardStore({
       );
       publish();
     },
-    /**
-     * A live, in-progress change (e.g. mid-stroke): shared, but not in history.
-     * Pass `{ base }` when the change wasn't made from the elements as they are
-     * now (see stamp). Returns the connectors it let go of, as they were and
-     * are now ([{ before, after }]), for the history entry that's recorded.
-     */
     apply,
-    /** Add a finished change to history (its redo state is already applied). */
     record,
-    /**
-     * Apply a change and add it to history in one step. An element someone
-     * removed meanwhile isn't brought back by a change to it (unless the change
-     * is the one making it: `undo` removes it), and if nothing is left of it, it's dropped.
-     */
     commit(entry, options) {
       const redo = stillApplies(entry.redo, entry.undo?.remove);
       if (!hasChanges(redo) && hasChanges(entry.redo)) return;
       const released = apply(redo, { base: entry.undo?.upsert });
       record(attachingBack({ ...entry, redo }, "redo", released), options);
     },
-    // Undo and redo only change what the step changed: undoing a move puts the
-    // shape back, but keeps a color someone else picked since. Shapes someone
-    // else has removed since stay removed.
+    // Only what the step changed is undone; a color set by someone else since stays.
     undo() {
       const entry = undoStack.pop();
       if (!entry) return;
@@ -650,14 +508,10 @@ export function useBoardSnapshot(store: BoardStore): BoardSnapshot {
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
-// The server drops the connection on any message over 3 MB, and a dropped
-// change is sent again on reconnect, so a big one (undoing "clear board",
-// importing a file) would never get through. Changes are sent in pieces of
-// about this size instead, in order.
+// The server drops connections on messages over 3 MB and a dropped change is resent, so big ones are sent in pieces.
 export const MAX_OPERATION_BYTES = 1_000_000;
 
-// A safe over-estimate of an element's size as JSON: points and text are what make one big.
-// (A removal has none of them, and nor have most elements.)
+// A safe over-estimate of an element's JSON size: points and text make one big.
 const roughSize = (value: {
   id?: string;
   removal?: unknown;
@@ -668,8 +522,7 @@ const roughSize = (value: {
 
 /** `pending` (id -> element, or { removal }) as operations of at most about `maxBytes` each. */
 export function toOperations(pending: ReadonlyMap<string, PendingChange>, maxBytes = MAX_OPERATION_BYTES): Effect[] {
-  // Measuring every change (this runs every 40 ms while someone draws) is only
-  // needed when a rough estimate says they might not fit in one piece.
+  // Measuring every change (every 40 ms while drawing) is only needed once the rough estimate nears the limit.
   let estimate = 0;
   for (const [, value] of pending) estimate += roughSize(value);
   const measure = estimate > maxBytes / 2;

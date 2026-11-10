@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { api, setAuthToken, setUnauthorizedHandler } from "../lib/api";
 import type { AccountUser, ApiError, LoginInput, RegisterInput, Session } from "../lib/api";
@@ -6,10 +6,8 @@ import { logoutPlan } from "../lib/session";
 
 const TOKEN_KEY = "inkboard.token";
 
-/** "loading" while the account is fetched, "offline" when it couldn't be, "anonymous" with no login. */
 export type AuthStatus = "loading" | "anonymous" | "authenticated" | "offline";
 
-/** What `useAuth()` gives: the account (once loaded) and what can be done with the login. */
 export type AuthValue = {
   user: AccountUser | null;
   token: string | null;
@@ -51,14 +49,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [attempt, setAttempt] = useState(0);
 
   setAuthToken(token);
-  // The login this tab is using, for logout, which keeps one identity across renders.
   const tokenRef = useRef(token);
-  tokenRef.current = token;
+  useLayoutEffect(() => {
+    tokenRef.current = token;
+  });
 
-  // Ends this tab's login (see logoutPlan for what happens to the stored one). `explicit` is the person
-  // choosing to log out: this tab then ends up logged out, whatever another tab has stored. When the
-  // server refused this tab's token instead, a newer login for the same account that another tab just
-  // stored (after a password change, say) is followed rather than lost.
+  // See logoutPlan. When the server refused this tab's token, a newer login for the same account stored by another tab is followed rather than lost.
   const endSession = useCallback((explicit: boolean) => {
     const { adopt, clearStored } = logoutPlan({ own: tokenRef.current, stored: readToken(), explicit });
     if (clearStored) writeToken(null);
@@ -74,8 +70,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUnauthorizedHandler(sessionRefused);
   }, [sessionRefused]);
 
-  // Logging in or out in another tab changes the stored token (the `storage` event only fires in the
-  // other tabs). Follow it, so this tab neither keeps a login that was ended nor keeps using an old one.
+  // The `storage` event only fires in other tabs: follow it so this tab neither keeps an ended login nor an old one.
   useEffect(() => {
     function onStorage(event: StorageEvent) {
       if (event.key !== TOKEN_KEY || event.newValue === token) return;
@@ -98,7 +93,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(me);
         setStatus("authenticated");
       })
-      // `api.me` only ever rejects with an ApiError.
       .catch((error: ApiError) => {
         if (!active) return;
         if (error.status === 401) sessionRefused();
@@ -129,7 +123,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       status,
       login: async (input) => startSession(await api.login(input)),
       register: async (input) => startSession(await api.register(input)),
-      // Starts a session from `{ token, user }`, as a password reset or a finished Google or GitHub sign-in returns.
       startSession,
       updateUser: setUser,
       logout,

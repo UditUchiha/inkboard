@@ -5,16 +5,10 @@ import type { BoardFiling, ListedBoard, Role, TrashedBoard } from "../../../lib/
 
 export const TRASH_DAYS = 30;
 
-/**
- * A board on the dashboard, from either list: a listed board has this person's own filing of it (see BoardFiling),
- * and a board in the trash has the dates it was deleted and will be erased on instead. The dashboard shows both the
- * same way, so each list's extra fields are optional here. A board has no elements, but gets a preview once one has
- * been fetched.
- */
+// Listed boards carry this person's filing, trashed ones their deletion dates; both are shown the same way, so those fields are optional.
 export type BoardSummary = Omit<ListedBoard, keyof BoardFiling> &
   Partial<BoardFiling> &
   Partial<Pick<TrashedBoard, "deletedAt" | "purgeAt">> & {
-    /** What to draw on the card, once it has been fetched. */
     preview?: BoardElement[];
   };
 
@@ -30,8 +24,7 @@ type Section = {
   empty: { title: string; text: string };
 };
 
-// Which boards each place on the dashboard shows. The trash is the owner's own
-// list from the server, so it has no rule here.
+// The trash is the owner's own server list, so it has no rule here.
 export const SECTIONS: Section[] = [
   {
     id: "all",
@@ -117,7 +110,6 @@ const openedAt = (board: BoardSummary) => time(board.lastOpenedAt ?? board.updat
 const byTitle = (a: BoardSummary, b: BoardSummary) =>
   a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true });
 
-/** What the list can be sorted by, and which way. */
 export type SortKey = "modified" | "opened" | "title";
 export type SortDir = "asc" | "desc";
 export type Sort = { key: SortKey; dir: SortDir };
@@ -134,10 +126,8 @@ export const SORT_KEYS: Record<
 
 export const DEFAULT_SORT: Sort = { key: "modified", dir: "desc" };
 
-// What isSort reads of an object it knows nothing about yet.
 type SortFields = { key: string; dir: unknown };
 
-/** Whether a (possibly stored) value is a sort the dashboard understands. */
 export const isSort = (value: unknown): value is Sort =>
   Boolean(value) &&
   typeof value === "object" &&
@@ -145,7 +135,6 @@ export const isSort = (value: unknown): value is Sort =>
   Object.hasOwn(SORT_KEYS, (value as SortFields).key) &&
   ((value as SortFields).dir === "asc" || (value as SortFields).dir === "desc");
 
-/** How the boards are laid out. */
 export type View = "grid" | "list";
 
 export const isView = (value: unknown): value is View => value === "grid" || value === "list";

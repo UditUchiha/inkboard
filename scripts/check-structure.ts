@@ -16,13 +16,6 @@ const SIZE_DEBT = new Set<string>([
   "client/src/features/board/components/PropertiesPanel.tsx",
   "client/src/features/board/components/ShareDialog.tsx",
   "client/src/features/board/hooks/useBoardSync.ts",
-  "client/src/features/board/lib/elements/elements.ts",
-  "client/src/features/board/lib/mermaid/mermaid.ts",
-  "client/src/features/board/lib/render/renderer.ts",
-  "client/src/features/board/lib/sync/store.ts",
-  "client/src/pages/AuthPages.tsx",
-  "client/src/pages/DashboardPage.tsx",
-  "client/src/pages/SettingsPage.tsx",
 ]);
 
 const walk = (dir: string, out: string[] = []): string[] => {

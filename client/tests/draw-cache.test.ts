@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { PenElement, Point, ShapeElement } from "@inkboard/shared/types";
 import { createDrawingCache, movedBy } from "../src/features/board/lib/render/drawCache.ts";
-import { shapePaths } from "../src/features/board/lib/render/renderer.ts";
+import { shapePaths } from "../src/features/board/lib/render/shapes.ts";
 import { resolveConnectors } from "../src/features/board/lib/elements/connectors.ts";
 import { translate } from "../src/features/board/lib/elements/elements.ts";
 

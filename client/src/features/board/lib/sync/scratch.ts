@@ -10,18 +10,14 @@ import { createBoardStore } from "./store";
 import { noSuggestions } from "./suggestions";
 import type { BoardSync, Peer } from "../../hooks/useBoardSync";
 
-// A guest's board lives in this browser only (localStorage), so anyone can start
-// drawing without an account and nothing reaches the database. Signing up
-// uploads it as their first real board (see DrawPage).
+// A guest's board lives in this browser only (localStorage); signing up uploads it as their first board (see DrawPage).
 
 const SCRATCH_KEY = "inkboard.scratch";
 const SAVE_DELAY_MS = 400;
 const FULL_WARNING_EVERY_MS = 20_000;
 
-/** A guest's board: its title and its elements. */
 export type Scratch = { title: string; elements: BoardElement[] };
 
-/** The saved scratch board. Anything in it that isn't a valid element is left out, so it can't break drawing. */
 export function readScratch(): Scratch {
   try {
     const stored: { title?: unknown; elements?: unknown } | null = JSON.parse(
@@ -30,7 +26,6 @@ export function readScratch(): Scratch {
     if (stored && Array.isArray(stored.elements)) {
       return {
         title: typeof stored.title === "string" ? stored.title : "Untitled board",
-        // The cast: filter(Boolean) leaves only the elements there are, which TypeScript doesn't see.
         elements: stored.elements.map(cleanElement).filter(Boolean) as BoardElement[],
       };
     }
@@ -49,11 +44,9 @@ function writeScratch(scratch: Scratch): boolean {
   }
 }
 
-// The drawing as it is in this tab. When the browser has no room left, what's in
-// localStorage is out of date, and what is uploaded on signing up must be this.
+// When the browser has no room left localStorage is stale, and what's uploaded on signing up must be this tab's drawing.
 let live: Scratch | null = null;
 
-/** The scratch board to show or upload: this tab's own drawing if it made one, otherwise what was saved. */
 export function currentScratch(): Scratch {
   return live ?? readScratch();
 }
@@ -73,13 +66,8 @@ const NO_PEERS: Peer[] = [];
 const NOTHING_SUGGESTED_OVER = createBoardStore();
 const CREATED_AT = new Date().toISOString();
 
-/** A scratch board's stand-in for the live sync: a board nobody else is on, plus whether this browser kept the latest changes. */
 export type ScratchSync = BoardSync & { unsaved: boolean };
 
-/**
- * Everything BoardEditor needs for a board that has no server: a store loaded
- * from, and saved to, localStorage, and a stand-in for the live-sync object.
- */
 export function useScratchBoard() {
   const store = useMemo(createEditorStore, []);
   const [title, setTitle] = useState(() => currentScratch().title);
@@ -97,7 +85,6 @@ export function useScratchBoard() {
       live = { title: titleRef.current, elements: store.getElements() };
     };
     const save = () => {
-      // The cast, here and in onStorage: clearTimeout takes null as well as undefined, which its types don't say.
       clearTimeout(timer as ReturnType<typeof setTimeout> | undefined);
       timer = null;
       const kept = writeScratch({ title: titleRef.current, elements: store.getElements() });
@@ -119,8 +106,7 @@ export function useScratchBoard() {
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", flush);
 
-    // Another tab changed the drawing (or saved it to an account, which clears it): show that,
-    // rather than carrying on with a copy that would overwrite it, or upload it a second time.
+    // Another tab changed or uploaded the drawing: show that rather than overwrite it or upload it twice.
     const onStorage = (event: StorageEvent) => {
       if (event.key !== SCRATCH_KEY && event.key !== null) return;
       clearTimeout(timer as ReturnType<typeof setTimeout> | undefined);
@@ -155,14 +141,12 @@ export function useScratchBoard() {
       linkPassword: false,
       linkExpiresAt: null,
       linkReplay: false,
-      // Never shown for a scratch board; it was made, and last changed, in this browser.
       createdAt: CREATED_AT,
       updatedAt: CREATED_AT,
     };
     return {
       phase: { name: "ready" },
       meta,
-      // Only the title of a scratch board can change.
       setMeta: (update) => {
         const next = typeof update === "function" ? update(meta) : update;
         if (typeof next?.title !== "string" || next.title === title) return;
@@ -177,10 +161,8 @@ export function useScratchBoard() {
       suggestions: noSuggestions,
       resolveSuggestions: NOOP,
       withdrawSuggestions: NOOP,
-      // A scratch board is one person's, so there's nobody to vote with.
       voting: null,
       vote: NOOP,
-      // A scratch board has no link, so nothing to unlock.
       unlock: () => Promise.resolve(),
       suggestedOver: NOTHING_SUGGESTED_OVER,
       online: true,
@@ -190,7 +172,6 @@ export function useScratchBoard() {
       sendViewport: NOOP,
       loadReplay: () => Promise.resolve({ ok: false as const, error: "A board in this browser has no replay." }),
       present: NOOP,
-      // A scratch board is one person's, so it has no shared timer.
       timer: null,
       controlTimer: NOOP,
       privateMode: null,
