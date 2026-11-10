@@ -4,8 +4,8 @@ import { ListTree, X } from "lucide-react";
 import { useDeferredValue, useMemo } from "react";
 import { IconButton } from "../../../components/Button";
 import { describeElement } from "../lib/elements/elementLabels";
-import { boardOutline } from "../lib/elements/elements";
-import type { OutlineNode } from "../lib/elements/elements";
+import { boardOutline } from "../lib/elements/order";
+import type { OutlineNode } from "../lib/elements/order";
 
 // Capped to keep the page light on a big board; the rest are reachable by selecting on the canvas.
 const MAX_LISTED = 200;

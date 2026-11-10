@@ -19,50 +19,23 @@ import type { OAuthProvider, UserDoc } from "../models/user.model.ts";
 import { refreshUser } from "../realtime/index.ts";
 import { emailConfigured } from "../services/email.ts";
 
-// Sign-in with Google or GitHub uses the authorization-code flow:
-//   1. The app makes a random `bind` value, keeps it in the tab (sessionStorage) and sends the
-//      browser to /api/auth/oauth/:provider?bind=<hash of it>. The server sends the browser on to the
-//      provider, with a random `state` that's also kept in a short-lived signed cookie, along with
-//      the hash.
-//   2. The provider sends the browser back to .../callback with a code.
-//   3. The server checks `state` against the cookie, swaps the code for the person's profile, finds
-//      or creates their account, and hands the app a short-lived, single-use sign-in code (a signed
-//      note of the account and the `bind` hash) in the URL fragment (fragments never reach server
-//      logs). Never the login token itself.
-//   4. The app posts the code with its `bind` to /api/auth/oauth/exchange (exchangeLoginCode), which
-//      checks the two match and answers with the login token.
-// Without steps 1 and 4, anyone could send a victim to /auth/callback#token=<their own login> and
-// leave the victim's tab signed in to the attacker's account (login CSRF), where the victim's later
-// clicks, such as on a verification email, would work for the attacker (C5). A code is useless to a
-// tab that doesn't hold the `bind` it was made for, and the `bind` never leaves the tab that made it.
-//
-// Connecting a provider to an existing account starts from a signed-in POST, which answers
-// with the URL for step 1 (holding a ticket) and a random `bind` value that the app keeps in
-// the tab. Step 3 then connects nothing: it sends the app a signed note of the provider
-// account, which the app hands back with `bind` in a signed-in POST (confirmLink). Without
-// that, a link someone else made could be opened by the victim, attaching the victim's
-// Google or GitHub account to the link-maker's account: the victim's tab has neither the
-// link-maker's login nor their `bind`. None of it rests on a cookie set by the app's own
-// requests, which browsers block as third-party when the app and the API are on different
-// sites (M2, M10). The state cookie is set while the browser itself is at the API's address,
-// so it's first-party.
-//
-// Failures go back to the app as an error code (`?error=expired&provider=google`) that the
-// app turns into a message, so a link can't put text of its own on the page.
+// Authorization-code flow (see docs/api.md, "OAuth sign-in"). The login token never goes in a URL: the callback hands the
+// app a short-lived, single-use code (in the fragment, which never reaches logs) that only the tab holding the `bind`
+// it was made for can trade (exchangeLoginCode). Otherwise anyone could send a victim to /auth/callback#token=<attacker's
+// login> and leave them signed in to the attacker's account (login CSRF, C5). Connecting a provider works the same way
+// (confirmLink). Nothing rests on cookies set by the app's own requests, which browsers block as third-party when the app
+// and API are on different sites (M2, M10). Failures return an error code, so a link can't put text of its own on the page.
 
 const STATE_COOKIE = "inkboard_oauth";
 const STATE_TTL_SECONDS = 10 * 60;
 const LINK_TTL_SECONDS = 5 * 60;
 const COOKIE_PATH = "/api/auth/oauth";
 const REQUEST_TIMEOUT_MS = 10_000;
-// The app opens the code straight away, so it only has to survive the redirect.
 const LOGIN_CODE_TTL_SECONDS = 2 * 60;
-// A hash of the tab's `bind` (sha-256, base64url), as the app sends it.
 const BIND_HASH = /^[A-Za-z0-9_-]{43}$/;
 
-/** A sign-in that can't go ahead; `code` is what the app shows a message for (client/src/pages/AuthPages.tsx). */
 class SignInError extends Error {
-  // `declare` keeps this a type only: Node strips it, and the assignment below still creates the field.
+  // `declare` keeps this a type only: Node strips it, and the assignment below still creates the field
   declare code: string;
 
   constructor(code: string) {
@@ -71,10 +44,8 @@ class SignInError extends Error {
   }
 }
 
-/** The app's credentials with one provider. */
 type OAuthClient = NonNullable<(typeof env.oauth)[OAuthProvider]>;
 
-/** Who a provider says someone is. `email` is only ever one the provider has verified. */
 interface ProviderProfile {
   id: string;
   email?: string | null;
@@ -82,7 +53,6 @@ interface ProviderProfile {
   avatarUrl: string | null;
 }
 
-// What the providers answer with, as far as this file reads it.
 interface TokenResponse {
   access_token?: string;
   error_description?: string;
@@ -114,14 +84,12 @@ interface ProviderConfig {
   fetchProfile(code: string, redirectUri: string, client: OAuthClient): Promise<ProviderProfile>;
 }
 
-/** A provider that is set up on this server, with the app's credentials for it. */
 interface EnabledProvider extends ProviderConfig {
   name: OAuthProvider;
   client: OAuthClient;
 }
 
-// What each kind of signed note holds. Only this file signs tokens with these audiences, so what
-// `verifyPurposeToken` hands back is known to have these claims.
+// only this file signs tokens with these audiences, so what `verifyPurposeToken` hands back is known to have these claims
 interface LinkTicketClaims extends TokenClaims {
   sub: string;
   provider: string;
@@ -131,7 +99,6 @@ interface StateClaims extends TokenClaims {
   nonce: string;
   provider: string;
   next: string;
-  // Who the connection is for; null when it's a sign-in.
   linkUserId?: string | null;
   bind: string;
 }
@@ -203,7 +170,6 @@ const PROVIDERS: Record<OAuthProvider, ProviderConfig> = {
   },
 };
 
-// `Answer` is what the provider is expected to send back; nothing checks it.
 async function postForm<Answer>(url: string, fields: Record<string, string>) {
   const response = await fetch(url, {
     method: "POST",
@@ -226,8 +192,7 @@ async function getJson<Answer>(url: string, accessToken: string | undefined) {
 
 const enabledProviders = () => OAUTH_PROVIDERS.filter((name) => env.oauth[name]);
 
-// A name from the URL may be anything. Only the providers' own keys count: a plain lookup would also find what every
-// object has, such as "constructor".
+// a name from the URL may be anything: a plain lookup would also find "constructor"
 const isProvider = (name: string): name is OAuthProvider => Object.hasOwn(PROVIDERS, name);
 
 function providerFrom(req: Request): EnabledProvider {
@@ -235,31 +200,26 @@ function providerFrom(req: Request): EnabledProvider {
   if (!isProvider(name) || !env.oauth[name]) {
     throw new HttpError(404, "That sign-in method isn't available.");
   }
-  // `!env.oauth[name]` above throws when the client is missing, which the types can't follow through `name`.
   return { name, ...PROVIDERS[name], client: env.oauth[name]! };
 }
 
-// The provider sends people back to the API. With trust proxy enabled in production, req.protocol is the public one.
+// the provider sends people back to the API; with trust proxy on in production, req.protocol is the public one
 const callbackUrl = (req: Request, provider: string) => `${apiUrlFor(req)}/api/auth/oauth/${provider}/callback`;
 
-// Only follow redirects to paths inside the app. Browsers read a backslash as a slash and drop tabs and
-// newlines, so "/\evil.example" or "/<tab>/evil.example" would leave the site: neither is allowed anywhere.
+// only follow redirects to paths inside the app: browsers read a backslash as a slash and drop tabs and newlines, so "/\evil.example" would leave the site
 const unsafeChar = (char: string) => char === "\\" || char <= "\u001f" || char === "\u007f";
 export const safeNext = (value: unknown) =>
   typeof value === "string" && /^\/(?!\/)/.test(value) && ![...value].some(unsafeChar) ? value : "/boards";
 
 const hashOf = (value: string) => createHash("sha256").update(value).digest("base64url");
 
-// Sign-in codes that have been exchanged, by id, until they would have expired anyway. A code is only
-// worth anything with its tab's `bind`, so this is a second lock: opening the same redirect twice
-// (a back button, a copied URL) can't sign in twice. It's kept in memory, like the email limits, so
-// with several server processes the short life and the `bind` are what limit a replay.
+// exchanged codes, by id, until they'd have expired anyway: a second lock beside `bind`, so a repeated redirect (back
+// button, copied URL) can't sign in twice. In memory, so with several processes the short life and `bind` limit a replay.
 const spentCodes = new Map<string, number>();
 
-/** Marks a sign-in code as used. False if it was already (or has no id). */
 function spendLoginCode(id: string | undefined, expiresAt: number) {
   const now = Date.now() / 1000;
-  // Codes all live as long as each other, so the oldest entries are the first to expire.
+  // all codes live equally long, so the oldest entries expire first
   for (const [spent, until] of spentCodes) {
     if (until >= now) break;
     spentCodes.delete(spent);
@@ -284,13 +244,11 @@ const cookieOptions = (): CookieOptions => ({
   path: COOKIE_PATH,
 });
 
-// Connecting a provider before the address is verified could hand the account to whoever
-// signed up with it first. Without email set up there's no way to verify, so it's allowed.
+// connecting before the address is verified could hand the account to whoever signed up with it first; without email set up nothing can be verified
 const mustVerifyFirst = (user: Pick<UserDoc, "emailVerified">) => emailConfigured() && !user.emailVerified;
 
 function failSignIn(req: Request, res: Response, code: string, to: string, provider: string, next?: string) {
   const params = new URLSearchParams({ error: code, provider });
-  // A failed sign-in keeps where the person was headed, for when they try again.
   if (next && next !== "/boards") params.set("next", next);
   res.redirect(`${clientUrlFor(req)}${to}?${params}`);
 }
@@ -298,16 +256,11 @@ function failSignIn(req: Request, res: Response, code: string, to: string, provi
 export function listProviders(req: Request, res: Response) {
   res.json({
     providers: enabledProviders().map((name) => ({ id: name, label: PROVIDERS[name].label })),
-    // Whether email verification and password reset are on (see services/email.ts).
     email: emailConfigured(),
   } satisfies ProvidersReply);
 }
 
-/**
- * A short-lived ticket that lets the browser start the OAuth flow as a signed-in person, to
- * connect a provider to their existing account, and the `bind` value the app keeps for
- * confirmLink. Only a hash of `bind` goes into the URLs.
- */
+// the `bind` value the app keeps for confirmLink; only a hash of it goes into the URLs
 export async function createLinkTicket(req: Request, res: Response) {
   const { name, label } = providerFrom(req);
   const user = await User.findById(req.userId);
@@ -333,7 +286,7 @@ export function startOAuth(req: Request, res: Response) {
       return failSignIn(req, res, "link-expired", "/settings", provider.name);
     }
   } else {
-    // Signing in needs the tab's `bind` hash too, or what comes back couldn't be tied to this browser.
+    // signing in needs the tab's `bind` hash too, or what comes back couldn't be tied to this browser
     const bind = String(req.query.bind ?? "");
     if (!BIND_HASH.test(bind))
       return failSignIn(req, res, "incomplete", "/login", provider.name, safeNext(req.query.next));
@@ -379,15 +332,13 @@ export async function finishOAuth(req: Request, res: Response) {
   try {
     profile = await provider.fetchProfile(String(req.query.code), callbackUrl(req, provider.name), provider.client);
   } catch (error) {
-    // Anything can be thrown; the fetches throw Errors.
     console.error(`${provider.label} sign-in failed:`, (error as Error).message);
     return fail("provider-failed", returnTo);
   }
 
   try {
     if (state.linkUserId) {
-      // Connected once the app confirms it (confirmLink). The note travels in the fragment, which
-      // never reaches a server's logs.
+      // connected once the app confirms it (confirmLink); the note travels in the fragment, which never reaches logs
       const note = { sub: state.linkUserId, provider: provider.name, id: profile.id, avatarUrl: profile.avatarUrl };
       const connect = signPurposeToken(OAUTH_CONNECT, { ...note, bind: state.bind }, LINK_TTL_SECONDS);
       const fragment = new URLSearchParams({ connect, provider: provider.name });
@@ -406,10 +357,7 @@ export async function finishOAuth(req: Request, res: Response) {
   }
 }
 
-/**
- * Trades the sign-in code the OAuth flow came back with for a login token, once the app shows it's the
- * tab that started the sign-in (it holds the `bind` the code was made for). The code works once.
- */
+// The code works once, and only for the tab holding the `bind` it was made for.
 export async function exchangeLoginCode(
   req: Request<{}, unknown, { code?: unknown; bind?: unknown } | undefined>,
   res: Response,
@@ -421,7 +369,7 @@ export async function exchangeLoginCode(
     throw new HttpError(400, "Sign-in took too long. Try again.");
   }
   const bind = req.body?.bind;
-  // Checked before the code is used up, so someone holding only the code can't waste it.
+  // checked before the code is used up, so someone holding only the code can't waste it
   if (typeof bind !== "string" || bind.length > 200 || note.bind !== hashOf(bind)) {
     throw new HttpError(403, "This sign-in wasn't started in this browser tab. Try again.");
   }
@@ -431,8 +379,7 @@ export async function exchangeLoginCode(
   res.json({ token: signToken(user), user: user.toAccount() } satisfies Session);
 }
 
-// Another account got there first (a sign-up or connect that ran at the same moment).
-// Anything can be thrown; a duplicate-key error from MongoDB carries a numeric code.
+// another account got there first (a sign-up or connect running at the same moment); a MongoDB duplicate-key error has a numeric code
 const isDuplicate = (error: unknown) => (error as { code?: unknown } | null)?.code === 11000;
 
 async function connectProvider(
@@ -462,10 +409,9 @@ async function findOrCreateUser(provider: EnabledProvider, profile: ProviderProf
   if (existing) return existing;
 
   if (!profile.email) throw new SignInError("no-email");
-  // Emails aren't verified at sign-up, so silently attaching a provider to an
-  // existing password account could hand that account to whoever created it.
-  // The owner connects the provider from their settings instead. The account with the address may be this
-  // person's own, made a moment ago by a sign-in that ran at the same time as this one (after the look-up above).
+  // Emails aren't verified at sign-up, so silently attaching a provider to an existing password account could hand it to
+  // whoever created it: the owner connects from settings instead. The account may be this person's own, made a moment
+  // ago by a sign-in running at the same time as this one.
   if (await User.exists({ email: profile.email.toLowerCase() })) {
     const madeMeanwhile = await User.findOne({ [field]: profile.id });
     if (madeMeanwhile) return madeMeanwhile;
@@ -473,7 +419,6 @@ async function findOrCreateUser(provider: EnabledProvider, profile: ProviderProf
   }
 
   const name = (profile.name ?? "").trim().slice(0, 60) || profile.email.split("@")[0].slice(0, 60);
-  // The provider only gives us verified addresses (see above), so this one is verified too.
   try {
     return await User.create({
       name,
@@ -484,24 +429,19 @@ async function findOrCreateUser(provider: EnabledProvider, profile: ProviderProf
     });
   } catch (error) {
     if (!isDuplicate(error)) throw error;
-    // The same person signing in twice at once: the second request finds the first one's account.
     const created = await User.findOne({ [field]: profile.id });
     if (created) return created;
     throw new SignInError("email-in-use");
   }
 }
 
-// What connectProvider can fail with, as an HTTP status and message.
 const CONNECT_ERRORS: Record<string, (label: string) => [number, string]> = {
   "already-linked": (label) => [409, `That ${label} account is already connected to a different account.`],
   "verify-first": (label) => [403, `Verify your email address before connecting ${label}.`],
   "no-account": () => [401, "This account no longer exists."],
 };
 
-/**
- * Connects the provider account the OAuth flow came back with (the `connect` note), once the
- * app shows it's the same signed-in person, in the same tab, that asked to connect it.
- */
+// once the app shows it's the same signed-in person, in the same tab, that asked to connect
 export async function confirmLink(
   req: Request<{ provider: string }, unknown, { connect?: unknown; bind?: unknown } | undefined>,
   res: Response,
@@ -535,7 +475,6 @@ export async function confirmLink(
   res.json({ user: user.toAccount() } satisfies UserReply);
 }
 
-/** Disconnects a provider, as long as the account keeps another way to sign in. */
 export async function disconnectProvider(req: Request, res: Response) {
   const name = String(req.params.provider);
   if (!isProvider(name)) throw new HttpError(404, "That sign-in method isn't available.");

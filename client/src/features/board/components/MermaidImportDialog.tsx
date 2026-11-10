@@ -4,8 +4,9 @@ import type { FormEvent } from "react";
 import { Button } from "../../../components/Button";
 import { Dialog } from "../../../components/Dialog";
 import { measureText } from "../lib/elements/elements";
-import { MermaidError, mermaidToElements } from "../lib/mermaid/mermaid";
-import type { Measure } from "../lib/mermaid/mermaid";
+import { MermaidError } from "../lib/mermaid/common";
+import { mermaidToElements } from "../lib/mermaid/mermaid";
+import type { Measure } from "../lib/mermaid/common";
 
 type MermaidImportDialogProps = {
   open: boolean;

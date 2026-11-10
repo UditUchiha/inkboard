@@ -21,14 +21,12 @@ import { emailConfigured } from "../services/email.ts";
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 const ACCOUNT_FIELDS = "+password +googleId +githubId";
 
-// Request bodies come from anyone, so every field is unknown until a check narrows it. A body is missing
-// when nothing was sent.
+// bodies come from anyone, so every field is unknown until checked, and a body is missing when nothing was sent
 interface CredentialsBody {
   email?: unknown;
   password?: unknown;
 }
 
-/** A request with a body of type `Body`, and no route parameters. */
 type BodyRequest<Body> = Request<{}, unknown, Body | undefined>;
 
 function readCredentials(body: CredentialsBody | undefined) {
@@ -56,22 +54,18 @@ function checkNewPassword(password: string) {
   }
 }
 
-// Mail is sent after the answer, so that how long a request takes doesn't depend on the mail service
-// (or, for password resets, on whether the address has an account). Failures are logged, not shown.
+// after the answer, so a request's duration doesn't depend on the mail service (or, for resets, on whether the address has an account)
 function sendInBackground(sending: Promise<unknown>, what: string) {
-  // Sending only fails with an Error (a rejected promise's reason is untyped, so this says what it is).
   sending.catch((error: Error) => console.error(`Couldn't send ${what}: ${error.message}`));
 }
 
-// Disconnects Google and GitHub from the account. Returns whether there was anything to disconnect.
 function releaseProviders(user: UserDoc) {
   const linked = OAUTH_PROVIDERS.filter((provider) => user[`${provider}Id`]);
   for (const provider of linked) user[`${provider}Id`] = undefined;
   return linked.length > 0;
 }
 
-// Logs the account out everywhere: every token made so far stops working and open sockets are closed.
-// The caller hands the person a new token if they should stay logged in.
+// every token made so far stops working and open sockets close; the caller hands the person a new token if they should stay
 async function endAllSessions(user: UserDoc) {
   user.revokeSessions();
   await user.save();
@@ -98,11 +92,9 @@ export async function register(req: BodyRequest<CredentialsBody & { name?: unkno
   try {
     user = await User.create({ name, email, password });
   } catch (error) {
-    // Anything can be thrown; a duplicate-key error from MongoDB carries a numeric code.
-    if ((error as { code?: unknown } | null)?.code === 11000) throw exists(); // someone signed up with it a moment ago
+    if ((error as { code?: unknown } | null)?.code === 11000) throw exists();
     throw error;
   }
-  // The account works straight away; the address is verified when they click the link.
   if (emailConfigured()) sendInBackground(sendVerificationEmail(user, emailLinkUrlFor(req)), "the verification email");
   res.status(201).json({ token: signToken(user), user: user.toAccount() } satisfies Session);
 }
@@ -113,7 +105,7 @@ export async function login(req: BodyRequest<CredentialsBody>, res: Response) {
 
   const startedAt = performance.now();
   const user = email.length <= MAX_EMAIL_LENGTH ? await User.findOne({ email }).select(ACCOUNT_FIELDS) : null;
-  // Every outcome takes about as long and says the same, so neither can show whether an address has an account.
+  // every outcome takes about as long and says the same, so neither shows whether an address has an account
   let ok = false;
   if (user?.password) ok = await user.verifyPassword(password);
   else await spendPasswordTime(password);
@@ -125,7 +117,6 @@ export async function login(req: BodyRequest<CredentialsBody>, res: Response) {
     );
   }
 
-  // `ok` is only true when `user` was found (and had a password).
   res.json({ token: signToken(user!), user: user!.toAccount() } satisfies Session);
 }
 
@@ -139,7 +130,7 @@ export async function updateProfile(req: BodyRequest<{ name?: unknown; color?: u
   if (req.body?.name !== undefined) user.name = readName(req.body.name);
   if (req.body?.color !== undefined) {
     const { color } = req.body;
-    // A string is checked first because the pattern turns what it's given into one: ["#aabbcc"] would pass it.
+    // strings first: the pattern coerces its input, so ["#aabbcc"] would pass
     if (color !== null && (typeof color !== "string" || !COLOR_PATTERN.test(color))) {
       throw new HttpError(400, "Choose one of the colors shown.");
     }
@@ -150,11 +141,7 @@ export async function updateProfile(req: BodyRequest<{ name?: unknown; color?: u
   res.json({ user: user.toAccount() } satisfies UserReply);
 }
 
-/**
- * Changes the password, or sets a first one on an account made with Google or GitHub (which takes a
- * recent login, as there's no old password to prove who is asking). Every other login ends; the
- * response carries a new token for this one.
- */
+// Setting a first password on an account made with Google or GitHub takes a recent login (there's no old password to prove who is asking).
 export async function changePassword(
   req: BodyRequest<{ currentPassword?: unknown; newPassword?: unknown }>,
   res: Response,
@@ -176,20 +163,14 @@ export async function changePassword(
   res.json({ token: signToken(user), user: user.toAccount() } satisfies Session);
 }
 
-// Verification and password reset need email, which may not be set up yet.
 function requireEmail() {
   if (!emailConfigured()) throw new HttpError(503, "Emails aren't set up on this server yet, so this isn't available.");
 }
 
-/**
- * Verifies an address from the link emailed to it, for the account the person is logged in to (C5).
- * The link proves who holds the inbox, and the login proves they hold the account's password, so
- * verifying ties the two together. Without the login, someone who signed up with another person's
- * address could have the owner's click verify it for them: they'd get the owner's invites, and could
- * then connect their own Google or GitHub, which a later password reset by the owner would keep.
- * Nobody else needs logging out here: every login to an unverified account comes from its password
- * (providers can't be connected before verifying), which the person verifying has just shown they hold.
- */
+// Needs the login too (C5): the link proves who holds the inbox, the login proves they hold the account. Without it,
+// someone who signed up with another person's address could have the owner's click verify it for them, get the owner's
+// invites, and connect their own Google or GitHub, which a later password reset would keep. No other logins need ending:
+// every login to an unverified account is by its password, which the person verifying has just shown they hold.
 export async function verifyEmail(req: BodyRequest<{ token?: unknown }>, res: Response) {
   const userId = await redeemSecret(req.body?.token, "verify-email", req.userId);
   const user = userId && (await User.findById(userId).select(ACCOUNT_FIELDS));
@@ -206,13 +187,11 @@ export async function verifyEmail(req: BodyRequest<{ token?: unknown }>, res: Re
   res.json({ email: user.email, user: user.toAccount() } satisfies VerifiedEmailReply);
 }
 
-/** Logs the account out on every device, this one included (a lost phone, a shared computer). */
 export async function logoutEverywhere(req: Request, res: Response) {
   await endAllSessions(await findAccount(req.userId));
   res.status(204).end();
 }
 
-/** Sends the verification link again, to the logged-in person. */
 export async function resendVerification(req: Request, res: Response) {
   requireEmail();
   const user = await findAccount(req.userId);
@@ -221,7 +200,6 @@ export async function resendVerification(req: Request, res: Response) {
   try {
     sent = await sendVerificationEmail(user, emailLinkUrlFor(req));
   } catch (error) {
-    // Sending only fails with an Error.
     console.error(`Couldn't send the verification email: ${(error as Error).message}`);
     throw new HttpError(502, "The email couldn't be sent. Try again in a few minutes.");
   }
@@ -230,10 +208,7 @@ export async function resendVerification(req: Request, res: Response) {
   res.json({ sent: true } satisfies SentReply);
 }
 
-/**
- * Emails a password-reset link, if an account uses the address. The answer is
- * the same either way, so this can't be used to find out who has an account.
- */
+// the answer is the same either way, so it can't show who has an account
 export async function forgotPassword(req: BodyRequest<CredentialsBody>, res: Response) {
   requireEmail();
   const { email } = readCredentials(req.body);
@@ -243,14 +218,9 @@ export async function forgotPassword(req: BodyRequest<CredentialsBody>, res: Res
   res.json({ sent: true } satisfies SentReply);
 }
 
-/**
- * Sets a new password from a reset link, and logs the person in. Following the
- * link proves the address is theirs, so it also counts as verifying it. Every
- * earlier login ends, and so do providers linked before the address was verified
- * (whoever signed up with the address first could have connected their own).
- * Providers connected after verifying stay: verifying takes a login, so the
- * account's password was already the inbox owner's when they were connected.
- */
+// Following the link proves the address is theirs, so it counts as verifying it. Providers linked before verifying are
+// dropped (whoever signed up with the address first could have connected their own); later ones stay, since verifying
+// takes a login, so the account's password was already the inbox owner's.
 export async function resetPassword(req: BodyRequest<{ password?: unknown; token?: unknown }>, res: Response) {
   const password = String(req.body?.password ?? "");
   checkNewPassword(password); // before using up the link, so a too-short password can be fixed and retried

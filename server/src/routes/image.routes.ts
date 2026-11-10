@@ -6,11 +6,9 @@ import { openImage } from "../services/image-storage.ts";
 
 const router = Router();
 
-// Images are fetched by <img> tags, which can't send a login token, so access is
-// by knowing the image's random id (see image-storage.js). An image never changes
-// under its id, but a link can't be taken back once it's out, so copies are kept only in
-// the viewer's own browser (not shared caches or CDNs) and only for a day: a removed
-// picture stops showing soon after, rather than staying cached for a year.
+// <img> tags can't send a login token, so access is by knowing the random id (see image-storage.ts). A link can't be taken
+// back once out, so copies are cached only in the viewer's own browser (not shared caches or CDNs) for a day: a removed
+// picture stops showing soon after.
 const CACHE_CONTROL = "private, max-age=86400, immutable";
 async function sendImage(
   req: Request<{ imageId: string }>,
@@ -21,9 +19,7 @@ async function sendImage(
   try {
     const image = await openImage(req.params.imageId, { small });
     if (!image) return res.status(404).json({ error: "That image doesn't exist." });
-    // The stored file is only read once asked for, so the first piece is read before anything is
-    // sent: a file that can't be read (its chunks missing, say) still gets an error answer then.
-    // (A file with no chunks left at all reads as empty rather than failing, so that counts too.)
+    // the first piece is read before anything is sent, so a file that can't be read (chunks missing) still gets an error answer; one with no chunks reads as empty
     const pieces = image.stream[Symbol.asyncIterator]();
     const first = await pieces.next();
     if (first.done && image.size > 0) throw new Error(`Stored image ${req.params.imageId} has lost its data.`);
@@ -32,18 +28,14 @@ async function sendImage(
       "Content-Type": image.mime ?? "application/octet-stream",
       "Content-Length": String(image.size),
       "Cache-Control": CACHE_CONTROL,
-      // Other sites may not embed pictures, unless the app itself is on another address, which has
-      // to be able to: CLIENT_ORIGIN, or outside production the Vite dev server (see env.js).
+      // other sites may not embed pictures, unless the app is on another address: CLIENT_ORIGIN, or outside production the Vite dev server
       "Cross-Origin-Resource-Policy": env.clientOrigins.length > 0 ? "cross-origin" : "same-origin",
     });
-    // The stored file is read in chunks of bytes.
     async function* rest(): AsyncGenerator<Buffer> {
       if (!first.done) yield first.value;
       for (let piece = await pieces.next(); !piece.done; piece = await pieces.next()) yield piece.value;
     }
-    // Once the picture is on its way, an error can only cut the response off, which pipeline does.
-    // Either way the stored file is closed, also when the download is cut off.
-    // The stored file's iterator always has `return`; the type only says it may not.
+    // once the picture is on its way an error can only cut the response off, which pipeline does; the stored file is closed either way
     pipeline(rest, res, () => pieces.return!().catch(() => {}));
   } catch (error) {
     next(error);
@@ -51,7 +43,6 @@ async function sendImage(
 }
 
 router.get("/:imageId", (req, res, next) => sendImage(req, res, next));
-// The small copy thumbnails draw from; the full image for images that have none.
 router.get("/:imageId/small", (req, res, next) => sendImage(req, res, next, { small: true }));
 
 export default router;

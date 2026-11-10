@@ -1,12 +1,8 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
 import { imageUrl } from "./images";
 
-// Small helpers for the files the board exports.
-
-/** A board title made safe to use as a file name. */
 export const safeFileName = (name: string): string => name.replace(/[\\/:*?"<>|]+/g, "-").trim() || "board";
 
-/** Saves `blob` to the person's computer as `fileName`. */
 export function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -24,10 +20,6 @@ export const dataUrlOf = (blob: Blob): Promise<string> =>
     reader.readAsDataURL(blob);
   });
 
-/**
- * The full pictures used by `elements` as data URLs, by image id, so they can
- * travel inside an exported file. Pictures that can't be downloaded are left out.
- */
 export async function pictureDataUrls(elements: BoardElement[]): Promise<Map<string, string>> {
   const ids = new Set(elements.filter((element) => element.type === "image").map((element) => element.imageId));
   const entries = await Promise.all(
@@ -40,6 +32,5 @@ export async function pictureDataUrls(elements: BoardElement[]): Promise<Map<str
       }
     }),
   );
-  // The cast: filter(Boolean) leaves only the entries there are, which TypeScript doesn't see.
   return new Map(entries.filter(Boolean) as [string, string][]);
 }

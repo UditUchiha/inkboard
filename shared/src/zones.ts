@@ -1,11 +1,8 @@
 import type { Element, FrameElement } from "./types.ts";
 
-// Classroom mode's rule for what is inside a student's frame (their "zone"): worked out from the stored numbers alone,
-// so the browser, which keeps a student's work inside, and the server, which refuses what isn't, always agree. It's
-// coarser than how the board is drawn: text can't be measured without a browser, so its width is estimated, and a
-// line or arrow counts by its two ends.
+// Classroom mode's rule for what is inside a student's frame, from the stored numbers alone so the browser and the server
+// agree. It's coarser than drawing: text can't be measured without a browser, so its width is estimated.
 
-/** A box on the board, by its edges. */
 export interface Box {
   x1: number;
   y1: number;
@@ -13,7 +10,6 @@ export interface Box {
   y2: number;
 }
 
-// A character's width as a share of the font size, about the average of each font's: only an estimate.
 const CHARACTER_WIDTH = { hand: 0.42, sans: 0.55, code: 0.6 };
 const LINE_HEIGHT = 1.25; // as text is laid out on the board
 const SLACK = 0.5; // board units an element may stray over its frame's edge, for rounding
@@ -25,10 +21,8 @@ const boxOf = (x1: number, y1: number, x2: number, y2: number): Box => ({
   y2: Math.max(y1, y2),
 });
 
-/** A frame's own box, where what's inside it lies. */
 export const frameBox = (frame: FrameElement): Box => boxOf(frame.x1, frame.y1, frame.x2, frame.y2);
 
-// The box around `box` turned by `angle` about its middle.
 function turned(box: Box, angle: number): Box {
   const cx = (box.x1 + box.x2) / 2;
   const cy = (box.y1 + box.y2) / 2;
@@ -39,12 +33,11 @@ function turned(box: Box, angle: number): Box {
   return { x1: cx - halfWidth, y1: cy - halfHeight, x2: cx + halfWidth, y2: cy + halfHeight };
 }
 
-/** The box classroom mode takes `element` to fill (see above). */
 export function zoneBox(element: Element): Box {
   let box: Box;
   if (element.type === "pen") {
     let [x1, y1, x2, y2] = [Infinity, Infinity, -Infinity, -Infinity];
-    // A loop, not Math.min(...points): a stroke can have tens of thousands of points.
+    // not Math.min(...points): a stroke can have tens of thousands of points
     for (const [x, y] of element.points) {
       x1 = Math.min(x1, x);
       y1 = Math.min(y1, y);
@@ -69,7 +62,6 @@ export function zoneBox(element: Element): Box {
   return angle ? turned(box, angle) : box;
 }
 
-/** Whether `element` lies wholly inside `frame`, by classroom mode's rule. A frame is never inside a zone. */
 export function insideZone(element: Element, frame: FrameElement): boolean {
   if (element.type === "frame") return false;
   const box = zoneBox(element);

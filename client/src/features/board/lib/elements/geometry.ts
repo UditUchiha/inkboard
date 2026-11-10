@@ -1,22 +1,16 @@
 import type { Point } from "@inkboard/shared/types";
 import { MAX_ZOOM, MIN_ZOOM } from "../../constants/board";
 
-/** A rectangle by its top left corner and its size. */
 export type Rect = { x: number; y: number; width: number; height: number };
 
-/** A place on the board, or on the screen. */
 export type XY = { x: number; y: number };
 
-/** A place as [x, y]. (A pen stroke's Point has its pressure after these.) */
 export type Pair = [x: number, y: number];
 
-/** How big something is. */
 export type Size = { width: number; height: number };
 
-/** A rectangle by its centre and size, and the angle (radians) it is turned by about that centre. */
 export type TurnedRect = { cx: number; cy: number; width: number; height: number; angle: number };
 
-/** Where the board is looked at: screen = (world + (x, y)) * zoom. */
 export type Viewport = { x: number; y: number; zoom: number };
 
 // NaN (a ratio of two zeros, say) clamps to `min` rather than carrying on as NaN.
@@ -56,7 +50,6 @@ export const rectContains = (rect: Rect, x: number, y: number) =>
 export const rectsOverlap = (a: Rect, b: Rect) =>
   a.x <= b.x + b.width && b.x <= a.x + a.width && a.y <= b.y + b.height && b.y <= a.y + a.height;
 
-/** Turns a point about (cx, cy) by `angle` radians. */
 export function rotatePoint(x: number, y: number, cx: number, cy: number, angle: number): Pair {
   if (!angle) return [x, y];
   const cos = Math.cos(angle);
@@ -68,7 +61,6 @@ export function rotatePoint(x: number, y: number, cx: number, cy: number, angle:
 
 export const rectCenter = (rect: Rect): XY => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
 
-/** The smallest upright rectangle that holds `rect` after it is turned about its centre. */
 export function rotatedRectBounds(rect: Rect, angle: number): Rect {
   if (!angle) return rect;
   const center = rectCenter(rect);
@@ -85,8 +77,7 @@ export function rotatedRectBounds(rect: Rect, angle: number): Rect {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
-// A triangle and a diamond are their box's corners joined up, each corner a share of the half size out from the box's
-// middle. The triangle points up, its base along the bottom; the diamond's corners are the middles of the box's sides.
+// Each corner is a share of the half size out from the box's middle; the triangle points up.
 const POLYGONS: Record<string, Pair[]> = {
   triangle: [
     [0, -1],
@@ -101,7 +92,6 @@ const POLYGONS: Record<string, Pair[]> = {
   ],
 };
 
-/** The corners of a `kind` of shape drawn in `rect` if it's a triangle or a diamond, otherwise null. */
 export function polygonCorners(kind: string, rect: Rect): Pair[] | null {
   const unit = Object.hasOwn(POLYGONS, kind) ? POLYGONS[kind] : null;
   if (!unit) return null;
@@ -109,10 +99,7 @@ export function polygonCorners(kind: string, rect: Rect): Pair[] | null {
   return unit.map(([x, y]): Pair => [rect.x + rx + x * rx, rect.y + ry + y * ry]);
 }
 
-/**
- * How many times (dx, dy) it is from (x, y) to the outline through `corners`, which goes round a shape that (x, y)
- * is inside: 1 if (x + dx, y + dy) is on it, more if it's inside. Infinity when (dx, dy) is no way at all.
- */
+// How many times (dx, dy) it is from (x, y) to the outline: 1 on it, more inside, Infinity no way at all.
 export function reachOfOutline(x: number, y: number, dx: number, dy: number, corners: Pair[]): number {
   const cross = (ax: number, ay: number, bx: number, by: number) => ax * by - ay * bx;
   let reach = Infinity;
@@ -121,7 +108,6 @@ export function reachOfOutline(x: number, y: number, dx: number, dy: number, cor
     const [ex, ey] = [bx - ax, by - ay];
     const across = cross(dx, dy, ex, ey);
     if (!across) return;
-    // Where the ray from (x, y) meets this side: `t` along the ray, `s` along the side.
     const t = cross(ax - x, ay - y, ex, ey) / across;
     const s = cross(ax - x, ay - y, dx, dy) / across;
     if (t > 0 && s >= 0 && s <= 1) reach = Math.min(reach, t);
@@ -146,11 +132,7 @@ export function unionRects(rects: Rect[]): Rect | null {
 
 const hundredths = (value: number) => Math.round(value * 100) / 100;
 
-/**
- * A stroke's `points` with `added` ([x, y, pressure]) after them. Points are kept to two decimals,
- * far finer than a screen shows, and one where the one before already is is left out. The same
- * array when nothing is added.
- */
+// Points keep two decimals and one equal to the one before is dropped; the same array when nothing is added.
 export function appendPoints(points: Point[], added: readonly Point[]): Point[] {
   let next = points;
   let last = points.at(-1);
@@ -164,7 +146,6 @@ export function appendPoints(points: Point[], added: readonly Point[]): Point[] 
   return next;
 }
 
-// The two barbs of an arrow pointing from (x1, y1) to (x2, y2).
 export function arrowHeadPoints(x1: number, y1: number, x2: number, y2: number, length: number): [Pair, Pair] {
   const angle = Math.atan2(y2 - y1, x2 - x1);
   const spread = Math.PI / 7;
@@ -208,7 +189,6 @@ export function zoomAround(viewport: Viewport, nextZoom: number, sx: number, sy:
 // Two fingers that start closer than this are treated as this far apart, so there's a distance to scale by.
 const MIN_PINCH_DISTANCE = 10;
 
-/** The viewport for a pinch that began at `startMid` (screen) with the fingers `startDistance` apart, now at `a` and `b`. */
 export function pinchViewport(start: Viewport, startMid: XY, startDistance: number, a: XY, b: XY): Viewport {
   const zoom = clamp(
     (start.zoom * Math.hypot(a.x - b.x, a.y - b.y)) / Math.max(startDistance, MIN_PINCH_DISTANCE),
@@ -219,29 +199,19 @@ export function pinchViewport(start: Viewport, startMid: XY, startDistance: numb
   return { zoom, x: (a.x + b.x) / 2 / zoom - anchor.x, y: (a.y + b.y) / 2 / zoom - anchor.y };
 }
 
-// How far (screen pixels) a pointer must travel before a press becomes a drag, so a click with a
-// shaky hand or a pen tap doesn't move, draw or change anything.
+// Pixels a pointer must travel before a press becomes a drag, so a shaky click doesn't move or draw anything.
 export const DRAG_THRESHOLD = 4;
 
-/** Whether a pointer pressed at screen point `from` and now at `to` has gone far enough to count as dragging. */
 export const hasDragged = (from: XY, to: XY) => Math.hypot(to.x - from.x, to.y - from.y) >= DRAG_THRESHOLD;
 
 // A finger held this long without a single pointermove (a real one always jitters a little) has been lifted
 // without its pointerup or pointercancel reaching the canvas.
 export const TOUCH_IDLE_MS = 8000;
 
-/** A pointer held down on the canvas: its kind ("mouse", "pen" or "touch") and when its last event came. */
 export type HeldPointer = { type: string; at?: number };
 
-/**
- * The pointers among those held on the canvas (`held`: a Map of pointerId -> { type, at }, `at` the time of
- * its last event) that a press of `pointerId`, a `type` pointer ("mouse", "pen" or "touch"), shows were let
- * go of unseen, their pointerup missed (capture lost to a context menu, say, or a switch of window
- * mid-press): one with the same id, for a mouse or pen press any mouse or pen, for a mouse press any finger
- * (a mouse can't be used while one is down, and a finger that never lifted would block it for good), and,
- * given the time `now` of the press, a finger idle for TOUCH_IDLE_MS when another finger lands (or it would
- * be taken for the first half of a pinch). A pen is left to find fingers down: a resting palm is expected.
- */
+// A press shows which held pointers were released unseen (pointerup missed): same id; a mouse press frees any finger
+// (a stuck one would block it); a finger idle for TOUCH_IDLE_MS is freed when another lands (else it reads as a pinch).
 export function stalePointers(held: Map<number, HeldPointer>, pointerId: number, type: string, now?: number): number[] {
   const stale: number[] = [];
   for (const [id, pointer] of held) {
@@ -257,15 +227,9 @@ export function stalePointers(held: Map<number, HeldPointer>, pointerId: number,
   return stale;
 }
 
-/** What a press does: see pressRole. */
 export type PressRole = "start" | "pinch" | "take over" | "ignore";
 
-/**
- * What a press of a `type` pointer does, with `held` (the other pointers down on the canvas, each { type })
- * already there: "start" a gesture of its own; "pinch" (a second finger); "take over" (a pen landing beside a
- * resting palm: whatever the fingers began is put back and the pen draws); or "ignore" (a palm beside a pen,
- * a mouse click while touching, a third finger).
- */
+// "take over" is a pen landing beside a resting palm; "ignore" a palm beside a pen, a mouse click while touching, or a third finger.
 export function pressRole(held: { type: string }[], type: string): PressRole {
   if (held.length === 0) return "start";
   if (type === "pen" && held.every((pointer) => pointer.type === "touch")) return "take over";

@@ -18,7 +18,6 @@ import type { Role } from "../../../lib/api";
 import { isMember, ROLES } from "../lib/sections";
 import type { BoardSummary } from "../lib/sections";
 
-/** What the dashboard can do to boards; the menus, cards and rows call these. */
 export type BoardActions = {
   rename: (board: BoardSummary) => void;
   askLeave: (board: BoardSummary) => void;
@@ -71,11 +70,6 @@ export function StarButton({ board, onToggle, className }: StarButtonProps) {
   );
 }
 
-/**
- * The "..." menu for a board. What it offers depends on who you are on the board:
- * owners can trash it, invited editors can leave it, and people who only have the
- * link can just remove it from their list.
- */
 type BoardMenuProps = { board: BoardSummary; trashed?: boolean; actions: BoardActions };
 
 export function BoardMenu({ board, trashed = false, actions }: BoardMenuProps) {

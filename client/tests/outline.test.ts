@@ -3,8 +3,9 @@ import { describe, it } from "node:test";
 import type { Element } from "@inkboard/shared/types";
 import { DEFAULT_STYLE } from "../src/features/board/constants/board.ts";
 import { describeElement } from "../src/features/board/lib/elements/elementLabels.ts";
-import { boardOutline, placedElement } from "../src/features/board/lib/elements/elements.ts";
-import type { OutlineNode } from "../src/features/board/lib/elements/elements.ts";
+import { placedElement } from "../src/features/board/lib/elements/elements.ts";
+import { boardOutline } from "../src/features/board/lib/elements/order.ts";
+import type { OutlineNode } from "../src/features/board/lib/elements/order.ts";
 import { placeFree } from "../src/features/board/lib/elements/placement.ts";
 
 const box = (id: string, x: number, y: number, size = 20) =>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { SubmitEvent } from "react";
 import { Button } from "../../../components/Button";
 import { Dialog } from "../../../components/Dialog";
@@ -21,10 +21,12 @@ export function RenameDialog({ board, onClose, onRenamed }: RenameDialogProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const [shownBoard, setShownBoard] = useState(board);
+  if (board !== shownBoard) {
+    setShownBoard(board);
     setTitle(board?.title ?? "");
     setError("");
-  }, [board]);
+  }
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Element as BoardElement } from "@inkboard/shared/types";
 import { MAX_ZOOM } from "../constants/board";
-import { getBounds, slideFrames } from "../lib/elements/elements";
+import { getBounds } from "../lib/elements/elements";
+import { slideFrames } from "../lib/elements/order";
 import { fitViewport } from "../lib/elements/geometry";
 import type { Size, Viewport, XY } from "../lib/elements/geometry";
 import type { BoardSync } from "./useBoardSync";

@@ -8,18 +8,14 @@ import { SYNC_FORMAT } from "../../constants/board";
 import type { Scratch } from "./scratch";
 import { toOperations } from "./store";
 
-// Turning a guest's scratch board into a real board. Creating a board over HTTP
-// takes a body of up to 2 MB, and a drawing can be much bigger, so what doesn't
-// fit in the first request goes over the socket, as it would be if drawn on the board.
+// Creating a board over HTTP takes a body of up to 2 MB and a drawing can be bigger, so what doesn't fit goes over the socket.
 
 const FIRST_REQUEST_BYTES = 1_200_000;
 const REPLY_TIMEOUT_MS = 20_000;
 const CONNECT_TIMEOUT_MS = 10_000;
 
-/** The board that importing made, of which only the id is read. */
 export type ImportedBoard = { id: string };
 
-/** What importScratch takes: the drawing, how to make a board and reach the server, and what an earlier try made. */
 export type ImportOptions = {
   scratch: Scratch;
   createBoard: (input: CreateBoardInput) => Promise<{ board: ImportedBoard }>;
@@ -28,22 +24,18 @@ export type ImportOptions = {
   onCreated?: (board: ImportedBoard) => void;
 };
 
-// What the server answers to an event: whether it went through, and when joining a board, what it holds.
 type Reply = { ok?: boolean; status?: number; board?: { elements?: BoardElement[] } };
 
 export class ImportError extends Error {}
 
-// The board an earlier try made is gone (deleted meanwhile): a new one is made instead.
 class BoardGone extends Error {}
 
-// The events this asks, each with its own payload: the overloads check every call against the shared events.
 type Ask = {
   (socket: AppSocket, event: "board:join", payload: JoinPayload): Promise<Reply | null>;
   (socket: AppSocket, event: "board:op", payload: OpPayload): Promise<Reply | null>;
 };
 
-// The cast: emit can't follow an event that is one of two from the signature to the payload and the reply, so the
-// overloads above are what check it. The reply is read as far as Reply says.
+// emit can't follow an event typed as one of two from signature to payload, so the overloads above do the checking.
 const ask: Ask = (socket: AppSocket, event: "board:join" | "board:op", payload: JoinPayload | OpPayload) =>
   new Promise<Reply | null>((resolve) => {
     (socket.timeout(REPLY_TIMEOUT_MS) as Socket).emit(event, payload, (error: Error | null, response: Reply) =>
@@ -66,8 +58,7 @@ function connected(socket: AppSocket): Promise<void> {
   });
 }
 
-// Sends `operations` to the board. With `keep` (the ids in the drawing), elements the board has that
-// the drawing doesn't any more (removed since an earlier try uploaded them) are removed too.
+// With `keep`, elements the board has that the drawing no longer does (removed since an earlier try) are removed too.
 async function sendPieces(
   socket: AppSocket,
   boardId: string,
@@ -93,11 +84,6 @@ async function sendPieces(
   }
 }
 
-/**
- * Saves `scratch` ({ title, elements }) as a new board and resolves with it.
- * `created` is a board an earlier try already made: it's filled in rather than
- * making another. `onCreated(board)` is told when one is made.
- */
 export async function importScratch({
   scratch,
   createBoard,
@@ -110,9 +96,7 @@ export async function importScratch({
     FIRST_REQUEST_BYTES,
   );
   if (created) {
-    // The drawing may have changed since that try (the person went back to it), so all of it is
-    // sent, and what's no longer in it removed. Sending a piece again is harmless: changes merge by
-    // their stamps.
+    // The drawing may have changed since that try, so all of it is sent and the rest removed; resending is harmless as changes merge by stamp.
     try {
       await sendPieces(socket, created.id, operations, new Set(scratch.elements.map((element) => element.id)));
       return created;

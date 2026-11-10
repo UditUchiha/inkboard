@@ -5,15 +5,14 @@ import { API_SCOPES, ApiToken } from "../models/api-token.model.ts";
 import { User } from "../models/user.model.ts";
 import type { ObjectIdLike } from "./boards.ts";
 
-// Tokens look like this, so they're easy to spot (in a leaked file, say) and can't be mistaken for logins.
+// easy to spot (in a leaked file, say) and can't be mistaken for logins
 const PREFIX = "ink_";
 export const TOKEN_LIMITS = { perUser: 20 };
-// A token's last use is written at most this often, not on every request.
 const LAST_USED_EVERY_MS = 60 * 60 * 1000;
 
 export type ApiScope = (typeof API_SCOPES)[number];
 
-// Tokens are long and random, so a plain hash is enough to keep them (a password needs a slow one).
+// tokens are long and random, so a plain hash is enough (a password needs a slow one)
 const hashOf = (token: string) => createHash("sha256").update(token).digest("base64url");
 
 const serialize = (token: {
@@ -32,7 +31,7 @@ const serialize = (token: {
   createdAt: token.createdAt,
 });
 
-/** Makes a token for `userId`. The token itself is in the reply only this once; afterwards only its start is shown. */
+// the token itself is in the reply only this once; afterwards only its start is shown
 export async function createApiToken(userId: ObjectIdLike, name: unknown, scope: unknown) {
   const label = typeof name === "string" ? name.trim() : "";
   if (!label) throw new HttpError(400, "Give the token a name, so you know what it's for.");
@@ -64,7 +63,6 @@ export async function deleteApiToken(userId: ObjectIdLike, tokenId: unknown) {
   if (deletedCount === 0) throw new HttpError(404, "That token doesn't exist any more.");
 }
 
-/** Whose token this is and what it may do, or null when it isn't one (or its account is gone). */
 export async function readApiToken(token: string): Promise<{ userId: string; scope: ApiScope } | null> {
   if (!token.startsWith(PREFIX)) return null;
   const found = await ApiToken.findOne({ hash: hashOf(token) });

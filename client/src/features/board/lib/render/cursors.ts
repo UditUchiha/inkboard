@@ -1,13 +1,10 @@
 import { useSyncExternalStore } from "react";
 import type { XY } from "../elements/geometry";
 
-/** Where someone's pointer is, and whether it's a laser (while they present). */
 export type Cursor = XY & { laser?: true };
 
-/** Where each person's pointer is, by socket id. */
 export type Cursors = Record<string, Cursor>;
 
-/** The store of other people's pointers, for useCursors (see useSyncExternalStore). */
 export interface CursorStore {
   subscribe(listener: () => void): () => void;
   getSnapshot(): Cursors;
@@ -16,10 +13,7 @@ export interface CursorStore {
   clear(): void;
 }
 
-// Where other people's pointers are: socket id -> { x, y } in board coordinates.
-// They move about 20 times a second per person, so they live outside React
-// state: only the component that draws them (RemoteCursors) subscribes, and the
-// editor around it isn't rendered again for each one.
+// Pointers move about 20 times a second per person, so they live outside React state: only RemoteCursors subscribes and the editor isn't re-rendered.
 
 const NONE: Cursors = {};
 
@@ -37,7 +31,6 @@ export function createCursorStore(): CursorStore {
       return () => listeners.delete(listener);
     },
     getSnapshot: () => cursors,
-    /** Someone's pointer is at `point`; without one, it left the board. */
     move(socketId: string, point?: Cursor | null) {
       if (point) {
         set({ ...cursors, [socketId]: point });
@@ -46,7 +39,6 @@ export function createCursorStore(): CursorStore {
         set(rest);
       }
     },
-    /** Forgets the pointers of everyone not in `socketIds`. */
     keepOnly(socketIds: Iterable<string>) {
       const present = new Set(socketIds);
       const kept = Object.entries(cursors).filter(([id]) => present.has(id));
@@ -58,7 +50,6 @@ export function createCursorStore(): CursorStore {
   };
 }
 
-/** A store with nobody in it, for boards that have no collaborators. */
 export const noCursors = createCursorStore();
 
 export function useCursors(store: CursorStore): Cursors {

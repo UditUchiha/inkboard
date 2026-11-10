@@ -111,3 +111,20 @@ Clients that only start local servers (Claude Desktop's config file) can go thro
 }
 ```
 
+
+## OAuth sign-in
+
+How "Continue with Google / GitHub" works (`server/src/controllers/oauth.controller.ts`). It is the authorization-code flow, with extra steps so a link can't sign someone in to another person's account.
+
+1. The app makes a random `bind` value, keeps it in the tab (`sessionStorage`) and sends the browser to `/api/auth/oauth/:provider?bind=<hash of it>`. The server sends the browser on to the provider with a random `state`, also kept in a short-lived signed cookie together with the hash.
+2. The provider sends the browser back to `.../callback` with a code.
+3. The server checks `state` against the cookie, swaps the code for the person's profile, finds or creates their account, and hands the app a short-lived, single-use sign-in code (a signed note of the account and the `bind` hash) in the URL fragment, which never reaches server logs. Never the login token itself.
+4. The app posts the code with its `bind` to `/api/auth/oauth/exchange`, which checks the two match and answers with the login token.
+
+Without steps 1 and 4, anyone could send a victim to `/auth/callback#token=<their own login>` and leave the victim's tab signed in to the attacker's account (login CSRF, C5), where the victim's later clicks, such as on a verification email, would work for the attacker. A code is useless to a tab that doesn't hold the `bind` it was made for, and the `bind` never leaves the tab that made it. Exchanged codes are remembered until they would have expired anyway, so opening the same redirect twice can't sign in twice (in memory, so with several server processes the short life and the `bind` are what limit a replay).
+
+**Connecting a provider to an existing account** starts from a signed-in POST, which answers with the URL for step 1 (holding a ticket) and a random `bind` the app keeps in the tab. Step 3 then connects nothing: it sends the app a signed note of the provider account, which the app hands back with `bind` in a signed-in POST (`confirmLink`). Without that, a link someone else made could be opened by the victim, attaching the victim's Google or GitHub account to the link-maker's account: the victim's tab has neither the link-maker's login nor their `bind`.
+
+**No cookies from the app's own requests.** Browsers block those as third-party when the app and the API are on different sites (M2, M10). The state cookie is set while the browser itself is at the API's address, so it is first-party.
+
+**Failures** go back to the app as an error code (`?error=expired&provider=google`) that the app turns into a message, so a link can't put text of its own on the page.
