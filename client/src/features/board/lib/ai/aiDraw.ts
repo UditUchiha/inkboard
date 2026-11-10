@@ -1,38 +1,15 @@
 import { ApiElementError, fromApiElement, toApiElement } from "@inkboard/shared/api-elements";
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import type Anthropic from "@anthropic-ai/sdk";
+import { AiError, askModel } from "./askModel";
+import type { AiSettings } from "./providers";
 import { getBounds } from "../elements/elements";
 import { rectsOverlap } from "../elements/geometry";
 import type { Rect } from "../elements/geometry";
 
-// Drawing with AI: someone describes what they want, Claude answers with elements in the public API's form
-// (shared/src/api-elements.ts), and they're added to the board as one undo step. It runs in the browser with the
-// person's own Anthropic key, which is kept only in this browser and sent only to Anthropic.
+// The model answers in the public API's element form, so its output is validated like any API write.
 
-export const AI_MODEL = "claude-opus-5-5";
-const KEY_STORAGE = "inkboard.anthropicKey";
-// Past this many, only what's in view is described to Claude, so the request stays a sensible size.
+// Past this many, only what's in view is described, so the request stays a sensible size.
 const MAX_CONTEXT_ELEMENTS = 300;
-
-/** Why drawing with AI didn't work, in a sentence for the person. */
-export class AiDrawError extends Error {}
-
-export function readAiKey(): string {
-  try {
-    return localStorage.getItem(KEY_STORAGE) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function saveAiKey(key: string) {
-  try {
-    if (key) localStorage.setItem(KEY_STORAGE, key);
-    else localStorage.removeItem(KEY_STORAGE);
-  } catch {
-    // Storage blocked: the key works until the page is closed.
-  }
-}
 
 const number = { type: "number" };
 const ELEMENT_SCHEMA = {
@@ -64,7 +41,6 @@ const ELEMENT_SCHEMA = {
   },
 };
 
-/** What Claude must answer with: the elements to add, or to change on the board. */
 export const OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -91,7 +67,6 @@ How to draw:
 - Use a few calm colors, such as #ffec99, #b2f2bb, #a5d8ff, #ffc9c9 for sticky notes and fills, and #16213a for lines and text.
 - Draw what was asked, completely, and nothing else.`;
 
-/** The part of the board described to Claude: all of it, or for a big board, what's in `view`. */
 export function boardContext(elements: BoardElement[], view: Rect) {
   const shown =
     elements.length <= MAX_CONTEXT_ELEMENTS
@@ -100,7 +75,6 @@ export function boardContext(elements: BoardElement[], view: Rect) {
   return shown.slice(0, MAX_CONTEXT_ELEMENTS).map(toApiElement);
 }
 
-/** The message sent to Claude for `request`. */
 export function requestMessage(request: string, elements: BoardElement[], view: Rect) {
   const area = {
     x: Math.round(view.x),
@@ -115,13 +89,10 @@ export function requestMessage(request: string, elements: BoardElement[], view: 
   ].join("\n\n");
 }
 
-/**
- * The board elements Claude's answer makes: new ones, and ones on the board with its changes. Elements that can't
- * be drawn (a line to nothing, say) are left out and counted in `skipped`.
- */
+// Elements that can't be drawn (a line to nothing, say) are skipped and counted.
 export function answerToElements(answer: unknown, board: BoardElement[]) {
   const inputs = (answer as { elements?: unknown } | null)?.elements;
-  if (!Array.isArray(inputs)) throw new AiDrawError("Claude's answer couldn't be read. Try again.");
+  if (!Array.isArray(inputs)) throw new AiError("The answer couldn't be read. Try again.");
   const onBoard = new Map(board.map((element) => [element.id, element]));
   const made = new Map<string, BoardElement>();
   const find = (id: string) => made.get(id) ?? onBoard.get(id);
@@ -146,102 +117,27 @@ const isConnector = (input: unknown) => {
   return type === "arrow" || type === "line";
 };
 
-/**
- * Asks Claude to draw `request` on the board, with the person's own `key`. Resolves to the elements to commit.
- * Rejects with an AiDrawError to show the person, or an AbortError when `signal` cancels it.
- */
 export async function drawWithAi({
-  key,
+  settings,
   request,
   board,
   view,
   signal,
 }: {
-  key: string;
+  settings: AiSettings;
   request: string;
   board: BoardElement[];
   view: Rect;
   signal: AbortSignal;
 }) {
-  const response = await askClaude({
-    key,
+  const { answer, stop } = await askModel({
+    settings,
     system: SYSTEM_PROMPT,
-    content: requestMessage(request, board, view),
+    text: requestMessage(request, board, view),
     schema: OUTPUT_SCHEMA,
     signal,
   });
-  if (response.stop_reason === "refusal") {
-    throw new AiDrawError("Claude won't draw that. Try describing it another way.");
-  }
-  if (response.stop_reason === "max_tokens") {
-    throw new AiDrawError("That's more than fits in one go. Ask for a smaller part of it.");
-  }
-  return answerToElements(readAnswer(response), board);
-}
-
-/**
- * Sends `content` to Claude with the person's own `key`, asking for an answer shaped by `schema`. Drawing with AI
- * and reading handwriting (handwriting.ts) both go through here. Rejects with an AiDrawError to show the person, or
- * an AbortError when `signal` cancels it.
- */
-export async function askClaude({
-  key,
-  system,
-  content,
-  schema,
-  signal,
-}: {
-  key: string;
-  system: string;
-  content: string | Anthropic.Beta.BetaContentBlockParam[];
-  schema: Record<string, unknown>;
-  signal: AbortSignal;
-}) {
-  // Loaded only when someone uses Claude, not with every board.
-  const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  // The key is the person's own, typed into this browser for this, so it's meant to be used from here.
-  const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
-  try {
-    return await client.beta.messages.create(
-      {
-        model: AI_MODEL,
-        max_tokens: 16000,
-        // If Claude's safeguards decline, Anthropic's recommended fallback model answers instead.
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
-        output_config: { effort: "medium", format: { type: "json_schema", schema } },
-        system,
-        messages: [{ role: "user", content }],
-      },
-      { signal },
-    );
-  } catch (error) {
-    if (error instanceof Anthropic.APIUserAbortError) throw new DOMException("Cancelled", "AbortError");
-    if (error instanceof Anthropic.AuthenticationError) {
-      throw new AiDrawError("Anthropic didn't accept that key. Check it, or make a new one.");
-    }
-    if (error instanceof Anthropic.PermissionDeniedError) {
-      throw new AiDrawError("That key isn't allowed to use Claude. Check its workspace in the Anthropic Console.");
-    }
-    if (error instanceof Anthropic.RateLimitError) {
-      throw new AiDrawError("Your Anthropic account has reached a limit for now. Wait a moment, or check its billing.");
-    }
-    if (error instanceof Anthropic.BadRequestError)
-      throw new AiDrawError(`Anthropic refused the request: ${error.message}`);
-    if (error instanceof Anthropic.APIConnectionError) {
-      throw new AiDrawError("Couldn't reach Anthropic. Check your connection and try again.");
-    }
-    if (error instanceof Anthropic.APIError) throw new AiDrawError("Anthropic had a problem. Try again in a moment.");
-    throw error;
-  }
-}
-
-/** The JSON of Claude's structured answer. */
-export function readAnswer(response: Anthropic.Beta.BetaMessage): unknown {
-  const text = response.content.find((block) => block.type === "text")?.text;
-  try {
-    return JSON.parse(text ?? "");
-  } catch {
-    throw new AiDrawError("Claude's answer couldn't be read. Try again.");
-  }
+  if (stop === "refusal") throw new AiError("The AI won't draw that. Try describing it another way.");
+  if (stop === "too-long") throw new AiError("That's more than fits in one go. Ask for a smaller part of it.");
+  return answerToElements(answer, board);
 }

@@ -32,6 +32,13 @@ function health(req: Request, res: Response) {
 
 // Profile photos from Google and GitHub, shown on avatars.
 const PHOTO_HOSTS = ["https://*.googleusercontent.com", "https://avatars.githubusercontent.com"];
+const AI_HOSTS = [
+  "https://api.anthropic.com",
+  "https://api.openai.com",
+  "https://openrouter.ai",
+  "https://generativelanguage.googleapis.com",
+  "https://api.groq.com",
+];
 
 export function createApp({ clientDist = defaultClientDist } = {}) {
   const app = express();
@@ -46,8 +53,8 @@ export function createApp({ clientDist = defaultClientDist } = {}) {
         directives: {
           upgradeInsecureRequests: null,
           "img-src": ["'self'", "data:", "blob:", ...PHOTO_HOSTS],
-          // Draw with AI calls Anthropic from the browser, with the person's own key (see client aiDraw.ts).
-          "connect-src": ["'self'", "https://api.anthropic.com"],
+          // The AI features call the person's chosen provider straight from the browser (client lib/ai/providers.ts).
+          "connect-src": ["'self'", ...AI_HOSTS],
         },
       },
     }),

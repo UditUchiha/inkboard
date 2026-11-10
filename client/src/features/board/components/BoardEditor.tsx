@@ -22,7 +22,7 @@ import { api, errorMessage } from "../../../lib/api";
 import type { AccountUser, BoardMeta } from "../../../lib/api";
 import { getGuest, setGuestName } from "../../../lib/guest";
 import { AiDrawDialog } from "./AiDrawDialog";
-import { readAiKey } from "../lib/ai/aiDraw";
+import { hasAiKey } from "../lib/ai/providers";
 import { BoardCanvas } from "./BoardCanvas";
 import type { TextEdit } from "./BoardCanvas";
 import { BoardMenu } from "./BoardMenu";
@@ -766,7 +766,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   }
   const counted = (count: number) => `${count} ${count === 1 ? "element" : "elements"}`;
   const addAiDrawing = (drawn: BoardElement[], skipped: number) =>
-    addDrawing(drawn, `Claude drew ${counted(drawn.length)}${skipped > 0 ? `; ${skipped} couldn't be drawn` : ""}`);
+    addDrawing(drawn, `Drew ${counted(drawn.length)}${skipped > 0 ? `; ${skipped} couldn't be drawn` : ""}`);
   // An imported diagram goes in the middle of the screen, or beside everything on the board if it would cover something.
   const addMermaid = (diagram: BoardElement[], skipped: string[]) => {
     const area = unionRects(diagram.map(getBounds))!;
@@ -792,8 +792,8 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
       return;
     }
     // It uses the key Draw with AI asks for, which students in classroom mode don't have the button for.
-    if (!readAiKey()) {
-      toast("Converting handwriting uses your own Anthropic key. Add it in Draw with AI first.", {
+    if (!hasAiKey()) {
+      toast("Converting handwriting uses your own AI key. Add one in Draw with AI first.", {
         action: student ? undefined : { label: "Draw with AI", onClick: () => setDialog("ai") },
       });
       return;

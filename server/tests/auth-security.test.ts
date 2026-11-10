@@ -601,10 +601,17 @@ describe("headers and files the server sends", () => {
     assert.ok(!images.includes("*") && !images.includes("https:"));
   });
 
-  it("lets the app reach Anthropic, for drawing with AI, and nothing else outside", async () => {
+  it("lets the app reach the AI providers, and nothing else outside", async () => {
     const csp = (await fetch(`${app.url}/health`)).headers.get("content-security-policy");
     const connect = csp!.match(/connect-src ([^;]+)/)![1]!.split(" ");
-    assert.deepEqual(connect, ["'self'", "https://api.anthropic.com"]);
+    assert.deepEqual(connect, [
+      "'self'",
+      "https://api.anthropic.com",
+      "https://api.openai.com",
+      "https://openrouter.ai",
+      "https://generativelanguage.googleapis.com",
+      "https://api.groq.com",
+    ]);
   });
 
   it("stays up (200) while the database is away, and says so", async () => {
