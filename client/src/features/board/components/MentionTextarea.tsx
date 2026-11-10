@@ -5,24 +5,17 @@ import { Avatar } from "../../../components/Avatar";
 import type { Person } from "../../../lib/api";
 import { activeMentions, isComposing, MENTION_AT_CARET } from "../lib/mentions";
 
-type MentionTextareaProps = {
+interface MentionTextareaProps {
   text: string;
-  // The ids of the people mentioned so far.
   mentions: string[];
   onChange: (text: string, mentions: string[]) => void;
   onSubmit: () => void;
-  // The people who can be mentioned.
   members: Person[];
   placeholder: string;
   autoFocus?: boolean;
   label: string;
-};
+}
 
-/**
- * A comment box where typing "@" suggests people on the board. `onChange`
- * gets the text and the ids of everyone mentioned so far. Enter sends,
- * Shift+Enter adds a line.
- */
 export function MentionTextarea({
   text,
   mentions,

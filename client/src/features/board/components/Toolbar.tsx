@@ -35,28 +35,23 @@ const ICONS: Record<ToolId, LucideIcon> = {
   sticky: StickyNote,
   frame: Frame,
   eraser: Eraser,
-  // Not on the toolbar: it's picked while a round of voting is open.
+  // Not on the toolbar: picked while a voting round is open.
   vote: Vote,
 };
 
-// Dividers separate navigation, drawing, notes and frames, and erasing.
 const GROUP_STARTS = new Set<ToolId>(["pen", "sticky", "eraser", "comment"]);
 
-/** What the toolbar takes: the tool picked and what to do when another is. */
-export type ToolbarProps = {
+export interface ToolbarProps {
   tool: ToolId;
   onToolChange: (tool: ToolId) => void;
-  // Left out where pictures can't be added, which hides the button.
   onAddImage?: (() => void) | undefined;
-  // Starts an equation; left out where nothing can be written.
   onAddEquation?: (() => void) | undefined;
-  // Opens Draw with AI; left out where nothing can be drawn.
   onAiDraw?: (() => void) | undefined;
   withComments?: boolean;
   // Classroom mode: a student has no frame tool, frames being the teacher's.
   withoutFrames?: boolean;
   className?: string;
-};
+}
 
 export function Toolbar({
   tool,

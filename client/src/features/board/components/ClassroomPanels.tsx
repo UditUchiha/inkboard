@@ -1,25 +1,19 @@
 import type { FrameElement } from "@inkboard/shared/types";
 import { GraduationCap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent } from "react";
 import { Button } from "../../../components/Button";
 import { Dialog } from "../../../components/Dialog";
 import { TextField } from "../../../components/Field";
 
-// Classroom mode's controls (see classroom.ts and docs/classroom-mode.md).
+// See classroom.ts and docs/classroom-mode.md.
 
-/** The most copies of a frame made at once: a class, with room to spare. */
 export const MAX_FRAME_COPIES = 60;
 
-/**
- * What the classroom notice takes: for the teacher, how many frames are claimed and how to end it; for a student, the
- * name of their frame (null before they have one) and how to go to it.
- */
 export type ClassroomNoticeProps =
   | { teacher: true; claimed: number; frames: number; onEnd: () => void }
   | { teacher: false; frameName: string | null; onGoTo: () => void };
 
-/** Under the toolbar while classroom mode is on: how it's going, for the teacher; what to do, for a student. */
 export function ClassroomNotice(props: ClassroomNoticeProps) {
   const action = "font-medium text-signal underline-offset-2 hover:underline";
   let detail;
@@ -55,22 +49,21 @@ export function ClassroomNotice(props: ClassroomNoticeProps) {
   );
 }
 
-/**
- * What the claim dialog takes: the frame a student pressed on (null when closed), their name as a guest (null when
- * signed in, whose name is their account's), and what to do with the name they chose.
- */
-export type ClaimFrameDialogProps = {
+export interface ClaimFrameDialogProps {
   frame: FrameElement | null;
   guestName: string | null;
   onClaim: (name: string | null) => Promise<void>;
   onClose: () => void;
-};
+}
 
-/** Asks a student whether to make the frame they pressed on theirs, and, as a guest, what to call them on it. */
 export function ClaimFrameDialog({ frame, guestName, onClaim, onClose }: ClaimFrameDialogProps) {
   const [name, setName] = useState(guestName ?? "");
   const [claiming, setClaiming] = useState(false);
-  useEffect(() => setName(guestName ?? ""), [frame, guestName]);
+  const [shown, setShown] = useState({ frame, guestName });
+  if (shown.frame !== frame || shown.guestName !== guestName) {
+    setShown({ frame, guestName });
+    setName(guestName ?? "");
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -110,17 +103,12 @@ export function ClaimFrameDialog({ frame, guestName, onClaim, onClose }: ClaimFr
   );
 }
 
-/** What a frame's classroom section takes: who claimed it (if anyone), and how to free it or copy it for a class. */
-export type FrameClassroomProps = {
+export interface FrameClassroomProps {
   claimedBy: string | null;
   onRelease: () => void;
   onCopy: (count: number) => void;
-};
+}
 
-/**
- * In a selected frame's panel, for the teacher: who claimed it, with a way to free it (for a student on another
- * device, say), and copies of it, contents and all, one for each student.
- */
 export function FrameClassroom({ claimedBy, onRelease, onCopy }: FrameClassroomProps) {
   const [count, setCount] = useState("10");
   const copies = Math.floor(Number(count));

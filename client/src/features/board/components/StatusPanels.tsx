@@ -1,23 +1,17 @@
 import { CloudCheck, Eye, EyeOff, LoaderCircle, MessageSquare, MessageSquarePlus, WifiOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button, ButtonLink } from "../../../components/Button";
 import { errorMessage } from "../../../lib/api";
 
-/**
- * What the view-only notice takes: whether the person is signed in, and where logging in leads. `commenting` is
- * whether the comment tool is on, for someone who may comment (left out otherwise), and `onToggleComment` turns it.
- * `onRequestEdit` asks the owner to invite them.
- */
-export type ViewOnlyNoticeProps = {
+export interface ViewOnlyNoticeProps {
   signedIn: boolean;
   loginHref: string;
   commenting?: boolean;
   onToggleComment?: () => void;
   onRequestEdit?: () => Promise<void>;
-};
+}
 
-/** Shown in place of the toolbar to people who can only look (and, signed in, comment). */
 export function ViewOnlyNotice({
   signedIn,
   loginHref,
@@ -70,7 +64,6 @@ export function ViewOnlyNotice({
   );
 }
 
-/** Shown with the toolbar to people on a suggest link: what they change doesn't change the board. */
 export function SuggestingNotice() {
   return (
     <div className="floating-panel flex h-8 items-center gap-2 rounded-full px-3 text-xs">
@@ -81,10 +74,12 @@ export function SuggestingNotice() {
   );
 }
 
-/** What the private mode notice takes: who turned it on, whether this person's own work is hidden, and how to end it. */
-export type PrivateModeNoticeProps = { by: string; hidden: boolean; onReveal?: () => void };
+export interface PrivateModeNoticeProps {
+  by: string;
+  hidden: boolean;
+  onReveal?: () => void;
+}
 
-/** Private mode is on: what each person adds is theirs alone until it's revealed. `onReveal` for those who may. */
 export function PrivateModeNotice({ by, hidden, onReveal }: PrivateModeNoticeProps) {
   return (
     <div className="floating-panel flex h-8 items-center gap-2 rounded-full px-3 text-xs">
@@ -104,18 +99,15 @@ export function PrivateModeNotice({ by, hidden, onReveal }: PrivateModeNoticePro
   );
 }
 
-/** What the sync status takes: the connection, whether a save is under way and where the board lives. */
-export type SyncStatusProps = {
+export interface SyncStatusProps {
   online: boolean;
   saving: boolean;
   readOnly: boolean;
-  // A guest's scratch board, kept in this browser.
   local: boolean;
-  // Only a scratch board knows this: that the browser had no room to keep it.
+  // Only a scratch board knows this: the browser had no room to keep it.
   unsaved?: boolean;
-};
+}
 
-/** Whether the board is saved, saving or offline. */
 export function SyncStatus({ online, saving, readOnly, local, unsaved }: SyncStatusProps) {
   let icon = <CloudCheck className="size-4 text-[#2f9e44]" aria-hidden />;
   let label = readOnly ? "Up to date" : "Saved";
@@ -134,9 +126,7 @@ export function SyncStatus({ online, saving, readOnly, local, unsaved }: SyncSta
   // "Saving…" flashes on every 40 ms flush, so screen readers only hear the states that last.
   const working = label === "Saving…";
   const [announced, setAnnounced] = useState(label);
-  useEffect(() => {
-    if (!working) setAnnounced(label);
-  }, [label, working]);
+  if (!working && announced !== label) setAnnounced(label);
   return (
     <div className="floating-panel flex h-10 items-center gap-2 rounded-xl px-3 text-sm text-graphite">
       {icon}

@@ -8,8 +8,11 @@ import { TextField } from "../../../components/Field";
 import { getGuest, setGuestName } from "../../../lib/guest";
 import type { AppSocket } from "../../../providers/SocketProvider";
 
-/** A signed-out visitor's name on a shared board, with a nudge to make an account. */
-export function GuestIdentity({ socket }: { socket: AppSocket | null }) {
+interface GuestIdentityProps {
+  socket: AppSocket | null;
+}
+
+export function GuestIdentity({ socket }: GuestIdentityProps) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [guest, setGuest] = useState(getGuest);

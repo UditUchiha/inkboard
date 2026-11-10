@@ -1,5 +1,5 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent } from "react";
 import { Button } from "../../../components/Button";
 import { Dialog } from "../../../components/Dialog";
@@ -8,29 +8,25 @@ import { MermaidError } from "../lib/mermaid/common";
 import { mermaidToElements } from "../lib/mermaid/mermaid";
 import type { Measure } from "../lib/mermaid/common";
 
-type MermaidImportDialogProps = {
+interface MermaidImportDialogProps {
   open: boolean;
   onClose: () => void;
-  // Where the diagram goes: the middle of the screen.
   getCentre: () => { x: number; y: number };
-  // Puts the diagram on the board, and says which lines of the text weren't understood.
   onImported: (elements: BoardElement[], skipped: string[]) => void;
-};
+}
 
 // Labels measured as the board draws them, so they sit in the middle of their shapes.
 const measure: Measure = (text, fontSize) => measureText({ fontSize, font: "hand" }, text);
 
-/**
- * Pastes a Mermaid flowchart or sequence diagram onto the board as shapes, labels, arrows, notes and frames (see
- * mermaid.ts). Which it is comes from its first line.
- */
 export function MermaidImportDialog({ open, onClose, getCentre, onImported }: MermaidImportDialogProps) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) setError("");
-  }, [open]);
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

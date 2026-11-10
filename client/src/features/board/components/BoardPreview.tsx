@@ -13,21 +13,18 @@ import { loadCanvasFonts, renderScene } from "../lib/render/renderer";
 // Start drawing a little before a preview scrolls into view.
 const VISIBLE_MARGIN = "200px";
 
-type BoardPreviewProps = {
+interface BoardPreviewProps {
   elements: BoardElement[];
   className?: string;
-  // The room left around the drawing, in pixels.
   padding?: number;
   maxZoom?: number;
   // The part of the board to fit, when not the drawing itself (a replay keeps one view while the drawing grows).
   bounds?: Rect | null;
-  // Thumbnails draw pictures from their small copies; a preview the size of the screen wants them whole.
+  // Thumbnails use small copies of pictures; a screen-size preview wants them whole.
   smallImages?: boolean;
-  // Laid over the drawing (a message for an empty board, say).
   children?: ReactNode;
-};
+}
 
-/** A static, scaled-to-fit rendering of a board, used for thumbnails. */
 export function BoardPreview({
   elements,
   className,
@@ -64,9 +61,7 @@ export function BoardPreview({
     };
   }, []);
 
-  // Redraw when one of this preview's own pictures finishes loading (or fails), not whenever any picture
-  // anywhere does. Followed through the picture cache rather than each download, so a picture asked for
-  // again (a retry, or one the cache dropped and the next drawing fetched anew) is redrawn when it comes too.
+  // Follows this preview's own pictures through the cache, so retries and re-fetches redraw it too.
   const imageIds = useMemo(
     () => [...new Set(elements.filter((element) => element.type === "image").map((element) => element.imageId))],
     [elements],

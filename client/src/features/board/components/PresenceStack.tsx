@@ -4,17 +4,12 @@ import type { Peer } from "../hooks/useBoardSync";
 
 const MAX_SHOWN = 4;
 
-type PresenceStackProps = {
+interface PresenceStackProps {
   people: Peer[];
-  // The socket id of the person being followed.
   followingId: string | null;
   onFollow: (socketId: string | null) => void;
-};
+}
 
-/**
- * Who else is on the board. Clicking someone follows their view; clicking
- * them again stops. `people` come from presence: { socketId, userId, name, color, avatarUrl, guest }.
- */
 export function PresenceStack({ people, followingId, onFollow }: PresenceStackProps) {
   const shown = people.slice(0, MAX_SHOWN);
   const extra = people.length - shown.length;

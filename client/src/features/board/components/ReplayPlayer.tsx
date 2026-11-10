@@ -14,17 +14,12 @@ const SPEEDS = [1, 2, 4];
 
 const formatWhen = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-/** What the replay player takes: the board's title, how to load its replay, and what closing does. */
-export type ReplayPlayerProps = {
+export interface ReplayPlayerProps {
   title: string;
   load: () => Promise<ReplayReply>;
   onClose: () => void;
-};
+}
 
-/**
- * A board's replay, over the whole screen: plays how the board was built, step by step (see replay.ts), with a
- * slider to scrub through it. Space plays and pauses, the arrow keys step, Home and End jump, and Escape closes.
- */
 export function ReplayPlayer({ title, load, onClose }: ReplayPlayerProps) {
   const [replay, setReplay] = useState<Replay | null>(null);
   const [error, setError] = useState("");
@@ -54,12 +49,9 @@ export function ReplayPlayer({ title, load, onClose }: ReplayPlayerProps) {
   const time = replay?.timeAt(index);
 
   // Playing moves on a step at a time, and stops on the last one (the board as it is now).
+  if (playing && index >= last) setPlaying(false);
   useEffect(() => {
-    if (!playing) return undefined;
-    if (index >= last) {
-      setPlaying(false);
-      return undefined;
-    }
+    if (!playing || index >= last) return undefined;
     const timer = setTimeout(() => setIndex((at) => at + 1), STEP_MS / speed);
     return () => clearTimeout(timer);
   }, [playing, index, last, speed]);
@@ -69,7 +61,7 @@ export function ReplayPlayer({ title, load, onClose }: ReplayPlayerProps) {
     setIndex(Math.max(0, Math.min(last, to)));
   };
   const togglePlaying = () => {
-    if (!playing && index >= last) setIndex(0); // from the start again
+    if (!playing && index >= last) setIndex(0);
     setPlaying(!playing);
   };
 

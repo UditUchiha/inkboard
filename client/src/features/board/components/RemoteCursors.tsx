@@ -5,9 +5,12 @@ import { toScreen } from "../lib/elements/geometry";
 import type { Viewport } from "../lib/elements/geometry";
 import type { Peer } from "../hooks/useBoardSync";
 
-type RemoteCursorsProps = { cursors: CursorStore; peers: Peer[]; viewport: Viewport };
+interface RemoteCursorsProps {
+  cursors: CursorStore;
+  peers: Peer[];
+  viewport: Viewport;
+}
 
-// `cursors` is a cursor store (see cursors.ts).
 export function RemoteCursors({ cursors: store, peers, viewport }: RemoteCursorsProps) {
   const cursors = useCursors(store);
   const bySocket = new Map(peers.map((peer) => [peer.socketId, peer]));
@@ -48,7 +51,11 @@ export function RemoteCursors({ cursors: store, peers, viewport }: RemoteCursors
   );
 }
 
-export function RemoteCursorArrow({ color }: { color: string }) {
+interface RemoteCursorArrowProps {
+  color: string;
+}
+
+export function RemoteCursorArrow({ color }: RemoteCursorArrowProps) {
   return (
     <svg width="18" height="20" viewBox="0 0 18 20" className="drop-shadow-sm">
       <path d="M1.5 1.5 16 9.2l-6.4 1.6-3 6.6z" fill={color} stroke="white" strokeWidth="1.5" strokeLinejoin="round" />

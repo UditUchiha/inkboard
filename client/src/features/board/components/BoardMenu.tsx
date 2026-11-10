@@ -29,12 +29,9 @@ import { useTheme } from "../../../providers/ThemeProvider";
 import type { ThemePreference } from "../../../providers/ThemeProvider";
 import { exportBoardAsJson, exportBoardAsMermaid, exportBoardAsPng, exportBoardAsSvg } from "../lib/files/exportImage";
 
-/** Exports a board's elements under a name, resolving to false when there is nothing to export (see exportImage). */
 export type Exporter = (elements: BoardElement[], name: string) => Promise<boolean>;
 
-/** What the board menu takes: who is here, what they may do, and what each entry does. */
-export type BoardMenuProps = {
-  // Null for a guest.
+export interface BoardMenuProps {
   user: Person | null;
   // Set for a guest's scratch board, which lives in the browser.
   local: object | null;
@@ -43,10 +40,8 @@ export type BoardMenuProps = {
   commentsEnabled: boolean;
   showComments: boolean;
   isEmpty: boolean;
-  // Whether they may watch the board's replay: members, and link visitors when the owner lets them.
   canReplay: boolean;
   onReplay: () => void;
-  // Whether there are frames to present.
   canPresent: boolean;
   onPresent: () => void;
   onExport: (exporter: Exporter) => void;
@@ -58,12 +53,8 @@ export type BoardMenuProps = {
   onToggleComments: () => void;
   onShortcuts: () => void;
   onClear: () => void;
-};
+}
 
-/**
- * The "..." menu at the top right: export, import, presenting, making a copy, replay, history, templates,
- * comments, shortcuts, theme and clearing the board.
- */
 export function BoardMenu({
   user,
   local,

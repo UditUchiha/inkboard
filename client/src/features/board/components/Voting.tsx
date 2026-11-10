@@ -9,19 +9,14 @@ import { getBounds } from "../lib/elements/elements";
 import { rectContains, toScreen } from "../lib/elements/geometry";
 import type { Viewport, XY } from "../lib/elements/geometry";
 
-// Dot voting (see server/src/realtime/voting.ts): someone who can edit starts a round, everyone on the board puts
-// their votes on notes, shapes, text, pictures or frames, and when the round ends everyone sees the counts.
+// Dot voting (see server/src/realtime/voting.ts).
 
 const VOTE_CHOICES = [1, 3, 5, 10];
 
-/** Whether an element can be voted on. */
 export const isVotable = (element: BoardElement): boolean => VOTABLE_TYPES.includes(element.type);
 
-/**
- * What a click at `point` with the vote tool is for: the element hit if it can be voted on, or else the topmost one
- * whose box holds the point, so a click inside an outlined shape counts, a frame only when nothing in it does. The
- * element hit is kept otherwise, to say why it can't be voted on.
- */
+// Falls back to the topmost element whose box holds the point, so a click inside an outlined shape counts,
+// a frame only when nothing in it does.
 export function voteTarget(
   elements: readonly BoardElement[],
   point: XY,
@@ -32,7 +27,6 @@ export function voteTarget(
   return inside.findLast((element) => element.type !== "frame") ?? inside.at(-1) ?? hit;
 }
 
-/** What a click on an element with the vote tool does: cast a vote, take one back, or nothing (with why). */
 export function voteFor(
   voting: Voting | null,
   element: BoardElement,
@@ -46,8 +40,11 @@ export function voteFor(
   return { action: "cast", id: element.id };
 }
 
-/** The button that starts a round of voting, for those who can edit the board. */
-export function StartVoting({ onStart }: { onStart: (votes: number) => void }) {
+interface StartVotingProps {
+  onStart: (votes: number) => void;
+}
+
+export function StartVoting({ onStart }: StartVotingProps) {
   return (
     <Menu side="top" trigger={(props) => <IconButton label="Start voting" icon={Vote} {...props} />}>
       <MenuLabel>Start dot voting</MenuLabel>
@@ -60,17 +57,15 @@ export function StartVoting({ onStart }: { onStart: (votes: number) => void }) {
   );
 }
 
-/** What the voting bar takes: the round, whether this person runs it, and whether the vote tool is picked. */
-export type VotingBarProps = {
+export interface VotingBarProps {
   voting: Voting;
   canRun: boolean;
   voteToolOn: boolean;
   onVoteTool: () => void;
   onEnd: () => void;
   onClear: () => void;
-};
+}
 
-/** The round of voting under way, under the toolbar: votes left and how many have voted, or the results' summary. */
 export function VotingBar({ voting, canRun, voteToolOn, onVoteTool, onEnd, onClear }: VotingBarProps) {
   const left = voting.votes - voting.mine.length;
   const people = `${voting.voters} ${voting.voters === 1 ? "person" : "people"} voted`;
@@ -105,13 +100,12 @@ export function VotingBar({ voting, canRun, voteToolOn, onVoteTool, onEnd, onCle
   );
 }
 
-/** What the vote badges take: the round, the board's elements and the view they're drawn in. */
-export type VotesLayerProps = { voting: Voting; elements: readonly BoardElement[]; viewport: Viewport };
+export interface VotesLayerProps {
+  voting: Voting;
+  elements: readonly BoardElement[];
+  viewport: Viewport;
+}
 
-/**
- * A badge at the top right of each element voted on: a tick on this person's own votes while the round is open,
- * then the count each got, the most voted standing out.
- */
 export function VotesLayer({ voting, elements, viewport }: VotesLayerProps) {
   const counts: Record<string, number> = voting.results ?? Object.fromEntries(voting.mine.map((id) => [id, 1]));
   const top = Math.max(0, ...Object.values(counts));

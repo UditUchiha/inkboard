@@ -4,23 +4,18 @@ import { useEffect } from "react";
 import { IconButton } from "../../../components/Button";
 import { isPressable, isTypingTarget } from "../lib/domTargets";
 
-/** What the presenter's bar takes: the frames in the order they're shown, which one is on show, and what to do. */
-export type PresenterProps = {
+export interface PresenterProps {
   slides: FrameElement[];
   index: number;
   onIndex: (index: number) => void;
   onExit: () => void;
-};
+}
 
-/**
- * The bar at the bottom while presenting: back, where we are, forward and stop. The arrow keys, Page Up and Down,
- * Space, Home and End move between frames, and Escape (or leaving full screen) stops.
- */
 export function Presenter({ slides, index, onIndex, onExit }: PresenterProps) {
   const last = slides.length - 1;
   const go = (to: number) => onIndex(Math.max(0, Math.min(last, to)));
 
-  // Full screen while presenting; the browser's own way out of it (Escape, mostly) ends the presentation too.
+  // Full screen while presenting; leaving it (Escape, mostly) ends the presentation too.
   useEffect(() => {
     let entered = false;
     const onChange = () => {

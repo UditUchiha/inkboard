@@ -1,6 +1,5 @@
 import type { ElementType, Font, Route } from "@inkboard/shared/types";
 
-/** What the pointer does on the board. */
 export type ToolId =
   | "select"
   | "hand"
@@ -14,16 +13,13 @@ export type ToolId =
   | "frame"
   | "eraser"
   | "comment"
-  // Casting votes while a round of dot voting is open (see voting in BoardEditor).
+  // Only while a round of dot voting is open.
   | "vote";
 
-/** A tool as the toolbar lists it: its name and the key that picks it. */
 export type Tool = { id: ToolId; label: string; key: string };
 
-/** A choice in a style control: what it is called and the value it sets. */
 export type Choice<T = string> = { name: string; value: T };
 
-/** What new elements are drawn with, and what the style controls change. */
 export type Style = {
   stroke: string;
   fill: string | null;
@@ -37,7 +33,6 @@ export type Style = {
   startHead: boolean;
 };
 
-/** The controls of the properties panel, each of which sets a field or two of the style. */
 export type StyleControl =
   | "stroke"
   | "fill"
@@ -54,8 +49,7 @@ export type StyleControl =
   | "crop"
   | "alt";
 
-// Tools appear in the toolbar in this order; number keys 1–9 follow it too (the
-// tools after the ninth have a letter only).
+// Toolbar order; number keys 1–9 follow it (later tools have a letter only).
 export const TOOLS: Tool[] = [
   { id: "select", label: "Select and move", key: "v" },
   { id: "hand", label: "Pan", key: "h" },
@@ -70,14 +64,13 @@ export const TOOLS: Tool[] = [
   { id: "eraser", label: "Eraser", key: "e" },
 ];
 
-// Only offered to signed-in people who can edit the board. It has no number key.
+// Only for signed-in people who can edit; no number key.
 export const COMMENT_TOOL: Tool = { id: "comment", label: "Comment", key: "c" };
 
 // The board limit and the merge-rules version are the server's too (shared/src/limits.ts).
 export { MAX_ELEMENTS_PER_BOARD, SYNC_FORMAT } from "@inkboard/shared/limits";
 
-// A pen stroke longer than this carries on as a new one: each step of a stroke
-// is sent whole, so the longer it gets the more every step costs.
+// A pen stroke past this carries on as a new one: each step is sent whole, so cost grows with length.
 export const STROKE_SPLIT_POINTS = 1000;
 
 export const NUMBERED_TOOLS = 9;
@@ -111,7 +104,6 @@ export const NOTE_COLORS: Choice[] = [
 export const NOTE_TEXT_COLOR = "#16213a";
 export const NOTE_SIZE = 200; // a new note's side, in board units
 
-// Frames are white pages on the board, named above their top left corner.
 export const FRAME_FILL = "#ffffff";
 export const FRAME_BORDER = "#c3c8d2";
 export const FRAME_LABEL_COLOR = "#5e6676";
@@ -144,14 +136,13 @@ export const FONTS: Record<Font, { name: string; family: string }> = {
   code: { name: "Code", family: '"JetBrains Mono Variable", monospace' },
 };
 
-/** `font` if it names one of the FONTS, else the default (an element's font is whatever its author's file said). */
+// An element's font is whatever its file said, so an unknown one falls back to the default.
 export const fontKey = (font: unknown): Font =>
-  // The casts: `font` is whatever a file said, so it is looked up as a key and, if found, is a Font.
+  // the casts: `font` comes from a file, so it is looked up as a key
   Object.hasOwn(FONTS, font as PropertyKey) ? (font as Font) : "hand";
 
 export const LINE_HEIGHT = 1.25;
 
-// Labels typed on lines and arrows, in board units.
 export const LABEL_FONT_SIZE = 20;
 export const LABEL_PADDING = 4; // the gap the line leaves around its label
 
@@ -174,7 +165,6 @@ export const DEFAULT_STYLE: Style = {
   startHead: false,
 };
 
-// Which style controls each element type exposes.
 export const STYLE_CONTROLS: Record<ElementType, StyleControl[]> = {
   pen: ["stroke", "penSize"],
   line: ["stroke", "strokeWidth", "route", "sketchy", "labelFont"],

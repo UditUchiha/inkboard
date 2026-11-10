@@ -1,113 +1,28 @@
 import clsx from "clsx";
-import { REACTION_EMOJI } from "@inkboard/shared/limits";
-import { Check, RotateCcw, SmilePlus, Trash2, X } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Check, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../../components/Avatar";
-import { Button, IconButton } from "../../../components/Button";
+import { IconButton } from "../../../components/Button";
 import { errorMessage } from "../../../lib/api";
-import type { Person, Thread, ThreadMessage } from "../../../lib/api";
-import { timeAgo } from "../../../lib/format";
-import { useMinute } from "../../../hooks/useMinute";
+import type { Person, Thread } from "../../../lib/api";
 import { toScreen } from "../lib/elements/geometry";
 import type { Size, Viewport, XY } from "../lib/elements/geometry";
-import { MentionTextarea } from "./MentionTextarea";
-import { isComposing, splitMentions } from "../lib/mentions";
+import { isComposing } from "../lib/mentions";
 import { focusAfterClose } from "../lib/popoverFocus";
-import type { NewMessage, ThreadApi } from "../hooks/useThreads";
+import type { ThreadApi } from "../hooks/useThreads";
+import { Composer } from "./CommentComposer";
+import { ThreadView } from "./ThreadView";
 
 const POPOVER_WIDTH = 320;
 
-// Mentions are shown highlighted.
-function MessageBody({ message }: { message: ThreadMessage }) {
-  const names = message.mentions.map((person) => person.name);
-  if (names.length === 0) return <>{message.body}</>;
-  return splitMentions(message.body, names).map((piece, index) =>
-    piece.mention ? (
-      <span key={index} className="rounded bg-signal/12 px-0.5 font-medium text-signal">
-        {piece.text}
-      </span>
-    ) : (
-      <Fragment key={index}>{piece.text}</Fragment>
-    ),
-  );
+interface PinProps {
+  thread: Thread;
+  point: XY;
+  active: boolean;
+  onClick: () => void;
 }
-
-type ReactionsProps = {
-  message: ThreadMessage;
-  selfId: string;
-  canReact: boolean;
-  onReact: (emoji: string, on: boolean) => void;
-};
-
-// Who reacted to a comment with what, and (for those who may react) a way to add one or take theirs back.
-function Reactions({ message, selfId, canReact, onReact }: ReactionsProps) {
-  const [picking, setPicking] = useState(false);
-  const reactions = message.reactions ?? []; // a server from before reactions sends none
-  if (!canReact && reactions.length === 0) return null;
-  return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1">
-      {reactions.map(({ emoji, people }) => {
-        const mine = people.some((person) => person.id === selfId);
-        const names = people.map((person) => person.name).join(", ");
-        return (
-          <button
-            key={emoji}
-            type="button"
-            aria-pressed={mine}
-            disabled={!canReact}
-            title={names}
-            aria-label={`${emoji} ${people.length}: ${names}`}
-            onClick={() => onReact(emoji, !mine)}
-            className={clsx(
-              "flex h-6 items-center gap-1 rounded-full border px-2 text-xs transition-colors disabled:cursor-default",
-              mine
-                ? "border-signal bg-signal/10 font-medium text-signal"
-                : "border-rule enabled:hover:border-graphite/60",
-            )}
-          >
-            <span aria-hidden>{emoji}</span>
-            <span aria-hidden>{people.length}</span>
-          </button>
-        );
-      })}
-      {canReact &&
-        (picking ? (
-          <span role="group" aria-label="Pick a reaction" className="flex items-center gap-0.5">
-            {REACTION_EMOJI.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                aria-label={`React with ${emoji}`}
-                onClick={() => {
-                  setPicking(false);
-                  const mine = reactions.some(
-                    (reaction) => reaction.emoji === emoji && reaction.people.some((person) => person.id === selfId),
-                  );
-                  if (!mine) onReact(emoji, true);
-                }}
-                className="grid size-6 place-items-center rounded-full text-sm hover:bg-ink/8"
-              >
-                {emoji}
-              </button>
-            ))}
-            <IconButton label="Close reactions" icon={X} size="sm" onClick={() => setPicking(false)} />
-          </span>
-        ) : (
-          <IconButton
-            label="Add a reaction"
-            icon={SmilePlus}
-            size="sm"
-            onClick={() => setPicking(true)}
-            className="size-6 text-graphite"
-          />
-        ))}
-    </div>
-  );
-}
-
-type PinProps = { thread: Thread; point: XY; active: boolean; onClick: () => void };
 
 function Pin({ thread, point, active, onClick }: PinProps) {
   const count = thread.messages.length;
@@ -148,13 +63,18 @@ function Pin({ thread, point, active, onClick }: PinProps) {
   );
 }
 
-type PopoverProps = { point: XY; size: Size; label: string; onClose: () => void; children: ReactNode };
+interface PopoverProps {
+  point: XY;
+  size: Size;
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+}
 
 function Popover({ point, size, label, onClose, children }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
-  // Where focus was before the popover opened. Read while it first renders: by the time effects run,
-  // a field in it with autoFocus has already taken focus.
-  // The cast: what has focus is an HTMLElement (an SVG one would have `focus` too, which is all that is used).
+  // Focus before the popover opened, read on first render: by effect time an autoFocus field has already taken it.
+  // the cast: what has focus is an HTMLElement (only focus() is used)
   const [opener] = useState(() => document.activeElement as HTMLElement | null);
 
   // Keyboard users land in the popover (unless a field in it already took focus).
@@ -163,11 +83,9 @@ function Popover({ point, size, label, onClose, children }: PopoverProps) {
     if (!ref.current!.contains(document.activeElement)) ref.current!.focus({ preventScroll: true });
   }, []);
 
-  // ...and get back to where they were, but only if focus is still inside the popover as it closes. This has to be
-  // checked before the popover leaves the page (a layout cleanup), since removing a focused element drops focus to
-  // the body, which looks the same as someone having clicked the canvas.
-  // The focus itself moves a moment later, so that React's development-only unmount-and-remount of effects (which
-  // never really closes the popover) doesn't pull focus out of the field that just took it.
+  // Focus goes back only if it is still inside as the popover closes, checked before it leaves the page
+  // (removing a focused element drops focus to the body). Moved a tick later so React dev's effect remount
+  // doesn't pull focus out of the field that just took it.
   const mounted = useRef(false);
   useLayoutEffect(() => {
     const popover = ref.current;
@@ -179,7 +97,7 @@ function Popover({ point, size, label, onClose, children }: PopoverProps) {
     };
   }, [opener]);
 
-  // The pin is 36px wide and sits right of the point it marks, so clear it on either side.
+  // The pin is 36px wide and sits right of its point, so clear it on either side.
   const left = point.x + 48 + POPOVER_WIDTH > size.width ? Math.max(8, point.x - 12 - POPOVER_WIDTH) : point.x + 48;
   const top = Math.min(Math.max(point.y - 40, 64), Math.max(64, size.height - 360));
   return (
@@ -198,191 +116,22 @@ function Popover({ point, size, label, onClose, children }: PopoverProps) {
   );
 }
 
-type ComposerProps = {
-  members: Person[];
-  submitLabel: string;
-  placeholder: string;
-  // Sends what was written; it rejects with what to tell the person if that fails.
-  onSubmit: (message: NewMessage) => Promise<void>;
-  autoFocus?: boolean;
-};
-
-function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }: ComposerProps) {
-  const [text, setText] = useState("");
-  const [mentions, setMentions] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    if (!text.trim() || busy) return;
-    setBusy(true);
-    try {
-      await onSubmit({ body: text.trim(), mentions });
-      setText("");
-      setMentions([]);
-    } catch (error) {
-      toast.error(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="grid gap-2 p-3">
-      <MentionTextarea
-        text={text}
-        mentions={mentions}
-        members={members}
-        onChange={(nextText, nextMentions) => {
-          setText(nextText);
-          setMentions(nextMentions);
-        }}
-        onSubmit={submit}
-        placeholder={placeholder}
-        autoFocus={autoFocus}
-        label={placeholder}
-      />
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-graphite">{members.length > 0 ? "Type @ to mention someone" : ""}</span>
-        <Button size="sm" loading={busy} disabled={!text.trim()} onClick={submit}>
-          {submitLabel}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-type ThreadViewProps = {
-  thread: Thread;
-  canComment: boolean;
-  canResolve: boolean;
-  canDelete: boolean;
-  members: Person[];
-  selfId: string;
-  onReply: (message: NewMessage) => Promise<void>;
-  onReact: (messageId: string, emoji: string, on: boolean) => void;
-  onResolve: (resolved: boolean) => void;
-  onDelete: () => void;
-  onClose: () => void;
-};
-
-function ThreadView({
-  thread,
-  canComment,
-  canResolve,
-  canDelete,
-  members,
-  selfId,
-  onReply,
-  onReact,
-  onResolve,
-  onDelete,
-  onClose,
-}: ThreadViewProps) {
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  useMinute();
-
-  return (
-    <>
-      <div className="flex items-center justify-between gap-1 border-b border-rule px-3 py-2">
-        <span className="text-sm font-semibold">{thread.resolved ? "Resolved" : "Comment"}</span>
-        <div className="flex items-center">
-          {canResolve && (
-            <IconButton
-              label={thread.resolved ? "Reopen thread" : "Resolve thread"}
-              icon={thread.resolved ? RotateCcw : Check}
-              size="sm"
-              onClick={() => onResolve(!thread.resolved)}
-            />
-          )}
-          {canDelete && (
-            <IconButton
-              label="Delete thread"
-              icon={Trash2}
-              size="sm"
-              onClick={() => setConfirmingDelete(true)}
-              className="text-danger"
-            />
-          )}
-          <IconButton label="Close" icon={X} size="sm" onClick={onClose} />
-        </div>
-      </div>
-      {confirmingDelete && (
-        <div className="border-b border-rule bg-surface-2 px-3 py-2.5">
-          <p className="text-sm">
-            Delete this thread{thread.messages.length > 1 ? ` and its ${thread.messages.length} messages` : ""}? This
-            can't be undone.
-          </p>
-          <div className="mt-2 flex justify-end gap-2">
-            <Button variant="secondary" size="sm" autoFocus onClick={() => setConfirmingDelete(false)}>
-              Cancel
-            </Button>
-            <Button variant="danger" size="sm" onClick={onDelete}>
-              Delete
-            </Button>
-          </div>
-        </div>
-      )}
-      <ul className="max-h-64 divide-y divide-rule overflow-y-auto">
-        {thread.messages.map((message) => (
-          <li key={message.id} className="flex gap-2.5 px-3 py-2.5">
-            <Avatar
-              id={message.author.id}
-              name={message.author.name}
-              color={message.author.color}
-              src={message.author.avatarUrl}
-              size="xs"
-              decorative
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm">
-                <span className="font-semibold">{message.author.name}</span>{" "}
-                <span className="text-xs text-graphite">{timeAgo(message.createdAt)}</span>
-              </p>
-              <p className="text-sm break-words whitespace-pre-wrap">
-                <MessageBody message={message} />
-              </p>
-              <Reactions
-                message={message}
-                selfId={selfId}
-                canReact={canComment}
-                onReact={(emoji, on) => onReact(message.id, emoji, on)}
-              />
-            </div>
-          </li>
-        ))}
-      </ul>
-      {canComment && (
-        <div className="border-t border-rule">
-          <Composer members={members} submitLabel="Reply" placeholder="Reply…" onSubmit={onReply} />
-        </div>
-      )}
-    </>
-  );
-}
-
-type CommentsLayerProps = {
+interface CommentsLayerProps {
   threads: Thread[];
   viewport: Viewport;
-  // The canvas's size, which the popovers keep inside.
   size: Size;
   activeId: string | null;
   onActive: (id: string | null) => void;
-  // Where a new comment is being written, if one is.
   draft: XY | null;
   onDraftClose: () => void;
   members: Person[];
   canComment: boolean;
-  // Whether this person may resolve anyone's threads (people who can edit the board), not only their own.
   canResolveAny: boolean;
   canDeleteAny: boolean;
   selfId: string;
   api: ThreadApi;
-};
+}
 
-/**
- * Comment pins over the canvas, plus the popover for the open thread or the
- * box for a new one. `members` are the people who can be @mentioned.
- */
 export function CommentsLayer({
   threads,
   viewport,

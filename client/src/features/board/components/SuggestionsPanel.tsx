@@ -15,16 +15,12 @@ import type { BoardStore } from "../lib/sync/store";
 import { acceptance, groupSuggestions, summarize, useSuggestions } from "../lib/sync/suggestions";
 import type { Suggestion, SuggestionGroup, SuggestionStore } from "../lib/sync/suggestions";
 
-/** What the review needs of the board's sync: its suggestions, and how to say what was decided. */
 type ReviewSync = {
   suggestions: SuggestionStore;
   resolveSuggestions: (ids: string[], outcome: SuggestionOutcome) => void;
 };
 
-/**
- * The board's open suggestions, grouped, and a member's decisions on them. Accepting is the member's own change
- * to the board, one step in their history (so it can be undone like any edit), and then the decision.
- */
+// Accepting is the member's own change to the board, one undoable step, and then the decision.
 export function useSuggestionReview(sync: ReviewSync, store: BoardStore) {
   const suggestions = useSuggestions(sync.suggestions);
   const groups = useMemo(() => groupSuggestions(suggestions), [suggestions]);
@@ -58,7 +54,6 @@ export function useSuggestionReview(sync: ReviewSync, store: BoardStore) {
   return { suggestions, groups, accept, reject };
 }
 
-/** Where a group of suggestions is on the board: around what they'd add, change or remove. */
 export function groupBounds(group: SuggestionGroup, getElement: (id: string) => BoardElement | undefined): Rect | null {
   const elements = group.suggestions
     .map((suggestion) => (suggestion.kind === "add" ? suggestion.element : getElement(suggestion.target)))
@@ -68,7 +63,7 @@ export function groupBounds(group: SuggestionGroup, getElement: (id: string) => 
 
 const authorColor = (group: SuggestionGroup) => personColor({ id: group.author.userId, color: group.author.color });
 
-type ChipsProps = {
+interface SuggestionChipsProps {
   groups: SuggestionGroup[];
   viewport: Viewport;
   getElement: (id: string) => BoardElement | undefined;
@@ -76,15 +71,10 @@ type ChipsProps = {
   onAccept: (group: SuggestionGroup) => void;
   onReject: (group: SuggestionGroup) => void;
   onHover: (groupId: string | null) => void;
-  // A suggester's own groups, which they can take back.
   isOwn?: (group: SuggestionGroup) => boolean;
   onWithdraw?: (group: SuggestionGroup) => void;
-};
+}
 
-/**
- * A label above each group of suggestions on the board: whose they are and, for members, accept and reject (for
- * the suggester whose they are, take them back).
- */
 export function SuggestionChips({
   groups,
   viewport,
@@ -95,7 +85,7 @@ export function SuggestionChips({
   onHover,
   isOwn = () => false,
   onWithdraw = () => {},
-}: ChipsProps) {
+}: SuggestionChipsProps) {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {groups.map((group) => {
@@ -150,7 +140,7 @@ export function SuggestionChips({
   );
 }
 
-type PanelProps = {
+interface SuggestionsPanelProps {
   groups: SuggestionGroup[];
   getElement: (id: string) => BoardElement | undefined;
   canDecide: boolean;
@@ -161,15 +151,11 @@ type PanelProps = {
   onHover: (groupId: string | null) => void;
   onFocus: (bounds: Rect) => void;
   onClose: () => void;
-  // A suggester's own groups, which they can take back.
   isOwn?: (group: SuggestionGroup) => boolean;
   onWithdraw?: (group: SuggestionGroup) => void;
-};
+}
 
-/**
- * Every open suggestion, a group to a row, newest last, with the decisions a member can make on them (and, for a
- * suggester, taking back their own). `getElement` has the board as it is, without anyone's suggestions.
- */
+// `getElement` has the board as it is, without anyone's suggestions.
 export function SuggestionsPanel({
   groups,
   getElement,
@@ -183,7 +169,7 @@ export function SuggestionsPanel({
   onClose,
   isOwn = () => false,
   onWithdraw = () => {},
-}: PanelProps) {
+}: SuggestionsPanelProps) {
   useMinute(); // keeps "2 minutes ago" current
   const all = groups.flatMap((group) => group.suggestions);
   const outdated = (suggestion: Suggestion) => {
@@ -303,7 +289,6 @@ export function SuggestionsPanel({
   );
 }
 
-/** The ids of the suggestions in the group `groupId`, to draw them standing out. */
 export function idsInGroup(groups: SuggestionGroup[], groupId: string | null): ReadonlySet<string> {
   const group = groupId ? groups.find((each) => each.id === groupId) : undefined;
   return new Set(group?.suggestions.map((suggestion) => suggestion.id));

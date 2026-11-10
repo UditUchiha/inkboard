@@ -7,12 +7,10 @@ import type { BoardSync, SharedView } from "./useBoardSync";
 
 const SAME_ENOUGH = 0.5; // a view this close to ours (in screen pixels, and in zoom steps) isn't worth moving to
 
-/** Whether two views are the same one (a followed view is worked out the same way each time, so exactly). */
 // The assertions: Boolean() has ruled out null and undefined, which TypeScript doesn't see through it.
 export const sameView = (a: Viewport | null | undefined, b: Viewport | null | undefined) =>
   Boolean(a && b) && a!.x === b!.x && a!.y === b!.y && a!.zoom === b!.zoom;
 
-/** Our view after following `view` (a collaborator's, as they send it), or `current` itself if that's no change. */
 export function followedViewport(current: Viewport, view: SharedView, canvasSize: Size): Viewport {
   const visible = { x: -view.x, y: -view.y, width: view.width / view.zoom, height: view.height / view.zoom };
   const next = fitViewport(visible, canvasSize, { padding: 0, maxZoom: MAX_ZOOM });
@@ -23,24 +21,15 @@ export function followedViewport(current: Viewport, view: SharedView, canvasSize
   return same ? current : next;
 }
 
-/** What useFollow takes: the sync (for views and who is here), the canvas's size, and the setter of our own view. */
 type FollowOptions = { sync: BoardSync; canvasSize: Size; setViewport: Dispatch<SetStateAction<Viewport>> };
 
-/** What follow mode gives the editor: whom we follow, how to start and stop, and the view last taken from them. */
 export type Follow = ReturnType<typeof useFollow>;
 
-/**
- * Follow mode: while following someone, our view tracks theirs. Their view is
- * a rectangle of the board; we fit that rectangle into our own canvas, so
- * following works across different screen sizes. Following ends when the
- * person leaves, or when we pan or zoom ourselves (`stopFollowing`).
- *
- * `followedView` holds the view we last took from them. Our own view is shared
- * for others to follow, but that one mustn't be: two people following each
- * other would pass it back and forth, growing a little on each trip.
- */
+// Following fits their view's rectangle into our canvas, so it works across screen sizes. Our own view is shared
+// for others to follow but `followedView` isn't: two people following each other would pass it back and forth,
+// growing a little on each trip.
 export function useFollow({ sync, canvasSize, setViewport }: FollowOptions) {
-  const [followingId, setFollowingId] = useState<string | null>(null); // a socket id
+  const [followingId, setFollowingId] = useState<string | null>(null);
   const followedView = useRef<Viewport | null>(null);
 
   const { subscribeViewport, requestViewport, peers, socketId } = sync;
@@ -48,11 +37,12 @@ export function useFollow({ sync, canvasSize, setViewport }: FollowOptions) {
 
   // Someone presenting is followed from when they start (or we arrive) until they stop, or we move ourselves.
   const presenterId = peers.find((peer) => peer.presenting && peer.socketId !== socketId)?.socketId ?? null;
-  useEffect(() => {
-    if (!presenterId) return undefined;
-    setFollowingId(presenterId);
-    return () => setFollowingId((id) => (id === presenterId ? null : id));
-  }, [presenterId]);
+  const [seenPresenter, setSeenPresenter] = useState<string | null>(null);
+  if (presenterId !== seenPresenter) {
+    setSeenPresenter(presenterId);
+    if (seenPresenter) setFollowingId((id) => (id === seenPresenter ? null : id));
+    if (presenterId) setFollowingId(presenterId);
+  }
 
   useEffect(() => {
     if (!followingId || !canvasSize.width) return undefined;
@@ -68,9 +58,7 @@ export function useFollow({ sync, canvasSize, setViewport }: FollowOptions) {
     return unsubscribe;
   }, [followingId, canvasSize, subscribeViewport, requestViewport, setViewport]);
 
-  useEffect(() => {
-    if (followingId && !peers.some((peer) => peer.socketId === followingId)) setFollowingId(null);
-  }, [peers, followingId]);
+  if (followingId && !peers.some((peer) => peer.socketId === followingId)) setFollowingId(null);
 
   return { followingId, follow: setFollowingId, stopFollowing, followedView };
 }

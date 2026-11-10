@@ -20,7 +20,11 @@ const KIND_LABELS: Record<VersionKind, string> = {
   restore: "Before a restore",
 };
 
-type VersionRowProps = { version: Version; selected: boolean; onSelect: () => void };
+interface VersionRowProps {
+  version: Version;
+  selected: boolean;
+  onSelect: () => void;
+}
 
 function VersionRow({ version, selected, onSelect }: VersionRowProps) {
   useMinute();
@@ -53,7 +57,12 @@ function VersionRow({ version, selected, onSelect }: VersionRowProps) {
   );
 }
 
-type PreviewProps = { boardId: string; version: Version; onRestored: () => void; onDeleted: () => void };
+interface PreviewProps {
+  boardId: string;
+  version: Version;
+  onRestored: () => void;
+  onDeleted: () => void;
+}
 
 function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
   const [elements, setElements] = useState<BoardElement[] | null>(null);
@@ -63,8 +72,6 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
   const [confirming, setConfirming] = useState<"restore" | "delete" | null>(null);
 
   useEffect(() => {
-    setElements(null);
-    setFailed(false);
     let active = true;
     api
       .getVersion(boardId, version.id)
@@ -79,13 +86,16 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
     };
   }, [boardId, version.id, attempt]);
 
-  useEffect(() => setConfirming(null), [version.id]);
+  function retry() {
+    setFailed(false);
+    setAttempt((count) => count + 1);
+  }
 
   async function restore() {
     setBusy(true);
     try {
       await api.restoreVersion(boardId, version.id);
-      // The same id as the "someone restored a version" toast everyone gets, so the restorer sees just this one.
+      // Same id as the restore toast everyone gets, so the restorer sees just one.
       toast.success("Version restored. What was here before is saved in the history.", { id: "board-restored" });
       onRestored();
     } catch (error) {
@@ -118,7 +128,7 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
         ) : failed ? (
           <div className="grid aspect-[16/10] place-items-center content-center gap-2 text-center text-sm text-graphite">
             <p>Couldn't load this version.</p>
-            <Button variant="secondary" size="sm" onClick={() => setAttempt((count) => count + 1)}>
+            <Button variant="secondary" size="sm" onClick={retry}>
               Try again
             </Button>
           </div>
@@ -161,7 +171,6 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
           >
             Restore this version
           </Button>
-          {/* Saved versions are kept until someone deletes them; autosaves clear on their own. */}
           {version.kind === "named" && (
             <IconButton label="Delete this version" icon={Trash2} onClick={() => setConfirming("delete")} />
           )}
@@ -171,8 +180,12 @@ function Preview({ boardId, version, onRestored, onDeleted }: PreviewProps) {
   );
 }
 
-/** A side panel listing a board's saved versions, with previews and restore. For members only. */
-export function VersionHistory({ boardId, onClose }: { boardId: string; onClose: () => void }) {
+interface VersionHistoryProps {
+  boardId: string;
+  onClose: () => void;
+}
+
+export function VersionHistory({ boardId, onClose }: VersionHistoryProps) {
   const [versions, setVersions] = useState<Version[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [label, setLabel] = useState("");
@@ -193,11 +206,11 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a fetch: load sets state only after its await
     load();
   }, [load]);
 
-  // Keep the list current: after someone restores a version, when coming back to the tab, and now and then
-  // (autosaves and other people's saved versions don't announce themselves).
+  // Autosaves and other people's saves don't announce themselves, so refresh on restore, tab focus and a timer.
   const socket = useSocket();
   useEffect(() => {
     const refresh = () => document.visibilityState === "visible" && load({ quiet: true });
@@ -264,7 +277,7 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
             No versions yet. The board is saved automatically as people draw, and you can save a named version any time.
           </p>
         )}
-        {/* The casts: versions is null while loading, and null > 0 is false, as meant; the types can't follow that. */}
+        {/* the cast: versions is null while loading, and null > 0 is false as intended */}
         {(versions?.length as number) > 0 && (
           <ul>
             {versions!.map((version) => (
@@ -281,6 +294,7 @@ export function VersionHistory({ boardId, onClose }: { boardId: string; onClose:
 
       {selected && (
         <Preview
+          key={selected.id}
           boardId={boardId}
           version={selected}
           onRestored={() => {

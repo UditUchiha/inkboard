@@ -7,25 +7,19 @@ import { describeElement } from "../lib/elements/elementLabels";
 import { boardOutline } from "../lib/elements/order";
 import type { OutlineNode } from "../lib/elements/order";
 
-// Showing this many keeps the page light on a big board; the rest are reachable by selecting on the canvas.
+// Capped to keep the page light on a big board; the rest are reachable by selecting on the canvas.
 const MAX_LISTED = 200;
 
-/** What the outline takes: the board's elements, the one selected, what to do when one is picked, and whether it's open. */
-export type ElementListProps = {
+export interface ElementListProps {
   elements: BoardElement[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
+}
 
-/**
- * The board as an outline, for keyboards and screen readers: frames hold what's inside them, everything reads from the
- * top, left to right, and arrows say what they join. Tab moves between its buttons, Enter selects one (then arrow keys
- * move it, Delete removes it). While closed, only its button shows, and only once it has keyboard focus.
- */
 export function ElementList({ elements, selectedId, onSelect, open, onOpenChange }: ElementListProps) {
-  // Worked out when the board is quiet, not on every step of a drag, and only while open.
+  // Only while open, and when the board is quiet rather than on every drag step.
   const settled = useDeferredValue(elements);
   const { outline, find } = useMemo(() => {
     if (!open) return { outline: [], find: () => undefined };
