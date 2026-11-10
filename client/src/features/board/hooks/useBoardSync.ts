@@ -16,15 +16,13 @@ import type {
   RevokedMessage,
   RoleMessage,
   SharedView,
-  SuggestionPutReply,
   SuggestionRemovalMessage,
   SuggestionsMessage,
   ViewportMessage,
   Voting,
   VotingMessage,
 } from "@inkboard/shared/socket";
-import type { SuggestionDraft } from "@inkboard/shared/suggestions";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { BoardMeta, Role } from "../../../lib/api";
 import { readPass } from "../../../lib/linkPasses";
@@ -38,6 +36,7 @@ import { createSuggestionStore } from "../lib/sync/suggestions";
 import { useCursorSending } from "./useCursorSending";
 import { useOutboxSender } from "./useOutboxSender";
 import { useSessionCommands } from "./useSessionCommands";
+import type { LiveSuggesting } from "./useSessionCommands";
 import { useViewportSharing } from "./useViewportSharing";
 
 // What to tell a suggester when some of what they suggested wasn't kept, by the limit it met.
@@ -96,19 +95,25 @@ export function useBoardSync(
   const [suggestions] = useState(createSuggestionStore);
   const [voting, setVoting] = useState<Voting | null>(null);
   const [outbox] = useState(() => createOutbox({ onChange: setSaving }));
-  // How suggestions are sent: set below, once the socket is known (the suggester is made only once).
-  const sendSuggestions = useRef<(drafts: SuggestionDraft[], withdraw: string[]) => Promise<SuggestionPutReply>>(() =>
-    Promise.resolve({ ok: false, reason: "noSession" }),
-  );
-  // (Someone can log in while on the board, so whose suggestions are theirs is read as it is now.)
-  const self = useRef(selfId);
-  self.current = selfId;
+  // Someone can log in while on the board, so whose suggestions are theirs is read as it is now; how they are sent is
+  // set once the socket is known (see useSessionCommands).
+  const [live] = useState<LiveSuggesting>(() => {
+    const state: LiveSuggesting = {
+      selfId,
+      isSelf: (userId) => userId === state.selfId,
+      send: () => Promise.resolve({ ok: false, reason: "noSession" }),
+    };
+    return state;
+  });
+  useLayoutEffect(() => {
+    live.selfId = selfId;
+  });
   const [suggester] = useState(() =>
     createSuggester({
       store,
       suggestions,
-      isOwn: (suggestion) => suggestion.author.userId === self.current,
-      send: (drafts, withdraw) => sendSuggestions.current(drafts, withdraw),
+      isOwn: (suggestion) => live.isSelf(suggestion.author.userId),
+      send: (drafts, withdraw) => live.send(drafts, withdraw),
       onRefused: ({ full }) => toast.error(SUGGESTION_REFUSED[full ?? "other"]),
     }),
   );
@@ -161,6 +166,7 @@ export function useBoardSync(
       loaded.current = false;
       joined.current = false;
       roleRef.current = "viewer";
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- a new board on the same screen, as the outbox says
       setPhase({ name: "connecting" });
       setMeta(null);
       setRole("viewer");
@@ -332,7 +338,7 @@ export function useBoardSync(
       if (forOther(payload)) return;
       // A suggester's own suggestion that went any way but into the board: show the board without it.
       const gone = new Set(payload.ids);
-      const own = suggestions.getSnapshot().some((item) => gone.has(item.id) && item.author.userId === self.current);
+      const own = suggestions.getSnapshot().some((item) => gone.has(item.id) && live.isSelf(item.author.userId));
       suggestions.remove(payload.ids);
       if (own && payload.outcome !== "accepted" && roleRef.current === "suggester") suggester.rebuild();
     };
@@ -404,6 +410,7 @@ export function useBoardSync(
     latestViewport,
     viewSources,
     viewportListeners,
+    live,
   ]);
 
   const sendCursor = useCursorSending(socket, joined);
@@ -415,7 +422,7 @@ export function useBoardSync(
     rejoin,
     suggestions,
     suggester,
-    sendSuggestions,
+    live,
     setPhase,
   });
 

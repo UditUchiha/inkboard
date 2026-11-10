@@ -52,6 +52,7 @@ export function usePresenting({
       changeViewport(fitViewport(getBounds(shownFrame), canvasSize, { padding: 24, maxZoom: MAX_ZOOM }));
   }, [shownFrame, canvasSize, changeViewport]);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- stopPresenting also tells the socket
     if (presenting && slides.length === 0) stopPresenting(); // every frame was deleted meanwhile
   }, [presenting, slides.length, stopPresenting]);
 

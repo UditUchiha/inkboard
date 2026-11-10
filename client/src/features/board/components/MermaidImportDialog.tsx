@@ -1,5 +1,5 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent } from "react";
 import { Button } from "../../../components/Button";
 import { Dialog } from "../../../components/Dialog";
@@ -8,12 +8,12 @@ import { MermaidError } from "../lib/mermaid/common";
 import { mermaidToElements } from "../lib/mermaid/mermaid";
 import type { Measure } from "../lib/mermaid/common";
 
-type MermaidImportDialogProps = {
+interface MermaidImportDialogProps {
   open: boolean;
   onClose: () => void;
   getCentre: () => { x: number; y: number };
   onImported: (elements: BoardElement[], skipped: string[]) => void;
-};
+}
 
 // Labels measured as the board draws them, so they sit in the middle of their shapes.
 const measure: Measure = (text, fontSize) => measureText({ fontSize, font: "hand" }, text);
@@ -22,9 +22,11 @@ export function MermaidImportDialog({ open, onClose, getCentre, onImported }: Me
   const [text, setText] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
     if (open) setError("");
-  }, [open]);
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

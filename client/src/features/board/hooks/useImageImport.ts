@@ -1,5 +1,5 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 import type { AppSocket } from "../../../providers/SocketProvider";
@@ -168,9 +168,11 @@ export function useImageImport({
   );
 
   const importBoardFileRef = useRef(importBoardFile);
-  importBoardFileRef.current = importBoardFile;
   const addImagesRef = useRef(addImages);
-  addImagesRef.current = addImages;
+  useLayoutEffect(() => {
+    importBoardFileRef.current = importBoardFile;
+    addImagesRef.current = addImages;
+  });
   useEffect(() => {
     const imagesIn = (list: FileList | null | undefined) => [...(list ?? [])].filter(isImageFile);
     const blocked = (event: Event) => isTypingTarget(event.target) || document.querySelector("dialog[open]");

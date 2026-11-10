@@ -6,12 +6,12 @@ import { titleToSave } from "../lib/titleEdit";
 
 export type RenamedBoard = { title: string };
 
-export type BoardTitleProps = {
+export interface BoardTitleProps {
   board: { title: string };
   rename: (title: string) => Promise<RenamedBoard>;
   onRenamed: (updated: RenamedBoard) => void;
   readOnly: boolean;
-};
+}
 
 export function BoardTitle({ board, rename, onRenamed, readOnly }: BoardTitleProps) {
   const [title, setTitle] = useState(board.title);

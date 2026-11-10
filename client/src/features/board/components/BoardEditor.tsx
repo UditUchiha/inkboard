@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { BoardCrashed, ErrorBoundary } from "../../../components/ErrorBoundary";
 import type { AccountUser, BoardMeta } from "../../../lib/api";
 import { getGuest } from "../../../lib/guest";
@@ -67,7 +67,11 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
   const [dialog, setDialog] = useState<DialogName | null>(null);
   // Cropping a picture: its handles crop instead of resize; selecting anything else ends it.
   const [croppingId, setCroppingId] = useState<string | null>(null);
-  useEffect(() => setCroppingId(null), [selectedId]);
+  const [croppedSelection, setCroppedSelection] = useState(selectedId);
+  if (selectedId !== croppedSelection) {
+    setCroppedSelection(selectedId);
+    setCroppingId(null);
+  }
   const fileInput = useRef<HTMLInputElement>(null);
   const boardFileInput = useRef<HTMLInputElement>(null);
 
@@ -95,9 +99,7 @@ export function BoardEditor({ store, sync, user, local = null }: BoardEditorProp
     setViewport: vp.setViewport,
   });
 
-  useEffect(() => {
-    if (!canComment && tool === "comment") setTool("pen");
-  }, [canComment, tool]);
+  if (!canComment && tool === "comment") setTool("pen");
 
   const changeTool = useCallback((next: ToolId) => {
     setTool(next);

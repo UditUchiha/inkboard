@@ -6,16 +6,16 @@ import type { Person } from "../../../lib/api";
 import type { NewMessage } from "../hooks/useThreads";
 import { MentionTextarea } from "./MentionTextarea";
 
-type ComposerProps = {
+interface CommentComposerProps {
   members: Person[];
   submitLabel: string;
   placeholder: string;
   // Rejects with the message to show if sending fails.
   onSubmit: (message: NewMessage) => Promise<void>;
   autoFocus?: boolean;
-};
+}
 
-export function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }: ComposerProps) {
+export function Composer({ members, submitLabel, placeholder, onSubmit, autoFocus }: CommentComposerProps) {
   const [text, setText] = useState("");
   const [mentions, setMentions] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);

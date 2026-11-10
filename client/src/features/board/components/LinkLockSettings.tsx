@@ -17,7 +17,10 @@ const EXPIRY_CHOICES: [label: string, days: number | null][] = [
 
 const formatWhen = (date: Date) => date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-type LinkLockSettingsProps = { board: BoardMeta; onBoardChange: (updated: BoardMeta) => void };
+interface LinkLockSettingsProps {
+  board: BoardMeta;
+  onBoardChange: (updated: BoardMeta) => void;
+}
 
 export function LinkLockSettings({ board, onBoardChange }: LinkLockSettingsProps) {
   const [editing, setEditing] = useState(false);
@@ -25,7 +28,8 @@ export function LinkLockSettings({ board, onBoardChange }: LinkLockSettingsProps
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const expiresAt = board.linkExpiresAt ? new Date(board.linkExpiresAt) : null;
-  const expired = Boolean(expiresAt && expiresAt.getTime() <= Date.now());
+  const [now] = useState(Date.now);
+  const expired = Boolean(expiresAt && expiresAt.getTime() <= now);
 
   // The password form or a toast shows why a save didn't go through.
   async function save(lock: Parameters<typeof api.setLinkLock>[1], done: string) {

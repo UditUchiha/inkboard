@@ -11,7 +11,11 @@ import type { NewMessage } from "../hooks/useThreads";
 import { splitMentions } from "../lib/mentions";
 import { Composer } from "./CommentComposer";
 
-function MessageBody({ message }: { message: ThreadMessage }) {
+interface MessageBodyProps {
+  message: ThreadMessage;
+}
+
+function MessageBody({ message }: MessageBodyProps) {
   const names = message.mentions.map((person) => person.name);
   if (names.length === 0) return <>{message.body}</>;
   return splitMentions(message.body, names).map((piece, index) =>
@@ -25,12 +29,12 @@ function MessageBody({ message }: { message: ThreadMessage }) {
   );
 }
 
-type ReactionsProps = {
+interface ReactionsProps {
   message: ThreadMessage;
   selfId: string;
   canReact: boolean;
   onReact: (emoji: string, on: boolean) => void;
-};
+}
 
 function Reactions({ message, selfId, canReact, onReact }: ReactionsProps) {
   const [picking, setPicking] = useState(false);
@@ -97,7 +101,7 @@ function Reactions({ message, selfId, canReact, onReact }: ReactionsProps) {
   );
 }
 
-type ThreadViewProps = {
+interface ThreadViewProps {
   thread: Thread;
   canComment: boolean;
   canResolve: boolean;
@@ -109,7 +113,7 @@ type ThreadViewProps = {
   onResolve: (resolved: boolean) => void;
   onDelete: () => void;
   onClose: () => void;
-};
+}
 
 export function ThreadView({
   thread,

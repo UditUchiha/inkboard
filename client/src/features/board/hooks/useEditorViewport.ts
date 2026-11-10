@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { getBounds, getSceneBounds } from "../lib/elements/elements";
 import { fitViewport, zoomAround } from "../lib/elements/geometry";
@@ -31,13 +31,12 @@ export function useEditorViewport(store: BoardStore, sync: BoardSync) {
     sendViewport({ ...viewport, width: canvasSize.width, height: canvasSize.height }, followed);
   }, [viewport, canvasSize, sendViewport, followedView, followingId]);
 
-  const fitted = useRef(false);
-  useEffect(() => {
-    if (fitted.current || !canvasSize.width) return;
-    fitted.current = true;
+  const [fitted, setFitted] = useState(false);
+  if (!fitted && canvasSize.width) {
+    setFitted(true);
     const bounds = getSceneBounds(store.getElements());
     if (bounds) setViewport(fitViewport(bounds, canvasSize, { padding: 96, maxZoom: 1 }));
-  }, [canvasSize, store]);
+  }
 
   const zoomBy = useCallback(
     (factor: number) =>
@@ -57,9 +56,10 @@ export function useEditorViewport(store: BoardStore, sync: BoardSync) {
     height: canvasSize.height / viewport.zoom,
   });
 
-  // The cast: filled in on the next line, on every render, before anything reads it.
-  const view = useRef(null as unknown as ImportView);
-  view.current = { viewport, canvasSize };
+  const view = useRef<ImportView>({ viewport, canvasSize });
+  useLayoutEffect(() => {
+    view.current = { viewport, canvasSize };
+  });
 
   return {
     viewport,

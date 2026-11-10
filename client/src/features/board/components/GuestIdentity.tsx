@@ -8,7 +8,11 @@ import { TextField } from "../../../components/Field";
 import { getGuest, setGuestName } from "../../../lib/guest";
 import type { AppSocket } from "../../../providers/SocketProvider";
 
-export function GuestIdentity({ socket }: { socket: AppSocket | null }) {
+interface GuestIdentityProps {
+  socket: AppSocket | null;
+}
+
+export function GuestIdentity({ socket }: GuestIdentityProps) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [guest, setGuest] = useState(getGuest);

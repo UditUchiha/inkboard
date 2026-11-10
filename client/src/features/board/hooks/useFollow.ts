@@ -37,11 +37,12 @@ export function useFollow({ sync, canvasSize, setViewport }: FollowOptions) {
 
   // Someone presenting is followed from when they start (or we arrive) until they stop, or we move ourselves.
   const presenterId = peers.find((peer) => peer.presenting && peer.socketId !== socketId)?.socketId ?? null;
-  useEffect(() => {
-    if (!presenterId) return undefined;
-    setFollowingId(presenterId);
-    return () => setFollowingId((id) => (id === presenterId ? null : id));
-  }, [presenterId]);
+  const [seenPresenter, setSeenPresenter] = useState<string | null>(null);
+  if (presenterId !== seenPresenter) {
+    setSeenPresenter(presenterId);
+    if (seenPresenter) setFollowingId((id) => (id === seenPresenter ? null : id));
+    if (presenterId) setFollowingId(presenterId);
+  }
 
   useEffect(() => {
     if (!followingId || !canvasSize.width) return undefined;
@@ -57,9 +58,7 @@ export function useFollow({ sync, canvasSize, setViewport }: FollowOptions) {
     return unsubscribe;
   }, [followingId, canvasSize, subscribeViewport, requestViewport, setViewport]);
 
-  useEffect(() => {
-    if (followingId && !peers.some((peer) => peer.socketId === followingId)) setFollowingId(null);
-  }, [peers, followingId]);
+  if (followingId && !peers.some((peer) => peer.socketId === followingId)) setFollowingId(null);
 
   return { followingId, follow: setFollowingId, stopFollowing, followedView };
 }

@@ -1,16 +1,16 @@
 import { CloudCheck, Eye, EyeOff, LoaderCircle, MessageSquare, MessageSquarePlus, WifiOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button, ButtonLink } from "../../../components/Button";
 import { errorMessage } from "../../../lib/api";
 
-export type ViewOnlyNoticeProps = {
+export interface ViewOnlyNoticeProps {
   signedIn: boolean;
   loginHref: string;
   commenting?: boolean;
   onToggleComment?: () => void;
   onRequestEdit?: () => Promise<void>;
-};
+}
 
 export function ViewOnlyNotice({
   signedIn,
@@ -74,7 +74,11 @@ export function SuggestingNotice() {
   );
 }
 
-export type PrivateModeNoticeProps = { by: string; hidden: boolean; onReveal?: () => void };
+export interface PrivateModeNoticeProps {
+  by: string;
+  hidden: boolean;
+  onReveal?: () => void;
+}
 
 export function PrivateModeNotice({ by, hidden, onReveal }: PrivateModeNoticeProps) {
   return (
@@ -95,14 +99,14 @@ export function PrivateModeNotice({ by, hidden, onReveal }: PrivateModeNoticePro
   );
 }
 
-export type SyncStatusProps = {
+export interface SyncStatusProps {
   online: boolean;
   saving: boolean;
   readOnly: boolean;
   local: boolean;
   // Only a scratch board knows this: the browser had no room to keep it.
   unsaved?: boolean;
-};
+}
 
 export function SyncStatus({ online, saving, readOnly, local, unsaved }: SyncStatusProps) {
   let icon = <CloudCheck className="size-4 text-[#2f9e44]" aria-hidden />;
@@ -122,9 +126,7 @@ export function SyncStatus({ online, saving, readOnly, local, unsaved }: SyncSta
   // "Saving…" flashes on every 40 ms flush, so screen readers only hear the states that last.
   const working = label === "Saving…";
   const [announced, setAnnounced] = useState(label);
-  useEffect(() => {
-    if (!working) setAnnounced(label);
-  }, [label, working]);
+  if (!working && announced !== label) setAnnounced(label);
   return (
     <div className="floating-panel flex h-10 items-center gap-2 rounded-xl px-3 text-sm text-graphite">
       {icon}

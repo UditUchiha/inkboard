@@ -1,5 +1,5 @@
 import type { Element as BoardElement, StackMove } from "@inkboard/shared/types";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import { COMMENT_TOOL, NUMBERED_TOOLS, TOOLS } from "../constants/board";
 import type { Tool, ToolId } from "../constants/board";
@@ -195,7 +195,9 @@ export function useBoardShortcuts({
   const onKeyUp = (event: KeyboardEvent) => event.key === " " && setSpacePressed(false);
   const onBlur = () => setSpacePressed(false);
 
-  keys.current = { onKeyDown, onKeyUp, onBlur };
+  useLayoutEffect(() => {
+    keys.current = { onKeyDown, onKeyUp, onBlur };
+  });
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => keys.current.onKeyDown(event);
     const onKeyUp = (event: KeyboardEvent) => keys.current.onKeyUp(event);

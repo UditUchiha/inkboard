@@ -1,5 +1,5 @@
 import type { Element as BoardElement } from "@inkboard/shared/types";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import type { Style } from "../constants/board";
 import { CLAIM_FIRST, CLASSROOM_TOAST, KEEP_INSIDE } from "../constants/editor";
@@ -29,7 +29,11 @@ export function useConnectFromKeyboard({
 }: ConnectOptions) {
   // K with a shape selected offers the shapes an arrow could go to, nearest first; Enter draws it (see connectTargets).
   const [connecting, setConnecting] = useState<{ fromId: string; targetId?: string } | null>(null);
-  useEffect(() => setConnecting(null), [selectedId]);
+  const [connectingFor, setConnectingFor] = useState(selectedId);
+  if (selectedId !== connectingFor) {
+    setConnectingFor(selectedId);
+    setConnecting(null);
+  }
   const connectFrom = connecting?.fromId === selectedId ? selected : null;
   const connectOptions = useMemo(
     () => (connectFrom ? connectTargets(elements, connectFrom).filter((target) => canChange(target, zone)) : []),

@@ -2,7 +2,12 @@ import clsx from "clsx";
 import type { ReactNode } from "react";
 import type { Choice } from "../constants/board";
 
-export function Section({ label, children }: { label: string; children: ReactNode }) {
+interface SectionProps {
+  label: string;
+  children: ReactNode;
+}
+
+export function Section({ label, children }: SectionProps) {
   return (
     <fieldset className="grid gap-2">
       <legend className="mb-2 text-xs font-medium text-graphite">{label}</legend>
@@ -11,13 +16,13 @@ export function Section({ label, children }: { label: string; children: ReactNod
   );
 }
 
-type SwatchProps = {
+interface SwatchProps {
   color?: string;
   name: string;
   selected: boolean;
   onClick: () => void;
   children?: ReactNode;
-};
+}
 
 export function Swatch({ color, name, selected, onClick, children }: SwatchProps) {
   return (
@@ -38,15 +43,13 @@ export function Swatch({ color, name, selected, onClick, children }: SwatchProps
   );
 }
 
-export function CustomColor({
-  value,
-  onChange,
-  label,
-}: {
+interface CustomColorProps {
   value?: string | null;
   onChange: (value: string) => void;
   label: string;
-}) {
+}
+
+export function CustomColor({ value, onChange, label }: CustomColorProps) {
   return (
     <label
       title={label}
@@ -63,12 +66,12 @@ export function CustomColor({
   );
 }
 
-type SegmentedProps<T> = {
+interface SegmentedProps<T> {
   options: Choice<T>[];
   value: T | undefined;
   onChange: (value: T) => void;
   renderLabel?: (option: Choice<T>) => ReactNode;
-};
+}
 
 export function Segmented<T>({ options, value, onChange, renderLabel = (option) => option.name }: SegmentedProps<T>) {
   return (

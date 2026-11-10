@@ -63,7 +63,7 @@ export function groupBounds(group: SuggestionGroup, getElement: (id: string) => 
 
 const authorColor = (group: SuggestionGroup) => personColor({ id: group.author.userId, color: group.author.color });
 
-type ChipsProps = {
+interface SuggestionChipsProps {
   groups: SuggestionGroup[];
   viewport: Viewport;
   getElement: (id: string) => BoardElement | undefined;
@@ -73,7 +73,7 @@ type ChipsProps = {
   onHover: (groupId: string | null) => void;
   isOwn?: (group: SuggestionGroup) => boolean;
   onWithdraw?: (group: SuggestionGroup) => void;
-};
+}
 
 export function SuggestionChips({
   groups,
@@ -85,7 +85,7 @@ export function SuggestionChips({
   onHover,
   isOwn = () => false,
   onWithdraw = () => {},
-}: ChipsProps) {
+}: SuggestionChipsProps) {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {groups.map((group) => {
@@ -140,7 +140,7 @@ export function SuggestionChips({
   );
 }
 
-type PanelProps = {
+interface SuggestionsPanelProps {
   groups: SuggestionGroup[];
   getElement: (id: string) => BoardElement | undefined;
   canDecide: boolean;
@@ -153,7 +153,7 @@ type PanelProps = {
   onClose: () => void;
   isOwn?: (group: SuggestionGroup) => boolean;
   onWithdraw?: (group: SuggestionGroup) => void;
-};
+}
 
 // `getElement` has the board as it is, without anyone's suggestions.
 export function SuggestionsPanel({
@@ -169,7 +169,7 @@ export function SuggestionsPanel({
   onClose,
   isOwn = () => false,
   onWithdraw = () => {},
-}: PanelProps) {
+}: SuggestionsPanelProps) {
   useMinute(); // keeps "2 minutes ago" current
   const all = groups.flatMap((group) => group.suggestions);
   const outdated = (suggestion: Suggestion) => {

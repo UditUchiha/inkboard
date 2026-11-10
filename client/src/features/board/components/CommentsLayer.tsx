@@ -17,7 +17,12 @@ import { ThreadView } from "./ThreadView";
 
 const POPOVER_WIDTH = 320;
 
-type PinProps = { thread: Thread; point: XY; active: boolean; onClick: () => void };
+interface PinProps {
+  thread: Thread;
+  point: XY;
+  active: boolean;
+  onClick: () => void;
+}
 
 function Pin({ thread, point, active, onClick }: PinProps) {
   const count = thread.messages.length;
@@ -58,7 +63,13 @@ function Pin({ thread, point, active, onClick }: PinProps) {
   );
 }
 
-type PopoverProps = { point: XY; size: Size; label: string; onClose: () => void; children: ReactNode };
+interface PopoverProps {
+  point: XY;
+  size: Size;
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+}
 
 function Popover({ point, size, label, onClose, children }: PopoverProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -105,7 +116,7 @@ function Popover({ point, size, label, onClose, children }: PopoverProps) {
   );
 }
 
-type CommentsLayerProps = {
+interface CommentsLayerProps {
   threads: Thread[];
   viewport: Viewport;
   size: Size;
@@ -119,7 +130,7 @@ type CommentsLayerProps = {
   canDeleteAny: boolean;
   selfId: string;
   api: ThreadApi;
-};
+}
 
 export function CommentsLayer({
   threads,

@@ -5,7 +5,11 @@ import { TextField } from "../../../components/Field";
 import { errorMessage } from "../../../lib/api";
 
 // `onUnlock` rejects when the password is wrong.
-export function LinkPasswordForm({ onUnlock }: { onUnlock: (password: string) => Promise<void> }) {
+interface LinkPasswordFormProps {
+  onUnlock: (password: string) => Promise<void>;
+}
+
+export function LinkPasswordForm({ onUnlock }: LinkPasswordFormProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);

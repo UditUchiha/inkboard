@@ -13,7 +13,7 @@ import { loadCanvasFonts, renderScene } from "../lib/render/renderer";
 // Start drawing a little before a preview scrolls into view.
 const VISIBLE_MARGIN = "200px";
 
-type BoardPreviewProps = {
+interface BoardPreviewProps {
   elements: BoardElement[];
   className?: string;
   padding?: number;
@@ -23,7 +23,7 @@ type BoardPreviewProps = {
   // Thumbnails use small copies of pictures; a screen-size preview wants them whole.
   smallImages?: boolean;
   children?: ReactNode;
-};
+}
 
 export function BoardPreview({
   elements,

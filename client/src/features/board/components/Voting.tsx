@@ -40,7 +40,11 @@ export function voteFor(
   return { action: "cast", id: element.id };
 }
 
-export function StartVoting({ onStart }: { onStart: (votes: number) => void }) {
+interface StartVotingProps {
+  onStart: (votes: number) => void;
+}
+
+export function StartVoting({ onStart }: StartVotingProps) {
   return (
     <Menu side="top" trigger={(props) => <IconButton label="Start voting" icon={Vote} {...props} />}>
       <MenuLabel>Start dot voting</MenuLabel>
@@ -53,14 +57,14 @@ export function StartVoting({ onStart }: { onStart: (votes: number) => void }) {
   );
 }
 
-export type VotingBarProps = {
+export interface VotingBarProps {
   voting: Voting;
   canRun: boolean;
   voteToolOn: boolean;
   onVoteTool: () => void;
   onEnd: () => void;
   onClear: () => void;
-};
+}
 
 export function VotingBar({ voting, canRun, voteToolOn, onVoteTool, onEnd, onClear }: VotingBarProps) {
   const left = voting.votes - voting.mine.length;
@@ -96,7 +100,11 @@ export function VotingBar({ voting, canRun, voteToolOn, onVoteTool, onEnd, onCle
   );
 }
 
-export type VotesLayerProps = { voting: Voting; elements: readonly BoardElement[]; viewport: Viewport };
+export interface VotesLayerProps {
+  voting: Voting;
+  elements: readonly BoardElement[];
+  viewport: Viewport;
+}
 
 export function VotesLayer({ voting, elements, viewport }: VotesLayerProps) {
   const counts: Record<string, number> = voting.results ?? Object.fromEntries(voting.mine.map((id) => [id, 1]));

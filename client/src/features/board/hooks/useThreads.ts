@@ -20,8 +20,13 @@ export function useThreads({ boardId, socket, enabled }: ThreadsOptions) {
     setThreads((list) => sortThreads([...list.filter((item) => item.id !== thread.id), thread]));
   }, []);
 
-  useEffect(() => {
+  const [loadedFor, setLoadedFor] = useState({ boardId, socket, enabled });
+  if (loadedFor.boardId !== boardId || loadedFor.socket !== socket || loadedFor.enabled !== enabled) {
+    setLoadedFor({ boardId, socket, enabled });
     setThreads([]);
+  }
+
+  useEffect(() => {
     if (!enabled) return undefined;
     let active = true;
     const load = () =>

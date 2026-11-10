@@ -10,13 +10,13 @@ import type { OutlineNode } from "../lib/elements/order";
 // Capped to keep the page light on a big board; the rest are reachable by selecting on the canvas.
 const MAX_LISTED = 200;
 
-export type ElementListProps = {
+export interface ElementListProps {
   elements: BoardElement[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-};
+}
 
 export function ElementList({ elements, selectedId, onSelect, open, onOpenChange }: ElementListProps) {
   // Only while open, and when the board is quiet rather than on every drag step.

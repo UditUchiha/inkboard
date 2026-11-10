@@ -1,6 +1,6 @@
 import type { FrameElement } from "@inkboard/shared/types";
 import { GraduationCap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent } from "react";
 import { Button } from "../../../components/Button";
 import { Dialog } from "../../../components/Dialog";
@@ -49,17 +49,21 @@ export function ClassroomNotice(props: ClassroomNoticeProps) {
   );
 }
 
-export type ClaimFrameDialogProps = {
+export interface ClaimFrameDialogProps {
   frame: FrameElement | null;
   guestName: string | null;
   onClaim: (name: string | null) => Promise<void>;
   onClose: () => void;
-};
+}
 
 export function ClaimFrameDialog({ frame, guestName, onClaim, onClose }: ClaimFrameDialogProps) {
   const [name, setName] = useState(guestName ?? "");
   const [claiming, setClaiming] = useState(false);
-  useEffect(() => setName(guestName ?? ""), [frame, guestName]);
+  const [shown, setShown] = useState({ frame, guestName });
+  if (shown.frame !== frame || shown.guestName !== guestName) {
+    setShown({ frame, guestName });
+    setName(guestName ?? "");
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -99,11 +103,11 @@ export function ClaimFrameDialog({ frame, guestName, onClaim, onClose }: ClaimFr
   );
 }
 
-export type FrameClassroomProps = {
+export interface FrameClassroomProps {
   claimedBy: string | null;
   onRelease: () => void;
   onCopy: (count: number) => void;
-};
+}
 
 export function FrameClassroom({ claimedBy, onRelease, onCopy }: FrameClassroomProps) {
   const [count, setCount] = useState("10");

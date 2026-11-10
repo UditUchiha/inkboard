@@ -7,7 +7,7 @@ import type {
   VotePayload,
 } from "@inkboard/shared/socket";
 import type { SuggestionDraft } from "@inkboard/shared/suggestions";
-import { useCallback } from "react";
+import { useCallback, useLayoutEffect } from "react";
 import type { RefObject } from "react";
 import { toast } from "sonner";
 import { api } from "../../../lib/api";
@@ -19,6 +19,13 @@ import type { Phase } from "./useBoardSync";
 
 import { ACK_TIMEOUT_MS } from "../constants/sync";
 
+// How the suggester sends and whose suggestions are ours: it is made once, so effects keep these current.
+export interface LiveSuggesting {
+  selfId: string;
+  isSelf: (userId: string) => boolean;
+  send: (drafts: SuggestionDraft[], withdraw: string[]) => Promise<SuggestionPutReply>;
+}
+
 interface SessionCommandsOptions {
   socket: AppSocket | null;
   boardId: string;
@@ -27,7 +34,7 @@ interface SessionCommandsOptions {
   rejoin: RefObject<() => void>;
   suggestions: ReturnType<typeof createSuggestionStore>;
   suggester: ReturnType<typeof createSuggester>;
-  sendSuggestions: RefObject<(drafts: SuggestionDraft[], withdraw: string[]) => Promise<SuggestionPutReply>>;
+  live: LiveSuggesting;
   setPhase: (phase: Phase) => void;
 }
 
@@ -40,20 +47,22 @@ export function useSessionCommands({
   rejoin,
   suggestions,
   suggester,
-  sendSuggestions,
+  live,
   setPhase,
 }: SessionCommandsOptions) {
-  sendSuggestions.current = (drafts, withdraw) =>
-    new Promise((resolve) => {
-      if (!socket || !joined.current) return resolve({ ok: false, reason: "noSession" });
-      if (withdraw.length > 0) socket.emit("suggestion:withdraw", { boardId, ids: withdraw }, () => {});
-      if (drafts.length === 0) return resolve({ ok: true, suggestions: [] });
-      socket
-        .timeout(ACK_TIMEOUT_MS)
-        .emit("suggestion:put", { boardId, suggestions: drafts }, (error: Error | null, reply?: SuggestionPutReply) =>
-          resolve(error || !reply ? { ok: false, reason: "noSession" } : reply),
-        );
-    });
+  useLayoutEffect(() => {
+    live.send = (drafts, withdraw) =>
+      new Promise((resolve) => {
+        if (!socket || !joined.current) return resolve({ ok: false, reason: "noSession" });
+        if (withdraw.length > 0) socket.emit("suggestion:withdraw", { boardId, ids: withdraw }, () => {});
+        if (drafts.length === 0) return resolve({ ok: true, suggestions: [] });
+        socket
+          .timeout(ACK_TIMEOUT_MS)
+          .emit("suggestion:put", { boardId, suggestions: drafts }, (error: Error | null, reply?: SuggestionPutReply) =>
+            resolve(error || !reply ? { ok: false, reason: "noSession" } : reply),
+          );
+      });
+  });
 
   // For members and, when the owner lets them, link visitors.
   const loadReplay = useCallback(

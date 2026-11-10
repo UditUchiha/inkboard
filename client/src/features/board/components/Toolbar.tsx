@@ -41,7 +41,7 @@ const ICONS: Record<ToolId, LucideIcon> = {
 
 const GROUP_STARTS = new Set<ToolId>(["pen", "sticky", "eraser", "comment"]);
 
-export type ToolbarProps = {
+export interface ToolbarProps {
   tool: ToolId;
   onToolChange: (tool: ToolId) => void;
   onAddImage?: (() => void) | undefined;
@@ -51,7 +51,7 @@ export type ToolbarProps = {
   // Classroom mode: a student has no frame tool, frames being the teacher's.
   withoutFrames?: boolean;
   className?: string;
-};
+}
 
 export function Toolbar({
   tool,

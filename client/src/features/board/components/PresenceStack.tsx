@@ -4,11 +4,11 @@ import type { Peer } from "../hooks/useBoardSync";
 
 const MAX_SHOWN = 4;
 
-type PresenceStackProps = {
+interface PresenceStackProps {
   people: Peer[];
   followingId: string | null;
   onFollow: (socketId: string | null) => void;
-};
+}
 
 export function PresenceStack({ people, followingId, onFollow }: PresenceStackProps) {
   const shown = people.slice(0, MAX_SHOWN);

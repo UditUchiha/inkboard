@@ -41,7 +41,7 @@ export type PanelValues = Partial<Settings> & {
   crop?: ImageCrop;
 };
 
-export type PropertiesPanelProps = {
+export interface PropertiesPanelProps {
   type: ElementType;
   values: PanelValues;
   onChange: (...change: StyleChange) => void;
@@ -54,7 +54,7 @@ export type PropertiesPanelProps = {
   onToggleCrop?: () => void;
   onUncrop?: () => void;
   children?: ReactNode;
-};
+}
 
 export function PropertiesPanel({
   type,

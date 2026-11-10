@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import { Check, Code, Globe, Link2, Lock, MessageSquarePlus, Pencil } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent } from "react";
 import { toast } from "sonner";
 import { Avatar } from "../../../components/Avatar";
@@ -57,7 +57,7 @@ const DESCRIPTIONS: Record<Role, string> = {
   viewer: "You can view this board. Only people the owner invites can make changes.",
 };
 
-type ShareDialogProps = {
+interface ShareDialogProps {
   open: boolean;
   onClose: () => void;
   board: BoardMeta;
@@ -66,7 +66,7 @@ type ShareDialogProps = {
   initialEmail?: string;
   onBoardChange: (updated: BoardMeta) => void;
   onLeft: () => void;
-};
+}
 
 export function ShareDialog({
   open,
@@ -86,12 +86,15 @@ export function ShareDialog({
   const [savingAccess, setSavingAccess] = useState(false);
   const [copied, setCopied] = useState<"link" | "embed" | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setEmail(initialEmail);
-    setError("");
-    setConfirmingId(null);
-  }, [open, initialEmail]);
+  const [shown, setShown] = useState({ open, initialEmail });
+  if (shown.open !== open || shown.initialEmail !== initialEmail) {
+    setShown({ open, initialEmail });
+    if (open) {
+      setEmail(initialEmail);
+      setError("");
+      setConfirmingId(null);
+    }
+  }
 
   const isOwner = role === "owner";
   const isViewer = role !== "owner" && role !== "editor"; // viewers and edit-link contributors

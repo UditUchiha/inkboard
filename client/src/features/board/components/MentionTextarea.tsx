@@ -5,7 +5,7 @@ import { Avatar } from "../../../components/Avatar";
 import type { Person } from "../../../lib/api";
 import { activeMentions, isComposing, MENTION_AT_CARET } from "../lib/mentions";
 
-type MentionTextareaProps = {
+interface MentionTextareaProps {
   text: string;
   mentions: string[];
   onChange: (text: string, mentions: string[]) => void;
@@ -14,7 +14,7 @@ type MentionTextareaProps = {
   placeholder: string;
   autoFocus?: boolean;
   label: string;
-};
+}
 
 export function MentionTextarea({
   text,

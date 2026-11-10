@@ -47,7 +47,11 @@ const EDIT_ACTIONS: Action[] = [
   { label: "Move a frame and everything in it", keys: ["Drag the frame"] },
 ];
 
-function Keys({ keys }: { keys: string[] }) {
+interface KeysProps {
+  keys: string[];
+}
+
+function Keys({ keys }: KeysProps) {
   return (
     <span className="flex shrink-0 gap-1">
       {keys.map((key, index) => (
@@ -62,7 +66,12 @@ function Keys({ keys }: { keys: string[] }) {
   );
 }
 
-type ShortcutsDialogProps = { open: boolean; onClose: () => void; readOnly?: boolean; canComment?: boolean };
+interface ShortcutsDialogProps {
+  open: boolean;
+  onClose: () => void;
+  readOnly?: boolean;
+  canComment?: boolean;
+}
 
 export function ShortcutsDialog({ open, onClose, readOnly = false, canComment = false }: ShortcutsDialogProps) {
   const tools = canComment ? [...TOOLS, COMMENT_TOOL] : TOOLS;

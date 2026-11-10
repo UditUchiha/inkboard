@@ -43,7 +43,11 @@ function chime() {
   }
 }
 
-function CustomMinutes({ onStart }: { onStart: (seconds: number) => void }) {
+interface CustomMinutesProps {
+  onStart: (seconds: number) => void;
+}
+
+function CustomMinutes({ onStart }: CustomMinutesProps) {
   const close = useCloseMenu();
   const [minutes, setMinutes] = useState("");
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -79,7 +83,11 @@ function CustomMinutes({ onStart }: { onStart: (seconds: number) => void }) {
   );
 }
 
-export function StartTimer({ onStart }: { onStart: (seconds: number) => void }) {
+interface StartTimerProps {
+  onStart: (seconds: number) => void;
+}
+
+export function StartTimer({ onStart }: StartTimerProps) {
   return (
     <Menu side="top" trigger={(props) => <IconButton label="Timer" icon={Timer} {...props} />}>
       <MenuLabel>Start a timer for everyone</MenuLabel>
@@ -94,11 +102,11 @@ export function StartTimer({ onStart }: { onStart: (seconds: number) => void }) 
   );
 }
 
-export type BoardTimerProps = {
+export interface BoardTimerProps {
   timer: Timed | null;
   canControl: boolean;
   onControl: (payload: CountdownPayload) => void;
-};
+}
 
 export function BoardTimer({ timer, canControl, onControl }: BoardTimerProps) {
   const [now, setNow] = useState(Date.now);

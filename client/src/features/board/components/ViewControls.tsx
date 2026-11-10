@@ -2,7 +2,7 @@ import { ListTree, Maximize, Minus, Palette, Plus, Redo2, Undo2 } from "lucide-r
 import { IconButton } from "../../../components/Button";
 import type { BoardStore } from "../lib/sync/store";
 
-export type ViewControlsProps = {
+export interface ViewControlsProps {
   store: BoardStore;
   readOnly: boolean;
   canUndo: boolean;
@@ -17,7 +17,7 @@ export type ViewControlsProps = {
   onToggleStyle: () => void;
   outlineOpen: boolean;
   onToggleOutline: () => void;
-};
+}
 
 export function ViewControls({
   store,

@@ -1,5 +1,5 @@
 import type { Element as BoardElement, FrameElement } from "@inkboard/shared/types";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getGuest, setGuestName } from "../../../lib/guest";
 import { MAX_ELEMENTS_PER_BOARD } from "../constants/board";
@@ -94,21 +94,23 @@ export function useClassroomActions({
   // Offers the pressed frame when the student has none, or says why not. Read through a ref so the canvas isn't redrawn for
   // a new function each render.
   const outsideZone = useRef((_point: XY) => {});
-  outsideZone.current = (point: XY) => {
-    if (tool === "frame") {
-      toast("In classroom mode, frames are the teacher's.", { id: CLASSROOM_TOAST });
-      return;
-    }
-    if (zone) {
-      if (tool !== "select") toast(KEEP_INSIDE, { id: CLASSROOM_TOAST });
-      return;
-    }
-    const frame = frameAt(store.getElements(), point);
-    const claim = frame && classroom?.claims.find((each) => each.frameId === frame.id);
-    if (!frame) toast(CLAIM_FIRST, { id: CLASSROOM_TOAST });
-    else if (claim) toast(`That frame is ${claim.name}'s. Pick an empty one.`, { id: CLASSROOM_TOAST });
-    else setClaiming(frame);
-  };
+  useLayoutEffect(() => {
+    outsideZone.current = (point: XY) => {
+      if (tool === "frame") {
+        toast("In classroom mode, frames are the teacher's.", { id: CLASSROOM_TOAST });
+        return;
+      }
+      if (zone) {
+        if (tool !== "select") toast(KEEP_INSIDE, { id: CLASSROOM_TOAST });
+        return;
+      }
+      const frame = frameAt(store.getElements(), point);
+      const claim = frame && classroom?.claims.find((each) => each.frameId === frame.id);
+      if (!frame) toast(CLAIM_FIRST, { id: CLASSROOM_TOAST });
+      else if (claim) toast(`That frame is ${claim.name}'s. Pick an empty one.`, { id: CLASSROOM_TOAST });
+      else setClaiming(frame);
+    };
+  });
   const pressOutsideZone = useCallback((point: XY) => outsideZone.current(point), []);
 
   return {

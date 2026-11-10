@@ -31,7 +31,7 @@ import { exportBoardAsJson, exportBoardAsMermaid, exportBoardAsPng, exportBoardA
 
 export type Exporter = (elements: BoardElement[], name: string) => Promise<boolean>;
 
-export type BoardMenuProps = {
+export interface BoardMenuProps {
   user: Person | null;
   // Set for a guest's scratch board, which lives in the browser.
   local: object | null;
@@ -53,7 +53,7 @@ export type BoardMenuProps = {
   onToggleComments: () => void;
   onShortcuts: () => void;
   onClear: () => void;
-};
+}
 
 export function BoardMenu({
   user,

@@ -1,5 +1,5 @@
 import type { Side } from "@inkboard/shared/types";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { RefObject } from "react";
 import { HIT_TOLERANCE } from "../constants/board";
 import type { ToolId } from "../constants/board";
@@ -25,9 +25,11 @@ export function useCanvasHints(store: BoardStore, latest: RefObject<Latest>, too
   const showHint = (next: Hint) => setHint((current) => (sameHint(current, next) ? current : next));
 
   // Dots shown for a tool that's been put away would only get in the way.
-  useEffect(() => {
+  const [hintTool, setHintTool] = useState(tool);
+  if (tool !== hintTool) {
+    setHintTool(tool);
     setHint(NO_HINT);
-  }, [tool]);
+  }
 
   // Includes frame names (sized on screen); in classroom mode only what a student may change.
   const pick = (world: XY, vp: Viewport) => {

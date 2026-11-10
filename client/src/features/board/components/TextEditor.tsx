@@ -42,7 +42,9 @@ function useInlineEditor(
   // Whether an input method is composing: what it holds isn't in the textarea's value yet, so merging waits.
   const composingNow = useRef(false);
   const latestBoard = useRef(board);
-  latestBoard.current = board;
+  useLayoutEffect(() => {
+    latestBoard.current = board;
+  });
 
   const catchUp = useCallback(() => {
     const textarea = ref.current;
@@ -106,9 +108,14 @@ function useInlineEditor(
   return { value, inputProps };
 }
 
-type EditorProps = { viewport: Viewport; onCommit: (text: string, base: string) => void };
+interface EditorProps {
+  viewport: Viewport;
+  onCommit: (text: string, base: string) => void;
+}
 
-export type TextEditorProps = EditorProps & { element: TextElement };
+export interface TextEditorProps extends EditorProps {
+  element: TextElement;
+}
 
 export function TextEditor({ element, viewport, onCommit }: TextEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text, onCommit, { finishes: finishesText });
@@ -140,7 +147,9 @@ export function TextEditor({ element, viewport, onCommit }: TextEditorProps) {
   );
 }
 
-export type NoteEditorProps = EditorProps & { element: StickyElement };
+export interface NoteEditorProps extends EditorProps {
+  element: StickyElement;
+}
 
 export function NoteEditor({ element, viewport, onCommit }: NoteEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text, onCommit, { finishes: finishesText });
@@ -182,7 +191,10 @@ export function NoteEditor({ element, viewport, onCommit }: NoteEditorProps) {
   );
 }
 
-export type LabelEditorProps = EditorProps & { element: Connector; middle: XY };
+export interface LabelEditorProps extends EditorProps {
+  element: Connector;
+  middle: XY;
+}
 
 export function LabelEditor({ element, middle, viewport, onCommit }: LabelEditorProps) {
   const { value, inputProps } = useInlineEditor(element.text ?? "", onCommit, {

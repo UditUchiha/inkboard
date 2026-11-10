@@ -103,7 +103,11 @@ export function EquationDialog({ strokes, onClose, onInsert }: EquationDialogPro
   );
 }
 
-function Typeset({ tex }: { tex: string }) {
+interface TypesetProps {
+  tex: string;
+}
+
+function Typeset({ tex }: TypesetProps) {
   const [, redraw] = useReducer((count: number) => count + 1, 0);
   useEffect(() => onFormulasChanged(redraw), []);
   const formula = formulaOf(`$$${tex}$$`);

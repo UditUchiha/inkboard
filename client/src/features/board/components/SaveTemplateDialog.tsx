@@ -1,29 +1,31 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FormEvent } from "react";
 import { Button } from "../../../components/Button";
 import { Dialog } from "../../../components/Dialog";
 import { TextField } from "../../../components/Field";
 import { errorMessage } from "../../../lib/api";
 
-type SaveTemplateDialogProps = {
+interface SaveTemplateDialogProps {
   open: boolean;
   onClose: () => void;
   defaultTitle: string;
   // Rejects with the message to show if saving fails.
   onSave: (title: string) => Promise<void>;
-};
+}
 
 export function SaveTemplateDialog({ open, onClose, defaultTitle, onSave }: SaveTemplateDialogProps) {
   const [title, setTitle] = useState(defaultTitle);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  const [shown, setShown] = useState({ open, defaultTitle });
+  if (shown.open !== open || shown.defaultTitle !== defaultTitle) {
+    setShown({ open, defaultTitle });
     if (open) {
       setTitle(defaultTitle);
       setError("");
     }
-  }, [open, defaultTitle]);
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

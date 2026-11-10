@@ -4,12 +4,12 @@ import { useEffect } from "react";
 import { IconButton } from "../../../components/Button";
 import { isPressable, isTypingTarget } from "../lib/domTargets";
 
-export type PresenterProps = {
+export interface PresenterProps {
   slides: FrameElement[];
   index: number;
   onIndex: (index: number) => void;
   onExit: () => void;
-};
+}
 
 export function Presenter({ slides, index, onIndex, onExit }: PresenterProps) {
   const last = slides.length - 1;
