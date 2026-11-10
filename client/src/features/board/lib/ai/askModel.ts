@@ -162,7 +162,9 @@ const unreachable = (provider: Provider) =>
 
 function statusError(provider: Provider, status: number | undefined, message: string, model: string) {
   const { label } = provider;
-  if (status === 401) return new AiError(`${label} didn't accept that key. Check it, or make a new one.`);
+  // Gemini answers a bad key with 400 rather than 401.
+  const badKey = status === 401 || (status === 400 && /api key/i.test(message));
+  if (badKey) return new AiError(`${label} didn't accept that key. Check it, or make a new one.`);
   if (status === 403) return new AiError(`That ${label} key isn't allowed to use ${model}.`);
   if (status === 404) return new AiError(`${label} doesn't offer the model "${model}". Pick another one.`);
   if (status === 429) return new AiError(`Your ${label} account has reached a limit for now. Wait, or check billing.`);

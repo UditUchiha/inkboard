@@ -91,6 +91,11 @@ describe("OpenAI-compatible providers", () => {
   it("explains a bad key, an unknown model, a refusal and a cut-off answer", async () => {
     serve([401, { error: { message: "Incorrect API key" } }]);
     await assert.rejects(ask(), /OpenAI didn't accept that key/);
+    serve([400, [{ error: { message: "API key not valid. Please pass a valid API key." } }]]);
+    await assert.rejects(
+      ask({ provider: "gemini", keys: { gemini: "k" }, models: {} }),
+      /Gemini didn't accept that key/,
+    );
     serve([404, [{ error: { message: "model not found" } }]]);
     await assert.rejects(ask(), /doesn't offer the model "gpt-test"/);
     serve([200, { choices: [{ finish_reason: "stop", message: { content: null, refusal: "No." } }] }]);
