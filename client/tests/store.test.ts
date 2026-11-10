@@ -3,13 +3,8 @@ import { describe, it } from "node:test";
 import { FIELD_GROUPS, MAX_VERSION } from "@inkboard/shared/board-merge";
 import type { Effect, Element, ShapeElement, StackMove, StickyElement, Tombstones } from "@inkboard/shared/types";
 import type { Style } from "../src/features/board/constants/board.ts";
-import {
-  createElement,
-  createImage,
-  createNote,
-  duplicate,
-  stackKey,
-} from "../src/features/board/lib/elements/elements.ts";
+import { createElement, createImage, createNote, duplicate } from "../src/features/board/lib/elements/elements.ts";
+import { stackKey } from "../src/features/board/lib/elements/order.ts";
 import { applyOperation, createBoardStore } from "../src/features/board/lib/sync/store.ts";
 import type { BoardStore } from "../src/features/board/lib/sync/store.ts";
 

@@ -13,11 +13,10 @@ import {
   getBounds,
   inDrawOrder,
   nextFrameName,
-  slideFrames,
-  stackKey,
   translate,
   withContents,
 } from "../src/features/board/lib/elements/elements.ts";
+import { slideFrames, stackKey } from "../src/features/board/lib/elements/order.ts";
 import { LINE_HEIGHT } from "../src/features/board/constants/board.ts";
 import { layoutNote, MIN_NOTE_FONT_SIZE, NOTE_PADDING, wrapLines } from "../src/features/board/lib/elements/notes.ts";
 import { loadCanvasFonts } from "../src/features/board/lib/render/renderer.ts";
