@@ -8,8 +8,7 @@ export function notFound(req: Request, res: Response, next: NextFunction) {
 
 const DUPLICATE_KEY = 11000;
 
-// What other libraries put on the errors they throw (body-parser, MongoDB, Express itself).
-// Anything can be thrown, so every field is optional, and the error itself may be missing.
+// libraries (body-parser, MongoDB, Express itself) put these on errors they throw; anything can be thrown, so every field is optional
 interface LibraryError {
   type?: string;
   code?: number | string;
@@ -18,7 +17,7 @@ interface LibraryError {
 }
 
 export function errorHandler(err: LibraryError | null | undefined, req: Request, res: Response, next: NextFunction) {
-  // Too late to send a different answer; let Express close the connection.
+  // too late to send a different answer; let Express close the connection
   if (res.headersSent) return next(err);
 
   if (err instanceof HttpError) {
@@ -34,14 +33,11 @@ export function errorHandler(err: LibraryError | null | undefined, req: Request,
   if (err?.type === "entity.too.large") {
     return res.status(413).json({ error: "The request is too large." });
   }
-  // Two requests racing to create the same unique thing (a sign-up, say): the loser lost fair and square.
-  // The error's key values hold personal details, so they're not logged or sent.
+  // two requests racing to create the same unique thing: the loser lost fair and square. The key values hold personal details, so they're not logged or sent.
   if (err?.code === DUPLICATE_KEY) {
     return res.status(409).json({ error: "That already exists." });
   }
-  // Mistakes in the request that other libraries report with a status of their own
-  // (a malformed URL, an unsupported Content-Encoding) aren't server faults.
-  // `Number.isInteger` below turns away anything that isn't a number (including undefined), which the types can't follow.
+  // request mistakes that libraries report with their own status (malformed URL, unsupported Content-Encoding) aren't server faults
   const status = (err?.status ?? err?.statusCode) as number;
   if (Number.isInteger(status) && status >= 400 && status < 500) {
     return res.status(status).json({ error: "The request couldn't be read." });

@@ -19,21 +19,18 @@ import {
 import { requireAuth } from "../middleware/auth.ts";
 import { limitPerUser } from "../middleware/user-limit.ts";
 
-// Every comment can notify people, so they are rationed.
 const commenting = limitPerUser({
   windowMs: 60 * 1000,
   limit: 40,
   message: "You're commenting very quickly. Wait a moment and try again.",
 });
 
-// Reacting notifies nobody, but each one is sent to everyone on the board.
 const reacting = limitPerUser({
   windowMs: 60 * 1000,
   limit: 120,
   message: "You're reacting very quickly. Wait a moment and try again.",
 });
 
-// Mounted at /api/boards/:boardId/versions
 export const versionRoutes = Router({ mergeParams: true });
 versionRoutes.use(requireAuth);
 versionRoutes.get("/", listVersions);
@@ -42,7 +39,6 @@ versionRoutes.get("/:versionId", getVersion);
 versionRoutes.post("/:versionId/restore", restoreVersion);
 versionRoutes.delete("/:versionId", deleteVersion);
 
-// Mounted at /api/boards/:boardId/threads
 export const threadRoutes = Router({ mergeParams: true });
 threadRoutes.use(requireAuth);
 threadRoutes.get("/", listThreads);
@@ -52,14 +48,12 @@ threadRoutes.put("/:threadId/messages/:messageId/reactions", reacting, reactToMe
 threadRoutes.patch("/:threadId", updateThread);
 threadRoutes.delete("/:threadId", deleteThread);
 
-// Mounted at /api/templates
 export const templateRoutes = Router();
 templateRoutes.use(requireAuth);
 templateRoutes.get("/", listTemplates);
 templateRoutes.post("/", createTemplate);
 templateRoutes.delete("/:templateId", deleteTemplate);
 
-// Mounted at /api/notifications
 export const notificationRoutes = Router();
 notificationRoutes.use(requireAuth);
 notificationRoutes.get("/", listNotifications);

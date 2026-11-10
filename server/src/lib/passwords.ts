@@ -3,12 +3,9 @@ import type { BinaryLike, ScryptOptions } from "node:crypto";
 import { promisify } from "node:util";
 import bcrypt from "bcryptjs";
 
-// Passwords are hashed with scrypt, which runs on libuv's thread pool so a login
-// doesn't stall the event loop (bcryptjs is plain JavaScript and does). Hashes made
-// with bcrypt before that are still accepted, and are replaced at the next login
-// (see waitOutSlowestCheck for what the slower check means for failed logins).
-// Stored as `scrypt$N$r$p$salt$hash` (salt and hash in base64).
-// The type arguments pick promisify's overload for scrypt's form with options, which it wouldn't on its own.
+// scrypt runs on libuv's thread pool, so a login doesn't stall the event loop (bcryptjs is plain JavaScript and does).
+// Older bcrypt hashes are accepted and replaced at the next login. Stored as `scrypt$N$r$p$salt$hash` (base64). The type
+// arguments pick promisify's overload for scrypt's options form.
 const scryptAsync = promisify<BinaryLike, BinaryLike, number, ScryptOptions, Buffer>(scrypt);
 
 type ScryptCost = { N: number; r: number; p: number };
@@ -25,7 +22,6 @@ export async function hashPassword(password: string) {
   return ["scrypt", COST.N, COST.r, COST.p, salt.toString("base64"), key.toString("base64")].join("$");
 }
 
-/** Whether `password` matches `stored`, and whether `stored` should be re-made with the current algorithm. */
 export async function verifyPasswordHash(password: string, stored: string) {
   if (stored.startsWith("scrypt$")) {
     const [, N, r, p, salt, hash] = stored.split("$");
@@ -38,27 +34,21 @@ export async function verifyPasswordHash(password: string, stored: string) {
   return { ok, needsRehash: ok };
 }
 
-// Compared against when no account matches, so that answering takes as long as it
-// does for a real one and the response time doesn't reveal who has an account.
+// compared against when no account matches, so answering takes as long and the response time doesn't reveal who has an account
 const decoy = hashPassword(randomBytes(16).toString("base64"));
 export async function spendPasswordTime(password: string) {
   await verifyPasswordHash(password, await decoy);
 }
 
-// A bcrypt check takes about twice as long as an scrypt one, so a wrong guess at an account still on an
-// old bcrypt hash would answer later than one at no account, and give away that a dormant account uses
-// the address. Failed logins therefore wait until a bcrypt check would have finished. Matching it with a
-// timer rather than with more hashing keeps the event loop and the CPU free while the answer waits. (The
-// bcrypt checks themselves run on the event loop, but bcryptjs gives it back every 100 ms or so.)
-// The decoy is a hash of a random string at cost 12, the cost the old hashes were made with.
+// A bcrypt check takes about twice as long as scrypt, so a wrong guess at an account still on bcrypt would answer later
+// than one at no account and give away that it exists. Failed logins therefore wait until a bcrypt check would have
+// finished, by timer rather than more hashing, which keeps the event loop and CPU free. The decoy is a cost-12 hash, the
+// cost the old hashes used.
 const LEGACY_DECOY = "$2b$12$2VHidUVRV7tXCUQS/wirVOg1H6mWk2ZJZhAQhYyKHvOl3XtkLOvWy";
 
-// How long that takes is measured, not guessed, and a single measurement can be wrong either way: one
-// taken while the server is busy (someone can arrange that right after a restart) would make every
-// failed login wait that long, and one taken too fast would let dormant bcrypt accounts show. So the
-// shortest of the last few measurements is used (a busy moment can't stay in it for long, and a lucky
-// one is held to the floor below), new ones are taken now and then, and the result is kept within what a
-// bcrypt check at this cost can reasonably take.
+// The wait is measured, and one measurement can be wrong either way: taken while the server is busy (arrangeable right
+// after a restart) it would stall every failed login, and taken too fast it would let bcrypt accounts show. So the
+// shortest of the last few is used, new ones are taken now and then, and the result is clamped to what a bcrypt check can reasonably take.
 const SAMPLE_WINDOW = 9;
 const FIRST_SAMPLES = 3;
 const REFRESH_EVERY_MS = 5 * 60 * 1000;
@@ -71,18 +61,13 @@ async function timeLegacyCheck() {
   return performance.now() - started;
 }
 
-/** What `createCheckTimer` can be given in place of the real measurement, clock and wait (tests do). */
 export interface CheckTimerOptions {
   measure?: () => Promise<number>;
   now?: () => number;
   sleep?: (ms: number) => Promise<unknown>;
 }
 
-/**
- * Keeps the timing described above. `measure`, `now` and `sleep` can be swapped, which tests do.
- * Only the very first failed login waits for a measurement (one); the others that make the minimum
- * steadier are taken in the background, so no later request pays for them.
- */
+// `measure`, `now` and `sleep` can be swapped (tests do). Only the first failed login waits for a measurement; the rest are taken in the background.
 export function createCheckTimer({
   measure = timeLegacyCheck,
   now = () => performance.now(),
@@ -100,7 +85,6 @@ export function createCheckTimer({
     lastSampledAt = now();
   }
 
-  // Further samples, when there are few so far or the last one is old. Never more than one run at a time.
   function topUp() {
     const due = samples.length < FIRST_SAMPLES || now() - lastSampledAt >= REFRESH_EVERY_MS;
     if (!due || background) return;
@@ -118,7 +102,6 @@ export function createCheckTimer({
 
   return {
     slowestMs,
-    /** Waits, without working, until a failed login that began at `startedAt` takes as long as the slowest check. */
     async waitOut(startedAt: number) {
       if (samples.length === 0) await (first ??= sample().finally(() => (first = null)));
       topUp();
@@ -130,5 +113,4 @@ export function createCheckTimer({
 
 const checkTimer = createCheckTimer();
 
-/** Waits, without working, until a failed login that began at `startedAt` (performance.now()) takes as long as the slowest check. */
 export const waitOutSlowestCheck = (startedAt: number) => checkTimer.waitOut(startedAt);

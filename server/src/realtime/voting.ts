@@ -2,30 +2,20 @@ import { MAX_VOTES_PER_PERSON, VOTABLE_TYPES } from "@inkboard/shared/limits";
 import type { Voting } from "@inkboard/shared/socket";
 import type { ElementType } from "@inkboard/shared/types";
 
-// Dot voting on a board. Someone who can edit starts a round, giving each person a few votes to put on notes,
-// shapes, text, pictures or frames, one each at most. Each person sees only their own votes (and how many people
-// have voted) until the round ends, so nobody follows the crowd; then everyone sees the results. A round lives
-// with the board's open session and is saved with the board, so it's still there when everyone has left and comes back.
+// Dot voting: an editor starts a round, giving each person a few votes to put on elements, one each at most. Each person
+// sees only their own votes until the round ends, so nobody follows the crowd. A round is saved with the board.
 
-/** A round as the session keeps it: whether it's open, the votes each person has, and each person's votes, by their id. */
 export type VotingState = { open: boolean; votes: number; ballots: Map<string, Set<string>> };
 
-/** Who sent a vote event, and what the board holds. */
 export type Voter = {
-  // The person's id: their account's, or their guest id.
   id: string;
-  // Whether they can edit the board, which starting, ending and clearing a round needs.
   canRun: boolean;
-  // The type of the element with this id on the board, or undefined if there's none.
   typeOf: (id: string) => ElementType | undefined;
 };
 
 const VOTABLE = new Set<string | undefined>(VOTABLE_TYPES);
 
-/**
- * The round after a `vote` event: a new state, null once it's cleared, or undefined when the event isn't one (a
- * browser can send anything), isn't the sender's to make, or changes nothing.
- */
+// undefined when the event isn't one (a browser can send anything), isn't the sender's to make, or changes nothing
 export function nextVoting(state: VotingState | null, payload: unknown, voter: Voter): VotingState | null | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   const { action, votes, id } = payload as { action?: unknown; votes?: unknown; id?: unknown };
@@ -55,7 +45,6 @@ export function nextVoting(state: VotingState | null, payload: unknown, voter: V
   }
 }
 
-/** The round as the person with this id sees it (see Voting), or null if there's none. */
 export function votingFor(state: VotingState | null, voterId: string): Voting | null {
   if (!state) return null;
   const sets = [...state.ballots.values()];
@@ -73,13 +62,12 @@ export function votingFor(state: VotingState | null, voterId: string): Voting | 
   };
 }
 
-/** A round as it's saved with the board: each person's votes as [their id, element ids] (a Map doesn't save). */
+// a Map doesn't save, so votes are [id, element ids] pairs
 export type SavedVoting = { open: boolean; votes: number; ballots: [string, string[]][] };
 
 export const savedVoting = (state: VotingState | null): SavedVoting | null =>
   state && { open: state.open, votes: state.votes, ballots: [...state.ballots].map(([id, ids]) => [id, [...ids]]) };
 
-/** A round as it was saved with the board, or null if what's there isn't one. Ballots that aren't any are left out. */
 export function readVoting(saved: unknown): VotingState | null {
   if (!saved || typeof saved !== "object") return null;
   const { open, votes, ballots } = saved as { open?: unknown; votes?: unknown; ballots?: unknown };

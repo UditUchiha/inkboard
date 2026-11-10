@@ -22,47 +22,16 @@ import type {
   Tombstones,
 } from "./types.ts";
 
-// How a board takes in changes. The browser and the server both apply these
-// rules, so everyone who has seen the same changes has the same board, whatever
-// order the changes arrived in. (In the literature this is a state-based CRDT:
-// a map of last-writer-wins registers, with tombstones for removed entries.)
-//
-// Every change is an operation: { upsert: Element[], remove: Removal[] }.
-//
-// Stamps. Each change is stamped with a `version` (one past the newest the
-// person making it had seen) and a random `versionNonce`. Of two stamps, the
-// higher version is newer, and for the same version the lower nonce.
-//
-// Property groups. An element's properties are split into groups that change
-// independently: where it is and how big (its shape), its text, its stroke
-// color, its fill, and so on. Each group carries its own stamp, so when one
-// person moves a shape while another recolors it, both changes are kept. The
-// fields of a group always change together: a move never mixes one person's
-// corners with another's.
-//
-// An element stores its newest stamp as `version` / `versionNonce`, and lists
-// in `stamps` ({ group: [version, nonce] }) only the groups whose stamp is older.
-//
-// Removals. A removal ({ id, version, versionNonce }) hides an element if it's
-// newer than everything in the element. The element is then kept as a
-// tombstone, with the removal's stamp and its last data, so that a change
-// made before the removal and arriving after it can't bring it back, while a
-// newer change (an undo, say) can, and merges with what was there.
-//
-// Text. A change that types into a text carries its `base`, the text it was
-// typed against. Where the text has changed since, the two are merged letter by
-// letter rather than the newer replacing the other (see text-merge.ts), and the
-// result is stamped newer than both. Unlike the rest, that depends on the order
-// changes arrive in, so the server's order is the one that counts: it sends the
-// merged text to everyone, the sender included.
+// The merge rules, applied by the browser and the server alike so everyone who has seen the same changes has the same
+// board in any order (a state-based CRDT: last-writer-wins registers per property group, plus tombstones). Stamps,
+// property groups, removals and typing merges are explained in docs/realtime-sync.md. Typing is the one rule that depends on
+// arrival order, so the server's order counts: it sends the merged text to everyone, the sender included.
 
 export const FIELD_GROUPS: Record<FieldGroup, readonly string[]> = {
-  // A connector's ends and the shapes (and sides) they're attached to change together.
   shape: [
     "type",
     "seed",
     "imageId",
-    // Cropping a picture moves its box too, so the two change together.
     "crop",
     "x1",
     "y1",
@@ -77,7 +46,6 @@ export const FIELD_GROUPS: Record<FieldGroup, readonly string[]> = {
     "angle",
     "fontSize",
   ],
-  // A picture's description is its text.
   text: ["text", "alt"],
   stroke: ["stroke"],
   fill: ["fill"],
@@ -90,51 +58,40 @@ export const FIELD_GROUPS: Record<FieldGroup, readonly string[]> = {
   startHead: ["startHead"],
   index: ["index"],
 };
-// Every field an element can have belongs to exactly one group. A field that
-// isn't listed here doesn't survive a merge.
+// a field not listed here doesn't survive a merge
 
 const ALWAYS: readonly FieldGroup[] = ["shape", "index"];
-// Object.keys can only say "strings"; these are the keys of FIELD_GROUPS, so they are field groups.
+// Object.keys says only "strings"; these are the keys of FIELD_GROUPS
 const OPTIONAL = (Object.keys(FIELD_GROUPS) as FieldGroup[]).filter((group) => !ALWAYS.includes(group));
 const META = new Set(["id", "version", "versionNonce", "stamps"]);
 
-// Far beyond any real board (each edit adds one), and far below where numbers
-// stop being exact. A version past it is refused, or one change could put an
-// element where no later version can follow it.
+// far beyond any real board and far below where numbers stop being exact; a version past it is refused, or one change could put an element where no later version can follow
 export const MAX_VERSION = 2 ** 48;
 
-// How far ahead of what a board knows of an element a change to it may be stamped
-// (see the server's prepareOperation): far more edits than anyone makes while
-// offline, but too few for a forged version to leave an element out of reach.
+// far more edits than anyone makes offline, but too few for a forged version to leave an element out of reach (see the server's prepareOperation)
 export const MAX_VERSION_JUMP = 1_000_000;
 
-// Number.isSafeInteger and Number.isInteger only return a boolean, so TypeScript doesn't learn from them that
-// `value` is a number; the casts say what the first check has already settled.
+// the casts: Number.isSafeInteger and Number.isInteger return a boolean, so TypeScript doesn't narrow `value`
 export const isVersion = (value: unknown): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= MAX_VERSION;
 export const isNonce = (value: unknown): value is number =>
   Number.isInteger(value) && (value as number) >= 0 && (value as number) < 2 ** 31;
 
-/** The stamp of an element (its newest), or of a removal. Missing parts count as 0. */
 export const stampOf = (stamped?: MaybeStamped | null): Stamp => ({
   version: isVersion(stamped?.version) ? stamped.version : 0,
   versionNonce: isNonce(stamped?.versionNonce) ? stamped.versionNonce : 0,
 });
 
-/** Positive when stamp `a` is newer than `b`, negative when older, 0 when they're the same stamp. */
 export function compareStamps(a: Stamp, b: Stamp): number {
   if (a.version !== b.version) return a.version - b.version;
   return b.versionNonce - a.versionNonce;
 }
 
-/** Whether the change `incoming` wins over `current`, by their newest stamps. */
 export const supersedes = (incoming: MaybeStamped, current: MaybeStamped): boolean =>
   compareStamps(stampOf(incoming), stampOf(current)) >= 0;
 
-/** Whether a removal or element carries a stamp (changes from older browsers don't). */
 export const isStamped = (change?: MaybeStamped | null): boolean => isVersion(change?.version);
 
-/** The groups an element has: its shape, its place in the stack, and whichever others it uses. */
 export function groupsOf(element: Element): FieldGroup[] {
   const groups = [...ALWAYS];
   for (const group of OPTIONAL) {
@@ -143,13 +100,11 @@ export function groupsOf(element: Element): FieldGroup[] {
   return groups;
 }
 
-/** `stamps` as an element may list them, or undefined if there's nothing valid. */
 export function cleanStamps(stamps: unknown): ElementStamps | undefined {
   if (!stamps || typeof stamps !== "object" || Array.isArray(stamps)) return undefined;
   const clean: ElementStamps = {};
-  // Object.keys can only say "strings"; these are the keys of FIELD_GROUPS, so they are field groups.
+  // Object.keys says only "strings"; these are the keys of FIELD_GROUPS
   for (const group of Object.keys(FIELD_GROUPS) as FieldGroup[]) {
-    // Only an object that isn't an array got this far, and each entry is checked below before it's used.
     const pair = (stamps as Record<string, unknown>)[group];
     if (Array.isArray(pair) && pair.length === 2 && isVersion(pair[0]) && isNonce(pair[1]))
       clean[group] = [pair[0], pair[1]];
@@ -157,7 +112,6 @@ export function cleanStamps(stamps: unknown): ElementStamps | undefined {
   return Object.keys(clean).length > 0 ? clean : undefined;
 }
 
-/** The stamp of each of an element's groups: { group: { version, versionNonce } }. */
 export function groupStamps(element: Element): GroupStamps {
   const newest = stampOf(element);
   const listed = element.stamps;
@@ -172,7 +126,6 @@ export function groupStamps(element: Element): GroupStamps {
   return stamps;
 }
 
-/** The element made of `fields` with each group stamped as in `stamps`. */
 export function withStamps(fields: Fields, stamps: GroupStamps): Element {
   let newest: Stamp | null = null;
   for (const stamp of Object.values(stamps)) {
@@ -183,13 +136,10 @@ export function withStamps(fields: Fields, stamps: GroupStamps): Element {
     if (!META.has(key)) element[key] = value;
   }
   const older: ElementStamps = {};
-  // Each `newest!` below is safe because `stamps` always has the "shape" group (see groupsOf), so the loop
-  // above set `newest`.
-  // Object.entries can only say "strings"; these are the keys of `stamps`, so they are field groups.
+  // `newest!` is safe: `stamps` always has the "shape" group (see groupsOf), so the loop above set it
   for (const [group, stamp] of Object.entries(stamps) as [FieldGroup, Stamp][]) {
     if (compareStamps(stamp, newest!) !== 0) older[group] = [stamp.version, stamp.versionNonce];
   }
-  // Built up field by field from `fields`, which is how any element is kept, so it can't be shown to be one.
   return {
     id: fields.id,
     ...element,
@@ -199,7 +149,6 @@ export function withStamps(fields: Fields, stamps: GroupStamps): Element {
   } as Element;
 }
 
-/** Copies the fields of `group` from `source` onto `target` (removing those `source` doesn't have). */
 export function copyGroup(target: Fields, source: Fields, group: FieldGroup): void {
   for (const field of FIELD_GROUPS[group]) {
     if (field in source) target[field] = source[field];
@@ -207,20 +156,14 @@ export function copyGroup(target: Fields, source: Fields, group: FieldGroup): vo
   }
 }
 
-/**
- * Two copies of the same element merged: each group from whichever copy has
- * it newer. Returns `current` when `incoming` adds nothing, and `incoming`
- * when it's newer throughout. A copy that doesn't have a group at all (a
- * connector made without a label, say) has no say in it, so a change to
- * something else never takes the group away; to clear a field, set it to an
- * empty value ("", null) rather than leaving it out. Text `incoming` typed
- * against an older text (its `base`) is merged with what's there (see
- * mergeTyping). What's returned never has a base.
- */
+// Each group comes from whichever copy has it newer. Returns `current` when `incoming` adds nothing, and `incoming` when it's
+// newer throughout. A copy without a group at all (a connector made without a label, say) has no say in it, so a change to
+// something else never takes the group away; to clear a field, set it to an empty value ("", null). Text typed against an
+// older text (its `base`) is merged with what's there (see mergeTyping). The result never has a base.
 export function mergeElement(current: Element, incoming: Element): Element {
   const mine = groupStamps(current);
   const theirs = groupStamps(incoming);
-  // Object.keys can only say "strings"; these are the keys of group stamps, so they are field groups.
+  // Object.keys says only "strings"; these are the keys of group stamps
   const groups = new Set([...(Object.keys(mine) as FieldGroup[]), ...(Object.keys(theirs) as FieldGroup[])]);
   const won = new Set<FieldGroup>();
   for (const group of groups) {
@@ -247,14 +190,9 @@ export function mergeElement(current: Element, incoming: Element): Element {
   return withStamps(fields, stamps);
 }
 
-/**
- * The text fields `incoming` typed into, where `current` has changed since its
- * base, merged (see mergeText), each with its stamp: one version past the newer
- * of the two, with `incoming`'s nonce, so the same two changes merge to the
- * same element anywhere. A merge that comes to the newer side's text as it is
- * just keeps that side, as last writer wins would; `won` is brought in line with
- * the rest. Where no merge can be made, the newer change wins as usual.
- */
+// The text fields `incoming` typed into where `current` changed since its base, merged (see mergeText) and stamped one
+// version past the newer of the two with `incoming`'s nonce, so the same two changes merge to the same element anywhere.
+// A merge that comes to the newer side's text just keeps that side. Where no merge can be made, the newer change wins.
 function mergeTyping(
   current: Element,
   incoming: Element,
@@ -263,10 +201,9 @@ function mergeTyping(
   won: Set<FieldGroup>,
 ): Map<TextField, { text: string; stamp: Stamp }> {
   const typed = new Map<TextField, { text: string; stamp: Stamp }>();
-  // Object.entries can only say "strings"; these are the keys of a change's bases, so they are text fields.
+  // Object.entries says only "strings"; these are the keys of a change's bases
   for (const [field, splice] of Object.entries(incoming.base ?? {}) as [TextField, Splice][]) {
     const { group, max } = TEXT_FIELDS[field];
-    // Read by name: the field is a text, a name or a description, depending on the element.
     const now = (current as Fields)[field];
     const sent = (incoming as Fields)[field];
     const ours = mine[group];
@@ -274,7 +211,7 @@ function mergeTyping(
     if (typeof now !== "string" || typeof sent !== "string" || !ours || !others) continue;
     const merged = mergeText(textBefore(sent, splice), now, sent, max);
     if (merged === null || (merged === sent && won.has(group)) || (merged === now && !won.has(group))) continue;
-    // The text isn't the newer change's, so it's stamped past both: a copy of either sent again can't replace it.
+    // stamped past both: a copy of either sent again can't replace it
     won.delete(group);
     const newer = compareStamps(ours, others) > 0 ? ours : others;
     typed.set(field, {
@@ -287,9 +224,7 @@ function mergeTyping(
 
 const removalOf = (entry: Removal | string): Removal => (typeof entry === "string" ? { id: entry } : entry);
 
-// The elements by id as a plan sees them: `index` (the board as it was) with the
-// plan's changes laid over it, which `settle` then writes into `index`, so a
-// board that keeps an index never has to build one per operation.
+// the board's index with the plan's changes laid over it, which `settle` writes into `index`, so a board that keeps an index never builds one per operation
 class Overlay implements LiveElements {
   declare index: Map<string, Element>;
   declare changes: Map<string, Element | null>;
@@ -319,25 +254,11 @@ class Overlay implements LiveElements {
   }
 }
 
-/**
- * Works out what `op` does to `elements`, without changing anything:
- *
- * - `live`: every element visible afterwards, by id
- * - `shown`: elements added or changed (as they now are)
- * - `buried`: removed elements whose remembered data changed (as it now is)
- * - `hidden`: removals that took effect, by id (their stamps)
- * - `graves`: tombstones to set (or null to clear) in `tombstones`
- * - `added`: ids of elements that weren't on the board before
- *
- * `tombstones` maps a removed element's id to { version, versionNonce, element? }.
- *
- * Options: `index`, a Map of `elements` by id that the caller keeps up to date,
- * which saves building one (commitPlan brings it up to date); and `remember`,
- * which says whether a removal of an element nobody has seen is remembered
- * (it is by default, so the element stays gone if it turns up late; the server,
- * which sees every element before anyone can remove it, turns this off, or
- * anyone could fill its memory with removals of made-up ids).
- */
+// Works out what `op` does to `elements` without changing anything. `live`: every element visible afterwards; `shown`:
+// added or changed; `buried`: removed elements whose remembered data changed; `hidden`: removals that took effect;
+// `graves`: tombstones to set (null clears); `added`: ids new to the board. `index` is a Map of `elements` the caller keeps
+// current, which saves building one. `remember` (default true) keeps a removal of an element nobody has seen, so it stays
+// gone if it turns up late; the server turns it off, or anyone could fill its memory with removals of made-up ids.
 export function planOperation(
   elements: Element[],
   { upsert = [], remove = [] }: Operation,
@@ -358,7 +279,6 @@ export function planOperation(
     const removal = removalOf(entry);
     const current = live.get(removal.id);
     if (current) {
-      // A removal from an older browser has no stamp: it removes whatever is there.
       const stamp = isStamped(removal) ? stampOf(removal) : { version: stampOf(current).version + 1, versionNonce: 0 };
       if (compareStamps(stamp, stampOf(current)) < 0) continue;
       live.delete(removal.id);
@@ -376,7 +296,6 @@ export function planOperation(
   }
 
   for (const change of upsert) {
-    // A board keeps no bases: they only say what a change was typed against (see mergeElement).
     const element = change.base ? withoutBase(change) : change;
     const current = live.get(element.id);
     if (current) {
@@ -395,7 +314,6 @@ export function planOperation(
       added.add(element.id);
       if (tombstone) graves.set(element.id, null);
     } else if (data !== tombstone.element) {
-      // Still removed, but remembered, in case a newer change brings it back.
       graves.set(element.id, { ...tombstone, element: data });
       buried.set(element.id, data);
     }
@@ -404,17 +322,12 @@ export function planOperation(
   return { elements, live, shown, buried, hidden, graves, added };
 }
 
-/**
- * What a plan changed, as an operation to pass on to everyone else. That
- * includes changes to removed elements: if one comes back later, everyone must
- * bring back the same thing. Each goes with its removal, so a screen that
- * doesn't know about the removal (it opened the board since) keeps it hidden too.
- */
+// Includes changes to removed elements, so whoever brings one back brings back the same thing everywhere. Each goes with its
+// removal, so a screen that opened the board since keeps it hidden too.
 export function effectOf(plan: Plan): Effect {
   const remove = new Map<string, Stamp>(plan.hidden);
   for (const id of plan.buried.keys()) {
     if (remove.has(id)) continue;
-    // Every buried element had its tombstone set in the same plan (see planOperation), so there is one.
     const { version, versionNonce } = plan.graves.get(id)!;
     remove.set(id, { version, versionNonce });
   }
@@ -424,21 +337,14 @@ export function effectOf(plan: Plan): Effect {
   };
 }
 
-/**
- * Carries out a plan: updates `tombstones` and returns the board's new
- * elements, sorted. At most `limit` elements are kept: new ones past it are
- * dropped (and listed in `dropped`). One dropped on its way back from being
- * removed stays removed, tombstone and all, and its entry leaves `plan.graves`.
- */
+// Returns the new sorted elements. At most `limit` are kept: new ones past it are dropped (listed in `dropped`); one dropped on its way back from removal stays removed, tombstone and all.
 export function commitPlan(plan: Plan, tombstones: Tombstones, { limit = Infinity }: CommitOptions = {}): CommitResult {
   if (plan.shown.size === 0 && plan.hidden.size === 0) {
     setGraves(plan.graves, tombstones);
     plan.live.settle?.();
     return { elements: plan.elements, dropped: [] };
   }
-  // What a plan changes is in `shown` and `hidden`, which are usually small, so the board is gone
-  // through once looking only in those. (An element removed and brought back by the same change is
-  // in `hidden` and in `added`, and goes with the new ones.)
+  // what a plan changes is in `shown` and `hidden`, usually small, so the board is gone through once, looking only in those
   const next: Element[] = [];
   let reorder = false;
   for (const element of plan.elements) {
@@ -447,15 +353,13 @@ export function commitPlan(plan: Plan, tombstones: Tombstones, { limit = Infinit
     if (now.index !== element.index) reorder = true;
     next.push(now);
   }
-  // New elements usually go on top, above everything, in order: then they're added at the end
-  // rather than the whole board sorted again.
+  // new elements usually go on top, in order, so they're appended rather than the whole board sorted again
   const dropped: string[] = [];
   for (const id of plan.added) {
     if (next.length >= limit) {
       dropped.push(id);
       continue;
     }
-    // An added element is live, and `.at(-1)` finds the last one because `next` isn't empty (checked first).
     const element = plan.live.get(id)!;
     if (next.length > 0 && compareOrder(next.at(-1)!, element) > 0) reorder = true;
     next.push(element);
@@ -477,10 +381,6 @@ function setGraves(graves: Map<string, Tombstone | null>, tombstones: Tombstones
   }
 }
 
-/**
- * Applies `op` to `elements` and returns the new list (the old one isn't
- * changed). `tombstones` is read and updated.
- */
 export function applyOperation(
   elements: Element[],
   op: Operation,

@@ -7,32 +7,18 @@ import mongoose from "mongoose";
 import type { R2Settings } from "../config/env.ts";
 import type { ObjectIdLike } from "./boards.ts";
 
-// Where uploaded images live. Everything else talks to the functions in this
-// file (see docs/image-storage.md). Each image has an entry in the `images.files`
-// collection (its name, size, type and board), which the space limits and sweeps
-// look images up by. Its bytes are kept in one of two places:
-//
-// - MongoDB itself, using GridFS: cut into 255 KB chunks stored as ordinary
-//   documents in `images.chunks`. Used when R2 isn't set up.
-// - Cloudflare R2, once R2_* are set (see env.r2): the entry says `storage: "r2"`.
-//   Images uploaded before stay in GridFS and are still served from there, until
-//   scripts/move-images-to-r2.ts moves them.
-//
-// Each image can also have a small copy (about 400 px) that thumbnails draw
-// from, stored under "<id>.small". It goes wherever its image goes.
-//
-// An image's id is 128 random bits. Anyone who can see a board gets the ids in
-// its elements and can fetch the image; nobody can guess an id they weren't given.
+// Where uploaded images live (see docs/image-storage.md). Each has an entry in `images.files` (name, size, type, board),
+// which the space limits and sweeps look up by. The bytes are in GridFS when R2 isn't set up, or in R2 (entry says
+// `storage: "r2"`); older images stay in GridFS until scripts/move-images-to-r2.ts moves them. A small copy
+// (about 400 px, for thumbnails) is stored as "<id>.small" and goes wherever its image goes.
 
 const BUCKET = "images";
 
-/** An image's bytes with the type they were detected as. */
 export interface ImageContent {
   buffer: Buffer;
   mime: string;
 }
 
-/** What is stored beside each image: the board it belongs to, who added it, and, for a small copy, the image it is of. */
 interface ImageMetadata {
   board: string;
   mime: string;
@@ -40,18 +26,15 @@ interface ImageMetadata {
   of?: string;
 }
 
-/** A document of the `images.files` collection, which GridFS keeps for each stored file (and R2's are kept like). */
 interface ImageFile {
   _id: mongoose.Types.ObjectId;
   filename: string;
   length: number;
   uploadDate: Date;
   metadata?: ImageMetadata;
-  // Set when the bytes are in R2 rather than in `images.chunks`.
   storage?: "r2";
 }
 
-/** Narrows images to some boards' (all boards' if `boards` is left out) and to those uploaded before a moment. */
 export interface ImageFilter {
   boards?: readonly ObjectIdLike[];
   uploadedBefore?: Date;
@@ -61,12 +44,10 @@ let bucket: mongoose.mongo.GridFSBucket | undefined;
 let bucketDb: mongoose.mongo.Db | undefined;
 
 function getBucket() {
-  // The connection is open by the time anyone stores or reads an image, which the type can't know.
   const db = mongoose.connection.db!;
   if (!bucket || bucketDb !== db) {
     bucket = new mongoose.mongo.GridFSBucket(db, { bucketName: BUCKET });
     bucketDb = db;
-    // Looking images up by board (for the space limits and for cleanup) needs this.
     files()
       .createIndex({ "metadata.board": 1 })
       .catch(() => {});
@@ -74,14 +55,11 @@ function getBucket() {
   return bucket;
 }
 
-// Open by the time anyone stores or reads an image, as in getBucket.
 const files = () => mongoose.connection.db!.collection<ImageFile>(`${BUCKET}.files`);
 
 const smallName = (id: string) => `${id}.small`;
 
-// Narrows a query to some boards' images (all images when `boards` is left out),
-// and to those uploaded before a moment. Small copies count towards space used
-// but aren't listed: they belong to their image.
+// small copies count towards space used but aren't listed: they belong to their image
 function matching({ boards, uploadedBefore }: ImageFilter = {}, { withSmall = false }: { withSmall?: boolean } = {}) {
   const query: {
     "metadata.of"?: { $exists: boolean };
@@ -93,15 +71,14 @@ function matching({ boards, uploadedBefore }: ImageFilter = {}, { withSmall = fa
   return query;
 }
 
-// A write that hangs would otherwise hold up everything waiting behind it.
+// a write that hangs would otherwise hold up everything waiting behind it
 const WRITE_TIMEOUT_MS = 30_000;
 
-// R2 is S3-compatible: each file is an object under images/<name>, sent with requests signed for S3.
+// R2 is S3-compatible: each file is an object under images/<name>, sent with signed S3 requests
 let r2: { settings: R2Settings; client: AwsClient } | undefined;
 
 async function objectStore() {
-  // Loaded when first needed rather than with this file, which services/boards.ts loads: tests load that before
-  // they set up the environment env.ts reads when it loads.
+  // loaded on first use: tests load services/boards.ts before they set up the environment env.ts reads on load
   const { env } = await import("../config/env.ts");
   const settings = env.r2;
   if (!settings) return null;
@@ -129,18 +106,16 @@ async function objectStore() {
         },
         (status) => status === 200,
       ),
-    // Null when the object isn't there.
     get: async (name: string) => {
       const response = await send(name, { method: "GET" }, (status) => status === 200 || status === 404);
       return response.status === 404 ? null : response;
     },
-    // Gone already counts as deleted.
     delete: (name: string) =>
       send(name, { method: "DELETE" }, (status) => status === 204 || status === 200 || status === 404),
   };
 }
 
-// The store that holds an R2 file's bytes. R2 being turned off doesn't bring its files back into the database.
+// turning R2 off doesn't bring its files back into the database
 async function storeFor(file: ImageFile) {
   const store = await objectStore();
   if (!store) throw new Error(`Image ${file.filename} is in R2, but R2 isn't set up (R2_* aren't set).`);
@@ -179,14 +154,12 @@ function writeToGridFS(filename: string, buffer: Buffer, metadata: ImageMetadata
   });
 }
 
-/** What putImage stores: the image, who added it and, if there is one, its small copy. */
 export interface PutImage extends ImageContent {
   board: ObjectIdLike;
   uploadedBy?: ObjectIdLike | null;
   small?: ImageContent | null;
 }
 
-/** Stores an image, and its small copy `{ buffer, mime }` if given, and returns its id. */
 export async function putImage({ board, buffer, mime, uploadedBy, small }: PutImage) {
   const id = randomBytes(16).toString("hex");
   const metadata = { board: String(board), mime, uploadedBy: uploadedBy ?? null };
@@ -195,7 +168,7 @@ export async function putImage({ board, buffer, mime, uploadedBy, small }: PutIm
     try {
       await write(smallName(id), small.buffer, { ...metadata, mime: small.mime, of: id });
     } catch (error) {
-      // Nobody was given this id, so the image would sit there for good.
+      // nobody was given this id, so the image would sit there for good
       await deleteImages([id]);
       throw error;
     }
@@ -203,10 +176,7 @@ export async function putImage({ board, buffer, mime, uploadedBy, small }: PutIm
   return id;
 }
 
-/**
- * `{ stream, mime, size }` for an image, or null if there is no such image.
- * `small` asks for its small copy, and gets the image itself when it has none.
- */
+// `small` asks for the small copy, falling back to the image itself
 export async function openImage(id: string, { small = false }: { small?: boolean } = {}) {
   if (!IMAGE_ID.test(id)) return null;
   const file =
@@ -214,15 +184,13 @@ export async function openImage(id: string, { small = false }: { small?: boolean
   if (!file) return null;
   if (file.storage === "r2") {
     const response = await (await storeFor(file)).get(file.filename);
-    // An entry whose object is gone reads as an image that has lost its data (see routes/image.routes.ts).
-    // The cast: fetch's body is typed as the browser's stream, which is the same as Node's.
+    // an entry whose object is gone reads as an image that lost its data (see routes/image.routes.ts); fetch's body type is the browser's stream, same as Node's
     const stream = response?.body ? Readable.fromWeb(response.body as NodeReadableStream) : Readable.from([]);
     return { stream, mime: file.metadata?.mime, size: file.length };
   }
   return { stream: getBucket().openDownloadStream(file._id), mime: file.metadata?.mime, size: file.length };
 }
 
-/** Bytes of images held by some boards, or by every board when `boards` is left out. */
 export async function imageBytes({ boards }: Pick<ImageFilter, "boards"> = {}) {
   const [total] = await files()
     .aggregate<{ bytes: number }>([
@@ -233,7 +201,6 @@ export async function imageBytes({ boards }: Pick<ImageFilter, "boards"> = {}) {
   return total?.bytes ?? 0;
 }
 
-/** Bytes of images held by each of some boards (small copies included), by board id. Boards with none are left out. */
 export async function imageBytesByBoard(boards: readonly ObjectIdLike[]) {
   const totals = await files()
     .aggregate<{ _id: string; bytes: number }>([
@@ -244,7 +211,6 @@ export async function imageBytesByBoard(boards: readonly ObjectIdLike[]) {
   return new Map(totals.map((total) => [total._id, total.bytes]));
 }
 
-/** `[{ id, board }]` for images matching `{ boards, uploadedBefore }` (both optional). */
 export async function listImages(filter?: ImageFilter) {
   const found = await files()
     .find(matching(filter), { projection: { filename: 1, "metadata.board": 1 } })
@@ -252,13 +218,11 @@ export async function listImages(filter?: ImageFilter) {
   return found.map((file) => ({ id: file.filename, board: file.metadata?.board }));
 }
 
-// The stored files (small copies too) of those of `ids` that belong to `board`.
 const filesAmong = (board: ObjectIdLike, ids: readonly string[]) =>
   files()
     .find({ "metadata.board": String(board), filename: { $in: [...ids, ...ids.map(smallName)] } })
     .toArray();
 
-/** Bytes the images among `ids` that belong to `board` take, with their small copies. */
 export async function imageBytesAmong(board: ObjectIdLike, ids: readonly string[]) {
   return (await filesAmong(board, ids)).reduce((sum, file) => sum + file.length, 0);
 }
@@ -270,7 +234,6 @@ async function readFile(file: ImageFile) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-/** What copyImages is asked to copy, and where to. */
 export interface CopyImages {
   from: ObjectIdLike;
   to: ObjectIdLike;
@@ -278,11 +241,7 @@ export interface CopyImages {
   uploadedBy?: ObjectIdLike | null;
 }
 
-/**
- * Copies the images among `ids` that belong to board `from` (with their small copies) to board `to`, and resolves
- * with the copies' ids by the originals'. Images of other boards, and ones that are gone, aren't copied. If a copy
- * fails, those made so far are deleted.
- */
+// Images of other boards, and ones that are gone, aren't copied. If a copy fails, those made so far are deleted.
 export async function copyImages({ from, to, ids, uploadedBy }: CopyImages) {
   const found = await filesAmong(from, ids);
   const copies = new Map<string, string>();
@@ -305,7 +264,6 @@ export async function copyImages({ from, to, ids, uploadedBy }: CopyImages) {
   return copies;
 }
 
-/** Deletes images by id, with their small copies. */
 export async function deleteImages(ids: string[]) {
   if (ids.length === 0) return;
   const found = await files()
@@ -320,18 +278,14 @@ export async function deleteImages(ids: string[]) {
         await getBucket().delete(file._id);
       }
     } catch (error) {
-      // Keep going: the rest should still go, and a sweep finds what's left.
-      // Whatever was thrown, a failed delete is an Error.
+      // keep going: the rest should still go, and a sweep finds what's left
       console.error(`Couldn't delete a stored image: ${(error as Error).message}`);
     }
   }
 }
 
-/**
- * Moves the images kept in MongoDB (GridFS) to R2, one at a time, and resolves with how many it moved. Each is
- * written to R2 before its entry says so, and its chunks are deleted after, so it can be stopped and run again.
- * `onMoved` hears of each one. Run it once after setting R2_* (see scripts/move-images-to-r2.ts).
- */
+// Each is written to R2 before its entry says so, and its chunks are deleted after, so it can be stopped and run again.
+// Run once after setting R2_* (see scripts/move-images-to-r2.ts).
 export async function moveImagesToR2(onMoved: (count: number) => void = () => {}) {
   const store = await objectStore();
   if (!store)
@@ -339,7 +293,7 @@ export async function moveImagesToR2(onMoved: (count: number) => void = () => {}
   const chunks = mongoose.connection.db!.collection(`${BUCKET}.chunks`);
   let moved = 0;
   for (const id of await files().distinct("_id", { storage: { $ne: "r2" } })) {
-    // Looked up again: it may have been deleted since the list was made.
+    // looked up again: it may have been deleted since the list was made
     const file = await files().findOne({ _id: id, storage: { $ne: "r2" } });
     if (!file) continue;
     await store.put(file.filename, await readFile(file), file.metadata?.mime ?? "application/octet-stream");
@@ -350,7 +304,6 @@ export async function moveImagesToR2(onMoved: (count: number) => void = () => {}
   return moved;
 }
 
-/** Deletes every image that belongs to a board. */
 export async function deleteBoardImages(board: ObjectIdLike) {
   await deleteImages((await listImages({ boards: [board] })).map((image) => image.id));
 }

@@ -113,7 +113,7 @@ A new notification type, `"suggestion"`, tells the owner, at most once per board
 - **Rate:** the same bucket as board operations (rate-limit.ts), keyed by address for guests.
 - **Element rules:** text and stroke limits are the same as on the board.
 - **Owner controls:** "Reject all" in the panel, and switching the link off. Either one clears a vandalized suggestion layer in one click.
-- **Guest identity:** a guest's id is chosen by their browser (server/src/realtime/index.ts:294), so a guest could pretend to be another guest and withdraw or move their suggestions. Members' decisions can't be faked this way. This is accepted for the first version; a server-issued author key per guest would close it.
+- **Guest identity:** a guest's id is chosen by their browser (server/src/realtime/identity.ts, `guestIdentity`), so a guest could pretend to be another guest and withdraw or move their suggestions. Members' decisions can't be faked this way. This is accepted for the first version; a server-issued author key per guest would close it.
 
 ### What else changes
 
@@ -150,7 +150,7 @@ Steps 3 and 4 are the largest. Step 4 is where the sandbox's merge with live rem
 
 ## Private mode
 
-Private mode reuses suggestions. While a member has it on, everyone else who could change the board is a suggester (`effectiveRole` in `server/src/realtime/index.ts`; their screens are sent `board:role` and join again), and each suggestion goes only to its author's screens, on joining as well. A member's **Reveal** turns it off: roles go back, and every open suggestion is sent to everyone. Whoever turned it on keeps editing, and a guest on an edit link can neither turn it on nor reveal. It is saved with the board (`privateMode`), like the timer.
+Private mode reuses suggestions. While a member has it on, everyone else who could change the board is a suggester (`effectiveRole` in `server/src/realtime/modes.ts`; their screens are sent `board:role` and join again), and each suggestion goes only to its author's screens, on joining as well. A member's **Reveal** turns it off: roles go back, and every open suggestion is sent to everyone. Whoever turned it on keeps editing, and a guest on an edit link can neither turn it on nor reveal. It is saved with the board (`privateMode`), like the timer.
 
 ## Later
 

@@ -1,17 +1,15 @@
 import { fileURLToPath } from "node:url";
 import type { SignOptions } from "jsonwebtoken";
 
-// Load server/.env when present. Variables already set in the environment win.
 try {
   process.loadEnvFile(fileURLToPath(new URL("../../.env", import.meta.url)));
 } catch {
-  // No .env file: rely on the real environment (e.g. on the hosting provider).
+  // no .env file: rely on the real environment (e.g. on the hosting provider)
 }
 
 const mode = process.env.NODE_ENV;
 const isProduction = mode === "production";
-// Built-in development defaults (a signing secret) are only for these two modes. A start without
-// NODE_ENV (a Docker image or a VPS, say) must not quietly sign logins with a secret that's public.
+// development defaults (a signing secret) only for these two modes: a start without NODE_ENV (Docker, a VPS) mustn't quietly sign logins with a public secret
 const isLocal = mode === "development" || mode === "test";
 
 const MIN_SECRET_BYTES = 32;
@@ -46,18 +44,15 @@ function signingSecret() {
   return secret || DEV_SECRET;
 }
 
-/** How long a token lasts: seconds, or text such as "7d" (see jsonwebtoken's `expiresIn`). */
 export type TokenLifetime = NonNullable<SignOptions["expiresIn"]>;
 
-// A bare number such as "3600" would be read by jsonwebtoken as milliseconds; it means seconds.
+// jsonwebtoken reads a bare number such as "3600" as milliseconds; it means seconds
 function lifetime(value: string | undefined): TokenLifetime {
   const text = (value ?? "").trim() || "7d";
-  // jsonwebtoken checks the text's format itself (and throws when signing if it's wrong); the type can't say that.
   return /^\d+$/.test(text) ? Number(text) : (text as TokenLifetime);
 }
 
-// How many proxies sit between the internet and this server, for the client address
-// behind rate limits. Hosts differ (Render's is 1), so it can be set with TRUST_PROXY.
+// proxies between the internet and this server, for the client address behind rate limits; hosts differ (Render's is 1)
 function trustProxy() {
   const value = process.env.TRUST_PROXY;
   if (value === undefined || value === "") return isProduction ? 1 : false;
@@ -75,42 +70,31 @@ export const env = {
   isProduction,
   trustProxy: trustProxy(),
   port: Number(process.env.PORT) || 5000,
-  // The fallback is the local database `npm run dev` starts (see scripts/dev-db.ts, which listens on DEV_DB_PORT).
   mongoUri: required("MONGODB_URI", `mongodb://127.0.0.1:${Number(process.env.DEV_DB_PORT) || 27017}/inkboard`),
   jwtSecret: signingSecret(),
   jwtExpiresIn: lifetime(process.env.JWT_EXPIRES_IN),
-  // Origins allowed to call the API from another domain. Leave empty when the
-  // server also serves the client (same origin).
+  // origins allowed to call the API from another domain; empty when the server also serves the client
   clientOrigins: process.env.CLIENT_ORIGIN
     ? list(process.env.CLIENT_ORIGIN)
     : isProduction
       ? []
       : ["http://localhost:5173"],
-  // Where people open the app: the address sign-in sends them back to and email links point at.
-  // Only what APP_URL says. Without it, the address each request came in on is used (see
-  // lib/app-url.ts), which is what keeps sign-in working on a custom domain.
+  // Where sign-in sends people back and email links point. Without APP_URL the request's own address is used (see lib/app-url.ts), which keeps sign-in working on a custom domain.
   appUrl: (process.env.APP_URL ?? "").replace(/\/$/, ""),
-  // The service's own address on Render (onrender.com), when it also serves the app (no CLIENT_ORIGIN).
-  // Only for email links when APP_URL isn't set: it's a fixed address, unlike the Host header, but it
-  // isn't necessarily the one people use (a custom domain), so sign-in never redirects to it.
+  // Render's own address, only for email links when APP_URL isn't set (a fixed address, unlike the Host header, but not necessarily the one people use), so sign-in never redirects to it
   renderUrl: (process.env.CLIENT_ORIGIN ? "" : (process.env.RENDER_EXTERNAL_URL ?? "")).replace(/\/$/, ""),
-  // Public address of this API, which is where Google and GitHub send people back to. Only
-  // needed when it differs from APP_URL (client and API on different addresses).
+  // where Google and GitHub send people back; only needed when it differs from APP_URL
   apiUrl: (process.env.API_URL ?? "").replace(/\/$/, ""),
-  // Emails (verifying an address, resetting a password) go through Brevo's API:
-  // Render's free plan blocks SMTP. EMAIL_FROM must be a sender verified in Brevo.
-  // Without them, emails are printed to the server log instead (development).
+  // Brevo's API, as Render's free plan blocks SMTP; EMAIL_FROM must be a sender verified in Brevo. Without them emails are printed to the log (development).
   email: {
     brevoApiKey: process.env.BREVO_API_KEY || null,
     from: process.env.EMAIL_FROM || null,
     fromName: process.env.EMAIL_FROM_NAME || "Inkboard",
-    // Brevo's free plan allows 300 emails a day; stay under it so a flood of requests can't use it all up.
+    // Brevo's free plan allows 300 a day; stay under it so a flood of requests can't use it up
     dailyLimit: Number(process.env.EMAIL_DAILY_LIMIT) || 250,
   },
-  // Cloudflare R2, where uploaded images go once all four are set (see docs/image-storage.md). Without them,
-  // images are kept in MongoDB itself (GridFS).
+  // all four or none (see docs/image-storage.md); without them images stay in MongoDB (GridFS)
   r2: r2Settings(),
-  // "Continue with Google / GitHub" only appears for providers configured here.
   oauth: {
     google: oauthClient("GOOGLE"),
     github: oauthClient("GITHUB"),
@@ -137,7 +121,6 @@ if (isProduction && env.email.brevoApiKey && env.email.from && !env.appUrl) {
   );
 }
 
-/** Where uploaded images go in Cloudflare R2 (see docs/image-storage.md). */
 export interface R2Settings {
   accountId: string;
   accessKeyId: string;
