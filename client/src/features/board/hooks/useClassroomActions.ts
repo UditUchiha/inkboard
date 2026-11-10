@@ -92,8 +92,7 @@ export function useClassroomActions({
   }
 
   // Offers the pressed frame when the student has none, or says why not. Read through a ref so the canvas isn't redrawn
-  // for
-  // a new function each render.
+  // for a new function each render.
   const outsideZone = useRef((_point: XY) => {});
   useLayoutEffect(() => {
     outsideZone.current = (point: XY) => {

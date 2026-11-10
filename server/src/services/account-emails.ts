@@ -23,8 +23,7 @@ type Recipient = Pick<UserDoc, "_id" | "name" | "email">;
 const hashOf = (secret: string) => createHash("sha256").update(secret).digest("hex");
 
 // Once sent, earlier links stop working; if sending fails the new link is dropped and the earlier one keeps working.
-// Resolves
-// false, sending nothing, if one was made less than RESEND_AFTER_MS ago.
+// Resolves false, sending nothing, if one was made less than RESEND_AFTER_MS ago.
 async function sendLink(user: Recipient, purpose: EmailPurpose, send: (secret: string) => Promise<void>) {
   const recent = await EmailToken.exists({
     user: user._id,
@@ -159,8 +158,7 @@ export function sendAccessRequestEmail(
 const PROVIDER_ACCOUNTS_MIGRATION = "verify-accounts-made-by-providers";
 
 // Accounts without a password were made through Google or GitHub, which give only verified addresses. Leaves a record
-// in
-// `migrations`, so later starts skip the scan; accounts made since have the field. Accounts with a password stay
+// in `migrations`, so later starts skip the scan; accounts made since have the field. Accounts with a password stay
 // unverified until a link is clicked.
 export async function verifyAccountsMadeByProviders() {
   const migrations = mongoose.connection.collection<{ _id: string; ranAt?: Date }>("migrations");

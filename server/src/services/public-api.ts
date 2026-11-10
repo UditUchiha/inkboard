@@ -7,8 +7,7 @@ import { ApiElementError, fromApiElement, MAX_API_ELEMENTS, toApiElement } from 
 import { canEdit, currentElements, findBoardForViewing, roleOf, withRoom } from "./boards.ts";
 
 // What the public API and MCP server do (docs/api.md), for the token's person, through the same access rules, checks
-// and
-// merging as a browser's (see applyOperation).
+// and merging as a browser's (see applyOperation).
 
 const MAX_TITLE_LENGTH = 80;
 

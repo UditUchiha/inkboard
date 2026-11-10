@@ -78,8 +78,7 @@ const perEmail = ({
 
 // Logins that worked don't count. Guesses at one account count per network address, so whoever makes them only locks
 // themselves out: a limit on the account alone would let anyone keep its owner from logging in (M9). Guesses spread
-// over
-// many addresses are held back by each address's allowance and the cost of every check.
+// over many addresses are held back by each address's allowance and the cost of every check.
 const loginLimits = [
   perAddress({ limit: 30, failedOnly: true }),
   perEmail({ limit: 10, failedOnly: true, andAddress: true }),

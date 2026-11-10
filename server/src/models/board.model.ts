@@ -13,9 +13,8 @@ const boardSchema = new mongoose.Schema(
     collaborators: [{ type: ObjectId, ref: "User", index: true }],
     linkAccess: { type: String, enum: LINK_ACCESS, default: "restricted" },
     // hashed password, and a random key set with it that changes whenever it does: the key is the pass people are
-    // given, so a
-    // new password, or none, ends every pass (see services/link-pass.ts). Never sent to anyone else; members need
-    // neither.
+    // given, so a new password, or none, ends every pass (see services/link-pass.ts). Never sent to anyone else;
+    // members need neither.
     linkPassword: { type: String, default: null, select: false },
     linkKey: { type: String, default: null },
     linkUnlocked: [{ type: ObjectId, ref: "User" }],

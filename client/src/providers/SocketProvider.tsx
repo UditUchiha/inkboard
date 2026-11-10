@@ -31,8 +31,7 @@ export type AppSocket = Socket<ServerEvents, ClientEvents>;
 const SocketContext = createContext<AppSocket | null>(null);
 
 // One connection per login, shared by every board and kept while signed in (it carries notifications too); signed-out
-// visitors
-// only connect on a board page. `auth` is a function so a reconnect sends their latest name.
+// visitors only connect on a board page. `auth` is a function so a reconnect sends their latest name.
 type SocketProviderProps = { children: ReactNode };
 
 export function SocketProvider({ children }: SocketProviderProps) {

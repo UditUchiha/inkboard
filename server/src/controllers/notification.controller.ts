@@ -9,9 +9,8 @@ import { serializeNotification } from "../services/notifications.ts";
 const PAGE_SIZE = 30;
 
 // Notifications about boards they can no longer open (deleted, or they were removed) are never shown or counted, so
-// they
-// can't leak the board's title or what was said; the notice that a board they're invited to is in the trash is shown
-// while it is.
+// they can't leak the board's title or what was said; the notice that a board they're invited to is in the trash is
+// shown while it is.
 async function visibleNotifications(userId: string | undefined) {
   const ids = await Notification.distinct("board", { user: userId });
   const boards = await Board.find({ _id: { $in: ids }, purgingAt: null }).select(`${ACCESS_FIELDS} deletedAt`);

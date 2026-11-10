@@ -7,9 +7,8 @@ import { openImage } from "../services/image-storage.ts";
 const router = Router();
 
 // <img> tags can't send a login token, so access is by knowing the random id (see image-storage.ts). A link can't be
-// taken
-// back once out, so copies are cached only in the viewer's own browser (not shared caches or CDNs) for a day: a removed
-// picture stops showing soon after.
+// taken back once out, so copies are cached only in the viewer's own browser (not shared caches or CDNs) for a day: a
+// removed picture stops showing soon after.
 const CACHE_CONTROL = "private, max-age=86400, immutable";
 async function sendImage(
   req: Request<{ imageId: string }>,

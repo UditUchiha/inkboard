@@ -40,8 +40,7 @@ async function joinBoard(socket: RealtimeSocket, payload: Untrusted<JoinPayload>
     const pass = typeof payload?.pass === "string" ? payload.pass.slice(0, 200) : undefined;
     const board = await findBoardForViewing(requestedId, userId, { pass });
     // The database's id: the request may spell it differently (upper case hex), and a board must have one session and
-    // room
-    // however it was asked for, or two people would save over each other and events would miss some.
+    // room however it was asked for, or two people would save over each other and events would miss some.
     const boardId = board.id;
     // joining the board it's already on only refreshes it; otherwise leave first, so the elements read include what it
     // just did

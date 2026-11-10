@@ -176,12 +176,11 @@ export async function findBoardForViewing(
 }
 
 // The free database holds 512 MB for everyone, so what one person keeps is limited: boards (trashed ones included,
-// until
-// erased), and the space their boards, those boards' saved versions and their templates take together, as MongoDB
-// stores
-// them. Writes that add on purpose (a new board with a drawing, a saved version, a template) are checked; drawing on a
-// board is held to the board's own limit (12 MB) and counts once written. Automatic versions don't count: people can't
-// delete them, so they could fill the space for good. VERSION_LIMITS.bytes bounds them per board. Tests lower these.
+// until erased), and the space their boards, those boards' saved versions and their templates take together, as MongoDB
+// stores them. Writes that add on purpose (a new board with a drawing, a saved version, a template) are checked;
+// drawing on a board is held to the board's own limit (12 MB) and counts once written. Automatic versions don't count:
+// people can't delete them, so they could fill the space for good. VERSION_LIMITS.bytes bounds them per board. Tests
+// lower these.
 export const BOARD_LIMITS = { perOwner: 200, ownerBytes: 100_000_000 };
 
 // BSON size, the way boards and templates are measured (versions are measured compressed: see packElements)
@@ -228,8 +227,7 @@ const SPACE_USED_UP =
 const forOwner = keyedQueue();
 
 // Runs `write` once `ownerId` has room for it: for another board when `board` is true, and for `bytes` more. Throws
-// (400)
-// otherwise, with `full` as the reason when space runs out. A blank board is tiny, so `bytes: 0` skips the sum.
+// (400) otherwise, with `full` as the reason when space runs out. A blank board is tiny, so `bytes: 0` skips the sum.
 export function withRoom<Result>(
   ownerId: ObjectIdLike,
   { board = false, bytes = 0, full = SPACE_USED_UP }: RoomNeeded,
@@ -256,11 +254,9 @@ export async function currentElements(boardId: ObjectIdLike) {
 }
 
 // Pass `trashedBefore` to leave a board alone that was restored or trashed again meanwhile. The board is claimed first,
-// in
-// one write marking it as being deleted, after which it can't be restored (see restoreBoard); everything that belongs
-// to it
-// goes next and the board last, so a failure part-way leaves a marked board, not unreachable versions and comments, and
-// the next trash sweep (or another try) finishes it.
+// in one write marking it as being deleted, after which it can't be restored (see restoreBoard); everything that
+// belongs to it goes next and the board last, so a failure part-way leaves a marked board, not unreachable versions and
+// comments, and the next trash sweep (or another try) finishes it.
 export async function destroyBoard(boardId: ObjectIdLike, { trashedBefore }: { trashedBefore?: Date } = {}) {
   const trashed = { deletedAt: trashedBefore ? { $ne: null, $lt: trashedBefore } : { $ne: null } };
   const claimed = await Board.updateOne(

@@ -8,10 +8,9 @@ import type { R2Settings } from "../config/env.ts";
 import type { ObjectIdLike } from "./boards.ts";
 
 // Where uploaded images live (see docs/image-storage.md). Each has an entry in `images.files` (name, size, type,
-// board),
-// which the space limits and sweeps look up by. The bytes are in GridFS when R2 isn't set up, or in R2 (entry says
-// `storage: "r2"`); older images stay in GridFS until scripts/move-images-to-r2.ts moves them. A small copy
-// (about 400 px, for thumbnails) is stored as "<id>.small" and goes wherever its image goes.
+// board), which the space limits and sweeps look up by. The bytes are in GridFS when R2 isn't set up, or in R2 (entry
+// says `storage: "r2"`); older images stay in GridFS until scripts/move-images-to-r2.ts moves them. A small copy (about
+// 400 px, for thumbnails) is stored as "<id>.small" and goes wherever its image goes.
 
 const BUCKET = "images";
 

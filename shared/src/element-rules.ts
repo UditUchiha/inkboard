@@ -16,9 +16,9 @@ import type {
 } from "./types.ts";
 
 // Elements come from anyone who can edit a board, guests on an edit link included, so nothing is trusted. What an
-// element *is*
-// (id, type, geometry, points, text, image id) must be right or it's refused; how it *looks* is forgiven (a bad color,
-// width or font is replaced or brought into range, so older saved elements stay editable); unknown fields are dropped.
+// element *is* (id, type, geometry, points, text, image id) must be right or it's refused; how it *looks* is forgiven
+// (a bad color, width or font is replaced or brought into range, so older saved elements stay editable); unknown fields
+// are dropped.
 
 export const COORDINATE_LIMIT = 10_000_000; // far beyond any real drawing
 export { MAX_ALT_LENGTH, MAX_FRAME_NAME_LENGTH, MAX_TEXT_LENGTH };
@@ -131,9 +131,8 @@ const ARROW_DEFAULTS = { ...CONNECTOR_DEFAULTS, startHead: false };
 const UNSET = { version: 0, versionNonce: 0 };
 
 // Lines and arrows saved before they had every field get defaults, stamped as never set. A copy lacking a group has no
-// say
-// in a merge (see mergeElement), so without this undoing a label on an old arrow couldn't be said and the label would
-// stay.
+// say in a merge (see mergeElement), so without this undoing a label on an old arrow couldn't be said and the label
+// would stay.
 export function withDefaults(element: Element): Element {
   const defaults: Record<string, string | boolean> | null =
     element?.type === "arrow" ? ARROW_DEFAULTS : element?.type === "line" ? CONNECTOR_DEFAULTS : null;

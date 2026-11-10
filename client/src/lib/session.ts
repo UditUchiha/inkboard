@@ -13,9 +13,8 @@ export function tokenUserId(token: string) {
 }
 
 // `explicit` logout always ends logged out here. Otherwise (token refused) a newer login for the same account is
-// adopted
-// (the password may have changed in another tab), a different account's isn't. `clearStored` only when the stored token
-// is this tab's own.
+// adopted (the password may have changed in another tab), a different account's isn't. `clearStored` only when the
+// stored token is this tab's own.
 export function logoutPlan({
   own,
   stored,

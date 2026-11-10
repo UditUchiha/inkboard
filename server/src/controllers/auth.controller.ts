@@ -173,8 +173,7 @@ function requireEmail() {
 // Needs the login too (C5): the link proves who holds the inbox, the login proves they hold the account. Without it,
 // someone who signed up with another person's address could have the owner's click verify it for them, get the owner's
 // invites, and connect their own Google or GitHub, which a later password reset would keep. No other logins need
-// ending:
-// every login to an unverified account is by its password, which the person verifying has just shown they hold.
+// ending: every login to an unverified account is by its password, which the person verifying has just shown they hold.
 export async function verifyEmail(req: BodyRequest<{ token?: unknown }>, res: Response) {
   const userId = await redeemSecret(req.body?.token, "verify-email", req.userId);
   const user = userId && (await User.findById(userId).select(ACCOUNT_FIELDS));

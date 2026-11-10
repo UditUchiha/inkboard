@@ -13,8 +13,8 @@ export function useViewportSharing(socket: AppSocket | null, joined: RefObject<b
   const viewportListeners = useRef(new Set<ViewportListener>());
 
   // Our view with whose own it is (`source`): ours, or whoever's it was before we took it by following. Someone
-  // following
-  // us never takes their own view back (see onViewport), so people following one another can't pass one round.
+  // following us never takes their own view back (see onViewport), so people following one another can't pass one
+  // round.
   const viewportMessage = useCallback(() => {
     // The assertion: both callers have looked for a view first.
     const { view, followed } = latestViewport.current!;
@@ -22,8 +22,7 @@ export function useViewportSharing(socket: AppSocket | null, joined: RefObject<b
   }, [socket]);
 
   // Shared (when anyone else is here) so others can follow: always what's on screen, also while following (`followed`
-  // is
-  // their socket id when `view` was taken from them). Trailing-edge throttled so the final position is always sent.
+  // is their socket id when `view` was taken from them). Trailing-edge throttled so the final position is always sent.
   const sendViewport = useCallback(
     (view: SharedView, followed: string | null = null) => {
       latestViewport.current = { view, followed };

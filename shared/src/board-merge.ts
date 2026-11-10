@@ -25,8 +25,7 @@ import type {
 // The merge rules, applied by the browser and the server alike so everyone who has seen the same changes has the same
 // board in any order (a state-based CRDT: last-writer-wins registers per property group, plus tombstones). Stamps,
 // property groups, removals and typing merges are explained in docs/realtime-sync.md. Typing is the one rule that
-// depends on
-// arrival order, so the server's order counts: it sends the merged text to everyone, the sender included.
+// depends on arrival order, so the server's order counts: it sends the merged text to everyone, the sender included.
 
 export const FIELD_GROUPS: Record<FieldGroup, readonly string[]> = {
   shape: [
@@ -160,12 +159,9 @@ export function copyGroup(target: Fields, source: Fields, group: FieldGroup): vo
 }
 
 // Each group comes from whichever copy has it newer. Returns `current` when `incoming` adds nothing, and `incoming`
-// when it's
-// newer throughout. A copy without a group at all (a connector made without a label, say) has no say in it, so a change
-// to
-// something else never takes the group away; to clear a field, set it to an empty value ("", null). Text typed against
-// an
-// older text (its `base`) is merged with what's there (see mergeTyping). The result never has a base.
+// when it's newer throughout. A copy without a group at all (a connector made without a label, say) has no say in it,
+// so a change to something else never takes the group away; to clear a field, set it to an empty value ("", null). Text
+// typed against an older text (its `base`) is merged with what's there (see mergeTyping). The result never has a base.
 export function mergeElement(current: Element, incoming: Element): Element {
   const mine = groupStamps(current);
   const theirs = groupStamps(incoming);
@@ -198,8 +194,8 @@ export function mergeElement(current: Element, incoming: Element): Element {
 
 // The text fields `incoming` typed into where `current` changed since its base, merged (see mergeText) and stamped one
 // version past the newer of the two with `incoming`'s nonce, so the same two changes merge to the same element
-// anywhere.
-// A merge that comes to the newer side's text just keeps that side. Where no merge can be made, the newer change wins.
+// anywhere. A merge that comes to the newer side's text just keeps that side. Where no merge can be made, the newer
+// change wins.
 function mergeTyping(
   current: Element,
   incoming: Element,
@@ -265,10 +261,9 @@ class Overlay implements LiveElements {
 // Works out what `op` does to `elements` without changing anything. `live`: every element visible afterwards; `shown`:
 // added or changed; `buried`: removed elements whose remembered data changed; `hidden`: removals that took effect;
 // `graves`: tombstones to set (null clears); `added`: ids new to the board. `index` is a Map of `elements` the caller
-// keeps
-// current, which saves building one. `remember` (default true) keeps a removal of an element nobody has seen, so it
-// stays
-// gone if it turns up late; the server turns it off, or anyone could fill its memory with removals of made-up ids.
+// keeps current, which saves building one. `remember` (default true) keeps a removal of an element nobody has seen, so
+// it stays gone if it turns up late; the server turns it off, or anyone could fill its memory with removals of made-up
+// ids.
 export function planOperation(
   elements: Element[],
   { upsert = [], remove = [] }: Operation,
@@ -333,8 +328,7 @@ export function planOperation(
 }
 
 // Includes changes to removed elements, so whoever brings one back brings back the same thing everywhere. Each goes
-// with its
-// removal, so a screen that opened the board since keeps it hidden too.
+// with its removal, so a screen that opened the board since keeps it hidden too.
 export function effectOf(plan: Plan): Effect {
   const remove = new Map<string, Stamp>(plan.hidden);
   for (const id of plan.buried.keys()) {

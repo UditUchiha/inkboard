@@ -6,9 +6,8 @@ export const TRASH_DAYS = 30;
 const SWEEP_INTERVAL_MS = 6 * 3600 * 1000;
 
 // Trashed before `cutoff`, or already being erased (see destroyBoard). Each branch is answered from an index
-// (deletedAt's,
-// and the partial one on purgingAt, which `$type` matches exactly), so the sweep doesn't read every drawing; exported
-// for the test that checks that.
+// (deletedAt's, and the partial one on purgingAt, which `$type` matches exactly), so the sweep doesn't read every
+// drawing; exported for the test that checks that.
 export const expiredBoards = (
   cutoff: Date,
 ): { $or: [{ deletedAt: { $ne: null; $lt: Date } }, { purgingAt: { $type: "date" } }] } => ({

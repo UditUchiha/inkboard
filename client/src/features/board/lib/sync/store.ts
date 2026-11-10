@@ -236,8 +236,7 @@ export function createBoardStore({
   }
 
   // A change that omits a field takes it away and has no say when copies merge, so kind defaults are filled in first
-  // (withDefaults).
-  // `base` is what the change was made from where that isn't the board now (a drag step, an undo).
+  // (withDefaults). `base` is what the change was made from where that isn't the board now (a drag step, an undo).
   function stamp(op: Operation, base: readonly BoardElement[] = []): Effect | null {
     const upsert = (op.upsert ?? []).map(withDefaults);
     const remove = (op.remove ?? []).map(removalOf);

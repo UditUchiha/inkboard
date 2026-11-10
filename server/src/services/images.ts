@@ -23,9 +23,8 @@ import {
 import type { CopyImages, ImageContent, ImageFilter } from "./image-storage.ts";
 
 // The browser shrinks pictures before sending, so the size limit is a backstop for anyone talking to the server
-// directly.
-// The free database holds 512 MB for everything, so space is budgeted per board, per account (all boards someone owns,
-// whoever added the pictures) and for the whole app. Tests lower these.
+// directly. The free database holds 512 MB for everything, so space is budgeted per board, per account (all boards
+// someone owns, whoever added the pictures) and for the whole app. Tests lower these.
 export const IMAGE_LIMITS = {
   image: IMAGE_MAX_BYTES,
   small: IMAGE_SMALL_MAX_BYTES, // the small copy thumbnails draw from
@@ -174,10 +173,8 @@ async function limitBroken(
 }
 
 // A background sweep, unless the scope was swept lately, so a board full of pictures in use doesn't start a pointless
-// sweep
-// per upload. The upload that ran out of room doesn't wait (a sweep would hold up everyone uploading to that owner); a
-// retry
-// a moment later finds the room. Sweeps of one scope run one after another.
+// sweep per upload. The upload that ran out of room doesn't wait (a sweep would hold up everyone uploading to that
+// owner); a retry a moment later finds the room. Sweeps of one scope run one after another.
 const lastSweep = new Map<string, number>();
 const sweeping = keyedQueue();
 const running = new Set<Promise<unknown>>();
@@ -203,11 +200,9 @@ export type StoreResult =
   { id: string } | { full: ImageLimit; unverified?: true } | { missing: true } | { refused: string };
 
 // `{ full }` names the limit it would break (with `unverified: true` when the owner's smaller allowance for an
-// unconfirmed
-// address ran out); `{ refused }` is a sentence for a turned-away uploader or picture (too many lately, unreadable, too
-// many
-// pixels; a small copy that is, is just dropped). When there's no room a sweep starts in the background, so removing
-// pictures frees space for the next try.
+// unconfirmed address ran out); `{ refused }` is a sentence for a turned-away uploader or picture (too many lately,
+// unreadable, too many pixels; a small copy that is, is just dropped). When there's no room a sweep starts in the
+// background, so removing pictures frees space for the next try.
 export async function storeImage({
   boardId,
   buffer,

@@ -13,8 +13,7 @@ import mongoose from "mongoose";
 import { MAX_ELEMENT_BYTES } from "./operations.ts";
 
 // The suggestions open on a board (see shared/src/suggestions.ts, docs/suggest-mode.md), kept and saved with it.
-// Nothing here
-// changes the board: a member accepts a suggestion by making the change themselves.
+// Nothing here changes the board: a member accepts a suggestion by making the change themselves.
 
 export interface SuggestionState {
   byId: Map<string, Suggestion>;

@@ -32,8 +32,7 @@ interface Fits {
 }
 
 // Every version is a full copy of the board (up to 12 MB, a fifth of that compressed) and the free database holds 512
-// MB
-// for everything, so each board's history has a budget. Tests lower these.
+// MB for everything, so each board's history has a budget. Tests lower these.
 export const VERSION_LIMITS = {
   // Over budget the newest `keepAuto` go last; a new automatic version, or a new saved one when there is no other room,
   // pushes the older ones out first (saving on purpose matters more than a spare autosave).
@@ -43,8 +42,7 @@ export const VERSION_LIMITS = {
   // never removed automatically, so a new one is refused past this count or when they'd take the whole budget
   named: 50,
   // as MongoDB stores them (compressed); the history is never left bigger. Only saved versions count towards their
-  // owner's
-  // space (see ownerBytes); automatic ones are bounded by this alone, per board.
+  // owner's space (see ownerBytes); automatic ones are bounded by this alone, per board.
   bytes: 30_000_000,
 };
 
@@ -60,8 +58,7 @@ export interface PackedElements {
 
 // gzipped JSON, with the pictures it shows listed beside it and its size as MongoDB stores that: about a fifth of the
 // board's size (brotli is a little smaller but takes seconds). The biggest boards take a fifth of a second, so it runs
-// on
-// zlib's own threads; stringifying first takes the copy at once, so changes made meanwhile don't reach it.
+// on zlib's own threads; stringifying first takes the copy at once, so changes made meanwhile don't reach it.
 export async function packElements(elements: Element[]): Promise<PackedElements> {
   const json = JSON.stringify(elements);
   const imageIds = [...new Set(elements.flatMap((element) => (element.type === "image" ? [element.imageId] : [])))];
@@ -114,9 +111,8 @@ const INCOMING = "incoming";
 
 // Over budget, the oldest beyond the few usually kept go first, then those few, oldest first. Saved versions are never
 // deleted here, so `full` means they alone (the incoming one included) fill the budget, or are too many (`named:
-// true`).
-// Any automatic version can be evicted for the incoming one, so a new saved version is refused only for lack of room
-// among saved versions, never because of autosaves, which people can't delete.
+// true`). Any automatic version can be evicted for the incoming one, so a new saved version is refused only for lack of
+// room among saved versions, never because of autosaves, which people can't delete.
 function makeRoom(history: Entry[], incoming: Pick<Entry, "kind" | "bytes"> | null): Refused | Fits {
   const versions = incoming ? [{ ...incoming, _id: INCOMING }, ...history] : history;
   const { doomed, removable, kept } = sortHistory(versions);

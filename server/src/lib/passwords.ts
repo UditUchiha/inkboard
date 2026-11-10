@@ -5,8 +5,7 @@ import bcrypt from "bcryptjs";
 
 // scrypt runs on libuv's thread pool, so a login doesn't stall the event loop (bcryptjs is plain JavaScript and does).
 // Older bcrypt hashes are accepted and replaced at the next login. Stored as `scrypt$N$r$p$salt$hash` (base64). The
-// type
-// arguments pick promisify's overload for scrypt's options form.
+// type arguments pick promisify's overload for scrypt's options form.
 const scryptAsync = promisify<BinaryLike, BinaryLike, number, ScryptOptions, Buffer>(scrypt);
 
 type ScryptCost = { N: number; r: number; p: number };
@@ -45,8 +44,7 @@ export async function spendPasswordTime(password: string) {
 // A bcrypt check takes about twice as long as scrypt, so a wrong guess at an account still on bcrypt would answer later
 // than one at no account and give away that it exists. Failed logins therefore wait until a bcrypt check would have
 // finished, by timer rather than more hashing, which keeps the event loop and CPU free. The decoy is a cost-12 hash,
-// the
-// cost the old hashes used.
+// the cost the old hashes used.
 const LEGACY_DECOY = "$2b$12$2VHidUVRV7tXCUQS/wirVOg1H6mWk2ZJZhAQhYyKHvOl3XtkLOvWy";
 
 // The wait is measured, and one measurement can be wrong either way: taken while the server is busy (arrangeable right

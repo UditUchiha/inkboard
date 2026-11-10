@@ -7,9 +7,8 @@ export type CachedDrawing<Built> = { built: Built; dx: number; dy: number };
 export type Moved = { dx: number; dy: number };
 
 // Elements are immutable, so each is built once per object. A drag hands the board a new copy of every element per
-// step,
-// so the last build per id is reused for a copy that differs only in position, drawn with an offset.
-// Hatching and wobble differ slightly by position, so a moved element keeps the look it was first drawn with.
+// step, so the last build per id is reused for a copy that differs only in position, drawn with an offset. Hatching and
+// wobble differ slightly by position, so a moved element keeps the look it was first drawn with.
 
 const TOLERANCE = 1e-6;
 const close = (a: number, b: number) => Math.abs(a - b) < TOLERANCE;

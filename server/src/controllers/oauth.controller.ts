@@ -20,15 +20,12 @@ import { refreshUser } from "../realtime/index.ts";
 import { emailConfigured } from "../services/email.ts";
 
 // Authorization-code flow (see docs/api.md, "OAuth sign-in"). The login token never goes in a URL: the callback hands
-// the
-// app a short-lived, single-use code (in the fragment, which never reaches logs) that only the tab holding the `bind`
-// it was made for can trade (exchangeLoginCode). Otherwise anyone could send a victim to
-// /auth/callback#token=<attacker's
-// login> and leave them signed in to the attacker's account (login CSRF, C5). Connecting a provider works the same way
-// (confirmLink). Nothing rests on cookies set by the app's own requests, which browsers block as third-party when the
-// app
-// and API are on different sites (M2, M10). Failures return an error code, so a link can't put text of its own on the
-// page.
+// the app a short-lived, single-use code (in the fragment, which never reaches logs) that only the tab holding the
+// `bind` it was made for can trade (exchangeLoginCode). Otherwise anyone could send a victim to
+// /auth/callback#token=<attacker's login> and leave them signed in to the attacker's account (login CSRF, C5).
+// Connecting a provider works the same way (confirmLink). Nothing rests on cookies set by the app's own requests, which
+// browsers block as third-party when the app and API are on different sites (M2, M10). Failures return an error code,
+// so a link can't put text of its own on the page.
 
 const STATE_COOKIE = "inkboard_oauth";
 const STATE_TTL_SECONDS = 10 * 60;
@@ -419,9 +416,8 @@ async function findOrCreateUser(provider: EnabledProvider, profile: ProviderProf
 
   if (!profile.email) throw new SignInError("no-email");
   // Emails aren't verified at sign-up, so silently attaching a provider to an existing password account could hand it
-  // to
-  // whoever created it: the owner connects from settings instead. The account may be this person's own, made a moment
-  // ago by a sign-in running at the same time as this one.
+  // to whoever created it: the owner connects from settings instead. The account may be this person's own, made a
+  // moment ago by a sign-in running at the same time as this one.
   if (await User.exists({ email: profile.email.toLowerCase() })) {
     const madeMeanwhile = await User.findOne({ [field]: profile.id });
     if (madeMeanwhile) return madeMeanwhile;

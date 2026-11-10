@@ -1,7 +1,7 @@
 // The events between browser and server over Socket.IO, checked on both sides so a renamed field stops the other from
-// type
-// checking. Types only. Payloads are what a well-behaved peer sends; the server treats what it receives as unknown (see
-// Untrusted on the server). Like api.ts, a `Date` here is an ISO string on the receiving side (see Wire in api.ts).
+// type checking. Types only. Payloads are what a well-behaved peer sends; the server treats what it receives as unknown
+// (see Untrusted on the server). Like api.ts, a `Date` here is an ISO string on the receiving side (see Wire in
+// api.ts).
 
 import type { BoardMeta, BoardDetails, LinkLock, NotificationItem, Role, Thread } from "./api.ts";
 import type { SYNC_FORMAT } from "./limits.ts";

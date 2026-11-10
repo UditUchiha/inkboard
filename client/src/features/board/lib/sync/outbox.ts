@@ -17,10 +17,9 @@ import type { PendingChange, Typing } from "./store";
 export type { PendingChange };
 
 // Changes made here that the server hasn't confirmed (see useBoardSync); no sockets or React, so replies can be tested
-// alone.
-// A big change goes out in pieces sharing a `group`, so the server takes them in together or not at all.
-// Nothing else is sent meanwhile: the server holds one group per connection, so a removal sent mid-upload would be
-// applied first, then undone.
+// alone. A big change goes out in pieces sharing a `group`, so the server takes them in together or not at all. Nothing
+// else is sent meanwhile: the server holds one group per connection, so a removal sent mid-upload would be applied
+// first, then undone.
 
 // A stroke is sent whole each time, so a longer flush keeps its traffic flat instead of growing with every point.
 const FLUSH_INTERVAL_MS = 40;
@@ -31,8 +30,7 @@ const MAX_EXTRA_FLUSH_MS = 400;
 export const RETRY_DELAY_MS: Record<string, number> = { timeout: 400, rate: 1000, expired: 0 };
 
 // "rate" refusals back off exponentially up to MAX_RATE_DELAY_MS, with jitter so limited connections don't return
-// together;
-// after SLOW_AFTER in a row the retry sets `slow`, so the screen can say saving takes a while.
+// together; after SLOW_AFTER in a row the retry sets `slow`, so the screen can say saving takes a while.
 const MAX_RATE_DELAY_MS = 30_000;
 const SLOW_AFTER = 3;
 

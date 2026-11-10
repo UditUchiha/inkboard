@@ -87,10 +87,8 @@ export default function DemoBoard() {
   }, [size, scale, loopCount, progress, doodles, fontsReady]);
 
   // A finger scrolls the page (touch-pan-y) and a stroke that turns into a scroll is cancelled, but Chromium holds a
-  // pen to that too,
-  // so a pen stroke would scroll instead of drawing. A hovering pen turns that off until it leaves; one landing without
-  // hover
-  // (Apple Pencil) is held by its touchmoves, which don't scroll while drawing.
+  // pen to that too, so a pen stroke would scroll instead of drawing. A hovering pen turns that off until it leaves;
+  // one landing without hover (Apple Pencil) is held by its touchmoves, which don't scroll while drawing.
   useEffect(() => {
     const canvas = canvasRef.current;
     const holdStill = (event: TouchEvent) => {

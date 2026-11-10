@@ -2,8 +2,7 @@ import { cleanElement } from "./element-rules.ts";
 import type { Element } from "./types.ts";
 
 // An element as the public API and MCP server show and take it (docs/api.md): a box is x, y, width, height; a line or
-// arrow its
-// ends (x1…y2) and what they're attached to (from, to); a pen stroke its points.
+// arrow its ends (x1…y2) and what they're attached to (from, to); a pen stroke its points.
 export type ApiElement = { id: string; type: string; [field: string]: unknown };
 
 const BOX_TYPES = new Set(["rectangle", "ellipse", "triangle", "diamond", "sticky", "frame", "image"]);

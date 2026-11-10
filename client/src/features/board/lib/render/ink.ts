@@ -1,7 +1,6 @@
 // Drawings are stored in light-mode colors; dark mode applies invert(93%) hue-rotate(180deg), the same filter CSS
-// (`.canvas-ink`)
-// applies outside the canvas. The canvas converts its own colors instead so pictures stay untouched; the maths is the
-// Filter Effects spec's.
+// (`.canvas-ink`) applies outside the canvas. The canvas converts its own colors instead so pictures stay untouched;
+// the maths is the Filter Effects spec's.
 
 export type Ink = (color: string) => string;
 export const sameInk: Ink = (color) => color;

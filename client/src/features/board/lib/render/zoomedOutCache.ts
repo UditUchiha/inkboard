@@ -2,9 +2,8 @@ import type { Element as BoardElement } from "@inkboard/shared/types";
 import type { Rect } from "../elements/geometry";
 
 // Zoomed far out a pan or remote edit redraws thousands of shapes that barely change, so the board is kept as tiles
-// drawn
-// once and copied while the view moves; a tile is redrawn only when something in it (or the zoom, colors or pictures)
-// changes.
+// drawn once and copied while the view moves; a tile is redrawn only when something in it (or the zoom, colors or
+// pictures) changes.
 
 export const TILES_MAX_ZOOM = 0.3;
 

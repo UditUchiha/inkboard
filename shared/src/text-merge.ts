@@ -3,9 +3,8 @@ import type { Element, FieldGroup, Splice, TextBases, TextField } from "./types.
 
 // How two people typing in the same text at once both keep what they typed (docs/realtime-sync.md, "Typing in the same
 // text"). A change carries its `base`, the text it was made against; where the board's text changed since, both changes
-// are
-// applied as character diffs (a three-way merge), and the result is stamped newer than both. Done where changes meet in
-// order: on the server, and in the browser when it stamps its own change or shows someone else's typing.
+// are applied as character diffs (a three-way merge), and the result is stamped newer than both. Done where changes
+// meet in order: on the server, and in the browser when it stamps its own change or shows someone else's typing.
 
 export const TEXT_FIELDS: Record<TextField, { group: FieldGroup; max: number }> = {
   text: { group: "text", max: MAX_TEXT_LENGTH },

@@ -79,8 +79,7 @@ export function useEditorViewport(store: BoardStore, sync: BoardSync) {
 }
 
 // Selecting from the keyboard list or while connecting can pick an off-screen element: bring it into view, only when
-// the
-// selection changes (not on resize) and without leaving someone we follow.
+// the selection changes (not on resize) and without leaving someone we follow.
 export function useRevealInView(
   store: BoardStore,
   view: { current: ImportView },

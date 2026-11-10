@@ -18,8 +18,7 @@ import imageRoutes from "./routes/image.routes.ts";
 const defaultClientDist = fileURLToPath(new URL("../../client/dist", import.meta.url));
 
 // 200 while the process is up even if the database is briefly unreachable: hosts such as Render restart an instance
-// whose
-// health check fails, and a restart doesn't fix a database blip. `database` and `status` still say what's wrong.
+// whose health check fails, and a restart doesn't fix a database blip. `database` and `status` still say what's wrong.
 function health(req: Request, res: Response) {
   const database = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
   res.set("Cache-Control", "no-store").json({

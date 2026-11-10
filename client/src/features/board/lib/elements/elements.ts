@@ -61,10 +61,8 @@ export type ConnectorLabel = Rect & { lines: string[]; font: string; fontSize: n
 export type ArrowHead = [Pair, Pair, Pair];
 
 // Elements are immutable plain JSON objects, so the renderer can cache work per element (shapes: shared/src/element
-// types).
-// A frame holds what lies wholly inside it; nothing records membership, so a remote change can't leave them
-// disagreeing.
-// Lines and arrows have no `angle`: they are reshaped by moving an end.
+// types). A frame holds what lies wholly inside it; nothing records membership, so a remote change can't leave them
+// disagreeing. Lines and arrows have no `angle`: they are reshaped by moving an end.
 
 const TURNABLE_TYPES = new Set<BoardElement["type"]>([
   "rectangle",

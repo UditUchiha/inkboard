@@ -1,8 +1,7 @@
 type Connecting = { provider: string; bind: string };
 
 // Connecting leaves for the provider's site and returns here; what comes back is only accepted with the `bind` kept in
-// this tab
-// (oauth.controller.ts), so someone else's connect link can't attach this person's account to theirs.
+// this tab (oauth.controller.ts), so someone else's connect link can't attach this person's account to theirs.
 const CONNECTING_KEY = "inkboard.connecting";
 
 export function rememberConnecting(provider: string, bind: string) {

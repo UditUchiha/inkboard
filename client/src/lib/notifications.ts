@@ -16,9 +16,8 @@ export function mergeNotifications(current: NotificationItem[], incoming: Notifi
 }
 
 // Anything older than the refetched newest page is dropped: notifications sent while offline could leave a gap paging
-// would never fill.
-// An empty page says nothing about how far back it reaches (the server skips pages whose senders are gone), so nothing
-// is dropped.
+// would never fill. An empty page says nothing about how far back it reaches (the server skips pages whose senders are
+// gone), so nothing is dropped.
 export function withNewestPage(current: NotificationItem[], page: NotificationItem[]) {
   const oldest = page.at(-1);
   if (!oldest) return current;

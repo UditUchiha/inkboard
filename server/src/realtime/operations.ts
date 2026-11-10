@@ -92,10 +92,8 @@ export interface PieceResult {
 }
 
 // `held` is what the connection has of a group (or null); this adds the piece `op` of `group` ({ id, index, total }).
-// Pieces
-// come in order from index 0, which abandons any group held before. Returns `{ held }` to keep waiting, `{ held: null,
-// op }`
-// with the pieces joined once the last is in, or `{ held: null, error }` when the group is dropped. A held
+// Pieces come in order from index 0, which abandons any group held before. Returns `{ held }` to keep waiting, `{ held:
+// null, op }` with the pieces joined once the last is in, or `{ held: null, error }` when the group is dropped. A held
 // `{ id, expired: true }` makes later pieces of that group "expired", so the sender sends it all again.
 export function holdPiece(
   held: HeldGroup | ExpiredGroup | null | undefined,
@@ -250,10 +248,8 @@ export function prepareOperation(
 }
 
 // Restored elements are stamped as the newest edit of everything, and elements the snapshot lacks are removed by a
-// removal
-// just as new, so changes still on their way from before the restore can't undo parts of it. They're stamped well
-// ahead:
-// each step of a drag is a new version, so someone mid-drag can have dozens on the way.
+// removal just as new, so changes still on their way from before the restore can't undo parts of it. They're stamped
+// well ahead: each step of a drag is a new version, so someone mid-drag can have dozens on the way.
 export const RESTORE_LEAD = 1000;
 
 export function restoreOver(

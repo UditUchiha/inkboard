@@ -1,8 +1,7 @@
 // Changes proposed by someone who may only suggest, which a member accepts or rejects (docs/suggest-mode.md). Each is
-// about
-// one element: add (not on the board), change (only the groups the author changed are taken on accepting, so another
-// group edited meanwhile stays) or remove. A change or removal remembers the stamps its groups had (`base`), to tell
-// when the element was edited since (see isOutdated).
+// about one element: add (not on the board), change (only the groups the author changed are taken on accepting, so
+// another group edited meanwhile stays) or remove. A change or removal remembers the stamps its groups had (`base`), to
+// tell when the element was edited since (see isOutdated).
 
 import { compareStamps, copyGroup, FIELD_GROUPS, groupStamps } from "./board-merge.ts";
 import type { Participant } from "./socket.ts";

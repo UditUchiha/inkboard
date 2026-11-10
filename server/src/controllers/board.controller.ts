@@ -149,8 +149,8 @@ const COPY_FULL: Record<ImageLimit, string> = {
 };
 
 // The drawing as people see it now, with its own copies of the pictures (so it survives the original's deletion), but
-// none
-// of the comments, history, suggestions or people. Anyone signed in who can open the board can copy it, viewers too.
+// none of the comments, history, suggestions or people. Anyone signed in who can open the board can copy it, viewers
+// too.
 export async function copyBoard(req: BoardRequest, res: Response) {
   const source = await findBoardForViewing(req.params.boardId, req.userId);
   const elements = structuredClone(await currentElements(source._id));

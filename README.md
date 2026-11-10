@@ -212,7 +212,7 @@ What's left to run it well (the service sleeping, moving pictures to R2, an emai
 
 ### Health check and keep-alive
 
-`GET /health` returns the server and database status, with HTTP 503 if the database is unreachable. Render uses it as the service's health check.
+`GET /health` returns the server and database status. It answers 200 even while the database is unreachable (`status: "degraded"`), since Render restarts a service whose health check fails and a restart doesn't fix a database blip. Render uses it as the service's health check.
 
 Render's free plan puts a service to sleep after 15 minutes without traffic. The [Keep alive](.github/workflows/keep-alive.yml) GitHub Actions workflow pings `/health` every 10 minutes to prevent that. For a different deployment, set a repository variable named `HEALTH_URL`. A run only fails (and emails you) when the ping still fails after two retries.
 

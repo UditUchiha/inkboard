@@ -2,11 +2,9 @@ import { lazy } from "react";
 import type { ComponentType } from "react";
 
 // After a deploy a tab's earlier code files are gone, so opening a page it hasn't loaded fails; reloading fetches the
-// new version.
-// Recent reloads are remembered so a truly missing file shows the error page instead of looping: no second reload
-// within
-// seconds, and no more than a couple within minutes (a download that hangs before failing would slip past the first
-// limit).
+// new version. Recent reloads are remembered so a truly missing file shows the error page instead of looping: no second
+// reload within seconds, and no more than a couple within minutes (a download that hangs before failing would slip past
+// the first limit).
 const RELOAD_KEY = "inkboard.chunkReloads";
 const RELOAD_WAIT = 10_000;
 const RELOAD_WINDOW = 300_000;

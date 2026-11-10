@@ -2,8 +2,7 @@ import { generateKeyBetween, generateNKeysBetween } from "fractional-indexing";
 import type { Element, StackMove } from "./types.ts";
 
 // An element's place in the stack is its `index`, a fractional-indexing key ("a0", "a1", … "b00"); boards are sorted by
-// key,
-// then by id (two people adding at once pick the same key), and the last element is on top.
+// key, then by id (two people adding at once pick the same key), and the last element is on top.
 
 const MAX_KEY_LENGTH = 100;
 const KEY_CHARACTERS = /^[0-9A-Za-z]+$/;

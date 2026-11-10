@@ -1,8 +1,6 @@
 // Sign in with Google or GitHub (server/src/controllers/oauth.controller.ts): a random `bind` stays in this tab's
-// sessionStorage
-// and only its hash goes out in the URL. The redirect's code is only good with that `bind`, so a redirect made
-// elsewhere
-// (login CSRF) finds none and signs nobody in.
+// sessionStorage and only its hash goes out in the URL. The redirect's code is only good with that `bind`, so a
+// redirect made elsewhere (login CSRF) finds none and signs nobody in.
 
 import type { Session } from "./api";
 

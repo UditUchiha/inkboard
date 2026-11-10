@@ -46,8 +46,7 @@ function NotificationItem({ item }: { item: Notification }) {
 }
 
 // Loading the last page removes this item, and a removed focused element drops focus to the body, ending arrow-key
-// handling,
-// so `onLostFocus` lets the menu refocus one of its items.
+// handling, so `onLostFocus` lets the menu refocus one of its items.
 type ShowOlderItemProps = { loading: boolean; onClick: () => void; onLostFocus: () => void };
 
 function ShowOlderItem({ loading, onClick, onLostFocus }: ShowOlderItemProps) {

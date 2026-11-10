@@ -22,8 +22,7 @@ export function noteVisitor(watch: LinkWatch, id: string): boolean {
 }
 
 // Returns the board from before the first removal once MASS_REMOVAL is reached within the window (once per window),
-// else
-// null. Elements are never changed in place, so keeping `before` costs nothing.
+// else null. Elements are never changed in place, so keeping `before` costs nothing.
 export function noteRemovals(watch: LinkWatch, count: number, before: Element[], now = Date.now()): Element[] | null {
   if (!watch.removals || now - watch.removals.since > REMOVAL_WINDOW_MS) {
     watch.removals = { since: now, count: 0, before, warned: false };

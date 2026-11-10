@@ -6,9 +6,8 @@ import { getSession } from "../realtime/sessions.ts";
 import type { BoardDoc } from "./boards.ts";
 
 // Dashboard cards draw each board from a slimmed copy so a page of boards doesn't send every stroke. Thumbnails are a
-// few
-// hundred pixels wide, so strokes keep only points that matter at that size, the busiest boards keep only their biggest
-// elements, text is cut to what a thumbnail shows, and everything loses the sync bookkeeping.
+// few hundred pixels wide, so strokes keep only points that matter at that size, the busiest boards keep only their
+// biggest elements, text is cut to what a thumbnail shows, and everything loses the sync bookkeeping.
 
 // a thumbnail shows the board's longer side across about this many device pixels; finer detail can't be seen
 const PREVIEW_DETAIL = 1000;
@@ -138,8 +137,7 @@ export function previewElements(elements: Element[]): PreviewElement[] {
 }
 
 // Saved boards' previews are kept until the board changes (every save moves `updatedAt`); the longest unused go first
-// past
-// these limits. Open boards change constantly, so theirs are kept per version of the in-memory element list. Tests
+// past these limits. Open boards change constantly, so theirs are kept per version of the in-memory element list. Tests
 // lower these.
 export const PREVIEW_CACHE_LIMITS = { entries: 5000, bytes: 20_000_000 };
 const saved = new Map<string, { updatedAt: number | undefined; preview: PreviewElement[]; bytes: number }>();
