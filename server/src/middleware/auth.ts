@@ -35,7 +35,9 @@ export async function optionalAuth(req: Request, res: Response, next: NextFuncti
       const { user, issuedAt } = await userForToken(token);
       req.userId = user.id;
       req.loginIssuedAt = issuedAt;
-    } catch {}
+    } catch {
+      // an expired or ended login counts as none
+    }
   }
   next();
 }

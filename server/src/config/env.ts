@@ -3,7 +3,9 @@ import type { SignOptions } from "jsonwebtoken";
 
 try {
   process.loadEnvFile(fileURLToPath(new URL("../../.env", import.meta.url)));
-} catch {}
+} catch {
+  // no .env file: rely on the real environment (e.g. on the hosting provider)
+}
 
 const mode = process.env.NODE_ENV;
 const isProduction = mode === "production";
